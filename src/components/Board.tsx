@@ -21,8 +21,9 @@ export function Board({ fen, orientation, onMove, legalMoves, lastMove }: BoardP
 
   useEffect(() => {
     const updateSize = () => {
-      const available = window.innerHeight - 44 - 32; // header + padding
-      const size = Math.min(available, window.innerWidth * 0.6);
+      const available = window.innerHeight - 64; // padding + margin
+      const maxWidth = window.innerWidth - 300 - 48; // reserve space for side panel
+      const size = Math.min(available, maxWidth, 720);
       setBoardSize(Math.floor(size / 8) * 8); // snap to 8px grid
     };
     updateSize();

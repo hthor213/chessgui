@@ -4,7 +4,7 @@
 
 ## North Star
 
-A beautiful, fast, open-source chess GUI for macOS that makes Stockfish (and any UCI engine) a first-class citizen. No subscriptions, no bloat — just a clean interface for serious chess analysis and play.
+A beautiful, fast, open-source chess GUI for macOS that combines the analytical power of SCID, the modern stack of En-Croissant, and the polish of Lichess. No subscriptions, no bloat — Stockfish as a first-class citizen with a clean interface for serious chess analysis.
 
 ## Why
 
@@ -12,6 +12,14 @@ A beautiful, fast, open-source chess GUI for macOS that makes Stockfish (and any
 - Existing open-source GUIs on macOS are either ugly (SCID), abandoned (Stockfish Mac), or Electron-heavy
 - En-Croissant proves Tauri + React + Chessground is a viable stack, but it tries to do everything
 - There's a gap for a focused, polished macOS app that does analysis exceptionally well
+
+## Inspiration
+
+Take the best of three existing chess tools and combine them:
+
+- **En-Croissant** — Proves Tauri + React + Chessground is a viable stack. We adopt the architecture but stay focused instead of trying to do everything.
+- **SCID** — Gold standard for game databases and opening trees. We want its analytical depth without the dated UI.
+- **Lichess** — Best-in-class board UX, eval bar, and analysis panel. Our UI benchmark.
 
 ## Principles
 

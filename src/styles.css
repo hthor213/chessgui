@@ -9,7 +9,7 @@
   line-height: 24px;
 
   color: #f6f6f6;
-  background-color: #0f0f0f;
+  background-color: #161512;
 }
 
 html,
@@ -22,7 +22,26 @@ body,
   overflow: hidden;
 }
 
-/* Chessground board sizing */
-cg-board {
-  background-color: #302e2b;
+/* Lichess-style coordinate labels */
+coords {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+/* Move highlight color — Lichess yellow-green */
+cg-board square.last-move {
+  background-color: rgba(155, 199, 0, 0.41) !important;
+}
+
+cg-board square.selected {
+  background-color: rgba(20, 85, 30, 0.5) !important;
+}
+
+cg-board square.move-dest {
+  background: radial-gradient(rgba(20, 85, 30, 0.5) 22%, transparent 22%);
+}
+
+cg-board square.move-dest.oc {
+  background: radial-gradient(transparent 0%, transparent 80%, rgba(20, 85, 0, 0.3) 80%);
 }

@@ -20,8 +20,7 @@
         "fullscreen": false,
         "minWidth": 800,
         "minHeight": 600,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "decorations": true
       }
     ],
     "security": {
@@ -44,14 +43,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true,
-      "scope": [
-        {
-          "name": "stockfish",
-          "cmd": "stockfish",
-          "args": true
-        }
-      ]
+      "open": true
     }
   }
 }
