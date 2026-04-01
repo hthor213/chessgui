@@ -1,88 +1,81 @@
 # Last Session
 
 **Date:** 2026-04-01
-**Focus:** Project creation and scaffolding — COMPLETE
-**Status:** Ready for spec:010 + spec:011
+**Focus:** MVP specs 010-015 + engine integration + styling
+**Status:** Core board interaction working, most features written but untested
 
 ## What happened
-- Researched open-source chess GUIs on GitHub (En-Croissant, Chessground, etc.)
-- Decided to combine Lichess Chessground (board UI) + Tauri 2 / Rust backend
-- Created `chessgui` repo with ai-dev-framework scaffolding (specs, CLAUDE.md, backlog)
-- Scaffolded full project: React 19, TypeScript, Mantine dark theme, Vite, Chessground board
-- Built Rust UCI engine manager (`src-tauri/src/uci.rs`) — start/stop/send with async stdout streaming
-- **App compiles and runs** — `pnpm tauri dev` launches window with interactive board
-- Moved sounds, promotion dialog, board flip to backlog (spec:905-907)
+- Updated vision spec with "best of three" framing (En-Croissant + SCID + Lichess)
+- Wrote code for specs 010-015 (keyboard nav, Stockfish wiring, analysis panel, PGN import, last move highlight, promotion dialog)
+- Fixed Board: Chessground was losing event callbacks on re-render (stale closure bug)
+- Removed overlay title bar, switched to standard macOS window decorations
+- Styled toward Lichess dark theme (brown board, dark panels, monospace moves)
+- Created full spec roadmap: V1 band (100-102), V2 band (200-203)
 
-## What works now
-- Chessground board with drag-and-drop, legal move highlighting via chessops
-- Move list panel (click to navigate)
-- Game state hook tracks full position history
-- Rust backend: UCI handshake, `go`/`stop`, stdin/stdout piping, event emission to frontend
-- Auto-queen on pawn promotion (temporary until promotion dialog)
+## Tested and confirmed working
+1. Board renders correctly with pieces in starting position
+2. Pieces move via click-to-move (click piece → click destination)
+3. Green dots show legal moves when a piece is clicked
+4. Moves are recorded and displayed in the move list panel (right side)
+5. Turn-based play is enforced (can't move opponent's pieces)
+6. Last move is highlighted in the move list
 
-## What's next — TWO SPECS to implement
+## NOT tested yet (code written but unverified)
+- **Keyboard navigation** (spec:010) — arrow keys, Home/End, Cmd+Z
+- **Stockfish / Load Engine** (spec:011) — Load Stockfish button, live eval
+- **Analysis panel** (spec:012) — eval bar, PV lines, depth/nps display
+- **PGN import** (spec:013) — Cmd+V paste dialog
+- **Last move board highlighting** (spec:014) — from/to squares highlighted on board (move list highlight works, board highlight unknown)
+- **Promotion dialog** (spec:015) — piece picker when pawn reaches last rank
+- **Drag-and-drop** — only click-to-move was tested, drag not confirmed
 
-### 1. spec:010 — Undo/Redo (do this first, it's small)
-**Files to change:** `src/hooks/useChessGame.ts`, `src/App.tsx`
-- Add a `useEffect` with `keydown` listener in App or a new `useKeyboardNav` hook
-- Left arrow / Cmd+Z → `goToMove(currentMoveIndex - 1)`
-- Right arrow / Cmd+Shift+Z → `goToMove(currentMoveIndex + 1)`
-- Home → `goToMove(-1)` (go to initial position, need to handle index -1)
-- End → `goToMove(moves.length - 1)`
-- The `goToMove` function already exists and works — this is mostly wiring
-- Verify: move list highlight updates, board shows correct position, playing from past truncates
+## Known bugs
+1. **Castling doesn't work** — likely chessops gives `e1h1` (king-to-rook) but Chessground expects `e1g1` (king-to-destination)
+2. **Board re-creates on every state change** — works but wasteful, should optimize back to init-once + set() pattern once stable
+3. **Console.log statements** — debug logging in Board.tsx needs removal
 
-### 2. spec:011 — Wire Up Stockfish (the main work)
-**Files to change:** `src/components/AnalysisPanel.tsx`, new `src/hooks/useEngine.ts`, new `src/lib/uciParser.ts`
+## What's next
+### Immediate (do these first)
+- Fix castling
+- Test ALL untested features one by one (keyboard nav, engine, PGN, promotion, drag)
+- Remove console.log debug statements
+- Fix any bugs found during testing
 
-**Step-by-step:**
+### V1 Band — Lichess polish
+- spec:100 — Best move arrows (Chessground drawable API)
+- spec:101 — Engine settings panel (threads, hash, MultiPV)
+- spec:102 — Keyboard shortcuts (Ctrl+N new game, F flip, Space toggle analysis)
 
-a) **UCI info parser** (`src/lib/uciParser.ts`)
-   - Parse lines like `info depth 24 seldepth 30 multipv 1 score cp 35 nodes 12345 nps 1500000 pv e2e4 e7e5 ...`
-   - Extract: `depth`, `score` (cp or mate), `pv` (array of UCI moves), `multipv`, `nodes`, `nps`
-   - Convert PV moves from UCI notation (e2e4) to SAN (e4) using chessops
-
-b) **Engine hook** (`src/hooks/useEngine.ts`)
-   - State: `engineName`, `isRunning`, `isAnalyzing`, `lines[]` (parsed PV data)
-   - `startEngine(path)` → calls Tauri `start_engine` command
-   - `listen("engine-output", callback)` → parse each line, update state
-   - `analyze(fen)` → send `stop`, `position fen <fen>`, `go infinite`
-   - `stopAnalysis()` → send `stop`
-   - Auto-analyze: when `fen` prop changes, restart analysis
-   - Set MultiPV to 3 by default via `setoption name MultiPV value 3`
-
-c) **AnalysisPanel UI** (`src/components/AnalysisPanel.tsx`)
-   - "Select Engine" button → Tauri file dialog → start engine
-   - Once connected: show engine name + "Analyzing..." badge
-   - Eval display: `+0.35` or `M5` with color coding (green=white advantage, red=black)
-   - Top 3 PV lines, each showing: eval + first ~8 moves in SAN
-   - Depth and nodes/sec in small text
-   - Toggle button to pause/resume analysis
-
-d) **Integration** (`src/App.tsx`)
-   - Pass current `fen` from `useChessGame` to `useEngine`
-   - Engine auto-analyzes whenever position changes (including undo/redo navigation)
-
-e) **Cleanup**
-   - On app window close, call `stop_engine` Tauri command
-   - Persist engine path to localStorage, auto-reconnect on next launch
+### V2 Band — SCID power
+- spec:200 — SQLite game database
+- spec:201 — Opening tree explorer
+- spec:202 — Game annotations
+- spec:203 — Eval graph
 
 ## Dev commands
 ```bash
 cd ~/Documents/GitHub/chessgui
 source "$HOME/.cargo/env"
 pnpm tauri dev          # Dev mode with hot-reload
-pnpm tsc --noEmit       # Type check without building
+pnpm tsc --noEmit       # Type check
 pnpm tauri build --debug  # Build .app + .dmg
 ```
 
 ## Key files reference
 ```
-src/App.tsx                     # Main layout, where keyboard nav goes
-src/hooks/useChessGame.ts       # Game state — has goToMove(), positions[], fen
-src/components/Board.tsx        # Chessground wrapper
-src/components/MoveList.tsx     # Move list panel
-src/components/AnalysisPanel.tsx # Engine display (currently placeholder)
-src-tauri/src/uci.rs            # Rust UCI engine manager (ready to use)
-src-tauri/src/lib.rs            # Tauri command registration
+src/App.tsx                      # Layout, keyboard nav, engine + PGN wiring
+src/hooks/useChessGame.ts        # Game state, legal moves, promotion, PGN load
+src/hooks/useEngine.ts           # Stockfish hook (start/stop/analyze, event listener)
+src/lib/uciParser.ts             # UCI info parser, SAN converter, score formatting
+src/components/Board.tsx          # Chessground wrapper (re-inits on state change)
+src/components/AnalysisPanel.tsx  # Engine eval display (eval bar, PV lines)
+src/components/MoveList.tsx       # Move list with click navigation
+src/components/PgnImportModal.tsx # PGN paste dialog with multi-game picker
+src/components/PromotionDialog.tsx # Piece picker for pawn promotion
+src-tauri/src/uci.rs             # Rust UCI engine manager (ready to use)
+src-tauri/src/lib.rs             # Tauri command registration
 ```
+
+## Stockfish
+Binary at `/Users/hjalti/Documents/GitHub/Stockfish/src/stockfish` (ARM64, sibling repo).
+Default path hardcoded in `useEngine.ts`. Not bundled in app yet.
