@@ -34,6 +34,7 @@ export function useEngine(fen: string) {
   const isAnalyzingRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const unlistenRef = useRef<(() => void) | null>(null);
+  const prevFenRef = useRef(fen);
 
   fenRef.current = fen;
 
@@ -170,7 +171,11 @@ export function useEngine(fen: string) {
 
   // Auto-analyze on position change (debounced)
   useEffect(() => {
-    if (!state.isRunning || !isAnalyzingRef.current) return;
+    // Only re-analyze when the fen actually changed, not when isRunning flips
+    const fenChanged = prevFenRef.current !== fen;
+    prevFenRef.current = fen;
+
+    if (!fenChanged || !state.isRunning || !isAnalyzingRef.current) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
 

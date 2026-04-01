@@ -12,9 +12,11 @@ interface BoardProps {
   onMove: (from: Key, to: Key) => void;
   legalMoves: Map<Key, Key[]>;
   lastMove?: [Key, Key];
+  onBoardSize?: (size: number) => void;
+  children?: React.ReactNode;
 }
 
-export function Board({ fen, orientation, onMove, legalMoves, lastMove }: BoardProps) {
+export function Board({ fen, orientation, onMove, legalMoves, lastMove, onBoardSize, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const [boardSize, setBoardSize] = useState(560);
@@ -24,7 +26,9 @@ export function Board({ fen, orientation, onMove, legalMoves, lastMove }: BoardP
       const available = window.innerHeight - 64; // padding + margin
       const maxWidth = window.innerWidth - 300 - 48; // reserve space for side panel
       const size = Math.min(available, maxWidth, 720);
-      setBoardSize(Math.floor(size / 8) * 8); // snap to 8px grid
+      const snapped = Math.floor(size / 8) * 8;
+      setBoardSize(snapped);
+      onBoardSize?.(snapped);
     };
     updateSize();
     window.addEventListener("resize", updateSize);
@@ -79,13 +83,15 @@ export function Board({ fen, orientation, onMove, legalMoves, lastMove }: BoardP
   }, []);
 
   return (
-    <div
-      ref={boardRef}
-      style={{
-        width: boardSize,
-        height: boardSize,
-        flexShrink: 0,
-      }}
-    />
+    <div style={{ position: "relative", width: boardSize, height: boardSize, flexShrink: 0 }}>
+      <div
+        ref={boardRef}
+        style={{
+          width: boardSize,
+          height: boardSize,
+        }}
+      />
+      {children}
+    </div>
   );
 }

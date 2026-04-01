@@ -105,7 +105,7 @@ export function formatScore(score: UciScore, turn: "white" | "black"): string {
 
   if (score.type === "mate") {
     const v = score.value * flip;
-    return v > 0 ? `M${v}` : `M${v}`;
+    return v > 0 ? `+M${v}` : `-M${Math.abs(v)}`;
   }
 
   const cp = (score.value * flip) / 100;
