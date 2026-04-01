@@ -1,9 +1,9 @@
 # 016: Game Tree — Variation Tree Model
 
 **Status:** draft
-**Band:** Foundation (001-009 equivalent — this is architecturally foundational)
-**Depends on:** 010 (undo/redo), 013 (PGN import)
-**Blocks:** 200 (database), 201 (opening tree), 202 (annotations), 203 (eval graph)
+**Band:** Foundation
+**Depends on:** 001 (board & gameplay), 002 (UX/UI migration), 013 (PGN import)
+**Blocks:** 200 (database & opening explorer), 202 (annotations & eval graph)
 
 ## Problem
 

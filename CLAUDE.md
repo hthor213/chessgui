@@ -4,9 +4,9 @@
 A macOS-first chess GUI built on Tauri 2 (Rust) + React + TypeScript. Uses Lichess Chessground for the board and chessops for move logic. Designed to replace ChessBase with an open-source, subscription-free alternative powered by Stockfish.
 
 ## Architecture
-- **Frontend:** React 19 + TypeScript + Mantine UI + Chessground board
+- **Frontend:** Next.js (static export) + React 19 + TypeScript + Tailwind CSS + shadcn/ui + Chessground board
 - **Backend:** Rust via Tauri v2 — handles UCI engine communication over stdin/stdout
-- **Build:** Vite + pnpm + Cargo
+- **Build:** Next.js + pnpm + Cargo
 - **Target:** macOS (Apple Silicon primary), cross-platform possible via Tauri
 
 ## Development Commands
@@ -29,15 +29,23 @@ pnpm tsc --noEmit
 
 ## Project Structure
 ```
-src/                    # React frontend
-  components/
-    Board.tsx           # Chessground wrapper
-    MoveList.tsx        # Algebraic notation move list
-    AnalysisPanel.tsx   # Engine eval display (placeholder)
-  hooks/
-    useChessGame.ts     # Game state, legal moves via chessops
-  main.tsx              # Entry point + Mantine provider
-  App.tsx               # Layout shell
+app/                    # Next.js app directory
+  layout.tsx            # Root layout (dark theme)
+  page.tsx              # Main chess UI ("use client", three-column grid)
+  globals.css           # Tailwind imports + Chessground overrides
+components/             # React components
+  board.tsx             # Chessground wrapper (dynamic import, SSR-safe)
+  move-list.tsx         # Move list (shadcn Card + ScrollArea)
+  analysis-panel.tsx    # Engine eval display (shadcn Card + Badge + Button)
+  pgn-import-dialog.tsx # PGN import (shadcn Dialog + Textarea)
+  promotion-dialog.tsx  # Piece picker overlay
+  ui/                   # shadcn/ui generated components
+hooks/                  # React hooks
+  use-chess-game.ts     # Game state, legal moves via chessops
+  use-engine.ts         # Stockfish UCI communication via Tauri
+lib/                    # Utility libraries
+  uci-parser.ts         # UCI info line parser
+  utils.ts              # cn() helper (shadcn)
 src-tauri/              # Rust backend
   src/
     lib.rs              # Tauri plugin setup + command registration
@@ -52,13 +60,20 @@ scripts/                # Utility scripts
 ## Key Dependencies
 - `@lichess-org/chessground` — Board rendering (GPL-3.0)
 - `chessops` — Move generation, FEN/PGN, validation
-- `@mantine/core` — UI component library
+- `next` — React framework (static export for Tauri)
+- `tailwindcss` — Utility-first CSS
+- `shadcn/ui` — Composable UI components (Radix primitives)
 - `tauri` + `tauri-plugin-shell` — Desktop shell + engine process management
 - `tokio` — Async runtime for engine I/O in Rust
 
 ## Spec System
-Uses band-numbered specs in `specs/`. See `specs/README.md` for the system.
-Active specs: 000 (vision), 001 (setup), 010-012 (MVP features).
+Uses band-numbered specs in `specs/`. See `specs/README.md` for the full index and dependency graph.
+
+Active specs:
+- 000 (vision), 001 (board & gameplay), 002 (UX/UI migration)
+- 011 (engine analysis), 013 (PGN import/export), 016 (game tree)
+- 200 (database & opening explorer), 202 (annotations & eval graph)
+- 900 (backlog)
 
 ## License
 GPL-3.0 (required by Chessground dependency)
