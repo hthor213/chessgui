@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AppShell, Group, Stack, Text } from "@mantine/core";
 import { Board } from "./components/Board";
 import { MoveList } from "./components/MoveList";
@@ -20,8 +20,17 @@ function App() {
 
 function MainLayout() {
   const game = useChessGame();
-  const engine = useEngine(game.fen);
+
+  const handleBestMove = useCallback(
+    (uciMove: string) => {
+      game.playUciMove(uciMove);
+    },
+    [game.playUciMove],
+  );
+
+  const engine = useEngine(game.fen, handleBestMove);
   const turn = game.fen.includes(" w ") ? "white" as const : "black" as const;
+  const isPlayMode = engine.state.mode === "play";
   const [boardSize, setBoardSize] = useState(560);
   const [pgnModalOpen, setPgnModalOpen] = useState(false);
 
@@ -62,8 +71,9 @@ function MainLayout() {
       <Board
         fen={game.fen}
         orientation={game.orientation}
+        movableColor={isPlayMode ? "white" : "both"}
         onMove={game.onMove}
-        legalMoves={game.legalMoves}
+        legalMoves={isPlayMode && turn === "black" ? new Map() : game.legalMoves}
         lastMove={game.lastMove}
         onBoardSize={setBoardSize}
       >

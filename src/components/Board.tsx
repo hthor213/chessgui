@@ -9,6 +9,7 @@ import "@lichess-org/chessground/assets/chessground.cburnett.css";
 interface BoardProps {
   fen: string;
   orientation: "white" | "black";
+  movableColor?: "white" | "black" | "both";
   onMove: (from: Key, to: Key) => void;
   legalMoves: Map<Key, Key[]>;
   lastMove?: [Key, Key];
@@ -16,7 +17,7 @@ interface BoardProps {
   children?: React.ReactNode;
 }
 
-export function Board({ fen, orientation, onMove, legalMoves, lastMove, onBoardSize, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
@@ -25,7 +26,6 @@ export function Board({ fen, orientation, onMove, legalMoves, lastMove, onBoardS
   onMoveRef.current = onMove;
 
   const handleMove = useCallback((from: Key, to: Key) => {
-    console.log("CHESSGROUND MOVE EVENT:", from, "->", to);
     onMoveRef.current(from, to);
   }, []);
 
@@ -52,14 +52,12 @@ export function Board({ fen, orientation, onMove, legalMoves, lastMove, onBoardS
       apiRef.current = null;
     }
 
-    console.log("CHESSGROUND INIT, dests size:", legalMoves.size);
-
     apiRef.current = Chessground(boardRef.current, {
       fen,
       orientation,
       turnColor: fen.includes(" w ") ? "white" : "black",
       movable: {
-        color: "both",
+        color: movableColor,
         free: false,
         dests: legalMoves,
         showDests: true,
@@ -89,7 +87,7 @@ export function Board({ fen, orientation, onMove, legalMoves, lastMove, onBoardS
       apiRef.current?.destroy();
       apiRef.current = null;
     };
-  }, [fen, orientation, legalMoves, lastMove, handleMove]);
+  }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove]);
 
   return (
     <div style={{ position: "relative", width: boardSize, height: boardSize, flexShrink: 0 }}>

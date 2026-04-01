@@ -19,6 +19,10 @@
 - Game annotations (eval + comments per move) → spec:202
 - Eval graph (score over time) → spec:203
 
+## Infrastructure
+- ~~Frontend migration: Vite + Mantine → Next.js + Tailwind + shadcn/ui~~ → NEXT SESSION (plan at `~/.claude/plans/sprightly-rolling-biscuit.md`)
+- Game Tree data model (spec:016) — foundation for variations, annotations, DB
+
 ## Ideas (900+)
 - Opening repertoire builder with spaced repetition → spec:900
 - Game import from Lichess/Chess.com APIs → spec:901

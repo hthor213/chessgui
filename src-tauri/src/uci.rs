@@ -48,6 +48,7 @@ pub async fn start_engine(
         .write_all(b"uci\n")
         .await
         .map_err(|e| format!("Write error: {}", e))?;
+    stdin.flush().await.map_err(|e| format!("Flush error: {}", e))?;
 
     // Read output until "uciok"
     let mut reader = BufReader::new(stdout);
@@ -78,6 +79,7 @@ pub async fn start_engine(
         .write_all(b"isready\n")
         .await
         .map_err(|e| format!("Write error: {}", e))?;
+    stdin.flush().await.map_err(|e| format!("Flush error: {}", e))?;
 
     loop {
         let mut line = String::new();
@@ -93,15 +95,27 @@ pub async fn start_engine(
     // Spawn a background task to forward engine stdout to frontend events
     let app_clone = app.clone();
     tokio::spawn(async move {
+        eprintln!("[uci] stdout reader started");
         let mut line = String::new();
         loop {
             line.clear();
             match reader.read_line(&mut line).await {
-                Ok(0) => break,
-                Ok(_) => {
-                    let _ = app_clone.emit("engine-output", line.trim().to_string());
+                Ok(0) => {
+                    eprintln!("[uci] stdout EOF");
+                    break;
                 }
-                Err(_) => break,
+                Ok(_) => {
+                    let trimmed = line.trim().to_string();
+                    eprintln!("[uci] << {}", trimmed);
+                    // emit_to targets the main webview directly
+                    if let Err(e) = app_clone.emit_to("main", "engine-output", trimmed) {
+                        eprintln!("[uci] emit error: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[uci] stdout error: {}", e);
+                    break;
+                }
             }
         }
     });
@@ -109,14 +123,23 @@ pub async fn start_engine(
     // Channel for sending commands to engine stdin
     let (tx, mut rx) = mpsc::channel::<String>(32);
     tokio::spawn(async move {
+        eprintln!("[uci] stdin writer started");
         while let Some(cmd) = rx.recv().await {
-            if stdin.write_all(cmd.as_bytes()).await.is_err() {
+            eprintln!("[uci] >> {}", cmd);
+            if let Err(e) = stdin.write_all(cmd.as_bytes()).await {
+                eprintln!("[uci] stdin write error: {}", e);
                 break;
             }
-            if stdin.write_all(b"\n").await.is_err() {
+            if let Err(e) = stdin.write_all(b"\n").await {
+                eprintln!("[uci] stdin newline error: {}", e);
+                break;
+            }
+            if let Err(e) = stdin.flush().await {
+                eprintln!("[uci] stdin flush error: {}", e);
                 break;
             }
         }
+        eprintln!("[uci] stdin writer exited");
     });
 
     // Store in managed state

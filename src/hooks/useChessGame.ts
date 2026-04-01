@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from "react";
 import { Chess } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
+import { parseUci } from "chessops";
 import type { NormalMove } from "chessops";
 import type { Key } from "@lichess-org/chessground/types";
 
@@ -58,11 +59,23 @@ export function useChessGame() {
     const chess = pos.unwrap();
     const dests = new Map<Key, Key[]>();
 
+    // Castling: chessops returns king→rook (e1→h1), but users also expect
+    // king→destination (e1→g1). Add both so clicking either square works.
+    const castlingExtras: Record<string, string> = {
+      "e1h1": "g1", "e1a1": "c1", // white
+      "e8h8": "g8", "e8a8": "c8", // black
+    };
+
     for (const [from, squares] of chess.allDests()) {
       const fromKey = squareToKey(from);
       const toKeys: Key[] = [];
       for (const to of squares) {
-        toKeys.push(squareToKey(to));
+        const toKey = squareToKey(to);
+        toKeys.push(toKey);
+        const extra = castlingExtras[`${fromKey}${toKey}`];
+        if (extra && !toKeys.includes(extra as Key)) {
+          toKeys.push(extra as Key);
+        }
       }
       if (toKeys.length > 0) {
         dests.set(fromKey, toKeys);
@@ -81,9 +94,21 @@ export function useChessGame() {
       if (pos.isErr) return;
 
       const chess = pos.unwrap();
+
+      // Convert user-friendly castling (king→destination) to chessops format (king→rook)
+      const castlingMap: Record<string, Key> = {
+        "e1g1": "h1", "e1c1": "a1", // white
+        "e8g8": "h8", "e8c8": "a8", // black
+      };
+      const piece = chess.board.get(keyToSquare(from));
+      let actualTo = to;
+      if (piece?.role === "king") {
+        actualTo = castlingMap[`${from}${to}`] || to;
+      }
+
       const move: NormalMove = {
         from: keyToSquare(from),
-        to: keyToSquare(to),
+        to: keyToSquare(actualTo),
         promotion,
       };
 
@@ -224,6 +249,56 @@ export function useChessGame() {
     });
   }, []);
 
+  const playUciMove = useCallback(
+    (uci: string) => {
+      const setup = parseFen(state.fen);
+      if (setup.isErr) return;
+      const pos = Chess.fromSetup(setup.unwrap());
+      if (pos.isErr) return;
+      const chess = pos.unwrap();
+
+      const move = parseUci(uci);
+      if (!move) return;
+
+      const san = makeSan(chess, move);
+      chess.play(move);
+      const newFen = makeFen(chess.toSetup());
+
+      // Determine display squares (king destination for castling, not rook)
+      const m = move as NormalMove;
+      const fromKey = squareToKey(m.from);
+      let toKey = squareToKey(m.to);
+      // Convert chessops castling (king→rook) to display (king→destination)
+      const castlingDisplay: Record<string, Key> = {
+        "e1h1": "g1", "e1a1": "c1",
+        "e8h8": "g8", "e8a8": "c8",
+      };
+      const displayTo = castlingDisplay[`${fromKey}${toKey}`];
+      if (displayTo) toKey = displayTo;
+
+      setState((prev) => {
+        const newMoves = [...prev.moves.slice(0, prev.currentMoveIndex + 1), san];
+        const newPositions = [
+          ...prev.positions.slice(0, prev.currentMoveIndex + 2),
+          newFen,
+        ];
+        const newLastMoves: ([Key, Key] | undefined)[] = [
+          ...prev.lastMoves.slice(0, prev.currentMoveIndex + 2),
+          [fromKey, toKey],
+        ];
+        return {
+          ...prev,
+          fen: newFen,
+          moves: newMoves,
+          positions: newPositions,
+          lastMoves: newLastMoves,
+          currentMoveIndex: newMoves.length - 1,
+        };
+      });
+    },
+    [state.fen],
+  );
+
   const lastMove = useMemo((): [Key, Key] | undefined => {
     const posIndex = state.currentMoveIndex + 1;
     return state.lastMoves[posIndex];
@@ -241,6 +316,7 @@ export function useChessGame() {
     headers: state.headers,
     loadGame,
     newGame,
+    playUciMove,
     flipBoard: () => setOrientation((o) => (o === "white" ? "black" : "white")),
     pendingPromotion,
     confirmPromotion,

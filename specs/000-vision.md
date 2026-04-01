@@ -32,25 +32,35 @@ Take the best of three existing chess tools and combine them:
 ## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│         React + TypeScript          │
-│  ┌──────────┐  ┌─────────────────┐  │
-│  │Chessground│  │  Analysis Panel │  │
-│  │  (board)  │  │  (eval, lines)  │  │
-│  └──────────┘  └─────────────────┘  │
-│  ┌──────────┐  ┌─────────────────┐  │
-│  │ Move List │  │  Engine Config  │  │
-│  └──────────┘  └─────────────────┘  │
-├─────────────────────────────────────┤
-│           Tauri IPC Bridge          │
-├─────────────────────────────────────┤
-│            Rust Backend             │
-│  ┌──────────┐  ┌─────────────────┐  │
-│  │UCI Engine │  │  Game Database  │  │
-│  │ Manager   │  │   (SQLite)     │  │
-│  └──────────┘  └─────────────────┘  │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│              React + TypeScript              │
+│  ┌──────────┐  ┌────────┐  ┌─────────────┐  │
+│  │Chessground│  │  Move  │  │  Analysis   │  │
+│  │  (board)  │  │  List  │  │   Panel     │  │
+│  └──────────┘  └────────┘  └─────────────┘  │
+│  ┌──────────┐  ┌────────┐  ┌─────────────┐  │
+│  │ Opening  │  │  Eval  │  │   Engine    │  │
+│  │  Tree    │  │  Graph │  │   Config    │  │
+│  └──────────┘  └────────┘  └─────────────┘  │
+├─────────────────────────────────────────────┤
+│          Game Tree (spec:016)                │
+│  Tree-structured game model with cursor,    │
+│  variations, per-node annotations/NAGs.     │
+│  All UI components consume this model.      │
+├─────────────────────────────────────────────┤
+│           Tauri IPC Bridge                  │
+├─────────────────────────────────────────────┤
+│            Rust Backend                     │
+│  ┌──────────┐  ┌─────────────────────────┐  │
+│  │UCI Engine │  │  Game Database (SQLite) │  │
+│  │ Manager   │  │  + PGN I/O + Opening   │  │
+│  └──────────┘  └─────────────────────────┘  │
+└─────────────────────────────────────────────┘
 ```
+
+### Key Architectural Insight (from ChessX analysis)
+
+The **Game Tree** layer is the central data model. Every UI component (move list, board, analysis panel, opening tree, annotations, eval graph) reads from or writes to this tree. ChessX's 20 years of development proved this: their `GameCursor` (tree + cursor) is the backbone everything else plugs into. Our flat `moves[]` array must be replaced with a proper tree before building database, annotations, or opening explorer (see spec:016).
 
 ## Key Technologies
 
@@ -67,6 +77,17 @@ Take the best of three existing chess tools and combine them:
 3. Paste a PGN and step through it with engine analysis
 4. Show eval bar, best lines, and depth
 5. Engine settings (threads, hash, depth)
+
+## Competitive Landscape (studied April 2026)
+
+| App | Stack | Strengths | Weaknesses |
+|-----|-------|-----------|------------|
+| **ChessX** | C++/Qt5, 85K LOC | Full DB (PGN/SCID/CTG), opening tree, annotations, UCI+WinBoard | Aging Qt5, monolithic, no web ecosystem |
+| **En-Croissant** | Tauri+React | Same stack as us, broad features | Tries to do everything, unfocused |
+| **SCID** | C++/Tk | Best opening tree, fast DB | Ugly UI, hard to build/maintain |
+| **Lichess** | Scala/JS | Best UX, best board (Chessground) | Web only, no local DB |
+
+We take the modern stack (En-Croissant), the analytical depth (SCID/ChessX), and the UX polish (Lichess). Stay focused — analysis and database, not everything.
 
 ## Non-Goals (for now)
 

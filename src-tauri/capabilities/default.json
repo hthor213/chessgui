@@ -1,0 +1,22 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for ChessGUI",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-spawn",
+    "shell:allow-stdin-write",
+    "shell:allow-kill",
+    "shell:allow-open",
+    {
+      "identifier": "shell:default",
+      "allow": [
+        {
+          "name": "stockfish",
+          "cmd": "",
+          "args": true
+        }
+      ]
+    }
+  ]
+}

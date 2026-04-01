@@ -2,10 +2,12 @@ import { Paper, Text, Stack, Group, Badge, ActionIcon, Button, Tooltip } from "@
 import { formatScore, scoreToNumeric, type PvLine } from "../lib/uciParser";
 import type { EngineState } from "../hooks/useEngine";
 
+import type { EngineMode } from "../hooks/useEngine";
+
 interface AnalysisPanelProps {
   engine: {
     state: EngineState;
-    startEngine: (path?: string) => Promise<void>;
+    startEngine: (path?: string, mode?: EngineMode) => Promise<void>;
     stopEngine: () => Promise<void>;
     toggleAnalysis: () => void;
   };
@@ -104,14 +106,24 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
           <Text size="sm" c="dimmed">
             No engine connected
           </Text>
-          <Button
-            size="sm"
-            variant="filled"
-            color="green"
-            onClick={() => engine.startEngine()}
-          >
-            Load Stockfish
-          </Button>
+          <Group gap="xs">
+            <Button
+              size="sm"
+              variant="filled"
+              color="green"
+              onClick={() => engine.startEngine()}
+            >
+              Analyze
+            </Button>
+            <Button
+              size="sm"
+              variant="filled"
+              color="blue"
+              onClick={() => engine.startEngine(undefined, "play")}
+            >
+              Play vs Stockfish
+            </Button>
+          </Group>
         </Stack>
       </Paper>
     );
@@ -137,11 +149,13 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
             <Text size="xs" fw={600} c="#bababa">
               {state.engineName}
             </Text>
-            {state.isAnalyzing && (
+            {state.mode === "play" ? (
+              <Badge size="xs" color="blue" variant="light">Playing Black</Badge>
+            ) : state.isAnalyzing ? (
               <Text size="xs" c="dimmed">
                 depth {state.depth}
               </Text>
-            )}
+            ) : null}
           </Group>
           <Group gap={4}>
             {state.isAnalyzing && state.nps > 0 && (
@@ -149,11 +163,18 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
                 {formatNodes(state.nps)}/s
               </Text>
             )}
-            <Tooltip label={state.isAnalyzing ? "Pause" : "Resume"}>
-              <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => engine.toggleAnalysis()}>
-                <Text size="xs">{state.isAnalyzing ? "⏸" : "▶"}</Text>
-              </ActionIcon>
-            </Tooltip>
+            {state.isThinking && state.nps > 0 && (
+              <Text size="xs" c="dimmed">
+                {formatNodes(state.nps)}/s
+              </Text>
+            )}
+            {state.mode !== "play" && (
+              <Tooltip label={state.isAnalyzing ? "Pause" : "Resume"}>
+                <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => engine.toggleAnalysis()}>
+                  <Text size="xs">{state.isAnalyzing ? "⏸" : "▶"}</Text>
+                </ActionIcon>
+              </Tooltip>
+            )}
             <Tooltip label="Disconnect">
               <ActionIcon size="xs" variant="subtle" color="red" onClick={() => engine.stopEngine()}>
                 <Text size="xs">✕</Text>
@@ -175,13 +196,37 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
         )}
 
         <Stack gap={4}>
-          {state.lines.map((line) => (
-            <PvLineRow key={line.multipv} line={line} turn={turn} />
-          ))}
-          {state.lines.length === 0 && state.isAnalyzing && (
-            <Text size="xs" c="dimmed">
-              Calculating...
-            </Text>
+          {state.mode === "play" ? (
+            state.isThinking ? (
+              <>
+                {state.lines.map((line) => (
+                  <PvLineRow key={line.multipv} line={line} turn={turn} />
+                ))}
+                <Text size="xs" c="dimmed">
+                  Thinking... depth {state.depth}
+                </Text>
+              </>
+            ) : (
+              <>
+                {state.lines.length > 0 && state.lines.map((line) => (
+                  <PvLineRow key={line.multipv} line={line} turn={turn} />
+                ))}
+                <Text size="xs" c="dimmed">
+                  Your move
+                </Text>
+              </>
+            )
+          ) : (
+            <>
+              {state.lines.map((line) => (
+                <PvLineRow key={line.multipv} line={line} turn={turn} />
+              ))}
+              {state.lines.length === 0 && state.isAnalyzing && (
+                <Text size="xs" c="dimmed">
+                  Calculating...
+                </Text>
+              )}
+            </>
           )}
         </Stack>
       </Paper>
