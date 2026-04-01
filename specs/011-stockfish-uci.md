@@ -1,27 +1,29 @@
-# 011: Stockfish UCI Integration
+# 011: Wire Up Stockfish
 
-**Status:** draft
+**Status:** active
 
 ## Goal
-Manage and communicate with Stockfish (and any UCI engine) from the Rust backend.
+Connect the Rust UCI backend to the frontend so the user can load Stockfish and see live analysis.
 
-## Inputs
-- Stockfish binary (bundled or user-provided)
-- UCI protocol specification
-
-## Outputs
-- Rust module that spawns engine process, sends UCI commands, parses responses
-- Tauri commands exposed to frontend: start engine, set options, go, stop, get best move
-- Engine output parsed into structured data (eval, depth, PV lines, nodes/sec)
+## Approach
+- File picker to select Stockfish binary (or auto-detect from PATH)
+- Frontend calls `start_engine` Tauri command, listens to `engine-output` events
+- Parse UCI `info` lines into structured data (eval cp/mate, depth, PV, nodes, nps)
+- On each position change, send `position fen ... ` + `go infinite` to engine
+- `stop` when position changes, then restart analysis on new position
+- Display eval, depth, and top lines in the AnalysisPanel
 
 ## Key Decisions
-- Engine runs as a child process managed by Rust/tokio — not WASM
-- Support multiple engines simultaneously (for future multi-engine analysis)
-- Engine binary path configurable; optionally auto-download Stockfish
+- Single engine for now (multi-engine is spec:902)
+- Engine settings: Threads, Hash, MultiPV (3 default) exposed in a settings panel
+- Engine path persisted to localStorage or Tauri store
 
 ## Done When
-- [ ] `uci` handshake completes and engine name/options are parsed
-- [ ] `go infinite` produces streaming eval updates to the frontend
-- [ ] `stop` halts analysis and returns best move
-- [ ] `setoption` works for Threads, Hash, MultiPV
-- [ ] Engine crash/timeout is handled gracefully
+- [ ] User can select Stockfish binary via file dialog
+- [ ] Engine starts and handshake completes (name shown in UI)
+- [ ] Analysis runs automatically when position changes
+- [ ] Eval (cp and mate scores) displayed with proper +/- formatting
+- [ ] Top 3 PV lines shown with SAN notation
+- [ ] Depth and nodes/sec displayed
+- [ ] Stop/start analysis toggle works
+- [ ] Engine process cleaned up on app quit
