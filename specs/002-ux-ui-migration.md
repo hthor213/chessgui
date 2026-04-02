@@ -90,13 +90,13 @@ KEEP:   src-tauri/ (unchanged)
 ```
 
 ## Done When
-- [ ] Vite and Mantine fully removed from project
-- [ ] Next.js static export builds successfully
-- [ ] All UI components use shadcn/ui + Tailwind (no Mantine imports)
-- [ ] Castling bug fixed in `playUciMove`
-- [ ] Board renders with Chessground (dynamic import, SSR-safe)
-- [ ] Engine analysis works (start, stop, display eval)
-- [ ] Play vs Stockfish works for 10+ moves
-- [ ] PGN import works (paste and file open)
-- [ ] Keyboard navigation works (arrow keys, Home/End)
-- [ ] Dark theme consistent throughout
+- [x] Vite and Mantine fully removed from project
+- [x] Next.js static export builds successfully
+- [x] All UI components use shadcn/ui + Tailwind (no Mantine imports)
+- [x] Castling bug fixed in `playUciMove`
+- [x] Board renders with Chessground (dynamic import, SSR-safe)
+- [x] Engine analysis works (start, stop, display eval)
+- [x] Play vs Stockfish works for 10+ moves
+- [ ] PGN import works (paste and file open) — moved to 001 as untested
+- [ ] Keyboard navigation works (arrow keys, Home/End) — moved to 001 as untested
+- [x] Dark theme consistent throughout

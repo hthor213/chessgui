@@ -132,3 +132,7 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 - [x] F flips the board
 - [ ] Cmd+O opens file dialog for PGN
 - [ ] Space toggles engine analysis on/off
+
+### Untested (from spec:002 migration)
+- [ ] PGN import works (paste and file open)
+- [ ] Keyboard navigation works (arrow keys, Home/End)
