@@ -100,7 +100,7 @@ export default function Home() {
         </header>
 
         {/* Main content - three-column grid */}
-        <main className="flex-1 grid grid-cols-[20%_auto_25%] gap-6 p-6 min-h-0">
+        <main className="flex-1 grid grid-cols-[220px_1fr_220px] gap-4 p-4 min-h-0">
           {/* Left column: Player Panel */}
           <div className="flex flex-col gap-4">
             {/* Opponent card */}
@@ -173,8 +173,8 @@ export default function Home() {
           </div>
 
           {/* Center column: Board */}
-          <div className="flex flex-col items-center gap-4 min-h-0">
-            <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4 min-h-0 overflow-hidden">
+            <div className="flex-1 flex items-center justify-center w-full overflow-hidden">
               <Board
                 fen={game.fen}
                 orientation={game.orientation}
@@ -226,7 +226,9 @@ export default function Home() {
 
           {/* Right column: Game Analytics */}
           <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
-            <AnalysisPanel engine={engine} turn={turn} />
+            <div className="shrink-0">
+              <AnalysisPanel engine={engine} turn={turn} />
+            </div>
             <MoveList
               moves={game.moves}
               currentIndex={game.currentMoveIndex}

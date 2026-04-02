@@ -32,17 +32,22 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
   }, []);
 
   useEffect(() => {
+    const container = boardRef.current?.parentElement?.parentElement;
+    if (!container) return;
+
     const updateSize = () => {
-      const available = window.innerHeight - 64;
-      const maxWidth = window.innerWidth - 300 - 48;
-      const size = Math.min(available, maxWidth, 720);
-      const snapped = Math.floor(size / 8) * 8;
+      const rect = container.getBoundingClientRect();
+      // Use the smaller of container width/height, leave room for controls below
+      const size = Math.min(rect.width, rect.height - 48);
+      const snapped = Math.max(160, Math.floor(size / 8) * 8);
       setBoardSize(snapped);
       onBoardSize?.(snapped);
     };
     updateSize();
-    window.addEventListener("resize", updateSize);
-    return () => window.removeEventListener("resize", updateSize);
+
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(container);
+    return () => ro.disconnect();
   }, []);
 
   useEffect(() => {

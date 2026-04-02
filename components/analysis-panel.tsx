@@ -96,17 +96,17 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
           <span className="text-sm text-muted-foreground">
             No engine connected
           </span>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 w-full max-w-[200px]">
             <Button
               size="sm"
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className="bg-green-600 hover:bg-green-700 text-white w-full"
               onClick={() => engine.startEngine()}
             >
               Analyze
             </Button>
             <Button
               size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-blue-600 hover:bg-blue-700 text-white w-full"
               onClick={() => engine.startEngine(undefined, "play")}
             >
               Play vs Stockfish
