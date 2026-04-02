@@ -1,0 +1,427 @@
+import { describe, it, expect } from "vitest";
+import { Chess } from "chessops/chess";
+import { makeFen, parseFen } from "chessops/fen";
+import { makeSan, parseSan } from "chessops/san";
+import { parseUci, makeSquare } from "chessops";
+import { chessgroundDests } from "chessops/compat";
+import type { NormalMove } from "chessops";
+import { normalizeUciCastling, uciMovesToSan } from "@/lib/uci-parser";
+
+const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+// Helper: create a Chess position from FEN
+function posFromFen(fen: string): Chess {
+  const setup = parseFen(fen).unwrap();
+  return Chess.fromSetup(setup).unwrap();
+}
+
+// Helper: get chessgroundDests as Map<string, string[]>
+function getDests(fen: string): Map<string, string[]> {
+  return chessgroundDests(posFromFen(fen));
+}
+
+// Helper: play a SAN move and return new FEN
+function playSan(chess: Chess, san: string): string {
+  const move = parseSan(chess, san);
+  if (!move) throw new Error(`Invalid SAN: ${san}`);
+  chess.play(move);
+  return makeFen(chess.toSetup());
+}
+
+// =============================================================================
+// Bug 1: Legal moves / dests map completeness
+// =============================================================================
+describe("Bug 1: All legal moves are present in chessgroundDests", () => {
+  it("initial position has correct number of legal moves", () => {
+    const dests = getDests(INITIAL_FEN);
+    // White has 16 pawn moves (8 pawns * 2 each) + 4 knight moves = 20
+    let totalDests = 0;
+    for (const [, targets] of dests) {
+      totalDests += targets.length;
+    }
+    expect(totalDests).toBe(20);
+  });
+
+  it("all pieces have dests at every point in a 20-move game", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    // Play a known game (Italian Opening with lots of piece development)
+    const moves = [
+      "e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "c3", "Nf6",
+      "d4", "exd4", "cxd4", "Bb4+", "Bd2", "Bxd2+", "Nbxd2", "d5",
+      "exd5", "Nxd5", "Qb3", "Nce7",
+    ];
+
+    for (let i = 0; i < moves.length; i++) {
+      const fen = makeFen(chess.toSetup());
+      const dests = chessgroundDests(posFromFen(fen));
+
+      // Verify every piece that has legal moves appears in dests
+      const freshPos = posFromFen(fen);
+      const allDestsFromChessops = freshPos.allDests();
+
+      for (const [sq, squareSet] of allDestsFromChessops) {
+        if (squareSet.nonEmpty()) {
+          const squareName = makeSquare(sq);
+          expect(dests.has(squareName)).toBe(true);
+          // chessgroundDests may have MORE dests (castling extras) but never fewer
+          const chessopsDests = Array.from(squareSet, makeSquare);
+          const cgDests = dests.get(squareName)!;
+          for (const dest of chessopsDests) {
+            expect(cgDests).toContain(dest);
+          }
+        }
+      }
+
+      playSan(chess, moves[i]);
+    }
+  });
+
+  it("random 30-move game: dests map always contains all allDests moves", () => {
+    // Use a seeded approach: play the first legal move alphabetically for consistency
+    const chess = posFromFen(INITIAL_FEN);
+    let fen = INITIAL_FEN;
+
+    for (let moveNum = 0; moveNum < 30; moveNum++) {
+      const pos = posFromFen(fen);
+      const dests = chessgroundDests(pos);
+      const allDestsMap = pos.allDests();
+
+      // Verify completeness
+      for (const [sq, squareSet] of allDestsMap) {
+        if (squareSet.nonEmpty()) {
+          const squareName = makeSquare(sq);
+          expect(dests.has(squareName)).toBe(true);
+          const chessopsDests = Array.from(squareSet, makeSquare);
+          const cgDests = dests.get(squareName)!;
+          for (const dest of chessopsDests) {
+            expect(cgDests).toContain(dest);
+          }
+        }
+      }
+
+      // Pick a deterministic move: first from-square alphabetically, first to-square
+      const sortedFroms = Array.from(dests.keys()).sort();
+      if (sortedFroms.length === 0) break; // game over
+
+      const from = sortedFroms[0];
+      const tos = dests.get(from)!.sort();
+      const to = tos[0];
+
+      // Find the actual chessops move
+      const fromSq = allDestsMap.keys().next();
+      // Use parseSan-compatible approach: build all legal moves and find matching one
+      let moved = false;
+      for (const [fromSq2, squareSet] of allDestsMap) {
+        if (makeSquare(fromSq2) !== from) continue;
+        for (const toSq of squareSet) {
+          if (makeSquare(toSq) !== to) continue;
+          const move: NormalMove = { from: fromSq2, to: toSq };
+          // Handle promotion: if pawn reaching back rank, promote to queen
+          const piece = pos.board.get(fromSq2);
+          if (piece?.role === "pawn" && (toSq >> 3 === 0 || toSq >> 3 === 7)) {
+            move.promotion = "queen";
+          }
+          chess.play(move);
+          fen = makeFen(chess.toSetup());
+          moved = true;
+          break;
+        }
+        if (moved) break;
+      }
+
+      if (!moved) break;
+    }
+
+    // If we got through 30 moves without assertion failure, the test passes
+    expect(true).toBe(true);
+  });
+
+  it("castling: king dests include both rook-square and destination-square", () => {
+    // Position where white can castle kingside
+    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+    const dests = getDests(fen);
+
+    const kingDests = dests.get("e1")!;
+    expect(kingDests).toBeDefined();
+    // Should include h1 (rook square, chessops style) AND g1 (destination, standard style)
+    expect(kingDests).toContain("h1");
+    expect(kingDests).toContain("g1");
+    // f1 is also a legal king move
+    expect(kingDests).toContain("f1");
+  });
+
+  it("castling: black kingside includes both h8 and g8", () => {
+    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R b KQkq - 0 4";
+    const dests = getDests(fen);
+
+    const kingDests = dests.get("e8")!;
+    expect(kingDests).toBeDefined();
+    expect(kingDests).toContain("h8");
+    expect(kingDests).toContain("g8");
+  });
+
+  it("knight moves are always present (bug: knight wouldn't move)", () => {
+    // After 1.e4 e5 2.Nf3, the knight on f3 should have legal moves
+    const fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2";
+    const dests = getDests(fen);
+
+    // Black knights should have moves
+    const b8Dests = dests.get("b8");
+    expect(b8Dests).toBeDefined();
+    expect(b8Dests!.length).toBeGreaterThan(0);
+
+    const g8Dests = dests.get("g8");
+    expect(g8Dests).toBeDefined();
+    expect(g8Dests!.length).toBeGreaterThan(0);
+  });
+});
+
+// =============================================================================
+// Bug 2: Underpromotion
+// =============================================================================
+describe("Bug 2: Underpromotion works correctly", () => {
+  const UNDERPROMOTION_GAME = [
+    "d4", "Nf6", "Nc3", "d5", "Bg5", "c5", "Bxf6", "gxf6",
+    "e4", "dxe4", "dxc5", "Qa5", "Qh5", "Bg7", "Bb5+", "Nc6",
+    "Ne2", "O-O", "a3", "f5", "O-O", "Qc7", "b4", "Be6",
+    "Rad1", "Rad8", "Ba4", "a5", "Nb5", "Qe5", "c3", "axb4",
+    "axb4", "Bc4", "Rxd8", "Rxd8", "Nbd4", "Nxd4", "cxd4", "Qf6",
+    "Rc1", "Qa6", "Bd1", "Qa2", "h3", "Bd3", "Ng3", "Qd2",
+    "Nxf5", "e3", "Nxe7+", "Kh8", "Qh4", "exf2+", "Kh2", "Rxd4",
+    "Qg3",
+  ];
+
+  it("plays through the full game up to the underpromotion move", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    for (const san of UNDERPROMOTION_GAME) {
+      const move = parseSan(chess, san);
+      expect(move).toBeDefined();
+      chess.play(move!);
+    }
+
+    // Now it's black's turn, pawn on f2 can promote on f1
+    const fen = makeFen(chess.toSetup());
+    expect(fen).toContain(" b "); // black to move
+
+    // The pawn on f2 should be in black's pieces
+    const f2 = 1 * 8 + 5; // rank 1 (idx 1), file f (idx 5) = square 13
+    const piece = chess.board.get(f2);
+    expect(piece?.role).toBe("pawn");
+    expect(piece?.color).toBe("black");
+  });
+
+  it("underpromotion to knight works (f1=N+)", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    for (const san of UNDERPROMOTION_GAME) {
+      chess.play(parseSan(chess, san)!);
+    }
+
+    // Play f2-f1 with knight promotion
+    const move: NormalMove = {
+      from: 1 * 8 + 5, // f2 = square 13
+      to: 0 * 8 + 5,   // f1 = square 5
+      promotion: "knight",
+    };
+
+    const san = makeSan(chess, move);
+    expect(san).toBe("f1=N+");
+
+    chess.play(move);
+    const newFen = makeFen(chess.toSetup());
+    // Verify a knight is now on f1
+    const f1Piece = chess.board.get(5);
+    expect(f1Piece?.role).toBe("knight");
+    expect(f1Piece?.color).toBe("black");
+  });
+
+  it("underpromotion to rook works", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    for (const san of UNDERPROMOTION_GAME) {
+      chess.play(parseSan(chess, san)!);
+    }
+
+    const move: NormalMove = {
+      from: 1 * 8 + 5, // f2
+      to: 0 * 8 + 5,   // f1
+      promotion: "rook",
+    };
+
+    const san = makeSan(chess, move);
+    expect(san).toBe("f1=R");
+  });
+
+  it("underpromotion to bishop works", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    for (const san of UNDERPROMOTION_GAME) {
+      chess.play(parseSan(chess, san)!);
+    }
+
+    const move: NormalMove = {
+      from: 1 * 8 + 5, // f2
+      to: 0 * 8 + 5,   // f1
+      promotion: "bishop",
+    };
+
+    const san = makeSan(chess, move);
+    expect(san).toBe("f1=B");
+  });
+
+  it("promotion to queen works", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    for (const san of UNDERPROMOTION_GAME) {
+      chess.play(parseSan(chess, san)!);
+    }
+
+    const move: NormalMove = {
+      from: 1 * 8 + 5, // f2
+      to: 0 * 8 + 5,   // f1
+      promotion: "queen",
+    };
+
+    const san = makeSan(chess, move);
+    expect(san).toBe("f1=Q");
+  });
+
+  it("promotion square is in legal dests", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    for (const san of UNDERPROMOTION_GAME) {
+      chess.play(parseSan(chess, san)!);
+    }
+
+    const fen = makeFen(chess.toSetup());
+    const dests = getDests(fen);
+
+    // f2 pawn should be able to move to f1
+    const f2Dests = dests.get("f2");
+    expect(f2Dests).toBeDefined();
+    expect(f2Dests).toContain("f1");
+  });
+});
+
+// =============================================================================
+// Bug 3: UCI castling notation conversion
+// =============================================================================
+describe("Bug 3: UCI castling notation normalization", () => {
+  it("normalizes white kingside castling e1g1 -> e1h1", () => {
+    expect(normalizeUciCastling("e1g1")).toBe("e1h1");
+  });
+
+  it("normalizes white queenside castling e1c1 -> e1a1", () => {
+    expect(normalizeUciCastling("e1c1")).toBe("e1a1");
+  });
+
+  it("normalizes black kingside castling e8g8 -> e8h8", () => {
+    expect(normalizeUciCastling("e8g8")).toBe("e8h8");
+  });
+
+  it("normalizes black queenside castling e8c8 -> e8a8", () => {
+    expect(normalizeUciCastling("e8c8")).toBe("e8a8");
+  });
+
+  it("does not modify non-castling moves", () => {
+    expect(normalizeUciCastling("e2e4")).toBe("e2e4");
+    expect(normalizeUciCastling("g1f3")).toBe("g1f3");
+    expect(normalizeUciCastling("e7e8q")).toBe("e7e8q");
+  });
+
+  it("normalized castling UCI produces correct SAN via makeSan", () => {
+    // Position where white can castle kingside
+    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+    const chess = posFromFen(fen);
+
+    const normalized = normalizeUciCastling("e1g1");
+    const move = parseUci(normalized);
+    expect(move).toBeDefined();
+
+    const san = makeSan(chess, move!);
+    expect(san).toBe("O-O");
+  });
+
+  it("normalized castling UCI + play produces correct position", () => {
+    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+    const chess = posFromFen(fen);
+
+    const normalized = normalizeUciCastling("e1g1");
+    const move = parseUci(normalized)!;
+    chess.play(move);
+
+    const newFen = makeFen(chess.toSetup());
+    // King should be on g1, rook on f1
+    expect(newFen).toContain("RNBQ1RK1");
+  });
+
+  it("uciMovesToSan handles castling in PV lines", () => {
+    // Position where Stockfish might return O-O in PV
+    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+    const sanMoves = uciMovesToSan(fen, ["e1g1", "d7d6", "d2d3"]);
+    expect(sanMoves[0]).toBe("O-O");
+    expect(sanMoves.length).toBe(3);
+  });
+
+  it("uciMovesToSan handles queenside castling", () => {
+    // Position where white can castle queenside
+    const fen = "r3kbnr/pppqpppp/2n5/3p1b2/3P1B2/2N5/PPPQPPPP/R3KBNR w KQkq - 6 5";
+    const sanMoves = uciMovesToSan(fen, ["e1c1"]);
+    expect(sanMoves[0]).toBe("O-O-O");
+  });
+
+  it("playUciMove-style flow: Stockfish castling does not throw", () => {
+    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+    const chess = posFromFen(fen);
+
+    // Simulate what playUciMove does
+    const uci = "e1g1"; // Stockfish notation
+    const normalizedUci = normalizeUciCastling(uci);
+    const move = parseUci(normalizedUci);
+    expect(move).toBeDefined();
+
+    // Should not throw
+    const san = makeSan(chess, move!);
+    expect(san).toBe("O-O");
+
+    chess.play(move!);
+    const newFen = makeFen(chess.toSetup());
+    expect(newFen).toContain(" b "); // black to move after white castles
+  });
+});
+
+// =============================================================================
+// Integration: play through a full game with dests verification at each move
+// =============================================================================
+describe("Integration: full game with dests verification", () => {
+  it("plays the Immortal Game and verifies dests at each position", () => {
+    // Anderssen vs Kieseritzky, 1851 (The Immortal Game)
+    const moves = [
+      "e4", "e5", "f4", "exf4", "Bc4", "Qh4+", "Kf1", "b5",
+      "Bxb5", "Nf6", "Nf3", "Qh6", "d3", "Nh5", "Nh4", "Qg5",
+      "Nf5", "c6", "g4", "Nf6", "Rg1", "cxb5", "h4", "Qg6",
+      "h5", "Qg5", "Qf3", "Ng8", "Bxf4", "Qf6", "Nc3", "Bc5",
+      "Nd5", "Qxb2", "Bd6", "Bxg1", "e5", "Qxa1+", "Ke2", "Na6",
+      "Nxg7+", "Kd8", "Qf6+", "Nxf6", "Be7#",
+    ];
+
+    const chess = posFromFen(INITIAL_FEN);
+
+    for (let i = 0; i < moves.length; i++) {
+      const fen = makeFen(chess.toSetup());
+      const pos = posFromFen(fen);
+      const dests = chessgroundDests(pos);
+      const allDestsMap = pos.allDests();
+
+      // Every move in allDests must appear in chessgroundDests
+      for (const [sq, squareSet] of allDestsMap) {
+        if (squareSet.nonEmpty()) {
+          const squareName = makeSquare(sq);
+          expect(dests.has(squareName)).toBe(true);
+          for (const toSq of squareSet) {
+            expect(dests.get(squareName)).toContain(makeSquare(toSq));
+          }
+        }
+      }
+
+      const move = parseSan(chess, moves[i]);
+      expect(move).toBeDefined();
+      chess.play(move!);
+    }
+  });
+});

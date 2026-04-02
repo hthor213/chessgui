@@ -74,6 +74,18 @@ export function parseUciInfo(line: string): UciInfo | null {
   return info as UciInfo;
 }
 
+// Normalize standard UCI castling notation (e1g1) to chessops king-captures-rook
+// format (e1h1). Both formats work with chessops makeSan/play, but normalizing
+// ensures consistent behavior and avoids edge cases.
+const CASTLING_UCI: Record<string, string> = {
+  "e1g1": "e1h1", "e1c1": "e1a1",  // white
+  "e8g8": "e8h8", "e8c8": "e8a8",  // black
+};
+
+export function normalizeUciCastling(uci: string): string {
+  return CASTLING_UCI[uci] || uci;
+}
+
 export function uciMovesToSan(fen: string, uciMoves: string[], maxMoves = 8): string[] {
   const setup = parseFen(fen);
   if (setup.isErr) return uciMoves.slice(0, maxMoves);
@@ -85,7 +97,8 @@ export function uciMovesToSan(fen: string, uciMoves: string[], maxMoves = 8): st
   const sanMoves: string[] = [];
 
   for (const uci of uciMoves.slice(0, maxMoves)) {
-    const move = parseUci(uci);
+    const normalized = normalizeUciCastling(uci);
+    const move = parseUci(normalized);
     if (!move) break;
 
     try {

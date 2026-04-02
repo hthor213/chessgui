@@ -3,6 +3,8 @@ import { Chess } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
 import { parseUci } from "chessops";
+import { chessgroundDests } from "chessops/compat";
+import { normalizeUciCastling } from "@/lib/uci-parser";
 import type { NormalMove } from "chessops";
 import type { Key } from "@lichess-org/chessground/types";
 
@@ -56,33 +58,10 @@ export function useChessGame() {
     const pos = Chess.fromSetup(setup.unwrap());
     if (pos.isErr) return new Map<Key, Key[]>();
 
-    const chess = pos.unwrap();
-    const dests = new Map<Key, Key[]>();
-
-    // Castling: chessops returns king->rook (e1->h1), but users also expect
-    // king->destination (e1->g1). Add both so clicking either square works.
-    const castlingExtras: Record<string, string> = {
-      "e1h1": "g1", "e1a1": "c1", // white
-      "e8h8": "g8", "e8a8": "c8", // black
-    };
-
-    for (const [from, squares] of chess.allDests()) {
-      const fromKey = squareToKey(from);
-      const toKeys: Key[] = [];
-      for (const to of squares) {
-        const toKey = squareToKey(to);
-        toKeys.push(toKey);
-        const extra = castlingExtras[`${fromKey}${toKey}`];
-        if (extra && !toKeys.includes(extra as Key)) {
-          toKeys.push(extra as Key);
-        }
-      }
-      if (toKeys.length > 0) {
-        dests.set(fromKey, toKeys);
-      }
-    }
-
-    return dests;
+    // Use the official chessops chessground compatibility function.
+    // It correctly handles castling dests (both king->rook and king->destination)
+    // and iterates SquareSets properly.
+    return chessgroundDests(pos.unwrap()) as Map<Key, Key[]>;
   }, [state.fen]);
 
   const playMove = useCallback(
@@ -260,11 +239,7 @@ export function useChessGame() {
 
         // Convert standard UCI castling to chessops format (king->rook)
         // Stockfish sends e1g1 (standard UCI), but chessops expects e1h1 (king-captures-rook)
-        const castlingUci: Record<string, string> = {
-          "e1g1": "e1h1", "e1c1": "e1a1",  // white
-          "e8g8": "e8h8", "e8c8": "e8a8",  // black
-        };
-        const normalizedUci = castlingUci[uci] || uci;
+        const normalizedUci = normalizeUciCastling(uci);
 
         const move = parseUci(normalizedUci);
         if (!move) return;
