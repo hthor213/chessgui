@@ -16,7 +16,7 @@ Core chess board interaction: rendering, legal moves, navigation, highlighting, 
 
 ## UX/UI Design
 
-The overall application layout and interaction design. Spec:002 handles the *technical* migration (Mantine→shadcn, Vite→Next.js); this section defines *what it should look and feel like*.
+The overall application layout and interaction design. Spec:002 (done) handled the migration to Next.js + Tailwind + shadcn/ui. This section defines *what it should look and feel like*.
 
 The design philosophy is a **high-fidelity dashboard** — not a legacy chess app look, but a modern interface with depth, subtle gradients, and clear information hierarchy.
 
@@ -24,7 +24,7 @@ The design philosophy is a **high-fidelity dashboard** — not a legacy chess ap
 
 - **Architecture:** Single-page `layout.tsx` with `max-h-screen` — no page scrolling
 - **Theme:** Force dark mode. Background `#0a0a0a` (`bg-background`) with a subtle `radial-gradient` for depth behind the board
-- **Grid:** Three-column layout: `grid-cols-[20%_auto_25%]`
+- **Grid:** Three-column layout: `grid-cols-[220px_1fr_220px]` (fixed side panels, board scales)
   - Left column: player panel
   - Center column: the board (hero)
   - Right column: game analytics
@@ -105,7 +105,7 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 ### Board & Setup (from spec:001)
 - [x] `pnpm tauri dev` launches a window with a Chessground board rendered
 - [x] Pieces are draggable and legal moves are highlighted
-- [x] Mantine theme provider configured (dark mode default)
+- [x] Dark mode configured (Next.js + Tailwind + shadcn/ui)
 - [x] Rust backend compiles, Tauri IPC bridge works
 
 ### Navigation (from spec:010)
