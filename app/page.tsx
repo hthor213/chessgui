@@ -59,6 +59,15 @@ export default function Home() {
       } else if (e.key === "End") {
         e.preventDefault()
         game.goToMove(game.moves.length - 1)
+      } else if (meta && e.key === "n") {
+        e.preventDefault()
+        game.newGame()
+        engine.stopEngine()
+      } else if (e.key === " ") {
+        e.preventDefault()
+        if (engine.state.isRunning) {
+          engine.toggleAnalysis()
+        }
       } else if (e.key === "f" || e.key === "F") {
         if (!meta) {
           game.flipBoard()
