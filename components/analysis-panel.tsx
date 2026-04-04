@@ -3,16 +3,18 @@
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatScore, scoreToNumeric, type PvLine } from "@/lib/uci-parser"
-import type { EngineState, EngineMode } from "@/hooks/use-engine"
+import type { EngineState, EngineMode, PlayerColor } from "@/hooks/use-engine"
 
 interface AnalysisPanelProps {
   engine: {
     state: EngineState;
-    startEngine: (path?: string, mode?: EngineMode) => Promise<void>;
+    startEngine: (path?: string, mode?: EngineMode, playerColor?: PlayerColor) => Promise<void>;
     stopEngine: () => Promise<void>;
     toggleAnalysis: () => void;
+    setPlayMode: (enabled: boolean, playerColor?: PlayerColor) => Promise<void>;
   };
   turn: "white" | "black";
 }
@@ -89,6 +91,9 @@ function PvLineRow({ line, turn }: { line: PvLine; turn: "white" | "black" }) {
 export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
   const { state } = engine;
 
+  const isPlayWhite = state.mode === "play" && state.playerColor === "white";
+  const isPlayBlack = state.mode === "play" && state.playerColor === "black";
+
   if (!state.isRunning) {
     return (
       <Card className="bg-[#1e1c19] border-[#2a2825] p-4">
@@ -96,7 +101,7 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
           <span className="text-sm text-muted-foreground">
             No engine connected
           </span>
-          <div className="flex flex-col gap-2 w-full max-w-[200px]">
+          <div className="flex flex-col gap-2 w-full">
             <Button
               size="sm"
               className="bg-green-600 hover:bg-green-700 text-white w-full"
@@ -106,10 +111,19 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
             </Button>
             <Button
               size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white w-full"
-              onClick={() => engine.startEngine(undefined, "play")}
+              variant="outline"
+              className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
+              onClick={() => engine.setPlayMode(true, "white")}
             >
-              Play vs Stockfish
+              Play White vs Stockfish
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
+              onClick={() => engine.setPlayMode(true, "black")}
+            >
+              Play Black vs Stockfish
             </Button>
           </div>
         </div>
@@ -118,33 +132,27 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
   }
 
   const topLine = state.lines.find((l) => l.multipv === 1);
+  // Use the turn from when scores were computed, not the live turn —
+  // in play mode, cached lines persist after the engine moves but turn flips.
+  const scoreTurn = state.scoreTurn ?? turn;
 
   return (
     <div className="flex flex-nowrap items-stretch gap-0">
-      {topLine && <EvalBar score={topLine.score} turn={turn} />}
+      {topLine && <EvalBar score={topLine.score} turn={scoreTurn} />}
       <Card className="bg-[#1e1c19] border-[#2a2825] p-3 flex-1 min-w-0">
         <div className="flex justify-between mb-1.5">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold text-[#bababa]">
               {state.engineName}
             </span>
-            {state.mode === "play" ? (
-              <Badge variant="secondary" className="text-blue-400 bg-blue-950 text-xs">
-                Playing Black
-              </Badge>
-            ) : state.isAnalyzing ? (
+            {state.isAnalyzing && (
               <span className="text-xs text-muted-foreground">
                 depth {state.depth}
               </span>
-            ) : null}
+            )}
           </div>
           <div className="flex items-center gap-1">
-            {state.isAnalyzing && state.nps > 0 && (
-              <span className="text-xs text-muted-foreground">
-                {formatNodes(state.nps)}/s
-              </span>
-            )}
-            {state.isThinking && state.nps > 0 && (
+            {(state.isAnalyzing || state.isThinking) && state.nps > 0 && (
               <span className="text-xs text-muted-foreground">
                 {formatNodes(state.nps)}/s
               </span>
@@ -172,19 +180,43 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
           </div>
         </div>
 
+        {/* Play mode toggles */}
+        <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-1.5">
+            <Switch
+              checked={isPlayWhite}
+              onCheckedChange={(checked) => engine.setPlayMode(checked, "white")}
+              className="scale-75 data-[state=checked]:bg-blue-600 data-[state=unchecked]:bg-zinc-600"
+            />
+            <span className={`text-xs ${isPlayWhite ? "text-blue-400 font-semibold" : "text-[#bababa]"}`}>
+              White
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Switch
+              checked={isPlayBlack}
+              onCheckedChange={(checked) => engine.setPlayMode(checked, "black")}
+              className="scale-75 data-[state=checked]:bg-blue-600 data-[state=unchecked]:bg-zinc-600"
+            />
+            <span className={`text-xs ${isPlayBlack ? "text-blue-400 font-semibold" : "text-muted-foreground"}`}>
+              Black
+            </span>
+          </div>
+        </div>
+
         {topLine && (
           <p
             className="text-xl font-bold font-mono mb-1.5"
             style={{
               letterSpacing: -0.5,
-              color: scoreToNumeric(topLine.score, turn) > 0.2
+              color: scoreToNumeric(topLine.score, scoreTurn) > 0.2
                 ? "#7fba3a"
-                : scoreToNumeric(topLine.score, turn) < -0.2
+                : scoreToNumeric(topLine.score, scoreTurn) < -0.2
                   ? "#e05555"
                   : "#bababa",
             }}
           >
-            {formatScore(topLine.score, turn)}
+            {formatScore(topLine.score, scoreTurn)}
           </p>
         )}
 
@@ -193,7 +225,7 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
             state.isThinking ? (
               <>
                 {state.lines.map((line) => (
-                  <PvLineRow key={line.multipv} line={line} turn={turn} />
+                  <PvLineRow key={line.multipv} line={line} turn={scoreTurn} />
                 ))}
                 <span className="text-xs text-muted-foreground">
                   Thinking... depth {state.depth}
@@ -202,7 +234,7 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
             ) : (
               <>
                 {state.lines.length > 0 && state.lines.map((line) => (
-                  <PvLineRow key={line.multipv} line={line} turn={turn} />
+                  <PvLineRow key={line.multipv} line={line} turn={scoreTurn} />
                 ))}
                 <span className="text-xs text-muted-foreground">
                   Your move
@@ -212,7 +244,7 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
           ) : (
             <>
               {state.lines.map((line) => (
-                <PvLineRow key={line.multipv} line={line} turn={turn} />
+                <PvLineRow key={line.multipv} line={line} turn={scoreTurn} />
               ))}
               {state.lines.length === 0 && state.isAnalyzing && (
                 <span className="text-xs text-muted-foreground">

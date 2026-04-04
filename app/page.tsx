@@ -25,11 +25,20 @@ export default function Home() {
     [game.playUciMove],
   )
 
-  const engine = useEngine(game.fen, handleBestMove)
+  const atLatestMove = game.currentMoveIndex === game.moves.length - 1
+  const engine = useEngine(game.fen, handleBestMove, atLatestMove)
   const turn = game.fen.includes(" w ") ? ("white" as const) : ("black" as const)
   const isPlayMode = engine.state.mode === "play"
+  const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
+
+  // Auto-flip board when starting a game as black
+  useEffect(() => {
+    if (isPlayMode) {
+      game.setOrientation(playerColor)
+    }
+  }, [isPlayMode, playerColor])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -46,7 +55,11 @@ export default function Home() {
 
       if (e.key === "ArrowLeft" || (meta && e.key === "z" && !e.shiftKey)) {
         e.preventDefault()
-        game.goToMove(game.currentMoveIndex - 1)
+        // In play mode, Cmd+Z undoes a full move (2 plies: your move + engine's response).
+        // Arrow left still steps 1 ply for reviewing.
+        const step = (meta && e.key === "z" && isPlayMode) ? 2 : 1
+        if (isPlayMode) engine.cancelThinking()
+        game.goToMove(game.currentMoveIndex - step)
       } else if (
         e.key === "ArrowRight" ||
         (meta && e.key === "z" && e.shiftKey)
@@ -77,7 +90,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.flipBoard])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.flipBoard, isPlayMode])
 
   return (
     <TooltipProvider>
@@ -112,7 +125,7 @@ export default function Home() {
         <main className="flex-1 grid grid-cols-[220px_1fr_220px] gap-4 p-4 min-h-0">
           {/* Left column: Player Panel */}
           <div className="flex flex-col gap-4">
-            {/* Opponent card */}
+            {/* Opponent card (top of board) */}
             <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
@@ -127,7 +140,9 @@ export default function Home() {
                       : game.headers["Black"] || "Black"}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {isPlayMode ? "Engine" : game.headers["BlackElo"] || "---"}
+                    {isPlayMode
+                      ? `Engine (${playerColor === "white" ? "Black" : "White"})`
+                      : game.headers["BlackElo"] || "---"}
                   </p>
                 </div>
               </div>
@@ -158,20 +173,22 @@ export default function Home() {
               </div>
             )}
 
-            {/* Player card */}
+            {/* Player card (bottom of board) */}
             <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-4 mt-auto">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
                   <span className="text-sm font-medium">
-                    {game.headers["White"]?.[0] || "W"}
+                    {isPlayMode ? "You" : game.headers["White"]?.[0] || "W"}
                   </span>
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-foreground">
-                    {game.headers["White"] || "White"}
+                    {isPlayMode
+                      ? `You (${playerColor === "white" ? "White" : "Black"})`
+                      : game.headers["White"] || "White"}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {game.headers["WhiteElo"] || "---"}
+                    {isPlayMode ? "" : game.headers["WhiteElo"] || "---"}
                   </p>
                 </div>
               </div>
@@ -187,10 +204,10 @@ export default function Home() {
               <Board
                 fen={game.fen}
                 orientation={game.orientation}
-                movableColor={isPlayMode ? "white" : "both"}
+                movableColor={isPlayMode ? playerColor : "both"}
                 onMove={game.onMove}
                 legalMoves={
-                  isPlayMode && turn === "black" ? new Map() : game.legalMoves
+                  isPlayMode && turn !== playerColor ? new Map() : game.legalMoves
                 }
                 lastMove={game.lastMove}
                 onBoardSize={setBoardSize}
@@ -211,7 +228,10 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <button
                 className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
-                onClick={() => game.goToMove(game.currentMoveIndex - 1)}
+                onClick={() => {
+                  if (isPlayMode) engine.cancelThinking()
+                  game.goToMove(game.currentMoveIndex - (isPlayMode ? 2 : 1))
+                }}
                 title="Undo"
               >
                 Undo

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { Chess } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
@@ -39,15 +39,35 @@ interface GameState {
   headers: Record<string, string>;
 }
 
+const STORAGE_KEY = "chessgui-game";
+
+function loadSavedState(): GameState | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as GameState;
+    // Sanity check: positions array must be consistent
+    if (saved.positions?.length > 0 && saved.currentMoveIndex >= -1) return saved;
+  } catch { /* ignore corrupt data */ }
+  return null;
+}
+
+const defaultState: GameState = {
+  fen: INITIAL_FEN,
+  moves: [],
+  positions: [INITIAL_FEN],
+  lastMoves: [undefined],
+  currentMoveIndex: -1,
+  headers: {},
+};
+
 export function useChessGame() {
-  const [state, setState] = useState<GameState>({
-    fen: INITIAL_FEN,
-    moves: [],
-    positions: [INITIAL_FEN],
-    lastMoves: [undefined],
-    currentMoveIndex: -1,
-    headers: {},
-  });
+  const [state, setState] = useState<GameState>(() => loadSavedState() || defaultState);
+
+  // Persist game state to sessionStorage so hot reloads don't lose the game
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state]);
   const [orientation, setOrientation] = useState<"white" | "black">("white");
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
 
@@ -304,6 +324,7 @@ export function useChessGame() {
     loadGame,
     newGame,
     playUciMove,
+    setOrientation,
     flipBoard: () => setOrientation((o) => (o === "white" ? "black" : "white")),
     pendingPromotion,
     confirmPromotion,
