@@ -1,35 +1,33 @@
 # Last Session
 
-**Date:** 2026-04-05
-**Focus:** Crash fix, game persistence, engine optimization, live analysis
-**Status:** All changes applied, type-checks pass, 23/23 tests pass. Needs manual smoke test.
+**Date:** 2026-04-06
+**Focus:** Engine strength, repetition detection, eval continuity, hydration fix
+**Status:** All changes applied, type-checks pass, 23/23 tests pass. Needs manual smoke test for strength improvement.
 
 ## What happened
-- **Crash prevention:** Added FEN-validated bestmove guard — stale/illegal engine moves from race conditions are now rejected instead of crashing the app
-- **Game persistence:** Switched sessionStorage → localStorage. Games survive crashes and app restarts. `newGame()` clears storage.
-- **ErrorBoundary:** New `components/error-boundary.tsx` wraps the app. Crashes show a recovery screen with "Try Again" instead of white screen.
-- **Live analysis in play mode:** Engine runs continuous MultiPV 3 analysis during human's turn with real-time eval updates (like Lichess)
-- **Simplified engine timing:** Replaced complex adaptive timer system with `go movetime 10000`. Human think time = engine's deep analysis time.
-- **No MultiPV switching:** Always MultiPV 3. Avoids stop/restart cycles that caused eval jumps. Research confirmed MultiPV 3 penalty is negligible when engine gets human's full think time.
-- **Engine config:** Threads 11 (M2 Max, cores-1), Hash 4096 MB. Based on Stockfish forum research. Contempt removed in SF16+. Syzygy only +2.7 Elo.
-- **Rust channel buffer:** 32 → 128 for command flooding safety
-- **App launcher:** `/Applications/ChessGUI Dev.app` — runs `pnpm tauri dev`, pinnable to Dock
-- **App icon:** Lichess-style green chessboard, all Tauri icon formats generated via `scripts/generate-icon.py`
+- **Full move history to Stockfish:** Changed from `position fen <fen>` to `position startpos moves e2e4 e7e5 ...`. Stockfish now has full game context for threefold repetition detection and warm transposition tables.
+- **UCI move tracking:** Added `uciMoves[]` array to game state, populated in `playMove`, `playUciMove`, `loadGame`. Old localStorage saves auto-migrate via `rebuildUciMoves()`.
+- **MultiPV separation:** Play mode uses MultiPV 1 always (both human's turn analysis and engine move). Analysis mode uses MultiPV 3. No more mid-search switching.
+- **Engine sync:** Added `isready` after every `stop` command to ensure engine has fully stopped before starting new search.
+- **Hydration fix:** Moved localStorage restore from `useState` initializer to `useEffect` to prevent SSR/client mismatch.
+- **Start FEN tracking:** Added `startFen` to game state for future PGN import with custom starting positions.
 
-## IMPORTANT: Untested
-Changes hot-reload but have NOT been manually smoke-tested against Stockfish yet. Previous session's bug fixes (legal moves, castling, underpromotion) were confirmed working this session.
+## Testing done
+- chess.com game vs Magnus bot (2050 Elo): won with 97.4% accuracy at 2500 Elo rating
+- Engine reached depth 33 in 10s from opening position
+- Identified that MultiPV 3 during play was costing ~54 Elo and diluting hash table
 
 ## Known issues
 1. Debug logging still present (`eprintln!` in uci.rs, `console.log("[engine]")` in useEngine.ts)
-2. Dock icon shows default during `tauri dev` (limitation of dev mode)
-3. Threads hardcoded to 11 — should detect CPU cores dynamically
+2. Threads hardcoded to 11 — should detect CPU cores dynamically
+3. Need to verify strength improvement with MultiPV 1 in play mode
+4. Analysis panel shows only 1 line in play mode (tradeoff for strength)
 
 ## What's next
-### IMMEDIATE: Smoke test play mode
-1. Launch app, play vs Stockfish
-2. Verify live eval updates during human's turn
-3. Verify engine responds within ~10s
-4. Kill app, relaunch — verify game state persumes
+### IMMEDIATE: Smoke test play strength
+1. Play vs chess.com Magnus bot again — target closer to 99% accuracy
+2. Watch console for `position startpos moves ...` and MultiPV 1
+3. Check that eval doesn't jump/reset between moves (warm hash)
 
 ### AFTER SMOKE TEST
 - Opening book integration (Polyglot format)
@@ -46,12 +44,7 @@ pnpm tsc --noEmit    # Type check
 
 ## Key files changed this session
 ```
-hooks/use-engine.ts             # Simplified engine: FEN guard, go movetime, no MultiPV switching
-hooks/use-chess-game.ts         # localStorage persistence, playUciMove returns boolean
-components/error-boundary.tsx   # New: React ErrorBoundary with recovery UI
-components/analysis-panel.tsx   # Show depth during engine thinking
-app/page.tsx                    # ErrorBoundary wrapper
-src-tauri/src/uci.rs            # Channel buffer 32→128
-src-tauri/icons/*               # Chessboard icon (all formats)
-scripts/generate-icon.py        # Icon generator script
+hooks/use-engine.ts         # Full move history, MultiPV 1 in play, isready sync
+hooks/use-chess-game.ts     # uciMoves tracking, startFen, hydration fix, rebuildUciMoves
+app/page.tsx                # Pass uciMoves/startFen/currentMoveIndex to useEngine
 ```

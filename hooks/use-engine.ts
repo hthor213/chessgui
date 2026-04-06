@@ -47,7 +47,23 @@ const initialState: EngineState = {
   nps: 0,
 };
 
-export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, atLatestMove = true) {
+const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+function buildPositionCommand(startFen: string, uciMoves: string[], upToIndex: number): string {
+  const moves = uciMoves.slice(0, upToIndex + 1);
+  const isStandard = startFen === INITIAL_FEN;
+  const base = isStandard ? "position startpos" : `position fen ${startFen}`;
+  return moves.length > 0 ? `${base} moves ${moves.join(" ")}` : base;
+}
+
+export function useEngine(
+  fen: string,
+  onBestMove?: (uciMove: string) => void,
+  atLatestMove = true,
+  uciMoves: string[] = [],
+  startFen: string = INITIAL_FEN,
+  currentMoveIndex = -1,
+) {
   const [state, setState] = useState<EngineState>(initialState);
   const fenRef = useRef(fen);
   const isAnalyzingRef = useRef(false);
@@ -61,9 +77,16 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
   const thinkingRef = useRef(false); // guards against stale bestmove responses
   const expectedFenRef = useRef(""); // FEN we asked the engine to compute on
 
+  const uciMovesRef = useRef(uciMoves);
+  const startFenRef = useRef(startFen);
+  const moveIndexRef = useRef(currentMoveIndex);
+
   fenRef.current = fen;
   onBestMoveRef.current = onBestMove;
   atLatestMoveRef.current = atLatestMove;
+  uciMovesRef.current = uciMoves;
+  startFenRef.current = startFen;
+  moveIndexRef.current = currentMoveIndex;
 
   const sendCommand = useCallback(async (cmd: string) => {
     try {
@@ -89,8 +112,14 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
       }
 
       await sendCommand("stop");
+      await sendCommand("isready"); // sync: wait for engine to fully stop
+      // Play mode: MultiPV 1 keeps hash focused on best line for stronger play
+      // Analysis mode: MultiPV 3 shows multiple candidate lines to the user
+      const mpv = modeRef.current === "play" ? 1 : DEFAULT_MULTI_PV;
+      await sendCommand(`setoption name MultiPV value ${mpv}`);
       setState((s) => ({ ...s, scoreTurn: turnFromFen(position), lines: [], depth: 0, nodes: 0, nps: 0 }));
-      await sendCommand(`position fen ${position}`);
+      const posCmd = buildPositionCommand(startFenRef.current, uciMovesRef.current, moveIndexRef.current);
+      await sendCommand(posCmd);
       await sendCommand("go infinite");
       isAnalyzingRef.current = true;
       setState((s) => ({ ...s, isAnalyzing: true }));
@@ -123,16 +152,14 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
       isAnalyzingRef.current = false;
       expectedFenRef.current = position;
 
-      // Strategy: the engine has been analyzing at MultiPV 3 during the human's
-      // think time, building deep lines. Now we just need it to confirm the best
-      // move on the new position. Use `go movetime 10000` (10s) — no MultiPV
-      // switching needed since PV1 is already the best move. The hash table
-      // retains analysis from the human's turn, so the engine starts warm.
+      // Engine was analyzing at MultiPV 1 during human's turn, hash table is warm.
+      // Just stop, sync, send new position, and search.
       await sendCommand("stop");
+      await sendCommand("isready"); // sync: wait for engine to fully stop
       setState((s) => ({ ...s, isThinking: true, isAnalyzing: false, scoreTurn: turnFromFen(position), lines: [], depth: 0, nodes: 0, nps: 0 }));
       thinkingRef.current = true;
-      await sendCommand(`position fen ${position}`);
-      await sendCommand("isready");
+      const posCmd = buildPositionCommand(startFenRef.current, uciMovesRef.current, moveIndexRef.current);
+      await sendCommand(posCmd);
       await sendCommand("go movetime 10000");
     },
     [sendCommand],
@@ -153,9 +180,6 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
         modeRef.current = mode;
         playerColorRef.current = playerColor;
 
-        // Always MultiPV 3 — used for both analysis and play mode
-        // (bestmove handler reads PV1 for the move to play)
-        await sendCommand(`setoption name MultiPV value ${DEFAULT_MULTI_PV}`);
         // Threads: use all cores minus 1 for OS headroom
         // Hash: 4096 MB is optimal for 10-30s analysis (keep hashfull < 30%)
         await sendCommand("setoption name Threads value 11");

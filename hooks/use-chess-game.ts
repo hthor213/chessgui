@@ -33,13 +33,31 @@ function keyToSquare(key: Key): number {
 interface GameState {
   fen: string;
   moves: string[];
+  uciMoves: string[];
   positions: string[];
   lastMoves: ([Key, Key] | undefined)[];
   currentMoveIndex: number;
+  startFen: string;
   headers: Record<string, string>;
 }
 
 const STORAGE_KEY = "chessgui-game";
+
+function rebuildUciMoves(startFen: string, sanMoves: string[]): string[] {
+  const setup = parseFen(startFen);
+  if (setup.isErr) return [];
+  const pos = Chess.fromSetup(setup.unwrap());
+  if (pos.isErr) return [];
+  const chess = pos.unwrap();
+  const uciMoves: string[] = [];
+  for (const san of sanMoves) {
+    const move = parseSan(chess, san);
+    if (!move) break;
+    uciMoves.push(moveToUci(move as NormalMove, chess));
+    chess.play(move);
+  }
+  return uciMoves;
+}
 
 function loadSavedState(): GameState | null {
   try {
@@ -47,27 +65,69 @@ function loadSavedState(): GameState | null {
     if (!raw) return null;
     const saved = JSON.parse(raw) as GameState;
     // Sanity check: positions array must be consistent
-    if (saved.positions?.length > 0 && saved.currentMoveIndex >= -1) return saved;
+    if (saved.positions?.length > 0 && saved.currentMoveIndex >= -1) {
+      // Migrate old saves that lack uciMoves/startFen
+      if (!saved.startFen) saved.startFen = INITIAL_FEN;
+      if (!saved.uciMoves) {
+        saved.uciMoves = rebuildUciMoves(saved.startFen, saved.moves);
+      }
+      return saved;
+    }
   } catch { /* ignore corrupt data */ }
   return null;
+}
+
+// Convert chessops castling (king→rook) to standard UCI (king→destination)
+const castlingToUci: Record<string, string> = {
+  "e1h1": "e1g1", "e1a1": "e1c1",
+  "e8h8": "e8g8", "e8a8": "e8c8",
+};
+
+const promoChar: Record<string, string> = {
+  queen: "q", rook: "r", bishop: "b", knight: "n",
+};
+
+function moveToUci(move: NormalMove, chess: Chess): string {
+  const from = squareToKey(move.from);
+  const to = squareToKey(move.to);
+  const key = `${from}${to}`;
+
+  // Castling: chessops stores king→rook, UCI uses king→destination
+  const piece = chess.board.get(move.from);
+  if (piece?.role === "king" && castlingToUci[key]) {
+    return castlingToUci[key];
+  }
+
+  const promo = move.promotion ? promoChar[move.promotion] || "" : "";
+  return `${from}${to}${promo}`;
 }
 
 const defaultState: GameState = {
   fen: INITIAL_FEN,
   moves: [],
+  uciMoves: [],
   positions: [INITIAL_FEN],
   lastMoves: [undefined],
   currentMoveIndex: -1,
+  startFen: INITIAL_FEN,
   headers: {},
 };
 
 export function useChessGame() {
-  const [state, setState] = useState<GameState>(() => loadSavedState() || defaultState);
+  const [state, setState] = useState<GameState>(defaultState);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Hydrate from localStorage after mount (avoids SSR mismatch)
+  useEffect(() => {
+    const saved = loadSavedState();
+    if (saved) setState(saved);
+    setHydrated(true);
+  }, []);
 
   // Persist game state to localStorage so it survives crashes and restarts
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    if (hydrated) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state, hydrated]);
   const [orientation, setOrientation] = useState<"white" | "black">("white");
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
 
@@ -112,11 +172,13 @@ export function useChessGame() {
       };
 
       const san = makeSan(chess, move);
+      const uci = moveToUci(move, chess);
       chess.play(move);
       const newFen = makeFen(chess.toSetup());
 
       setState((prev) => {
         const newMoves = [...prev.moves.slice(0, prev.currentMoveIndex + 1), san];
+        const newUciMoves = [...prev.uciMoves.slice(0, prev.currentMoveIndex + 1), uci];
         const newPositions = [
           ...prev.positions.slice(0, prev.currentMoveIndex + 2),
           newFen,
@@ -129,6 +191,7 @@ export function useChessGame() {
           ...prev,
           fen: newFen,
           moves: newMoves,
+          uciMoves: newUciMoves,
           positions: newPositions,
           lastMoves: newLastMoves,
           currentMoveIndex: newMoves.length - 1,
@@ -206,15 +269,18 @@ export function useChessGame() {
 
       const positions: string[] = [INITIAL_FEN];
       const moves: string[] = [];
+      const uciMoves: string[] = [];
       const lastMovesList: ([Key, Key] | undefined)[] = [undefined];
 
       for (const san of sanMoves) {
         const move = parseSan(chess, san);
         if (!move) break;
         const normalizedSan = makeSan(chess, move);
+        const uci = moveToUci(move as NormalMove, chess);
         chess.play(move);
         const fen = makeFen(chess.toSetup());
         moves.push(normalizedSan);
+        uciMoves.push(uci);
         positions.push(fen);
         const m = move as NormalMove;
         if (m.from !== undefined && m.to !== undefined) {
@@ -228,9 +294,11 @@ export function useChessGame() {
       setState({
         fen: positions[positions.length - 1],
         moves,
+        uciMoves,
         positions,
         lastMoves: lastMovesList,
         currentMoveIndex: finalIndex,
+        startFen: INITIAL_FEN,
         headers: headers || {},
       });
     },
@@ -242,9 +310,11 @@ export function useChessGame() {
     setState({
       fen: INITIAL_FEN,
       moves: [],
+      uciMoves: [],
       positions: [INITIAL_FEN],
       lastMoves: [undefined],
       currentMoveIndex: -1,
+      startFen: INITIAL_FEN,
       headers: {},
     });
   }, []);
@@ -283,6 +353,7 @@ export function useChessGame() {
 
         setState((prev) => {
           const newMoves = [...prev.moves.slice(0, prev.currentMoveIndex + 1), san];
+          const newUciMoves = [...prev.uciMoves.slice(0, prev.currentMoveIndex + 1), uci];
           const newPositions = [
             ...prev.positions.slice(0, prev.currentMoveIndex + 2),
             newFen,
@@ -295,6 +366,7 @@ export function useChessGame() {
             ...prev,
             fen: newFen,
             moves: newMoves,
+            uciMoves: newUciMoves,
             positions: newPositions,
             lastMoves: newLastMoves,
             currentMoveIndex: newMoves.length - 1,
@@ -321,6 +393,8 @@ export function useChessGame() {
     legalMoves,
     lastMove,
     moves: state.moves,
+    uciMoves: state.uciMoves,
+    startFen: state.startFen,
     currentMoveIndex: state.currentMoveIndex,
     goToMove,
     headers: state.headers,

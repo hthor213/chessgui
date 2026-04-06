@@ -27,7 +27,7 @@ export default function Home() {
   )
 
   const atLatestMove = game.currentMoveIndex === game.moves.length - 1
-  const engine = useEngine(game.fen, handleBestMove, atLatestMove)
+  const engine = useEngine(game.fen, handleBestMove, atLatestMove, game.uciMoves, game.startFen, game.currentMoveIndex)
   const turn = game.fen.includes(" w ") ? ("white" as const) : ("black" as const)
   const isPlayMode = engine.state.mode === "play"
   const playerColor = engine.state.playerColor
