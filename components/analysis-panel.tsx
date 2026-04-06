@@ -145,7 +145,7 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
             <span className="text-xs font-semibold text-[#bababa]">
               {state.engineName}
             </span>
-            {state.isAnalyzing && (
+            {(state.isAnalyzing || state.isThinking) && state.depth > 0 && (
               <span className="text-xs text-muted-foreground">
                 depth {state.depth}
               </span>

@@ -43,7 +43,7 @@ const STORAGE_KEY = "chessgui-game";
 
 function loadSavedState(): GameState | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw) as GameState;
     // Sanity check: positions array must be consistent
@@ -64,9 +64,9 @@ const defaultState: GameState = {
 export function useChessGame() {
   const [state, setState] = useState<GameState>(() => loadSavedState() || defaultState);
 
-  // Persist game state to sessionStorage so hot reloads don't lose the game
+  // Persist game state to localStorage so it survives crashes and restarts
   useEffect(() => {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
   const [orientation, setOrientation] = useState<"white" | "black">("white");
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
@@ -238,6 +238,7 @@ export function useChessGame() {
   );
 
   const newGame = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
     setState({
       fen: INITIAL_FEN,
       moves: [],
@@ -249,12 +250,12 @@ export function useChessGame() {
   }, []);
 
   const playUciMove = useCallback(
-    (uci: string) => {
+    (uci: string): boolean => {
       try {
         const setup = parseFen(state.fen);
-        if (setup.isErr) return;
+        if (setup.isErr) return false;
         const pos = Chess.fromSetup(setup.unwrap());
-        if (pos.isErr) return;
+        if (pos.isErr) return false;
         const chess = pos.unwrap();
 
         // Convert standard UCI castling to chessops format (king->rook)
@@ -262,7 +263,7 @@ export function useChessGame() {
         const normalizedUci = normalizeUciCastling(uci);
 
         const move = parseUci(normalizedUci);
-        if (!move) return;
+        if (!move) return false;
 
         const san = makeSan(chess, move);
         chess.play(move);
@@ -299,8 +300,10 @@ export function useChessGame() {
             currentMoveIndex: newMoves.length - 1,
           };
         });
+        return true;
       } catch (e) {
         console.error("[playUciMove] failed:", uci, e);
+        return false;
       }
     },
     [state.fen],

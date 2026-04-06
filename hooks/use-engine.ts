@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Chess } from "chessops/chess";
 import { parseFen } from "chessops/fen";
-import { parseUciInfo, uciMovesToSan, type PvLine } from "@/lib/uci-parser";
+import { parseUci } from "chessops";
+import { parseUciInfo, uciMovesToSan, normalizeUciCastling, type PvLine } from "@/lib/uci-parser";
 
 const DEFAULT_ENGINE_PATH = "/Users/hjalti/Documents/GitHub/Stockfish/src/stockfish";
 const STORAGE_KEY = "engine-path";
@@ -58,18 +59,7 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
   const modeRef = useRef<EngineMode>("analysis");
 
   const thinkingRef = useRef(false); // guards against stale bestmove responses
-
-  // Adaptive time management for play mode:
-  // 0-10s: always think. 10-30s: check every 5s if score improved by ≥0.1 pawn.
-  // If no improvement in a 5s window, stop. Force stop at 30s.
-  const bestScoreCpRef = useRef(0);         // latest PV1 score in centipawns (raw, no flip)
-  const checkpointScoreCpRef = useRef(0);   // score snapshot at last checkpoint
-  const moveTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  const clearMoveTimers = useCallback(() => {
-    for (const t of moveTimersRef.current) clearTimeout(t);
-    moveTimersRef.current = [];
-  }, []);
+  const expectedFenRef = useRef(""); // FEN we asked the engine to compute on
 
   fenRef.current = fen;
   onBestMoveRef.current = onBestMove;
@@ -129,63 +119,23 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
         }
       }
 
-      clearMoveTimers();
-      thinkingRef.current = false; // disarm any stale bestmove from a previous stop
+      thinkingRef.current = false; // disarm any stale bestmove from a previous search
+      isAnalyzingRef.current = false;
+      expectedFenRef.current = position;
+
+      // Strategy: the engine has been analyzing at MultiPV 3 during the human's
+      // think time, building deep lines. Now we just need it to confirm the best
+      // move on the new position. Use `go movetime 10000` (10s) — no MultiPV
+      // switching needed since PV1 is already the best move. The hash table
+      // retains analysis from the human's turn, so the engine starts warm.
       await sendCommand("stop");
-      // Small delay to let the engine flush its stale bestmove response
-      await new Promise((r) => setTimeout(r, 50));
+      setState((s) => ({ ...s, isThinking: true, isAnalyzing: false, scoreTurn: turnFromFen(position), lines: [], depth: 0, nodes: 0, nps: 0 }));
       thinkingRef.current = true;
-      bestScoreCpRef.current = 0;
-      checkpointScoreCpRef.current = 0;
-      setState((s) => ({ ...s, isThinking: true, scoreTurn: turnFromFen(position), lines: [], depth: 0, nodes: 0, nps: 0 }));
       await sendCommand(`position fen ${position}`);
-      await sendCommand("go infinite");
-
-      // Adaptive time management:
-      // At 10s, snapshot the score and start checking every 5s.
-      // If score didn't improve by ≥10cp (0.1 pawns) in a 5s window, stop.
-      // Force stop at 30s no matter what.
-      const scheduleCheck = (delayMs: number) => {
-        const t = setTimeout(() => {
-          if (!thinkingRef.current) return;
-          const delta = Math.abs(bestScoreCpRef.current - checkpointScoreCpRef.current);
-          if (delta < 10) {
-            // No meaningful improvement — play best move
-            console.log(`[engine] adaptive stop at ${delayMs / 1000}s (delta ${delta}cp < 10cp)`);
-            clearMoveTimers();
-            sendCommand("stop");
-          } else {
-            // Score still moving — checkpoint and check again in 5s
-            console.log(`[engine] score improving at ${delayMs / 1000}s (delta ${delta}cp), continuing`);
-            checkpointScoreCpRef.current = bestScoreCpRef.current;
-          }
-        }, delayMs);
-        moveTimersRef.current.push(t);
-      };
-
-      // At 10s: take first checkpoint
-      const t10 = setTimeout(() => {
-        if (!thinkingRef.current) return;
-        checkpointScoreCpRef.current = bestScoreCpRef.current;
-        console.log(`[engine] 10s checkpoint: ${bestScoreCpRef.current}cp`);
-      }, 10_000);
-      moveTimersRef.current.push(t10);
-
-      // Check at 15s, 20s, 25s
-      scheduleCheck(15_000);
-      scheduleCheck(20_000);
-      scheduleCheck(25_000);
-
-      // Hard stop at 30s
-      const tMax = setTimeout(() => {
-        if (!thinkingRef.current) return;
-        console.log("[engine] hard stop at 30s");
-        clearMoveTimers();
-        sendCommand("stop");
-      }, 30_000);
-      moveTimersRef.current.push(tMax);
+      await sendCommand("isready");
+      await sendCommand("go movetime 10000");
     },
-    [sendCommand, clearMoveTimers],
+    [sendCommand],
   );
 
   const playerColorRef = useRef<PlayerColor>("white");
@@ -203,13 +153,13 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
         modeRef.current = mode;
         playerColorRef.current = playerColor;
 
-        // In play mode: MultiPV 1, max strength. In analysis: MultiPV 3.
-        const multiPv = mode === "play" ? 1 : DEFAULT_MULTI_PV;
-        await sendCommand(`setoption name MultiPV value ${multiPv}`);
-        if (mode === "play") {
-          await sendCommand("setoption name Threads value 8");
-          await sendCommand("setoption name Hash value 8192");
-        }
+        // Always MultiPV 3 — used for both analysis and play mode
+        // (bestmove handler reads PV1 for the move to play)
+        await sendCommand(`setoption name MultiPV value ${DEFAULT_MULTI_PV}`);
+        // Threads: use all cores minus 1 for OS headroom
+        // Hash: 4096 MB is optimal for 10-30s analysis (keep hashfull < 30%)
+        await sendCommand("setoption name Threads value 11");
+        await sendCommand("setoption name Hash value 4096");
         await sendCommand("isready");
 
         setState((s) => ({
@@ -223,10 +173,13 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
         if (mode === "analysis") {
           startAnalysis(fenRef.current);
         } else if (mode === "play") {
-          // If it's the engine's turn right now, make it move
           const engineColor = playerColor === "white" ? "b" : "w";
           if (fenRef.current.includes(` ${engineColor} `)) {
+            // Engine's turn — make it move
             requestMove(fenRef.current);
+          } else {
+            // Human's turn — start background analysis
+            startAnalysis(fenRef.current);
           }
         }
       } catch (e) {
@@ -238,7 +191,6 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
   );
 
   const stopEngine = useCallback(async () => {
-    clearMoveTimers();
     try {
       await invoke("stop_engine");
     } catch {
@@ -246,14 +198,13 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
     }
     isAnalyzingRef.current = false;
     setState(initialState);
-  }, [clearMoveTimers]);
+  }, []);
 
   const cancelThinking = useCallback(async () => {
-    clearMoveTimers();
     thinkingRef.current = false;
     await sendCommand("stop");
     setState((s) => ({ ...s, isThinking: false }));
-  }, [sendCommand, clearMoveTimers]);
+  }, [sendCommand]);
 
   const setPlayMode = useCallback(
     async (enabled: boolean, playerColor: PlayerColor = "white") => {
@@ -269,7 +220,6 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
       if (enabled) {
         modeRef.current = "play";
         playerColorRef.current = playerColor;
-        await sendCommand("setoption name MultiPV value 1");
         await sendCommand("isready");
         setState((s) => ({
           ...s,
@@ -282,15 +232,16 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
           nodes: 0,
           nps: 0,
         }));
-        // If it's the engine's turn, make it move
         const engineColor = playerColor === "white" ? "b" : "w";
         if (fenRef.current.includes(` ${engineColor} `)) {
           requestMove(fenRef.current);
+        } else {
+          // Human's turn — start background analysis
+          startAnalysis(fenRef.current);
         }
       } else {
         modeRef.current = "analysis";
         playerColorRef.current = "white";
-        await sendCommand(`setoption name MultiPV value ${DEFAULT_MULTI_PV}`);
         await sendCommand("isready");
         setState((s) => ({
           ...s,
@@ -332,10 +283,22 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
         const parts = line.split(/\s+/);
         const bestmove = parts[1];
         if (modeRef.current === "play" && thinkingRef.current) {
+          // Validate bestmove is legal in the position we asked about
+          if (bestmove && bestmove !== "(none)" && expectedFenRef.current) {
+            const setup = parseFen(expectedFenRef.current);
+            if (setup.isOk) {
+              const pos = Chess.fromSetup(setup.unwrap());
+              if (pos.isOk) {
+                const move = parseUci(normalizeUciCastling(bestmove));
+                if (!move || !pos.unwrap().isLegal(move)) {
+                  console.warn("[engine] ignoring stale/illegal bestmove:", bestmove);
+                  return;
+                }
+              }
+            }
+          }
+
           thinkingRef.current = false;
-          // Clear adaptive timers since we got a final answer
-          for (const t of moveTimersRef.current) clearTimeout(t);
-          moveTimersRef.current = [];
           setState((s) => ({ ...s, isThinking: false }));
           // (none) means game is over (checkmate/stalemate) — nothing to play
           if (bestmove && bestmove !== "(none)") {
@@ -347,11 +310,6 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
 
       const info = parseUciInfo(line);
       if (!info) return;
-
-      // Track raw PV1 score for adaptive time management
-      if (info.multipv === 1 && info.score) {
-        bestScoreCpRef.current = info.score.type === "cp" ? info.score.value : (info.score.value > 0 ? 100_000 : -100_000);
-      }
 
       const sanMoves = uciMovesToSan(fenRef.current, info.pv);
 
@@ -414,6 +372,12 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
         debounceRef.current = setTimeout(() => {
           requestMove(fen);
         }, 100);
+      } else {
+        // Human's turn — run continuous analysis so eval updates in real-time
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+          startAnalysis(fen);
+        }, DEBOUNCE_MS);
       }
     } else {
       // Analysis mode: re-analyze on position change
@@ -432,8 +396,6 @@ export function useEngine(fen: string, onBestMove?: (uciMove: string) => void, a
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      for (const t of moveTimersRef.current) clearTimeout(t);
-      moveTimersRef.current = [];
       invoke("stop_engine").catch(() => {});
     };
   }, []);

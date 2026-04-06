@@ -7,6 +7,7 @@ import { MoveList } from "@/components/move-list"
 import { AnalysisPanel } from "@/components/analysis-panel"
 import { PromotionDialog } from "@/components/promotion-dialog"
 import { PgnImportDialog } from "@/components/pgn-import-dialog"
+import { ErrorBoundary } from "@/components/error-boundary"
 import { useChessGame } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 
@@ -93,6 +94,7 @@ export default function Home() {
   }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.flipBoard, isPlayMode])
 
   return (
+    <ErrorBoundary>
     <TooltipProvider>
       <div className="h-screen flex flex-col bg-[#0a0a0a]">
         {/* Header */}
@@ -273,5 +275,6 @@ export default function Home() {
         onLoadGame={game.loadGame}
       />
     </TooltipProvider>
+    </ErrorBoundary>
   )
 }

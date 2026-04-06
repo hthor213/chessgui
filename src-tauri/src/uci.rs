@@ -121,7 +121,7 @@ pub async fn start_engine(
     });
 
     // Channel for sending commands to engine stdin
-    let (tx, mut rx) = mpsc::channel::<String>(32);
+    let (tx, mut rx) = mpsc::channel::<String>(128);
     tokio::spawn(async move {
         eprintln!("[uci] stdin writer started");
         while let Some(cmd) = rx.recv().await {
