@@ -1,36 +1,32 @@
 # Last Session
 
-**Date:** 2026-04-06
-**Focus:** Engine strength, repetition detection, eval continuity, hydration fix
-**Status:** All changes applied, type-checks pass, 23/23 tests pass. Needs manual smoke test for strength improvement.
+**Date:** 2026-04-09
+**Focus:** Cerebellum opening book integration
+**Status:** Book replaced, code simplified, type-checks pass. Needs smoke test vs Magnus bot.
 
 ## What happened
-- **Full move history to Stockfish:** Changed from `position fen <fen>` to `position startpos moves e2e4 e7e5 ...`. Stockfish now has full game context for threefold repetition detection and warm transposition tables.
-- **UCI move tracking:** Added `uciMoves[]` array to game state, populated in `playMove`, `playUciMove`, `loadGame`. Old localStorage saves auto-migrate via `rebuildUciMoves()`.
-- **MultiPV separation:** Play mode uses MultiPV 1 always (both human's turn analysis and engine move). Analysis mode uses MultiPV 3. No more mid-search switching.
-- **Engine sync:** Added `isready` after every `stop` command to ensure engine has fully stopped before starting new search.
-- **Hydration fix:** Moved localStorage restore from `useState` initializer to `useEffect` to prevent SSR/client mismatch.
-- **Start FEN tracking:** Added `startFen` to game state for future PGN import with custom starting positions.
+- **Replaced opening book:** Old 5.8MB generic Polyglot book → Cerebellum Light 3Merge (170MB, 10.9M engine-analyzed positions). All moves calculated by Stockfish with graph-consistent scores.
+- **Simplified opening-book.ts:** Removed Lichess Masters API and online/offline fallback. Now Cerebellum-only — instant local lookups, no internet dependency.
+- **Research:** Evaluated Cerebellum Light, Perfect 2023, GOI 7, Lichess API, and pure-engine approaches. Cerebellum is the strongest publicly available book.
 
-## Testing done
-- chess.com game vs Magnus bot (2050 Elo): won with 97.4% accuracy at 2500 Elo rating
-- Engine reached depth 33 in 10s from opening position
-- Identified that MultiPV 3 during play was costing ~54 Elo and diluting hash table
+## Why
+- Previous book led to -0.83 disadvantage by move 8 in King's Indian Defense vs Magnus bot on chess.com
+- Cerebellum's engine-verified positions should avoid theoretically dubious lines
+- Expected ~50 Elo improvement from book quality alone
 
 ## Known issues
-1. Debug logging still present (`eprintln!` in uci.rs, `console.log("[engine]")` in useEngine.ts)
-2. Threads hardcoded to 11 — should detect CPU cores dynamically
-3. Need to verify strength improvement with MultiPV 1 in play mode
-4. Analysis panel shows only 1 line in play mode (tradeoff for strength)
+1. 170MB book loaded into browser memory on first use (fine for Tauri desktop, would be bad for web)
+2. Debug logging still present (carried over from prior session)
+3. Threads still hardcoded to 11
+4. `lichess-bot/` directory exists — unrelated side project, untracked
 
 ## What's next
-### IMMEDIATE: Smoke test play strength
-1. Play vs chess.com Magnus bot again — target closer to 99% accuracy
-2. Watch console for `position startpos moves ...` and MultiPV 1
-3. Check that eval doesn't jump/reset between moves (warm hash)
+### IMMEDIATE: Smoke test opening book
+1. Play vs chess.com Magnus bot — verify Cerebellum picks better opening lines
+2. Check console for `[opening-book] Cerebellum book move:` logs
+3. Compare opening evaluation to previous -0.83 KID result
 
 ### AFTER SMOKE TEST
-- Opening book integration (Polyglot format)
 - spec:016 — Game Tree (variations, annotations)
 - Remove debug logging
 - V1 features (100-102): best move arrows, engine settings
@@ -38,13 +34,19 @@
 ## Dev commands
 ```bash
 source "$HOME/.cargo/env" && pnpm tauri dev
-pnpm test            # 23 tests, vitest
+pnpm test            # vitest
 pnpm tsc --noEmit    # Type check
 ```
 
 ## Key files changed this session
 ```
+lib/opening-book.ts         # Simplified to Cerebellum-only (was Lichess API + Polyglot fallback)
+public/book.bin             # Replaced with Cerebellum Light 3Merge (170MB)
+```
+
+## Files changed prior session (uncommitted)
+```
 hooks/use-engine.ts         # Full move history, MultiPV 1 in play, isready sync
-hooks/use-chess-game.ts     # uciMoves tracking, startFen, hydration fix, rebuildUciMoves
 app/page.tsx                # Pass uciMoves/startFen/currentMoveIndex to useEngine
+package.json / pnpm-lock    # cm-polyglot dependency
 ```

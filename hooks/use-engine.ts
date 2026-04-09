@@ -5,6 +5,7 @@ import { Chess } from "chessops/chess";
 import { parseFen } from "chessops/fen";
 import { parseUci } from "chessops";
 import { parseUciInfo, uciMovesToSan, normalizeUciCastling, type PvLine } from "@/lib/uci-parser";
+import { getOpeningBookMove } from "@/lib/opening-book";
 
 const DEFAULT_ENGINE_PATH = "/Users/hjalti/Documents/GitHub/Stockfish/src/stockfish";
 const STORAGE_KEY = "engine-path";
@@ -76,7 +77,10 @@ export function useEngine(
 
   const thinkingRef = useRef(false); // guards against stale bestmove responses
   const expectedFenRef = useRef(""); // FEN we asked the engine to compute on
-
+  
+  // Real-time opponent clock simulation state (starts at 10|5)
+  const engineClockRef = useRef<{wtime: number, btime: number}>({ wtime: 600000, btime: 600000 });
+  const turnStartTimeRef = useRef<number>(0);
   const uciMovesRef = useRef(uciMoves);
   const startFenRef = useRef(startFen);
   const moveIndexRef = useRef(currentMoveIndex);
@@ -148,6 +152,22 @@ export function useEngine(
         }
       }
 
+      // Check opening book first!
+      const bookMove = await getOpeningBookMove(position);
+      if (bookMove) {
+        console.log("[engine] Playing book move!", bookMove);
+        thinkingRef.current = false;
+        
+        // Slight delay so the UI feels somewhat realistic
+        setTimeout(() => {
+          setState((s) => ({ ...s, isThinking: false }));
+          if (onBestMoveRef.current) {
+            onBestMoveRef.current(bookMove);
+          }
+        }, 600);
+        return;
+      }
+
       thinkingRef.current = false; // disarm any stale bestmove from a previous search
       isAnalyzingRef.current = false;
       expectedFenRef.current = position;
@@ -158,9 +178,15 @@ export function useEngine(
       await sendCommand("isready"); // sync: wait for engine to fully stop
       setState((s) => ({ ...s, isThinking: true, isAnalyzing: false, scoreTurn: turnFromFen(position), lines: [], depth: 0, nodes: 0, nps: 0 }));
       thinkingRef.current = true;
+      turnStartTimeRef.current = Date.now();
+      
       const posCmd = buildPositionCommand(startFenRef.current, uciMovesRef.current, moveIndexRef.current);
       await sendCommand(posCmd);
-      await sendCommand("go movetime 10000");
+      const playerColor = playerColorRef.current;
+      const wtime = playerColor === "white" ? 2147483647 : engineClockRef.current.wtime;
+      const btime = playerColor === "black" ? 2147483647 : engineClockRef.current.btime;
+      
+      await sendCommand(`go wtime ${wtime} btime ${btime} winc 5000 binc 5000`);
     },
     [sendCommand],
   );
@@ -181,10 +207,14 @@ export function useEngine(
         playerColorRef.current = playerColor;
 
         // Threads: use all cores minus 1 for OS headroom
-        // Hash: 4096 MB is optimal for 10-30s analysis (keep hashfull < 30%)
-        await sendCommand("setoption name Threads value 11");
-        await sendCommand("setoption name Hash value 4096");
+        // Hash: 2048 MB is optimal to avoid Unified Memory compression
+        await sendCommand("setoption name Threads value 8");
+        await sendCommand("setoption name Hash value 2048");
         await sendCommand("isready");
+
+        // Reset match clock for the new session
+        engineClockRef.current = { wtime: 600000, btime: 600000 };
+        turnStartTimeRef.current = Date.now();
 
         setState((s) => ({
           ...s,
@@ -324,6 +354,18 @@ export function useEngine(
 
           thinkingRef.current = false;
           setState((s) => ({ ...s, isThinking: false }));
+          
+          // Decrement internal clock to simulate a real opponent
+          const timeSpent = Date.now() - turnStartTimeRef.current;
+          const isWhiteTurn = expectedFenRef.current?.includes(" w ");
+          if (isWhiteTurn) {
+            engineClockRef.current.wtime = Math.max(1000, engineClockRef.current.wtime - timeSpent + 5000);
+          } else {
+            engineClockRef.current.btime = Math.max(1000, engineClockRef.current.btime - timeSpent + 5000);
+          }
+          
+          turnStartTimeRef.current = Date.now(); // Clock reset for human's stopwatch
+
           // (none) means game is over (checkmate/stalemate) — nothing to play
           if (bestmove && bestmove !== "(none)") {
             onBestMoveRef.current?.(bestmove);
@@ -432,5 +474,7 @@ export function useEngine(
     setPlayMode,
     requestMove,
     cancelThinking,
+    clockRef: engineClockRef,
+    turnStartTimeRef,
   };
 }

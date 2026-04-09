@@ -33,6 +33,30 @@ export default function Home() {
   const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
+  const [now, setNow] = useState(Date.now())
+
+  // Force re-render during play mode so the active clock visually ticks
+  useEffect(() => {
+    if (!isPlayMode) return;
+    const interval = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(interval);
+  }, [isPlayMode]);
+
+  // Calculate live clock display
+  const isEngineTurn = isPlayMode && turn !== playerColor;
+  const engineBaseTime = playerColor === "white" ? engine.clockRef.current.btime : engine.clockRef.current.wtime;
+  
+  const timeSpentThisTurn = isPlayMode ? Math.max(0, now - engine.turnStartTimeRef.current) : 0;
+  
+  const engineLiveTime = isEngineTurn ? Math.max(0, engineBaseTime - timeSpentThisTurn) : engineBaseTime;
+  const humanLiveTime = !isEngineTurn ? timeSpentThisTurn : 0;
+
+  const formatClock = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const m = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+    const s = (totalSeconds % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
 
   // Auto-flip board when starting a game as black
   useEffect(() => {
@@ -149,7 +173,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider">
-                --:--
+                {isPlayMode ? formatClock(engineLiveTime) : "--:--"}
               </div>
             </div>
 
@@ -194,8 +218,8 @@ export default function Home() {
                   </p>
                 </div>
               </div>
-              <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider">
-                --:--
+              <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider opacity-80">
+                {isPlayMode ? formatClock(humanLiveTime) : "--:--"}
               </div>
             </div>
           </div>
