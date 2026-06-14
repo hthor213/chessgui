@@ -9,3 +9,6 @@ src-tauri/target/
 
 # Engine binaries (downloaded, not vendored)
 engines/
+
+# Raw opening books (large, downloaded — regenerate via scripts/tag_positions.py)
+data/openings/

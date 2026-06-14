@@ -7,9 +7,11 @@
 //! synchronously, one move at a time.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use shakmaty::fen::Fen;
 use shakmaty::uci::UciMove;
 use shakmaty::zobrist::Zobrist64;
@@ -364,4 +366,233 @@ pub async fn play_game(
     max_plies: usize,
 ) -> Result<GameResult, String> {
     play_game_core(&white_path, &black_path, start_fen, movetime_ms, max_plies).await
+}
+
+// ============================================================================
+// Milestone 2 — Parallel batch runner
+// ============================================================================
+
+/// One game to be played as part of a batch. Self-describing so the runner can
+/// schedule games in any order and the caller can correlate outcomes by `id`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GameSpec {
+    /// Caller-assigned identifier, echoed back on the matching [`GameOutcome`].
+    pub id: usize,
+    pub white_path: String,
+    pub black_path: String,
+    pub start_fen: Option<String>,
+    pub movetime_ms: u64,
+    pub max_plies: usize,
+    /// Optional tag: marks this game as the color-flipped partner of another.
+    /// Purely informational for the runner; callers use it to pair games.
+    #[serde(default)]
+    pub flipped: bool,
+}
+
+/// The result of attempting one [`GameSpec`]: either a completed game or an
+/// error string (e.g. an engine failed to spawn).
+#[derive(Serialize, Debug, Clone)]
+pub struct GameOutcome {
+    /// Echoes [`GameSpec::id`].
+    pub id: usize,
+    /// Echoes [`GameSpec::flipped`].
+    pub flipped: bool,
+    /// `Ok` game result, or `Err` message if the game could not be played.
+    pub result: Result<GameResult, String>,
+}
+
+/// Progress event emitted as each game in a batch completes.
+#[derive(Serialize, Debug, Clone)]
+pub struct BatchProgress {
+    /// Number of games that have finished so far (completed or errored).
+    pub completed: usize,
+    /// Total number of games scheduled in the batch.
+    pub total: usize,
+    /// The outcome of the game that just finished.
+    pub last: GameOutcome,
+}
+
+/// Aggregate raw W/D/L counts over a set of outcomes.
+#[derive(Serialize, Debug, Clone, Default)]
+pub struct BatchSummary {
+    pub games: usize,
+    pub white_wins: usize,
+    pub black_wins: usize,
+    pub draws: usize,
+    pub errors: usize,
+}
+
+/// Tally raw results across outcomes. White/Black wins are keyed on the literal
+/// game result string ("1-0" / "0-1"); everything else with a result is a draw.
+pub fn summarize(outcomes: &[GameOutcome]) -> BatchSummary {
+    let mut s = BatchSummary {
+        games: outcomes.len(),
+        ..Default::default()
+    };
+    for o in outcomes {
+        match &o.result {
+            Ok(g) => match g.result.as_str() {
+                "1-0" => s.white_wins += 1,
+                "0-1" => s.black_wins += 1,
+                _ => s.draws += 1,
+            },
+            Err(_) => s.errors += 1,
+        }
+    }
+    s
+}
+
+/// Pick a sensible default concurrency when the caller passes 0: one less than
+/// the number of logical CPUs, clamped to at least 1.
+fn default_concurrency() -> usize {
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2);
+    cpus.saturating_sub(1).max(1)
+}
+
+/// Run a batch of games concurrently with a bounded concurrency limit.
+///
+/// Pure core: no Tauri dependencies.
+/// * `concurrency` — max games in flight at once; `0` selects a sensible default.
+/// * `on_progress` — invoked once per completed game with a [`BatchProgress`].
+/// * `cancel` — checked before launching each queued game; once set, no further
+///   games are launched (in-flight games are allowed to finish). Whatever has
+///   completed is returned.
+///
+/// Engine processes are torn down cleanly: each game owns its own short-lived
+/// engine handles (spawned with `kill_on_drop`), and on cancellation we simply
+/// stop scheduling new ones, so nothing leaks.
+pub async fn run_batch_core(
+    specs: Vec<GameSpec>,
+    concurrency: usize,
+    on_progress: impl Fn(BatchProgress) + Send + Sync + 'static,
+    cancel: Arc<AtomicBool>,
+) -> Vec<GameOutcome> {
+    let total = specs.len();
+    let limit = if concurrency == 0 {
+        default_concurrency()
+    } else {
+        concurrency
+    };
+
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(limit));
+    let on_progress = Arc::new(on_progress);
+    let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let mut handles = Vec::with_capacity(total);
+
+    for spec in specs {
+        // Stop launching new games once cancellation is requested.
+        if cancel.load(Ordering::SeqCst) {
+            break;
+        }
+
+        // Acquire a permit before spawning so at most `limit` games run at once.
+        // If cancellation arrives while we're waiting for a permit, bail.
+        let permit = match Arc::clone(&semaphore).acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => break,
+        };
+        if cancel.load(Ordering::SeqCst) {
+            drop(permit);
+            break;
+        }
+
+        let on_progress = Arc::clone(&on_progress);
+        let completed = Arc::clone(&completed);
+
+        let handle = tokio::spawn(async move {
+            // Permit is held for the lifetime of this game, then released here.
+            let _permit = permit;
+
+            let result = play_game_core(
+                &spec.white_path,
+                &spec.black_path,
+                spec.start_fen.clone(),
+                spec.movetime_ms,
+                spec.max_plies,
+            )
+            .await;
+
+            let outcome = GameOutcome {
+                id: spec.id,
+                flipped: spec.flipped,
+                result,
+            };
+
+            let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+            on_progress(BatchProgress {
+                completed: done,
+                total,
+                last: outcome.clone(),
+            });
+
+            outcome
+        });
+
+        handles.push(handle);
+    }
+
+    // Collect all launched games (in-flight ones run to completion).
+    let mut outcomes = Vec::with_capacity(handles.len());
+    for h in handles {
+        if let Ok(outcome) = h.await {
+            outcomes.push(outcome);
+        }
+    }
+
+    // Stable ordering by spec id so callers get deterministic output.
+    outcomes.sort_by_key(|o| o.id);
+    outcomes
+}
+
+/// Shared cancellation flag, managed as Tauri state so a `cancel_batch` command
+/// can request that an in-flight [`play_batch`] stop launching new games.
+#[derive(Default)]
+pub struct BatchCancel(pub Arc<AtomicBool>);
+
+/// Response from [`play_batch`]: every outcome plus the aggregate summary.
+#[derive(Serialize, Debug, Clone)]
+pub struct BatchReport {
+    pub outcomes: Vec<GameOutcome>,
+    pub summary: BatchSummary,
+}
+
+/// Tauri command: run a batch of games, streaming per-game progress over an IPC
+/// channel, and return all outcomes plus the summary.
+///
+/// Cancellation: the shared [`BatchCancel`] flag is reset at the start of each
+/// batch, then a `cancel_batch` command can set it to request a clean stop.
+#[tauri::command]
+pub async fn play_batch(
+    specs: Vec<GameSpec>,
+    concurrency: usize,
+    on_progress: tauri::ipc::Channel<BatchProgress>,
+    cancel: tauri::State<'_, BatchCancel>,
+) -> Result<BatchReport, String> {
+    // Fresh run: clear any leftover cancellation from a previous batch.
+    let flag = Arc::clone(&cancel.0);
+    flag.store(false, Ordering::SeqCst);
+
+    let progress = on_progress.clone();
+    let outcomes = run_batch_core(
+        specs,
+        concurrency,
+        move |p| {
+            // Best-effort: a closed channel (window gone) must not abort the run.
+            let _ = progress.send(p);
+        },
+        Arc::clone(&flag),
+    )
+    .await;
+
+    let summary = summarize(&outcomes);
+    Ok(BatchReport { outcomes, summary })
+}
+
+/// Tauri command: request cancellation of the currently running batch.
+#[tauri::command]
+pub fn cancel_batch(cancel: tauri::State<'_, BatchCancel>) {
+    cancel.0.store(true, Ordering::SeqCst);
 }

@@ -13,12 +13,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(Mutex::new(uci::EngineState::default()))
+        .manage(match_runner::BatchCancel::default())
         .invoke_handler(tauri::generate_handler![
             ping,
             uci::start_engine,
             uci::send_command,
             uci::stop_engine,
             match_runner::play_game,
+            match_runner::play_batch,
+            match_runner::cancel_batch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
