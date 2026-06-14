@@ -360,6 +360,7 @@ pub async fn play_game_core(
         adjudicate_tb,
         0,
         |_| {},
+        &AtomicBool::new(false),
     )
     .await
 }
@@ -382,6 +383,7 @@ pub async fn play_game_streamed(
     adjudicate_tb: bool,
     game_id: usize,
     on_move: impl Fn(MoveEvent) + Send + Sync,
+    cancel: &AtomicBool,
 ) -> Result<GameResult, String> {
     // Set up the starting position.
     let (mut pos, start_fen_str, is_standard_start): (Chess, String, bool) = match &start_fen {
@@ -462,6 +464,12 @@ pub async fn play_game_streamed(
     }
 
     loop {
+        // Abort promptly if the batch was cancelled (engines die on drop). This
+        // bounds an in-flight game's shutdown to roughly one move's think time.
+        if cancel.load(Ordering::SeqCst) {
+            return Err("cancelled".to_string());
+        }
+
         // Adjudicate at max plies.
         if moves.len() >= max_plies {
             return Ok(finish(white, black, "1/2-1/2", "max_plies", moves));
@@ -813,6 +821,7 @@ pub async fn run_batch_core(
         let on_progress = Arc::clone(&on_progress);
         let on_move = Arc::clone(&on_move);
         let completed = Arc::clone(&completed);
+        let cancel_game = Arc::clone(&cancel);
 
         let handle = tokio::spawn(async move {
             // Permit is held for the lifetime of this game, then released here.
@@ -828,6 +837,7 @@ pub async fn run_batch_core(
                 spec.adjudicate_tb,
                 spec.id,
                 move |ev| on_move(ev),
+                &cancel_game,
             )
             .await;
 
