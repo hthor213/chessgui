@@ -676,7 +676,7 @@ function EngineCurve({
       </p>
 
       {/* Bars */}
-      <div className="relative flex items-end gap-1 h-56">
+      <div className="relative flex items-stretch gap-1 h-56">
         {/* 50% reference line */}
         <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-dashed border-white/20" />
         {shown.map((bin) => {
@@ -757,7 +757,7 @@ function ProbabilityMap({ bins }: { bins: ProbBin[] }) {
       </p>
 
       {/* Bars */}
-      <div className="flex items-end gap-1 h-56">
+      <div className="flex items-stretch gap-1 h-56">
         {bins.map((bin) => {
           const total = bin.count || 1
           const wPct = (bin.whiteWins / total) * 100
