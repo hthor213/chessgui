@@ -188,6 +188,8 @@ export function TournamentTab({
           lastMove: uciSquares(m.uci),
           whiteLabel: meta.whiteLabel,
           blackLabel: meta.blackLabel,
+          whiteTimeMs: m.wtime_ms,
+          blackTimeMs: m.btime_ms,
         }
         liveById.set(m.game_id, g)
         if (featuredId === null || completed.has(featuredId)) featuredId = m.game_id

@@ -65,6 +65,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       fen,
       orientation,
       viewOnly,
+      coordinates: true,
       turnColor: fen.includes(" w ") ? "white" : "black",
       movable: {
         color: viewOnly ? undefined : movableColor,

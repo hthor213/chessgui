@@ -328,6 +328,10 @@ pub struct MoveEvent {
     pub uci: String,
     /// FEN of the position AFTER this move was applied.
     pub fen: String,
+    /// White's remaining clock (ms) after this move (post-deduction + increment).
+    pub wtime_ms: i64,
+    /// Black's remaining clock (ms) after this move.
+    pub btime_ms: i64,
 }
 
 /// Play one full headless game between two engines.
@@ -559,6 +563,8 @@ pub async fn play_game_streamed(
             ply,
             uci: uci_str,
             fen: fen_after,
+            wtime_ms: wtime,
+            btime_ms: btime,
         });
 
         // --- Termination checks after the move ---

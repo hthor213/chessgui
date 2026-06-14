@@ -59,6 +59,10 @@ export type MoveEvent = {
   uci: string
   /** Position AFTER the move. */
   fen: string
+  /** White's remaining clock (ms) after this move. */
+  wtime_ms: number
+  /** Black's remaining clock (ms) after this move. */
+  btime_ms: number
 }
 
 /** The currently-featured live game, surfaced for the board viewer. */
@@ -70,6 +74,9 @@ export type LiveGame = {
   lastMove?: [string, string]
   whiteLabel: string
   blackLabel: string
+  /** Remaining clocks (ms) for each side. */
+  whiteTimeMs: number
+  blackTimeMs: number
 }
 
 /** A sudden-death + increment time control (per side). */

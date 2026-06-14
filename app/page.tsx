@@ -376,6 +376,28 @@ export default function Home() {
 const EMPTY_DESTS = new Map<Key, Key[]>()
 const noop = () => {}
 
+// Format a remaining clock (ms) as m:ss, with tenths under 10s.
+function fmtClock(ms: number): string {
+  const t = Math.max(0, ms)
+  if (t < 10_000) return (t / 1000).toFixed(1)
+  const s = Math.floor(t / 1000)
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`
+}
+
+/** One player's name + remaining clock, shown above/below the live board. */
+function LivePlayer({ label, side, ms }: { label: string; side: string; ms: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3 w-full max-w-[min(70vh,560px)] px-1">
+      <span className="text-sm font-medium text-foreground">
+        {label} <span className="text-muted-foreground">({side})</span>
+      </span>
+      <span className="px-2 py-0.5 rounded bg-secondary/60 border border-white/10 text-base font-mono text-foreground tabular-nums">
+        {fmtClock(ms)}
+      </span>
+    </div>
+  )
+}
+
 /** Read-only board that watches the currently-featured live tournament game. */
 function LiveGameView({ live }: { live: LiveGame | null }) {
   if (!live) {
@@ -387,10 +409,8 @@ function LiveGameView({ live }: { live: LiveGame | null }) {
   }
   const moveNo = Math.floor((live.ply + 1) / 2)
   return (
-    <div className="flex flex-col items-center gap-3 w-full h-full min-h-0 py-2">
-      <div className="text-sm font-medium text-foreground">
-        {live.blackLabel} <span className="text-muted-foreground">(black)</span>
-      </div>
+    <div className="flex flex-col items-center gap-2 w-full h-full min-h-0 py-2">
+      <LivePlayer label={live.blackLabel} side="black" ms={live.blackTimeMs} />
       <div className="flex-1 flex items-center justify-center w-full overflow-hidden">
         <Board
           fen={live.fen}
@@ -401,9 +421,7 @@ function LiveGameView({ live }: { live: LiveGame | null }) {
           lastMove={live.lastMove as [Key, Key] | undefined}
         />
       </div>
-      <div className="text-sm font-medium text-foreground">
-        {live.whiteLabel} <span className="text-muted-foreground">(white)</span>
-      </div>
+      <LivePlayer label={live.whiteLabel} side="white" ms={live.whiteTimeMs} />
       <div className="text-xs text-muted-foreground font-mono">
         game #{live.gameId} &middot; move {moveNo}
       </div>
