@@ -7,6 +7,9 @@
     font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
     font-size: 16px;
     line-height: 24px;
+    /* Render native form controls (inputs, spinners) in dark mode so their
+       text uses the page foreground instead of the UA light-mode dark color. */
+    color-scheme: dark;
   }
 
   * {

@@ -48,11 +48,13 @@ export function TournamentTab() {
   const [engineA, setEngineA] = useState(STOCKFISH_DEFAULT)
   const [engineB, setEngineB] = useState(RECKLESS_DEFAULT)
   const [mode, setMode] = useState<StartMode>("normal")
-  const [minEval, setMinEval] = useState(-2)
-  const [maxEval, setMaxEval] = useState(2)
-  const [nGames, setNGames] = useState(100)
-  const [movetimeMs, setMovetimeMs] = useState(100)
-  const [concurrency, setConcurrency] = useState(0)
+  // Numeric fields are held as raw strings so they stay freely editable
+  // (clearing/retyping); they are coerced to numbers with fallbacks in run().
+  const [minEval, setMinEval] = useState("-2")
+  const [maxEval, setMaxEval] = useState("2")
+  const [nGames, setNGames] = useState("100")
+  const [movetimeMs, setMovetimeMs] = useState("100")
+  const [concurrency, setConcurrency] = useState("0")
 
   const [running, setRunning] = useState(false)
   const [tally, setTally] = useState<RunningTally | null>(null)
@@ -70,14 +72,23 @@ export function TournamentTab() {
     setRunning(true)
 
     try {
+      // Coerce the free-text numeric fields with sensible fallbacks/clamps.
+      const nGamesNum = Math.max(2, Math.min(500, Math.round(Number(nGames) || 100)))
+      const movetimeNum = Math.max(1, Math.round(Number(movetimeMs) || 100))
+      const concurrencyNum = Math.max(0, Math.round(Number(concurrency) || 0))
+      const minEvalNum = Number.isFinite(Number(minEval)) ? Number(minEval) : -2
+      const maxEvalNum = Number.isFinite(Number(maxEval)) ? Number(maxEval) : 2
+      const lo = Math.min(minEvalNum, maxEvalNum)
+      const hi = Math.max(minEvalNum, maxEvalNum)
+
       const positions = await loadPositions()
-      const nSeeds = seedsForGames(nGames)
-      const seeds = buildSeeds(mode, nSeeds, positions, minEval, maxEval)
+      const nSeeds = seedsForGames(nGamesNum)
+      const seeds = buildSeeds(mode, nSeeds, positions, lo, hi)
       const { specs, evalById } = buildSpecs(
         seeds,
         engineA,
         engineB,
-        movetimeMs,
+        movetimeNum,
         MAX_PLIES,
       )
       evalByIdRef.current = evalById
@@ -116,7 +127,7 @@ export function TournamentTab() {
       // Param names MUST match the Rust command: specs, concurrency, onProgress.
       const result = await invoke<BatchReport>("play_batch", {
         specs: specs as GameSpec[],
-        concurrency,
+        concurrency: concurrencyNum,
         onProgress: channel,
       })
 
@@ -125,8 +136,8 @@ export function TournamentTab() {
         buildProbabilityMap(
           result.outcomes,
           evalByIdRef.current,
-          minEval,
-          maxEval,
+          lo,
+          hi,
         ),
       )
     } catch (e) {
@@ -223,7 +234,7 @@ export function TournamentTab() {
                   step="0.25"
                   className="w-28 bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                   value={minEval}
-                  onChange={(e) => setMinEval(Number(e.target.value))}
+                  onChange={(e) => setMinEval(e.target.value)}
                   disabled={running}
                 />
               </label>
@@ -234,7 +245,7 @@ export function TournamentTab() {
                   step="0.25"
                   className="w-28 bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                   value={maxEval}
-                  onChange={(e) => setMaxEval(Number(e.target.value))}
+                  onChange={(e) => setMaxEval(e.target.value)}
                   disabled={running}
                 />
               </label>
@@ -252,9 +263,7 @@ export function TournamentTab() {
                 max={500}
                 className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                 value={nGames}
-                onChange={(e) =>
-                  setNGames(Math.max(2, Math.min(500, Number(e.target.value) || 0)))
-                }
+                onChange={(e) => setNGames(e.target.value)}
                 disabled={running}
               />
             </label>
@@ -265,7 +274,7 @@ export function TournamentTab() {
                 min={1}
                 className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                 value={movetimeMs}
-                onChange={(e) => setMovetimeMs(Math.max(1, Number(e.target.value) || 0))}
+                onChange={(e) => setMovetimeMs(e.target.value)}
                 disabled={running}
               />
             </label>
@@ -278,7 +287,7 @@ export function TournamentTab() {
                 min={0}
                 className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                 value={concurrency}
-                onChange={(e) => setConcurrency(Math.max(0, Number(e.target.value) || 0))}
+                onChange={(e) => setConcurrency(e.target.value)}
                 disabled={running}
               />
             </label>
