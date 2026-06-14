@@ -129,13 +129,25 @@ export default function Home() {
             </span>
           </div>
           <nav className="flex items-center gap-1">
-            <button className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5">
+            <button
+              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+                isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => engine.setPlayMode(true, playerColor)}
+              title="Play against Stockfish"
+            >
               Play
             </button>
-            <button className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5">
+            <button
+              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+                engine.state.isRunning && !isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => engine.setPlayMode(false)}
+              title="Analyze the current position with Stockfish"
+            >
               Analyze
             </button>
-            <button className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5">
+            <button className="px-3 py-1.5 text-sm text-muted-foreground/40 cursor-not-allowed rounded-md" disabled>
               Learn
             </button>
           </nav>
@@ -226,6 +238,17 @@ export default function Home() {
 
           {/* Center column: Board */}
           <div className="flex flex-col items-center gap-4 min-h-0 overflow-hidden">
+            {game.status.label && (
+              <div
+                className={`shrink-0 px-4 py-1.5 rounded-md text-sm font-semibold ${
+                  game.status.over
+                    ? "bg-red-900/60 text-red-100 border border-red-700/50"
+                    : "bg-amber-900/40 text-amber-200 border border-amber-700/40"
+                }`}
+              >
+                {game.status.label}
+              </div>
+            )}
             <div className="flex-1 flex items-center justify-center w-full overflow-hidden">
               <Board
                 fen={game.fen}

@@ -144,6 +144,25 @@ export function useChessGame() {
     return chessgroundDests(pos.unwrap()) as Map<Key, Key[]>;
   }, [state.fen]);
 
+  // Derived game status for the current position (checkmate / stalemate / draw /
+  // check). Surfaces an explicit signal to the UI instead of leaving the user to
+  // guess whether a position is terminal.
+  const status = useMemo((): { over: boolean; label: string | null } => {
+    const setup = parseFen(state.fen);
+    if (setup.isErr) return { over: false, label: null };
+    const pos = Chess.fromSetup(setup.unwrap());
+    if (pos.isErr) return { over: false, label: null };
+    const chess = pos.unwrap();
+    if (chess.isCheckmate()) {
+      const winner = chess.turn === "white" ? "Black" : "White";
+      return { over: true, label: `Checkmate — ${winner} wins` };
+    }
+    if (chess.isStalemate()) return { over: true, label: "Stalemate — draw" };
+    if (chess.isInsufficientMaterial()) return { over: true, label: "Draw — insufficient material" };
+    if (chess.isCheck()) return { over: false, label: "Check" };
+    return { over: false, label: null };
+  }, [state.fen]);
+
   const playMove = useCallback(
     (from: Key, to: Key, promotion?: PromotionRole) => {
       const setup = parseFen(state.fen);
@@ -391,6 +410,7 @@ export function useChessGame() {
     orientation,
     onMove,
     legalMoves,
+    status,
     lastMove,
     moves: state.moves,
     uciMoves: state.uciMoves,

@@ -7,7 +7,7 @@ import { parseUci } from "chessops";
 import { parseUciInfo, uciMovesToSan, normalizeUciCastling, type PvLine } from "@/lib/uci-parser";
 import { getOpeningBookMove } from "@/lib/opening-book";
 
-const DEFAULT_ENGINE_PATH = "/Users/hjalti/Documents/GitHub/Stockfish/src/stockfish";
+const DEFAULT_ENGINE_PATH = "/opt/homebrew/bin/stockfish";
 const STORAGE_KEY = "engine-path";
 const DEBOUNCE_MS = 50;
 const DEFAULT_MULTI_PV = 3;
@@ -197,12 +197,30 @@ export function useEngine(
     async (path?: string, mode: EngineMode = "analysis", playerColor: PlayerColor = "white") => {
       const enginePath = path || localStorage.getItem(STORAGE_KEY) || DEFAULT_ENGINE_PATH;
 
+      let result: { name: string; ready: boolean };
       try {
-        const result = await invoke<{ name: string; ready: boolean }>("start_engine", {
+        result = await invoke<{ name: string; ready: boolean }>("start_engine", {
           path: enginePath,
         });
-
         localStorage.setItem(STORAGE_KEY, enginePath);
+      } catch (e) {
+        // A stale stored path (e.g. an engine binary that has since moved or been
+        // deleted) shouldn't permanently wedge the engine. If the failed path was
+        // not already the built-in default, clear it and retry with the default.
+        if (enginePath !== DEFAULT_ENGINE_PATH) {
+          console.warn(`Engine path "${enginePath}" failed (${e}); retrying with default.`);
+          localStorage.removeItem(STORAGE_KEY);
+          result = await invoke<{ name: string; ready: boolean }>("start_engine", {
+            path: DEFAULT_ENGINE_PATH,
+          });
+          localStorage.setItem(STORAGE_KEY, DEFAULT_ENGINE_PATH);
+        } else {
+          console.error("Failed to start engine:", e);
+          throw e;
+        }
+      }
+
+      try {
         modeRef.current = mode;
         playerColorRef.current = playerColor;
 
