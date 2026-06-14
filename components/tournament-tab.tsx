@@ -9,9 +9,10 @@ import {
   buildSpecs,
   seedsForGames,
   buildProbabilityMap,
+  gameResult,
   type BatchProgress,
   type BatchReport,
-  type BatchSummary,
+  type GameOutcome,
   type GameSpec,
   type EvalMap,
   type ProbBin,
@@ -28,10 +29,16 @@ const MAX_PLIES = 400
 type RunningTally = {
   completed: number
   total: number
-  white: number
-  black: number
+  engineA: number
+  engineB: number
   draw: number
   errors: number
+}
+
+// Short display label for an engine, derived from its binary path.
+function engineLabel(path: string): string {
+  const base = path.split("/").pop() || path
+  return base.replace(/\.(exe|app)$/i, "")
 }
 
 // Cache the tagged positions across runs so we only fetch once.
@@ -94,30 +101,33 @@ export function TournamentTab() {
       evalByIdRef.current = evalById
 
       const total = specs.length
-      setTally({ completed: 0, total, white: 0, black: 0, draw: 0, errors: 0 })
+      setTally({ completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0 })
 
       // Live progress channel. The backend sends one BatchProgress per game.
       const channel = new Channel<BatchProgress>()
       channel.onmessage = (p: BatchProgress) => {
         setTally((prev) => {
           const base =
-            prev ?? { completed: 0, total, white: 0, black: 0, draw: 0, errors: 0 }
+            prev ?? { completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0 }
           const r = (p.last.result as { Ok?: { result: string } }).Ok
-          let { white, black, draw, errors } = base
+          let { engineA: aWins, engineB: bWins, draw, errors } = base
           if (!r) {
             errors += 1
-          } else if (r.result === "1-0") {
-            white += 1
-          } else if (r.result === "0-1") {
-            black += 1
-          } else {
+          } else if (r.result === "1/2-1/2") {
             draw += 1
+          } else {
+            // Engines swap colors per game: white==engineA only when !flipped.
+            // "1-0" = white won, "0-1" = black won.
+            const whiteWon = r.result === "1-0"
+            const aIsWhite = !p.last.flipped
+            if (whiteWon === aIsWhite) aWins += 1
+            else bWins += 1
           }
           return {
             completed: p.completed,
             total: p.total,
-            white,
-            black,
+            engineA: aWins,
+            engineB: bWins,
             draw,
             errors,
           }
@@ -324,9 +334,9 @@ export function TournamentTab() {
             </div>
             <Progress value={pct} />
             <div className="flex flex-wrap gap-4 text-sm">
-              <span className="text-green-400">White wins: {tally.white}</span>
+              <span className="text-green-400">{engineLabel(engineA)} wins: {tally.engineA}</span>
               <span className="text-muted-foreground">Draws: {tally.draw}</span>
-              <span className="text-red-400">Black wins: {tally.black}</span>
+              <span className="text-sky-400">{engineLabel(engineB)} wins: {tally.engineB}</span>
               {tally.errors > 0 && (
                 <span className="text-amber-400">Errors: {tally.errors}</span>
               )}
@@ -335,7 +345,13 @@ export function TournamentTab() {
         )}
 
         {/* Final summary */}
-        {report && <SummaryCard summary={report.summary} />}
+        {report && (
+          <SummaryCard
+            outcomes={report.outcomes}
+            labelA={engineLabel(engineA)}
+            labelB={engineLabel(engineB)}
+          />
+        )}
 
         {/* Probability map */}
         {report && probBins.length > 0 && (
@@ -351,13 +367,33 @@ export function TournamentTab() {
   )
 }
 
-function SummaryCard({ summary }: { summary: BatchSummary }) {
+function SummaryCard({
+  outcomes,
+  labelA,
+  labelB,
+}: {
+  outcomes: GameOutcome[]
+  labelA: string
+  labelB: string
+}) {
+  // Recompute per-ENGINE results (engines swap colors each game), since the
+  // backend summary only knows white/black.
+  let games = 0, aWins = 0, bWins = 0, draws = 0, errors = 0
+  for (const o of outcomes) {
+    games += 1
+    const r = gameResult(o)
+    if (!r) { errors += 1; continue }
+    if (r.result === "1/2-1/2") { draws += 1; continue }
+    const aIsWhite = !o.flipped
+    if ((r.result === "1-0") === aIsWhite) aWins += 1
+    else bWins += 1
+  }
   const items: [string, number, string][] = [
-    ["Games", summary.games, "text-foreground"],
-    ["White wins", summary.white_wins, "text-green-400"],
-    ["Black wins", summary.black_wins, "text-red-400"],
-    ["Draws", summary.draws, "text-muted-foreground"],
-    ["Errors", summary.errors, "text-amber-400"],
+    ["Games", games, "text-foreground"],
+    [`${labelA} wins`, aWins, "text-green-400"],
+    [`${labelB} wins`, bWins, "text-sky-400"],
+    ["Draws", draws, "text-muted-foreground"],
+    ["Errors", errors, "text-amber-400"],
   ]
   return (
     <section className="bg-secondary/40 border border-white/10 rounded-lg p-4">
