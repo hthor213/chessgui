@@ -6,3 +6,6 @@ src-tauri/target/
 *.log
 .DS_Store
 *.bin
+
+# Engine binaries (downloaded, not vendored)
+engines/

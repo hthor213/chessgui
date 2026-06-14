@@ -1,4 +1,5 @@
 mod uci;
+pub mod match_runner;
 
 use std::sync::Mutex;
 
@@ -17,6 +18,7 @@ pub fn run() {
             uci::start_engine,
             uci::send_command,
             uci::stop_engine,
+            match_runner::play_game,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
