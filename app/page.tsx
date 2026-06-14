@@ -11,6 +11,8 @@ import { ErrorBoundary } from "@/components/error-boundary"
 import { TournamentTab } from "@/components/tournament-tab"
 import { useChessGame } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
+import type { LiveGame } from "@/lib/tournament"
+import type { Key } from "@lichess-org/chessground/types"
 
 const Board = dynamic(
   () => import("@/components/board").then((m) => ({ default: m.Board })),
@@ -34,6 +36,10 @@ export default function Home() {
   const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
   const [view, setView] = useState<"board" | "tournament">("board")
+  const [tournamentRunning, setTournamentRunning] = useState(false)
+  const [liveGame, setLiveGame] = useState<LiveGame | null>(null)
+  // Watch a live engine-vs-engine game on the board while a tournament runs.
+  const liveViewing = view === "board" && tournamentRunning
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
   const [now, setNow] = useState(Date.now())
 
@@ -133,15 +139,17 @@ export default function Home() {
           <nav className="flex items-center gap-1">
             <button
               className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
-                view === "board" && isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+                view === "board" && (tournamentRunning || isPlayMode) ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               }`}
               onClick={() => {
                 setView("board")
-                engine.setPlayMode(true, playerColor)
+                // Don't start a human game while a tournament is in progress —
+                // just switch to the board to watch the live engine game.
+                if (!tournamentRunning) engine.setPlayMode(true, playerColor)
               }}
-              title="Play against Stockfish"
+              title={tournamentRunning ? "Watch the live tournament game" : "Play against Stockfish"}
             >
-              Play
+              {tournamentRunning ? "View" : "Play"}
             </button>
             <button
               className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
@@ -176,17 +184,29 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Tournament view */}
-        {view === "tournament" && (
-          <main className="flex-1 min-h-0">
-            <TournamentTab />
+        {/* Tournament view — kept mounted so a running batch survives switching
+            to the board to watch a live game. */}
+        <main
+          className="flex-1 min-h-0"
+          style={view === "tournament" ? undefined : { display: "none" }}
+        >
+          <TournamentTab
+            onRunningChange={setTournamentRunning}
+            onLiveUpdate={setLiveGame}
+          />
+        </main>
+
+        {/* Live tournament game viewer */}
+        {liveViewing && (
+          <main className="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 p-4">
+            <LiveGameView live={liveGame} />
           </main>
         )}
 
         {/* Main content - three-column grid */}
         <main
           className="flex-1 grid grid-cols-[220px_1fr_220px] gap-4 p-4 min-h-0"
-          style={view === "tournament" ? { display: "none" } : undefined}
+          style={view === "tournament" || liveViewing ? { display: "none" } : undefined}
         >
           {/* Left column: Player Panel */}
           <div className="flex flex-col gap-4">
@@ -350,5 +370,43 @@ export default function Home() {
       />
     </TooltipProvider>
     </ErrorBoundary>
+  )
+}
+
+const EMPTY_DESTS = new Map<Key, Key[]>()
+const noop = () => {}
+
+/** Read-only board that watches the currently-featured live tournament game. */
+function LiveGameView({ live }: { live: LiveGame | null }) {
+  if (!live) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Waiting for the first move&hellip;
+      </div>
+    )
+  }
+  const moveNo = Math.floor((live.ply + 1) / 2)
+  return (
+    <div className="flex flex-col items-center gap-3 w-full h-full min-h-0 py-2">
+      <div className="text-sm font-medium text-foreground">
+        {live.blackLabel} <span className="text-muted-foreground">(black)</span>
+      </div>
+      <div className="flex-1 flex items-center justify-center w-full overflow-hidden">
+        <Board
+          fen={live.fen}
+          orientation="white"
+          viewOnly
+          legalMoves={EMPTY_DESTS}
+          onMove={noop}
+          lastMove={live.lastMove as [Key, Key] | undefined}
+        />
+      </div>
+      <div className="text-sm font-medium text-foreground">
+        {live.whiteLabel} <span className="text-muted-foreground">(white)</span>
+      </div>
+      <div className="text-xs text-muted-foreground font-mono">
+        game #{live.gameId} &middot; move {moveNo}
+      </div>
+    </div>
   )
 }

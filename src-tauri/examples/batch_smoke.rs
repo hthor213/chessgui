@@ -9,7 +9,7 @@
 //! Run with:
 //!   cd src-tauri && cargo run --example batch_smoke
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -46,6 +46,10 @@ async fn main() {
 
     let cancel = Arc::new(AtomicBool::new(false));
 
+    // Count streamed moves to prove the on_move callback fires.
+    let move_count = Arc::new(AtomicUsize::new(0));
+    let move_count_cb = Arc::clone(&move_count);
+
     let start = Instant::now();
     let outcomes = run_batch_core(
         specs,
@@ -53,6 +57,9 @@ async fn main() {
         move |p| {
             println!("completed {}/{}", p.completed, p.total);
         },
+        Arc::new(move |_ev| {
+            move_count_cb.fetch_add(1, Ordering::SeqCst);
+        }),
         cancel,
     )
     .await;
@@ -66,6 +73,7 @@ async fn main() {
     println!("black_wins  = {}", summary.black_wins);
     println!("draws       = {}", summary.draws);
     println!("errors      = {}", summary.errors);
+    println!("move_events = {}", move_count.load(Ordering::SeqCst));
     println!("wall_clock  = {:.2}s", elapsed.as_secs_f64());
 
     // Surface any errors for debugging.

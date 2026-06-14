@@ -16,10 +16,12 @@ interface BoardProps {
   legalMoves: Map<Key, Key[]>;
   lastMove?: [Key, Key];
   onBoardSize?: (size: number) => void;
+  /** Read-only board (no piece interaction) — used for watching live games. */
+  viewOnly?: boolean;
   children?: React.ReactNode;
 }
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
@@ -62,9 +64,10 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
     apiRef.current = Chessground(boardRef.current, {
       fen,
       orientation,
+      viewOnly,
       turnColor: fen.includes(" w ") ? "white" : "black",
       movable: {
-        color: movableColor,
+        color: viewOnly ? undefined : movableColor,
         free: false,
         dests: legalMoves,
         showDests: true,
@@ -78,11 +81,11 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
         duration: 150,
       },
       draggable: {
-        enabled: true,
+        enabled: !viewOnly,
         showGhost: true,
       },
       selectable: {
-        enabled: true,
+        enabled: !viewOnly,
       },
       events: {
         move: handleMove,
@@ -94,7 +97,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       apiRef.current?.destroy();
       apiRef.current = null;
     };
-  }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove]);
+  }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove, viewOnly]);
 
   return (
     <div style={{ position: "relative", width: boardSize, height: boardSize, flexShrink: 0 }}>

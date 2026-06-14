@@ -47,6 +47,32 @@ export type BatchProgress = {
   last: GameOutcome
 }
 
+/** A single move streamed live as a game plays. Mirrors Rust `MoveEvent`. */
+export type MoveEvent = {
+  game_id: number
+  ply: number
+  uci: string
+  /** Position AFTER the move. */
+  fen: string
+}
+
+/** The currently-featured live game, surfaced for the board viewer. */
+export type LiveGame = {
+  gameId: number
+  ply: number
+  fen: string
+  /** [from, to] squares of the last move, for board highlighting. */
+  lastMove?: [string, string]
+  whiteLabel: string
+  blackLabel: string
+}
+
+/** Split a UCI move ("e2e4", "e7e8q") into [from, to] squares. */
+export function uciSquares(uci: string): [string, string] | undefined {
+  if (uci.length < 4) return undefined
+  return [uci.slice(0, 2), uci.slice(2, 4)]
+}
+
 /** Aggregate raw W/D/L counts. Mirrors Rust `BatchSummary`. */
 export type BatchSummary = {
   games: number

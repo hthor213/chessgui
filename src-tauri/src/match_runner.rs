@@ -178,16 +178,64 @@ fn position_command(start_fen: &str, is_standard_start: bool, moves: &[String]) 
 /// Standard chess starting FEN.
 const STANDARD_START_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+/// A single move played in a game, streamed live as the game progresses.
+///
+/// Emitted once per applied move so a UI can watch a game move-by-move without
+/// waiting for the whole game (or batch) to finish.
+#[derive(Serialize, Debug, Clone)]
+pub struct MoveEvent {
+    /// The [`GameSpec::id`] of the game this move belongs to.
+    pub game_id: usize,
+    /// 1-based half-move index (the move number within the game).
+    pub ply: usize,
+    /// The move just played, in UCI notation (e.g. "e2e4", "e7e8q").
+    pub uci: String,
+    /// FEN of the position AFTER this move was applied.
+    pub fen: String,
+}
+
 /// Play one full headless game between two engines.
 ///
 /// Pure core: no Tauri dependencies. Spawns both engines, drives them
 /// move-by-move, detects termination via `shakmaty`, and returns the result.
+///
+/// This is a thin wrapper over [`play_game_streamed`] with a no-op move
+/// callback; its public signature and behavior are unchanged.
 pub async fn play_game_core(
     white_path: &str,
     black_path: &str,
     start_fen: Option<String>,
     movetime_ms: u64,
     max_plies: usize,
+) -> Result<GameResult, String> {
+    play_game_streamed(
+        white_path,
+        black_path,
+        start_fen,
+        movetime_ms,
+        max_plies,
+        0,
+        |_| {},
+    )
+    .await
+}
+
+/// Play one full headless game, streaming each move via `on_move`.
+///
+/// Identical to [`play_game_core`] except that `on_move` is invoked with a
+/// [`MoveEvent`] immediately after each move is successfully applied. The
+/// returned [`GameResult`] is exactly what `play_game_core` would return.
+///
+/// `game_id` tags every emitted [`MoveEvent`] so a caller running many games
+/// concurrently can correlate moves back to their game.
+pub async fn play_game_streamed(
+    white_path: &str,
+    black_path: &str,
+    start_fen: Option<String>,
+    movetime_ms: u64,
+    max_plies: usize,
+    game_id: usize,
+    on_move: impl Fn(MoveEvent) + Send + Sync,
 ) -> Result<GameResult, String> {
     // Set up the starting position.
     let (mut pos, start_fen_str, is_standard_start): (Chess, String, bool) = match &start_fen {
@@ -308,6 +356,18 @@ pub async fn play_game_core(
             }
         };
         moves.push(bestmove);
+
+        // Stream the move just applied. `ply` is 1-based; the FEN reflects the
+        // position AFTER this move.
+        let ply = moves.len();
+        let uci_str = moves[ply - 1].clone();
+        let fen_after = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
+        on_move(MoveEvent {
+            game_id,
+            ply,
+            uci: uci_str,
+            fen: fen_after,
+        });
 
         // --- Termination checks after the move ---
 
@@ -463,10 +523,13 @@ fn default_concurrency() -> usize {
 /// Engine processes are torn down cleanly: each game owns its own short-lived
 /// engine handles (spawned with `kill_on_drop`), and on cancellation we simply
 /// stop scheduling new ones, so nothing leaks.
+/// * `on_move` — invoked once per move played across all games, tagged with the
+///   originating game's [`GameSpec::id`]. Shared across all concurrent games.
 pub async fn run_batch_core(
     specs: Vec<GameSpec>,
     concurrency: usize,
     on_progress: impl Fn(BatchProgress) + Send + Sync + 'static,
+    on_move: Arc<dyn Fn(MoveEvent) + Send + Sync>,
     cancel: Arc<AtomicBool>,
 ) -> Vec<GameOutcome> {
     let total = specs.len();
@@ -500,18 +563,21 @@ pub async fn run_batch_core(
         }
 
         let on_progress = Arc::clone(&on_progress);
+        let on_move = Arc::clone(&on_move);
         let completed = Arc::clone(&completed);
 
         let handle = tokio::spawn(async move {
             // Permit is held for the lifetime of this game, then released here.
             let _permit = permit;
 
-            let result = play_game_core(
+            let result = play_game_streamed(
                 &spec.white_path,
                 &spec.black_path,
                 spec.start_fen.clone(),
                 spec.movetime_ms,
                 spec.max_plies,
+                spec.id,
+                move |ev| on_move(ev),
             )
             .await;
 
@@ -569,6 +635,7 @@ pub async fn play_batch(
     specs: Vec<GameSpec>,
     concurrency: usize,
     on_progress: tauri::ipc::Channel<BatchProgress>,
+    on_move: tauri::ipc::Channel<MoveEvent>,
     cancel: tauri::State<'_, BatchCancel>,
 ) -> Result<BatchReport, String> {
     // Fresh run: clear any leftover cancellation from a previous batch.
@@ -576,6 +643,7 @@ pub async fn play_batch(
     flag.store(false, Ordering::SeqCst);
 
     let progress = on_progress.clone();
+    let moves = on_move.clone();
     let outcomes = run_batch_core(
         specs,
         concurrency,
@@ -583,6 +651,10 @@ pub async fn play_batch(
             // Best-effort: a closed channel (window gone) must not abort the run.
             let _ = progress.send(p);
         },
+        Arc::new(move |ev| {
+            // Best-effort, same as progress: a closed channel must not abort.
+            let _ = moves.send(ev);
+        }),
         Arc::clone(&flag),
     )
     .await;

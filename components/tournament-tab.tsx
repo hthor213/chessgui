@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { invoke, Channel } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -10,10 +10,13 @@ import {
   seedsForGames,
   buildProbabilityMap,
   gameResult,
+  uciSquares,
   type BatchProgress,
   type BatchReport,
   type GameOutcome,
   type GameSpec,
+  type LiveGame,
+  type MoveEvent,
   type EvalMap,
   type ProbBin,
   type StartMode,
@@ -51,7 +54,15 @@ async function loadPositions(): Promise<TaggedPosition[]> {
   return positionsCache
 }
 
-export function TournamentTab() {
+export function TournamentTab({
+  onRunningChange,
+  onLiveUpdate,
+}: {
+  /** Reports whether a batch is currently running (for the header View toggle). */
+  onRunningChange?: (running: boolean) => void
+  /** Streams the currently-featured live game to the board viewer (null = none). */
+  onLiveUpdate?: (live: LiveGame | null) => void
+} = {}) {
   const [engineA, setEngineA] = useState(STOCKFISH_DEFAULT)
   const [engineB, setEngineB] = useState(RECKLESS_DEFAULT)
   const [mode, setMode] = useState<StartMode>("normal")
@@ -71,6 +82,12 @@ export function TournamentTab() {
 
   // The id -> eval side-table for the current run, used to bucket results.
   const evalByIdRef = useRef<EvalMap>(new Map())
+
+  // Keep parent informed of run state; clear the live board when a run ends.
+  useEffect(() => {
+    onRunningChange?.(running)
+    if (!running) onLiveUpdate?.(null)
+  }, [running, onRunningChange, onLiveUpdate])
 
   const run = useCallback(async () => {
     setError(null)
@@ -103,9 +120,52 @@ export function TournamentTab() {
       const total = specs.length
       setTally({ completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0 })
 
+      // --- Live game tracking (for the board viewer) ---
+      const labelA = engineLabel(engineA)
+      const labelB = engineLabel(engineB)
+      const specMeta = new Map<number, { whiteLabel: string; blackLabel: string }>()
+      for (const s of specs) {
+        specMeta.set(s.id, {
+          whiteLabel: s.flipped ? labelB : labelA,
+          blackLabel: s.flipped ? labelA : labelB,
+        })
+      }
+      const liveById = new Map<number, LiveGame>()
+      const completed = new Set<number>()
+      let featuredId: number | null = null
+
+      // Move stream: one event per move per game. We "feature" a single game at
+      // a time and only switch once it finishes.
+      const moveChannel = new Channel<MoveEvent>()
+      moveChannel.onmessage = (m: MoveEvent) => {
+        const meta = specMeta.get(m.game_id)
+        if (!meta) return
+        const g: LiveGame = {
+          gameId: m.game_id,
+          ply: m.ply,
+          fen: m.fen,
+          lastMove: uciSquares(m.uci),
+          whiteLabel: meta.whiteLabel,
+          blackLabel: meta.blackLabel,
+        }
+        liveById.set(m.game_id, g)
+        if (featuredId === null || completed.has(featuredId)) featuredId = m.game_id
+        if (m.game_id === featuredId) onLiveUpdate?.(g)
+      }
+
       // Live progress channel. The backend sends one BatchProgress per game.
       const channel = new Channel<BatchProgress>()
       channel.onmessage = (p: BatchProgress) => {
+        completed.add(p.last.id)
+        // If the featured game just finished, jump to another in-flight game.
+        if (featuredId !== null && completed.has(featuredId)) {
+          const next = [...liveById.keys()].reverse().find((id) => !completed.has(id))
+          if (next !== undefined) {
+            featuredId = next
+            const g = liveById.get(next)
+            if (g) onLiveUpdate?.(g)
+          }
+        }
         setTally((prev) => {
           const base =
             prev ?? { completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0 }
@@ -134,11 +194,12 @@ export function TournamentTab() {
         })
       }
 
-      // Param names MUST match the Rust command: specs, concurrency, onProgress.
+      // Param names MUST match the Rust command: specs, concurrency, onProgress, onMove.
       const result = await invoke<BatchReport>("play_batch", {
         specs: specs as GameSpec[],
         concurrency: concurrencyNum,
         onProgress: channel,
+        onMove: moveChannel,
       })
 
       setReport(result)
