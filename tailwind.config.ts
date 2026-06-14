@@ -23,7 +23,9 @@ const config: Config = {
         },
         muted: {
           DEFAULT: "#2a2825",
-          foreground: "#666666",
+          // Lightened from #666666 — that was too dark to read on the near-black
+          // background (e.g. the "Draws" label and other secondary text).
+          foreground: "#9b9b9b",
         },
         accent: {
           DEFAULT: "#779556",

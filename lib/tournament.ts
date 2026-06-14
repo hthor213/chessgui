@@ -73,6 +73,36 @@ export function uciSquares(uci: string): [string, string] | undefined {
   return [uci.slice(0, 2), uci.slice(2, 4)]
 }
 
+/**
+ * Elo difference implied by a W/D/L record (from the first engine's view), with
+ * a 95% confidence interval derived from the actual result distribution.
+ * Returns null if no decisive sample. Positive elo = first engine stronger.
+ */
+export function eloDelta(
+  wins: number,
+  draws: number,
+  losses: number,
+): { score: number; elo: number; lo: number; hi: number } | null {
+  const n = wins + draws + losses
+  if (n === 0) return null
+  const score = (wins + draws / 2) / n
+  // s -> Elo, clamped so a clean sweep doesn't blow up to +/-Infinity.
+  const toElo = (s: number) => {
+    const c = Math.min(1 - 1e-9, Math.max(1e-9, s))
+    return -400 * Math.log10(1 / c - 1)
+  }
+  const m = score
+  const variance =
+    (wins * (1 - m) ** 2 + draws * (0.5 - m) ** 2 + losses * (0 - m) ** 2) / n
+  const se = Math.sqrt(variance / n)
+  return {
+    score,
+    elo: toElo(score),
+    lo: toElo(Math.max(0, m - 1.96 * se)),
+    hi: toElo(Math.min(1, m + 1.96 * se)),
+  }
+}
+
 /** Aggregate raw W/D/L counts. Mirrors Rust `BatchSummary`. */
 export type BatchSummary = {
   games: number

@@ -9,6 +9,7 @@ import {
   buildSpecs,
   seedsForGames,
   buildProbabilityMap,
+  eloDelta,
   gameResult,
   uciSquares,
   type BatchProgress,
@@ -456,9 +457,16 @@ function SummaryCard({
     ["Draws", draws, "text-muted-foreground"],
     ["Errors", errors, "text-amber-400"],
   ]
+
+  // Elo of engine A relative to engine B, with a 95% confidence interval.
+  const elo = eloDelta(aWins, draws, bWins)
+  const sign = (n: number) => (n >= 0 ? `+${Math.round(n)}` : `${Math.round(n)}`)
+  // A CI that straddles 0 means the result is not yet statistically significant.
+  const significant = elo ? elo.lo > 0 || elo.hi < 0 : false
+
   return (
-    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4">
-      <h2 className="text-sm font-semibold text-foreground mb-3">Summary</h2>
+    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
+      <h2 className="text-sm font-semibold text-foreground">Summary</h2>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {items.map(([label, value, color]) => (
           <div key={label} className="flex flex-col">
@@ -467,6 +475,26 @@ function SummaryCard({
           </div>
         ))}
       </div>
+      {elo && (
+        <div className="flex flex-col gap-0.5 border-t border-white/10 pt-3">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">
+              Elo ({labelA} vs {labelB}):
+            </span>
+            <span className="text-xl font-bold font-mono text-foreground">
+              {sign(elo.elo)}
+            </span>
+            <span className="text-sm font-mono text-muted-foreground">
+              95% CI [{sign(elo.lo)}, {sign(elo.hi)}]
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {significant
+              ? `Statistically significant — ${elo.elo >= 0 ? labelA : labelB} is stronger.`
+              : "Not statistically significant — the interval includes 0 (need more games)."}
+          </span>
+        </div>
+      )}
     </section>
   )
 }
