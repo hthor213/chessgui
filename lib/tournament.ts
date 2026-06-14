@@ -454,4 +454,121 @@ export function buildProbabilityMap(
   return bins
 }
 
+// ---------------------------------------------------------------------------
+// Per-engine performance curve
+// ---------------------------------------------------------------------------
+
+/**
+ * One eval bin in the per-engine performance curve. Each side ("a"/"b") records
+ * how many games that engine played from a position with the bin's PERSPECTIVE
+ * eval and its mean score (0..1) from those games. Empty sides have games:0.
+ */
+export type EngineCurveBin = {
+  /** Bin lower bound (pawns, engine-perspective eval). */
+  lo: number
+  /** Bin upper bound (pawns). */
+  hi: number
+  /** Bin center, for labelling. */
+  center: number
+  a: { games: number; avgScore: number }
+  b: { games: number; avgScore: number }
+}
+
+/**
+ * Build a per-ENGINE score curve over starting eval. Unlike the conversion map
+ * (which always measures from White's POV), this measures from each engine's
+ * OWN perspective: how well engine A and engine B score as a function of the
+ * eval they started from.
+ *
+ * Per game (skipping Err games and games with no recorded eval):
+ *  - E = starting White-POV eval (pawns) from `evalById`.
+ *  - Engine A is White when !flipped, else Black; Engine B is the other side.
+ *  - Engine A's perspective-eval = E if A is White (!flipped), else -E.
+ *  - Engine A's score = 1 if A won, 0.5 draw, 0 if A lost, where A won iff
+ *    (result=="1-0" && !flipped) || (result=="0-1" && flipped).
+ *  - Engine B is the mirror: perspective-eval = -A's, score = 1 - A's (0.5 draw).
+ *
+ * Because every seed is played from both colors, each engine accumulates data
+ * across the whole +/- range, so both curves span the axis.
+ *
+ * Bins are ~`binWidth`-pawn wide spanning [lo, hi], widened to cover any data
+ * that falls outside the requested range. Returned sorted ascending by center.
+ */
+export function buildEngineCurves(
+  outcomes: GameOutcome[],
+  evalById: EvalMap,
+  minEval = -2,
+  maxEval = 2,
+  binWidth = 0.25,
+): EngineCurveBin[] {
+  // First pass: collect each engine's (perspectiveEval, score) samples so we can
+  // determine the true span (perspective evals are mirrored, so the span is
+  // symmetric around 0 but data may exceed the requested range).
+  type Sample = { pe: number; score: number; engine: "a" | "b" }
+  const samples: Sample[] = []
+  for (const o of outcomes) {
+    const g = gameResult(o)
+    if (!g) continue // skip Err games
+    const meta = evalById.get(o.id)
+    if (!meta) continue
+    const E = meta.eval
+    // Engine A's score from its own perspective.
+    const aWon =
+      (g.result === "1-0" && !o.flipped) || (g.result === "0-1" && o.flipped)
+    const draw = g.result === "1/2-1/2"
+    const aScore = draw ? 0.5 : aWon ? 1 : 0
+    const aPe = o.flipped ? -E : E // A is White only when !flipped
+    samples.push({ pe: aPe, score: aScore, engine: "a" })
+    samples.push({ pe: -aPe, score: draw ? 0.5 : 1 - aScore, engine: "b" })
+  }
+
+  // Determine the bin grid span, widening to cover all data.
+  let lo = Math.min(minEval, maxEval)
+  let hi = Math.max(minEval, maxEval)
+  for (const s of samples) {
+    if (s.pe < lo) lo = s.pe
+    if (s.pe >= hi) hi = s.pe + binWidth
+  }
+  lo = Math.floor(lo / binWidth) * binWidth
+  hi = Math.ceil(hi / binWidth) * binWidth
+  const nbins = Math.max(1, Math.round((hi - lo) / binWidth))
+
+  type Acc = { aGames: number; aSum: number; bGames: number; bSum: number }
+  const accs: Acc[] = Array.from({ length: nbins }, () => ({
+    aGames: 0,
+    aSum: 0,
+    bGames: 0,
+    bSum: 0,
+  }))
+
+  for (const s of samples) {
+    let idx = Math.floor((s.pe - lo) / binWidth)
+    if (idx < 0) idx = 0
+    if (idx >= nbins) idx = nbins - 1
+    const acc = accs[idx]
+    if (s.engine === "a") {
+      acc.aGames++
+      acc.aSum += s.score
+    } else {
+      acc.bGames++
+      acc.bSum += s.score
+    }
+  }
+
+  const bins: EngineCurveBin[] = []
+  for (let i = 0; i < nbins; i++) {
+    const acc = accs[i]
+    const binLo = lo + i * binWidth
+    bins.push({
+      lo: binLo,
+      hi: binLo + binWidth,
+      center: binLo + binWidth / 2,
+      a: { games: acc.aGames, avgScore: acc.aGames ? acc.aSum / acc.aGames : 0 },
+      b: { games: acc.bGames, avgScore: acc.bGames ? acc.bSum / acc.bGames : 0 },
+    })
+  }
+  bins.sort((a, b) => a.center - b.center)
+  return bins
+}
+
 export { STANDARD_START_FEN }

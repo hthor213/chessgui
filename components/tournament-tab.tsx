@@ -9,6 +9,7 @@ import {
   buildSpecs,
   seedsForGames,
   buildProbabilityMap,
+  buildEngineCurves,
   eloDelta,
   gameResult,
   uciSquares,
@@ -21,6 +22,7 @@ import {
   type MoveEvent,
   type EvalMap,
   type ProbBin,
+  type EngineCurveBin,
   type StartMode,
   type TaggedPosition,
 } from "@/lib/tournament"
@@ -77,11 +79,11 @@ export function TournamentTab({
 } = {}) {
   const [engineA, setEngineA] = useState(STOCKFISH_DEFAULT)
   const [engineB, setEngineB] = useState(RECKLESS_DEFAULT)
-  const [mode, setMode] = useState<StartMode>("normal")
+  const [mode, setMode] = useState<StartMode>("eval")
   // Numeric fields are held as raw strings so they stay freely editable
   // (clearing/retyping); they are coerced to numbers with fallbacks in run().
-  const [minEval, setMinEval] = useState("-2")
-  const [maxEval, setMaxEval] = useState("2")
+  const [minEval, setMinEval] = useState("-1.5")
+  const [maxEval, setMaxEval] = useState("1.5")
   const [nGames, setNGames] = useState("100")
   const [concurrency, setConcurrency] = useState("0")
   // Time control: a preset id, or "custom" with editable base/increment (seconds).
@@ -96,6 +98,7 @@ export function TournamentTab({
   const [tally, setTally] = useState<RunningTally | null>(null)
   const [report, setReport] = useState<BatchReport | null>(null)
   const [probBins, setProbBins] = useState<ProbBin[]>([])
+  const [curveBins, setCurveBins] = useState<EngineCurveBin[]>([])
   const [error, setError] = useState<string | null>(null)
   // Wall-clock timer for the current run.
   const [startedAt, setStartedAt] = useState<number | null>(null)
@@ -122,6 +125,7 @@ export function TournamentTab({
     setError(null)
     setReport(null)
     setProbBins([])
+    setCurveBins([])
     setStartedAt(Date.now())
     setNowTs(Date.now())
     setRunning(true)
@@ -248,6 +252,14 @@ export function TournamentTab({
       setReport(result)
       setProbBins(
         buildProbabilityMap(
+          result.outcomes,
+          evalByIdRef.current,
+          lo,
+          hi,
+        ),
+      )
+      setCurveBins(
+        buildEngineCurves(
           result.outcomes,
           evalByIdRef.current,
           lo,
@@ -522,6 +534,15 @@ export function TournamentTab({
           />
         )}
 
+        {/* Per-engine performance curve (primary analysis) */}
+        {report && curveBins.some((b) => b.a.games > 0 || b.b.games > 0) && (
+          <EngineCurve
+            bins={curveBins}
+            labelA={engineLabel(engineA)}
+            labelB={engineLabel(engineB)}
+          />
+        )}
+
         {/* Probability map */}
         {report && probBins.length > 0 && (
           <ProbabilityMap bins={probBins} />
@@ -615,6 +636,89 @@ function SummaryCard({
           ))}
         </div>
       )}
+    </section>
+  )
+}
+
+function EngineCurve({
+  bins,
+  labelA,
+  labelB,
+}: {
+  bins: EngineCurveBin[]
+  labelA: string
+  labelB: string
+}) {
+  // Only show bins where at least one engine has games.
+  const shown = bins.filter((b) => b.a.games > 0 || b.b.games > 0)
+  return (
+    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-foreground">
+          Engine performance by starting eval
+        </h2>
+        {/* Legend */}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-3 rounded-sm bg-green-500" />
+            {labelA}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-3 rounded-sm bg-sky-500" />
+            {labelB}
+          </span>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Higher = better from that starting eval; the gap between the two engines
+        is the strength difference. Each engine&apos;s score is measured from its
+        own perspective (every position is played from both colors).
+      </p>
+
+      {/* Bars */}
+      <div className="relative flex items-end gap-1 h-56">
+        {/* 50% reference line */}
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-dashed border-white/20" />
+        {shown.map((bin) => {
+          const aPct = bin.a.games > 0 ? bin.a.avgScore * 100 : 0
+          const bPct = bin.b.games > 0 ? bin.b.avgScore * 100 : 0
+          const fmtPct = (n: number) => `${(n * 100).toFixed(0)}%`
+          const title =
+            `eval [${bin.lo.toFixed(2)}, ${bin.hi.toFixed(2)})\n` +
+            `${labelA}: n=${bin.a.games} avg=${bin.a.games ? fmtPct(bin.a.avgScore) : "—"}\n` +
+            `${labelB}: n=${bin.b.games} avg=${bin.b.games ? fmtPct(bin.b.avgScore) : "—"}`
+          return (
+            <div
+              key={bin.lo}
+              className="flex-1 flex flex-col items-center gap-1 min-w-0"
+              title={title}
+            >
+              <div className="relative w-full flex-1 flex items-end justify-center gap-0.5">
+                <div className="flex-1 max-w-[14px] h-full flex items-end">
+                  {bin.a.games > 0 && (
+                    <div
+                      className="w-full rounded-t-sm bg-green-500"
+                      style={{ height: `${aPct}%` }}
+                    />
+                  )}
+                </div>
+                <div className="flex-1 max-w-[14px] h-full flex items-end">
+                  {bin.b.games > 0 && (
+                    <div
+                      className="w-full rounded-t-sm bg-sky-500"
+                      style={{ height: `${bPct}%` }}
+                    />
+                  )}
+                </div>
+              </div>
+              <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
+                {bin.center >= 0 ? "+" : ""}
+                {bin.center.toFixed(1)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
     </section>
   )
 }
