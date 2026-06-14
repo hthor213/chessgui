@@ -15,7 +15,10 @@ export type GameSpec = {
   white_path: string
   black_path: string
   start_fen: string | null
-  movetime_ms: number
+  /** Sudden-death base clock per side, milliseconds (engine-managed). */
+  base_ms: number
+  /** Increment added after each move, milliseconds. */
+  inc_ms: number
   max_plies: number
   flipped: boolean
   /** Adjudicate <=7-man positions via the tablebase (perfect play). */
@@ -68,6 +71,19 @@ export type LiveGame = {
   whiteLabel: string
   blackLabel: string
 }
+
+/** A sudden-death + increment time control (per side). */
+export type TimeControl = { id: string; label: string; baseMs: number; incMs: number }
+
+/**
+ * Time-control presets. "Standard" (LTC, 60s+0.6s) is the established point
+ * where the relative result between two engines is stable — see Fishtest.
+ */
+export const TIME_CONTROLS: TimeControl[] = [
+  { id: "fast", label: "Fast — 10s + 0.1s", baseMs: 10_000, incMs: 100 },
+  { id: "standard", label: "Standard — 60s + 0.6s", baseMs: 60_000, incMs: 600 },
+  { id: "long", label: "Long — 300s + 3s", baseMs: 300_000, incMs: 3_000 },
+]
 
 /** Split a UCI move ("e2e4", "e7e8q") into [from, to] squares. */
 export function uciSquares(uci: string): [string, string] | undefined {
@@ -280,7 +296,8 @@ export function buildSpecs(
   seeds: Seed[],
   engineA: string,
   engineB: string,
-  movetimeMs: number,
+  baseMs: number,
+  incMs: number,
   maxPlies: number,
   adjudicateTb: boolean,
 ): BuiltBatch {
@@ -293,7 +310,8 @@ export function buildSpecs(
       white_path: engineA,
       black_path: engineB,
       start_fen: seed.fen,
-      movetime_ms: movetimeMs,
+      base_ms: baseMs,
+      inc_ms: incMs,
       max_plies: maxPlies,
       flipped: false,
       adjudicate_tb: adjudicateTb,
@@ -306,7 +324,8 @@ export function buildSpecs(
       white_path: engineB,
       black_path: engineA,
       start_fen: seed.fen,
-      movetime_ms: movetimeMs,
+      base_ms: baseMs,
+      inc_ms: incMs,
       max_plies: maxPlies,
       flipped: true,
       adjudicate_tb: adjudicateTb,

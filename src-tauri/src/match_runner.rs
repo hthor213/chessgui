@@ -240,23 +240,45 @@ impl EngineHandle {
         Ok(())
     }
 
-    /// Ask the engine for a move given a position and movetime.
+    /// Ask the engine for a move given a position and the current game clock.
+    ///
+    /// Drives the engine with `go wtime <wtime> btime <btime> winc <inc> binc
+    /// <inc>` so the engine budgets its own time. The clocks are clamped to at
+    /// least 1ms when sent (never negative/zero). `read_wait` bounds how long we
+    /// wait for `bestmove` — it should be the moving side's remaining time plus a
+    /// generous margin so a hung engine is caught but a legitimately slow move is
+    /// not killed.
     ///
     /// Returns the raw UCI bestmove token (e.g. "e2e4", "e7e8q") or the literal
-    /// "(none)" when the engine reports no move.
+    /// "(none)" when the engine reports no move, together with the precise wall
+    /// time the search took (used to debit the moving side's clock).
     async fn bestmove(
         &mut self,
         position_cmd: &str,
-        movetime_ms: u64,
-    ) -> Result<String, String> {
+        wtime_ms: i64,
+        btime_ms: i64,
+        inc_ms: u64,
+        read_wait: Duration,
+    ) -> Result<(String, i64), String> {
         self.send(position_cmd).await?;
-        self.send(&format!("go movetime {}", movetime_ms)).await?;
 
-        // Safety budget: movetime + slack so a hung engine cannot deadlock.
-        let wait = Duration::from_millis(movetime_ms) + Duration::from_secs(5);
+        // Clamp the clocks we advertise to >= 1ms; never send a negative/zero
+        // clock (some engines choke on it).
+        let wt = wtime_ms.max(1);
+        let bt = btime_ms.max(1);
+
+        // Measure wall time precisely around the search.
+        let t0 = tokio::time::Instant::now();
+        self.send(&format!(
+            "go wtime {} btime {} winc {} binc {}",
+            wt, bt, inc_ms, inc_ms
+        ))
+        .await?;
+
         let line = self
-            .read_until(wait, |l| l.starts_with("bestmove"))
+            .read_until(read_wait, |l| l.starts_with("bestmove"))
             .await?;
+        let elapsed = t0.elapsed().as_millis() as i64;
 
         // Format: "bestmove <uci> [ponder <uci>]" or "bestmove (none)".
         let mut parts = line.split_whitespace();
@@ -264,7 +286,7 @@ impl EngineHandle {
         let mv = parts
             .next()
             .ok_or_else(|| format!("Malformed bestmove line: '{}'", line))?;
-        Ok(mv.to_string())
+        Ok((mv.to_string(), elapsed))
     }
 
     async fn quit(mut self) {
@@ -319,7 +341,8 @@ pub async fn play_game_core(
     white_path: &str,
     black_path: &str,
     start_fen: Option<String>,
-    movetime_ms: u64,
+    base_ms: u64,
+    inc_ms: u64,
     max_plies: usize,
     adjudicate_tb: bool,
 ) -> Result<GameResult, String> {
@@ -327,7 +350,8 @@ pub async fn play_game_core(
         white_path,
         black_path,
         start_fen,
-        movetime_ms,
+        base_ms,
+        inc_ms,
         max_plies,
         adjudicate_tb,
         0,
@@ -348,7 +372,8 @@ pub async fn play_game_streamed(
     white_path: &str,
     black_path: &str,
     start_fen: Option<String>,
-    movetime_ms: u64,
+    base_ms: u64,
+    inc_ms: u64,
     max_plies: usize,
     adjudicate_tb: bool,
     game_id: usize,
@@ -385,6 +410,16 @@ pub async fn play_game_streamed(
         .map_err(|e| format!("Black engine init failed: {}", e))?;
 
     let mut moves: Vec<String> = Vec::new();
+
+    // Sudden-death + increment game clock. Each side starts with `base_ms` and
+    // gains `inc_ms` after each of its own moves. Signed so we can detect a
+    // flag-fall (clock crossing below zero). These persist across the whole game
+    // and are NEVER reset per move.
+    let mut wtime: i64 = base_ms as i64;
+    let mut btime: i64 = base_ms as i64;
+    // Grace for IPC/measurement jitter: only flag once the overshoot exceeds
+    // this (a tiny, legitimate overrun is forgiven).
+    const FLAG_GRACE_MS: i64 = 50;
 
     // Repetition tracking by Zobrist hash. Count the initial position too.
     let mut rep_counts: HashMap<u64, u32> = HashMap::new();
@@ -438,7 +473,20 @@ pub async fn play_game_streamed(
             Color::Black => &mut black,
         };
 
-        let bestmove = match engine.bestmove(&position_cmd, movetime_ms).await {
+        // Read timeout: the moving side's remaining clock plus a generous
+        // margin, floored at 5s, so a hung engine is still caught but a slow
+        // (but legal) deep search is not killed prematurely.
+        let remaining = match mover {
+            Color::White => wtime,
+            Color::Black => btime,
+        };
+        let read_wait =
+            Duration::from_millis((remaining.max(0) as u64).saturating_add(5000).max(5000));
+
+        let (bestmove, elapsed) = match engine
+            .bestmove(&position_cmd, wtime, btime, inc_ms, read_wait)
+            .await
+        {
             Ok(m) => m,
             Err(e) => {
                 // Treat a comms failure as a loss for the side to move.
@@ -447,6 +495,21 @@ pub async fn play_game_streamed(
                 return Ok(finish(white, black, result, &term, moves));
             }
         };
+
+        // Debit the moving side's clock by the measured search time. If the
+        // clock falls below zero (beyond the small jitter grace) the side has
+        // flagged: it loses on time even though it produced a move. Otherwise
+        // credit the increment.
+        let clock = match mover {
+            Color::White => &mut wtime,
+            Color::Black => &mut btime,
+        };
+        *clock -= elapsed;
+        if *clock < -FLAG_GRACE_MS {
+            let result = loss_for(mover);
+            return Ok(finish(white, black, result, "time_forfeit", moves));
+        }
+        *clock += inc_ms as i64;
 
         if bestmove == "(none)" || bestmove == "0000" {
             // No move offered. If it's actually checkmate/stalemate the
@@ -565,7 +628,8 @@ pub async fn play_game(
     white_path: String,
     black_path: String,
     start_fen: Option<String>,
-    movetime_ms: u64,
+    base_ms: u64,
+    inc_ms: u64,
     max_plies: usize,
     adjudicate_tb: Option<bool>,
 ) -> Result<GameResult, String> {
@@ -573,7 +637,8 @@ pub async fn play_game(
         &white_path,
         &black_path,
         start_fen,
-        movetime_ms,
+        base_ms,
+        inc_ms,
         max_plies,
         adjudicate_tb.unwrap_or(true),
     )
@@ -593,7 +658,12 @@ pub struct GameSpec {
     pub white_path: String,
     pub black_path: String,
     pub start_fen: Option<String>,
-    pub movetime_ms: u64,
+    /// Each side's starting clock, in milliseconds (sudden-death base time).
+    #[serde(default = "default_base_ms")]
+    pub base_ms: u64,
+    /// Increment added to a side's clock after each of its moves, in ms.
+    #[serde(default = "default_inc_ms")]
+    pub inc_ms: u64,
     pub max_plies: usize,
     /// Optional tag: marks this game as the color-flipped partner of another.
     /// Purely informational for the runner; callers use it to pair games.
@@ -609,6 +679,16 @@ pub struct GameSpec {
 /// the caller explicitly disables it.
 fn default_true() -> bool {
     true
+}
+
+/// Default sudden-death base clock (60s) for resilience if a payload omits it.
+fn default_base_ms() -> u64 {
+    60_000
+}
+
+/// Default per-move increment (0.6s) for resilience if a payload omits it.
+fn default_inc_ms() -> u64 {
+    600
 }
 
 /// The result of attempting one [`GameSpec`]: either a completed game or an
@@ -736,7 +816,8 @@ pub async fn run_batch_core(
                 &spec.white_path,
                 &spec.black_path,
                 spec.start_fen.clone(),
-                spec.movetime_ms,
+                spec.base_ms,
+                spec.inc_ms,
                 spec.max_plies,
                 spec.adjudicate_tb,
                 spec.id,

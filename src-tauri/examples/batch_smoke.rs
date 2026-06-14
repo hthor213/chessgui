@@ -22,15 +22,16 @@ const RECKLESS: &str = "/Users/hjalti/Documents/GitHub/chessgui/engines/reckless
 #[tokio::main]
 async fn main() {
     let n = 20usize;
-    let movetime_ms = 50u64;
+    let base_ms = 1000u64; // 1s base clock per side
+    let inc_ms = 100u64; //  0.1s increment per move
     let max_plies = 300usize;
     let concurrency = std::thread::available_parallelism()
         .map(|p| p.get())
         .unwrap_or(2);
 
     println!(
-        "Batch: {} games  White=Stockfish  Black=Reckless  movetime={}ms  max_plies={}  concurrency={}",
-        n, movetime_ms, max_plies, concurrency
+        "Batch: {} games  White=Stockfish  Black=Reckless  clock={}ms+{}ms  max_plies={}  concurrency={}",
+        n, base_ms, inc_ms, max_plies, concurrency
     );
 
     let specs: Vec<GameSpec> = (0..n)
@@ -39,7 +40,8 @@ async fn main() {
             white_path: STOCKFISH.to_string(),
             black_path: RECKLESS.to_string(),
             start_fen: None,
-            movetime_ms,
+            base_ms,
+            inc_ms,
             max_plies,
             flipped: false,
             adjudicate_tb: true,

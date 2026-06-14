@@ -12,6 +12,7 @@ import {
   eloDelta,
   gameResult,
   uciSquares,
+  TIME_CONTROLS,
   type BatchProgress,
   type BatchReport,
   type GameOutcome,
@@ -37,6 +38,16 @@ type RunningTally = {
   engineB: number
   draw: number
   errors: number
+}
+
+// Format a millisecond duration as h:mm:ss / m:ss.
+function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  const pad = (n: number) => n.toString().padStart(2, "0")
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`
 }
 
 // Short display label for an engine, derived from its binary path.
@@ -72,8 +83,11 @@ export function TournamentTab({
   const [minEval, setMinEval] = useState("-2")
   const [maxEval, setMaxEval] = useState("2")
   const [nGames, setNGames] = useState("100")
-  const [movetimeMs, setMovetimeMs] = useState("100")
   const [concurrency, setConcurrency] = useState("0")
+  // Time control: a preset id, or "custom" with editable base/increment (seconds).
+  const [tcId, setTcId] = useState("standard")
+  const [customBaseS, setCustomBaseS] = useState("60")
+  const [customIncS, setCustomIncS] = useState("0.6")
   // Adjudicate <=7-man positions via the tablebase (perfect play) — fair, since
   // any engine can bolt on a 7-man tablebase for free.
   const [adjudicateTb, setAdjudicateTb] = useState(true)
@@ -83,6 +97,9 @@ export function TournamentTab({
   const [report, setReport] = useState<BatchReport | null>(null)
   const [probBins, setProbBins] = useState<ProbBin[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Wall-clock timer for the current run.
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [nowTs, setNowTs] = useState(0)
 
   // The id -> eval side-table for the current run, used to bucket results.
   const evalByIdRef = useRef<EvalMap>(new Map())
@@ -93,17 +110,35 @@ export function TournamentTab({
     if (!running) onLiveUpdate?.(null)
   }, [running, onRunningChange, onLiveUpdate])
 
+  // Tick the elapsed timer once a second while running.
+  useEffect(() => {
+    if (!running) return
+    setNowTs(Date.now())
+    const i = setInterval(() => setNowTs(Date.now()), 1000)
+    return () => clearInterval(i)
+  }, [running])
+
   const run = useCallback(async () => {
     setError(null)
     setReport(null)
     setProbBins([])
+    setStartedAt(Date.now())
+    setNowTs(Date.now())
     setRunning(true)
 
     try {
       // Coerce the free-text numeric fields with sensible fallbacks/clamps.
       const nGamesNum = Math.max(2, Math.min(500, Math.round(Number(nGames) || 100)))
-      const movetimeNum = Math.max(1, Math.round(Number(movetimeMs) || 100))
       const concurrencyNum = Math.max(0, Math.round(Number(concurrency) || 0))
+
+      // Resolve the time control (game clock, engine-managed).
+      const preset = TIME_CONTROLS.find((t) => t.id === tcId)
+      const baseMs = preset
+        ? preset.baseMs
+        : Math.max(100, Math.round((Number(customBaseS) || 60) * 1000))
+      const incMs = preset
+        ? preset.incMs
+        : Math.max(0, Math.round((Number(customIncS) || 0) * 1000))
       const minEvalNum = Number.isFinite(Number(minEval)) ? Number(minEval) : -2
       const maxEvalNum = Number.isFinite(Number(maxEval)) ? Number(maxEval) : 2
       const lo = Math.min(minEvalNum, maxEvalNum)
@@ -116,7 +151,8 @@ export function TournamentTab({
         seeds,
         engineA,
         engineB,
-        movetimeNum,
+        baseMs,
+        incMs,
         MAX_PLIES,
         adjudicateTb,
       )
@@ -219,9 +255,10 @@ export function TournamentTab({
     } catch (e) {
       setError(String(e))
     } finally {
+      setNowTs(Date.now()) // freeze elapsed at the final value
       setRunning(false)
     }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, movetimeMs, concurrency, adjudicateTb])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, concurrency, adjudicateTb])
 
   const cancel = useCallback(async () => {
     try {
@@ -232,6 +269,14 @@ export function TournamentTab({
   }, [])
 
   const pct = tally && tally.total > 0 ? (tally.completed / tally.total) * 100 : 0
+  // Elapsed wall-clock and a linear ETA from completed/total.
+  const elapsedMs = startedAt ? Math.max(0, nowTs - startedAt) : 0
+  const etaMs =
+    running && tally && tally.completed > 0 && tally.completed < tally.total
+      ? (elapsedMs / tally.completed) * (tally.total - tally.completed)
+      : null
+  const gamesPerMin =
+    tally && elapsedMs > 0 ? (tally.completed / elapsedMs) * 60_000 : null
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -344,15 +389,18 @@ export function TournamentTab({
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">Movetime per move (ms)</span>
-              <input
-                type="number"
-                min={1}
+              <span className="text-xs text-muted-foreground">Time control (per side)</span>
+              <select
                 className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
-                value={movetimeMs}
-                onChange={(e) => setMovetimeMs(e.target.value)}
+                value={tcId}
+                onChange={(e) => setTcId(e.target.value)}
                 disabled={running}
-              />
+              >
+                {TIME_CONTROLS.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+                <option value="custom">Custom…</option>
+              </select>
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">
@@ -368,6 +416,35 @@ export function TournamentTab({
               />
             </label>
           </div>
+
+          {tcId === "custom" && (
+            <div className="flex flex-wrap gap-4">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Base time (seconds)</span>
+                <input
+                  type="number"
+                  min={0.1}
+                  step={1}
+                  className="w-32 bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+                  value={customBaseS}
+                  onChange={(e) => setCustomBaseS(e.target.value)}
+                  disabled={running}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Increment (seconds)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  className="w-32 bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+                  value={customIncS}
+                  onChange={(e) => setCustomIncS(e.target.value)}
+                  disabled={running}
+                />
+              </label>
+            </div>
+          )}
 
           <label className="flex items-start gap-2 cursor-pointer select-none">
             <input
@@ -418,6 +495,11 @@ export function TournamentTab({
               </span>
             </div>
             <Progress value={pct} />
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground font-mono">
+              <span>Elapsed {formatDuration(elapsedMs)}</span>
+              {etaMs !== null && <span>ETA {formatDuration(etaMs)}</span>}
+              {gamesPerMin !== null && <span>{gamesPerMin.toFixed(1)} games/min</span>}
+            </div>
             <div className="flex flex-wrap gap-4 text-sm">
               <span className="text-green-400">{engineLabel(engineA)} wins: {tally.engineA}</span>
               <span className="text-muted-foreground">Draws: {tally.draw}</span>
