@@ -8,6 +8,7 @@ import { AnalysisPanel } from "@/components/analysis-panel"
 import { PromotionDialog } from "@/components/promotion-dialog"
 import { PgnImportDialog } from "@/components/pgn-import-dialog"
 import { ErrorBoundary } from "@/components/error-boundary"
+import { TournamentTab } from "@/components/tournament-tab"
 import { useChessGame } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 
@@ -32,6 +33,7 @@ export default function Home() {
   const isPlayMode = engine.state.mode === "play"
   const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
+  const [view, setView] = useState<"board" | "tournament">("board")
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
   const [now, setNow] = useState(Date.now())
 
@@ -131,21 +133,36 @@ export default function Home() {
           <nav className="flex items-center gap-1">
             <button
               className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
-                isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+                view === "board" && isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               }`}
-              onClick={() => engine.setPlayMode(true, playerColor)}
+              onClick={() => {
+                setView("board")
+                engine.setPlayMode(true, playerColor)
+              }}
               title="Play against Stockfish"
             >
               Play
             </button>
             <button
               className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
-                engine.state.isRunning && !isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+                view === "board" && engine.state.isRunning && !isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               }`}
-              onClick={() => engine.setPlayMode(false)}
+              onClick={() => {
+                setView("board")
+                engine.setPlayMode(false)
+              }}
               title="Analyze the current position with Stockfish"
             >
               Analyze
+            </button>
+            <button
+              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+                view === "tournament" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => setView("tournament")}
+              title="Run headless engine-vs-engine tournaments"
+            >
+              Tournament
             </button>
             <button className="px-3 py-1.5 text-sm text-muted-foreground/40 cursor-not-allowed rounded-md" disabled>
               Learn
@@ -159,8 +176,18 @@ export default function Home() {
           </div>
         </header>
 
+        {/* Tournament view */}
+        {view === "tournament" && (
+          <main className="flex-1 min-h-0">
+            <TournamentTab />
+          </main>
+        )}
+
         {/* Main content - three-column grid */}
-        <main className="flex-1 grid grid-cols-[220px_1fr_220px] gap-4 p-4 min-h-0">
+        <main
+          className="flex-1 grid grid-cols-[220px_1fr_220px] gap-4 p-4 min-h-0"
+          style={view === "tournament" ? { display: "none" } : undefined}
+        >
           {/* Left column: Player Panel */}
           <div className="flex flex-col gap-4">
             {/* Opponent card (top of board) */}
