@@ -18,6 +18,8 @@ export type GameSpec = {
   movetime_ms: number
   max_plies: number
   flipped: boolean
+  /** Adjudicate <=7-man positions via the tablebase (perfect play). */
+  adjudicate_tb: boolean
 }
 
 /** A completed (or adjudicated) game. Mirrors Rust `GameResult`. */
@@ -280,6 +282,7 @@ export function buildSpecs(
   engineB: string,
   movetimeMs: number,
   maxPlies: number,
+  adjudicateTb: boolean,
 ): BuiltBatch {
   const specs: GameSpec[] = []
   const evalById: EvalMap = new Map()
@@ -293,6 +296,7 @@ export function buildSpecs(
       movetime_ms: movetimeMs,
       max_plies: maxPlies,
       flipped: false,
+      adjudicate_tb: adjudicateTb,
     }
     evalById.set(a.id, { eval: seed.eval })
     specs.push(a)
@@ -305,6 +309,7 @@ export function buildSpecs(
       movetime_ms: movetimeMs,
       max_plies: maxPlies,
       flipped: true,
+      adjudicate_tb: adjudicateTb,
     }
     evalById.set(b.id, { eval: seed.eval })
     specs.push(b)

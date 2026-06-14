@@ -22,7 +22,11 @@ async fn main() {
         movetime_ms, max_plies
     );
 
-    match play_game_core(STOCKFISH, RECKLESS, None, movetime_ms, max_plies).await {
+    // Pure engine game: tablebase adjudication off so we exercise the full
+    // play-out path here. (batch_smoke covers the adjudicated path.)
+    let adjudicate_tb = false;
+
+    match play_game_core(STOCKFISH, RECKLESS, None, movetime_ms, max_plies, adjudicate_tb).await {
         Ok(game) => {
             println!("\n=== GAME COMPLETE ===");
             println!("result      = {}", game.result);

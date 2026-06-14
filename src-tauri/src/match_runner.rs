@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,121 @@ use shakmaty::zobrist::Zobrist64;
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Position};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::Semaphore;
 use tokio::time::timeout;
+
+// ============================================================================
+// 7-piece endgame tablebase adjudication (Lichess public API)
+// ============================================================================
+//
+// All endgames with <=7 men are solved. When a game reaches that point we can
+// adjudicate the result under perfect play instead of letting the engines grind
+// it out. We query the public Lichess tablebase
+// (`https://tablebase.lichess.ovh/standard?fen=...`) and map its `category` to a
+// definitive result. Everything is best-effort: any network/parse failure falls
+// back to None and the game continues by normal rules.
+
+/// A tablebase verdict from the perspective of the side to move.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TbVerdict {
+    /// Side to move wins with perfect play.
+    WinStm,
+    /// Side to move loses with perfect play.
+    LossStm,
+    /// Drawn (includes cursed-win / blessed-loss, which are draws under the
+    /// 50-move rule, plus unknown/maybe categories).
+    Draw,
+}
+
+/// Shared HTTP client (built once) so all games pool connections.
+static TB_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+/// Global FEN-keyed cache of tablebase verdicts, shared across the whole batch
+/// to avoid re-querying identical positions.
+static TB_CACHE: OnceLock<Mutex<HashMap<String, TbVerdict>>> = OnceLock::new();
+
+/// Bound concurrent *uncached* requests so we stay gentle on the public API.
+/// Cache hits do not consume a permit.
+static TB_SEM: OnceLock<Semaphore> = OnceLock::new();
+
+fn tb_client() -> &'static reqwest::Client {
+    TB_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(6))
+            .build()
+            // Fall back to a default client if the builder ever fails.
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
+
+fn tb_cache() -> &'static Mutex<HashMap<String, TbVerdict>> {
+    TB_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn tb_sem() -> &'static Semaphore {
+    TB_SEM.get_or_init(|| Semaphore::new(3))
+}
+
+/// Map a Lichess tablebase `category` string to a [`TbVerdict`].
+///
+/// "win" and "loss" are decisive under the 50-move rule. "cursed-win" /
+/// "blessed-loss" are wins/losses on the board but draws once the 50-move rule
+/// applies, so they map to Draw — as do "draw" and any unknown/maybe category.
+fn category_to_verdict(category: &str) -> TbVerdict {
+    match category {
+        "win" => TbVerdict::WinStm,
+        "loss" => TbVerdict::LossStm,
+        _ => TbVerdict::Draw,
+    }
+}
+
+/// Probe the Lichess tablebase for the given FEN.
+///
+/// Returns the verdict from the side-to-move's perspective, or `None` on any
+/// failure (network error, timeout, non-200, parse error) so the caller can
+/// gracefully fall back to normal play. Positive lookups are cached by FEN.
+async fn probe_tablebase(fen: &str) -> Option<TbVerdict> {
+    // Cache hit: no network, no permit.
+    if let Ok(cache) = tb_cache().lock() {
+        if let Some(v) = cache.get(fen) {
+            return Some(*v);
+        }
+    }
+
+    // Rate-limit uncached queries across the whole batch.
+    let _permit = tb_sem().acquire().await.ok()?;
+
+    let resp = tb_client()
+        .get("https://tablebase.lichess.ovh/standard")
+        .query(&[("fen", fen)])
+        .send()
+        .await
+        .ok()?;
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let json: serde_json::Value = resp.json().await.ok()?;
+    let category = json.get("category")?.as_str()?;
+    let verdict = category_to_verdict(category);
+
+    if let Ok(mut cache) = tb_cache().lock() {
+        cache.insert(fen.to_string(), verdict);
+    }
+
+    Some(verdict)
+}
+
+/// Translate a [`TbVerdict`] (side-to-move perspective) into a game result
+/// string given whose turn it is.
+fn tb_result(verdict: TbVerdict, stm: Color) -> &'static str {
+    match verdict {
+        TbVerdict::WinStm => win_for(stm),
+        TbVerdict::LossStm => loss_for(stm),
+        TbVerdict::Draw => "1/2-1/2",
+    }
+}
 
 /// Result of a completed (or adjudicated) engine-vs-engine game.
 #[derive(Serialize, Debug, Clone)]
@@ -207,6 +321,7 @@ pub async fn play_game_core(
     start_fen: Option<String>,
     movetime_ms: u64,
     max_plies: usize,
+    adjudicate_tb: bool,
 ) -> Result<GameResult, String> {
     play_game_streamed(
         white_path,
@@ -214,6 +329,7 @@ pub async fn play_game_core(
         start_fen,
         movetime_ms,
         max_plies,
+        adjudicate_tb,
         0,
         |_| {},
     )
@@ -234,6 +350,7 @@ pub async fn play_game_streamed(
     start_fen: Option<String>,
     movetime_ms: u64,
     max_plies: usize,
+    adjudicate_tb: bool,
     game_id: usize,
     on_move: impl Fn(MoveEvent) + Send + Sync,
 ) -> Result<GameResult, String> {
@@ -292,6 +409,18 @@ pub async fn play_game_streamed(
             moves,
         }
     };
+
+    // Adjudicate the very start position if it is already a <=7-man endgame.
+    // Most games begin from the full board, so this almost never fires, but a
+    // caller seeding endgame positions benefits from skipping the play-out.
+    if adjudicate_tb && pos.board().occupied().count() <= 7 {
+        let stm = pos.turn();
+        let fen = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
+        if let Some(verdict) = probe_tablebase(&fen).await {
+            let result = tb_result(verdict, stm);
+            return Ok(finish(white, black, result, "tablebase", moves));
+        }
+    }
 
     loop {
         // Adjudicate at max plies.
@@ -399,6 +528,20 @@ pub async fn play_game_streamed(
         if *count >= 3 {
             return Ok(finish(white, black, "1/2-1/2", "threefold", moves));
         }
+
+        // --- Tablebase adjudication (perfect-play result for <=7-man endgames) ---
+        //
+        // The game is still ongoing here. If few enough pieces remain, ask the
+        // Lichess tablebase for the perfect-play verdict and end the game with
+        // it. Best-effort: a None result (any failure) just continues play.
+        if adjudicate_tb && pos.board().occupied().count() <= 7 {
+            let stm = pos.turn();
+            let fen = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
+            if let Some(verdict) = probe_tablebase(&fen).await {
+                let result = tb_result(verdict, stm);
+                return Ok(finish(white, black, result, "tablebase", moves));
+            }
+        }
     }
 }
 
@@ -424,8 +567,17 @@ pub async fn play_game(
     start_fen: Option<String>,
     movetime_ms: u64,
     max_plies: usize,
+    adjudicate_tb: Option<bool>,
 ) -> Result<GameResult, String> {
-    play_game_core(&white_path, &black_path, start_fen, movetime_ms, max_plies).await
+    play_game_core(
+        &white_path,
+        &black_path,
+        start_fen,
+        movetime_ms,
+        max_plies,
+        adjudicate_tb.unwrap_or(true),
+    )
+    .await
 }
 
 // ============================================================================
@@ -447,6 +599,16 @@ pub struct GameSpec {
     /// Purely informational for the runner; callers use it to pair games.
     #[serde(default)]
     pub flipped: bool,
+    /// Adjudicate <=7-man endgames via the Lichess tablebase (perfect play).
+    /// Defaults to `true` so older payloads (and the default UX) keep it on.
+    #[serde(default = "default_true")]
+    pub adjudicate_tb: bool,
+}
+
+/// Default for [`GameSpec::adjudicate_tb`]: tablebase adjudication is on unless
+/// the caller explicitly disables it.
+fn default_true() -> bool {
+    true
 }
 
 /// The result of attempting one [`GameSpec`]: either a completed game or an
@@ -576,6 +738,7 @@ pub async fn run_batch_core(
                 spec.start_fen.clone(),
                 spec.movetime_ms,
                 spec.max_plies,
+                spec.adjudicate_tb,
                 spec.id,
                 move |ev| on_move(ev),
             )

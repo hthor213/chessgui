@@ -9,6 +9,7 @@
 //! Run with:
 //!   cd src-tauri && cargo run --example batch_smoke
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -41,6 +42,7 @@ async fn main() {
             movetime_ms,
             max_plies,
             flipped: false,
+            adjudicate_tb: true,
         })
         .collect();
 
@@ -75,6 +77,20 @@ async fn main() {
     println!("errors      = {}", summary.errors);
     println!("move_events = {}", move_count.load(Ordering::SeqCst));
     println!("wall_clock  = {:.2}s", elapsed.as_secs_f64());
+
+    // Breakdown of how games ended (e.g. "tablebase", "checkmate", ...).
+    let mut by_term: HashMap<String, usize> = HashMap::new();
+    for o in &outcomes {
+        if let Ok(g) = &o.result {
+            *by_term.entry(g.termination.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut terms: Vec<_> = by_term.into_iter().collect();
+    terms.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    println!("\n=== TERMINATIONS ===");
+    for (term, count) in &terms {
+        println!("{:<22} = {}", term, count);
+    }
 
     // Surface any errors for debugging.
     for o in &outcomes {

@@ -74,6 +74,9 @@ export function TournamentTab({
   const [nGames, setNGames] = useState("100")
   const [movetimeMs, setMovetimeMs] = useState("100")
   const [concurrency, setConcurrency] = useState("0")
+  // Adjudicate <=7-man positions via the tablebase (perfect play) — fair, since
+  // any engine can bolt on a 7-man tablebase for free.
+  const [adjudicateTb, setAdjudicateTb] = useState(true)
 
   const [running, setRunning] = useState(false)
   const [tally, setTally] = useState<RunningTally | null>(null)
@@ -115,6 +118,7 @@ export function TournamentTab({
         engineB,
         movetimeNum,
         MAX_PLIES,
+        adjudicateTb,
       )
       evalByIdRef.current = evalById
 
@@ -217,7 +221,7 @@ export function TournamentTab({
     } finally {
       setRunning(false)
     }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, movetimeMs, concurrency])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, movetimeMs, concurrency, adjudicateTb])
 
   const cancel = useCallback(async () => {
     try {
@@ -365,6 +369,25 @@ export function TournamentTab({
             </label>
           </div>
 
+          <label className="flex items-start gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5 accent-green-600"
+              checked={adjudicateTb}
+              onChange={(e) => setAdjudicateTb(e.target.checked)}
+              disabled={running}
+            />
+            <span className="flex flex-col">
+              <span className="text-sm text-foreground">
+                Adjudicate 7-man endgames (tablebase)
+              </span>
+              <span className="text-xs text-muted-foreground">
+                At &le;7 pieces, score the perfect-play result instead of playing
+                it out — faster, and fair since any engine can use a tablebase.
+              </span>
+            </span>
+          </label>
+
           <div className="flex items-center gap-3">
             <Button onClick={run} disabled={running}>
               {running ? "Running…" : "Run Tournament"}
@@ -441,15 +464,18 @@ function SummaryCard({
   // Recompute per-ENGINE results (engines swap colors each game), since the
   // backend summary only knows white/black.
   let games = 0, aWins = 0, bWins = 0, draws = 0, errors = 0
+  const terms: Record<string, number> = {}
   for (const o of outcomes) {
     games += 1
     const r = gameResult(o)
     if (!r) { errors += 1; continue }
+    terms[r.termination] = (terms[r.termination] ?? 0) + 1
     if (r.result === "1/2-1/2") { draws += 1; continue }
     const aIsWhite = !o.flipped
     if ((r.result === "1-0") === aIsWhite) aWins += 1
     else bWins += 1
   }
+  const termList = Object.entries(terms).sort((a, b) => b[1] - a[1])
   const items: [string, number, string][] = [
     ["Games", games, "text-foreground"],
     [`${labelA} wins`, aWins, "text-green-400"],
@@ -493,6 +519,16 @@ function SummaryCard({
               ? `Statistically significant — ${elo.elo >= 0 ? labelA : labelB} is stronger.`
               : "Not statistically significant — the interval includes 0 (need more games)."}
           </span>
+        </div>
+      )}
+      {termList.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/10 pt-3 text-xs text-muted-foreground">
+          <span className="text-foreground">Endings:</span>
+          {termList.map(([name, count]) => (
+            <span key={name} className="font-mono">
+              {name.replace(/_/g, " ")} {count}
+            </span>
+          ))}
         </div>
       )}
     </section>
