@@ -82,7 +82,8 @@ export function TournamentTab({
   const [mode, setMode] = useState<StartMode>("eval")
   // Numeric fields are held as raw strings so they stay freely editable
   // (clearing/retyping); they are coerced to numbers with fallbacks in run().
-  const [minEval, setMinEval] = useState("-1.5")
+  // Absolute imbalance band (pawns); sign is irrelevant under color flip.
+  const [minEval, setMinEval] = useState("0.5")
   const [maxEval, setMaxEval] = useState("1.5")
   const [nGames, setNGames] = useState("100")
   const [concurrency, setConcurrency] = useState("0")
@@ -143,10 +144,12 @@ export function TournamentTab({
       const incMs = preset
         ? preset.incMs
         : Math.max(0, Math.round((Number(customIncS) || 0) * 1000))
-      const minEvalNum = Number.isFinite(Number(minEval)) ? Number(minEval) : -2
-      const maxEvalNum = Number.isFinite(Number(maxEval)) ? Number(maxEval) : 2
-      const lo = Math.min(minEvalNum, maxEvalNum)
-      const hi = Math.max(minEvalNum, maxEvalNum)
+      // Range is an ABSOLUTE imbalance magnitude (sign is irrelevant under color
+      // flip). lo/hi are |eval| bounds; the curve/map span both signs (-hi..+hi).
+      const a = Number.isFinite(Number(minEval)) ? Math.abs(Number(minEval)) : 0.5
+      const b = Number.isFinite(Number(maxEval)) ? Math.abs(Number(maxEval)) : 1.5
+      const lo = Math.min(a, b)
+      const hi = Math.max(a, b)
 
       const positions = await loadPositions()
       const nSeeds = seedsForGames(nGamesNum)
@@ -250,11 +253,12 @@ export function TournamentTab({
       })
 
       setReport(result)
+      // Positions span both signs (|eval| in [lo,hi]); charts cover -hi..+hi.
       setProbBins(
         buildProbabilityMap(
           result.outcomes,
           evalByIdRef.current,
-          lo,
+          -hi,
           hi,
         ),
       )
@@ -262,7 +266,7 @@ export function TournamentTab({
         buildEngineCurves(
           result.outcomes,
           evalByIdRef.current,
-          lo,
+          -hi,
           hi,
         ),
       )
@@ -361,11 +365,12 @@ export function TournamentTab({
           </div>
 
           {mode === "eval" && (
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap items-end gap-4">
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Min eval (pawns)</span>
+                <span className="text-xs text-muted-foreground">Imbalance from (pawns)</span>
                 <input
                   type="number"
+                  min="0"
                   step="0.25"
                   className="w-28 bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                   value={minEval}
@@ -374,9 +379,10 @@ export function TournamentTab({
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Max eval (pawns)</span>
+                <span className="text-xs text-muted-foreground">Imbalance to (pawns)</span>
                 <input
                   type="number"
+                  min="0"
                   step="0.25"
                   className="w-28 bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                   value={maxEval}
@@ -384,6 +390,9 @@ export function TournamentTab({
                   disabled={running}
                 />
               </label>
+              <span className="text-xs text-muted-foreground pb-2 max-w-[18rem]">
+                Absolute edge, either color (each position is played both ways).
+              </span>
             </div>
           )}
 

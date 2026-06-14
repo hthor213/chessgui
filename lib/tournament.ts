@@ -226,15 +226,18 @@ export function buildSeeds(
     return seeds
   }
 
-  // mode === "eval": eval-qualified spread (mirrors scripts/sample_spread.py).
+  // mode === "eval": absolute-imbalance spread. Under color-flip the SIGN of a
+  // position's eval is irrelevant (a +0.6 position played flipped is a -0.6 for
+  // the other engine), so qualify by |eval| magnitude across [lo, hi] and bucket
+  // by magnitude. The seed keeps the signed eval for the per-engine curve.
   const binWidth = 0.25
-  const lo = Math.min(minEval, maxEval)
+  const lo = Math.max(0, Math.min(minEval, maxEval))
   const hi = Math.max(minEval, maxEval)
   const nbins = Math.max(1, Math.round((hi - lo) / binWidth))
 
   const buckets: TaggedPosition[][] = Array.from({ length: nbins }, () => [])
   for (const p of positions) {
-    const v = p.eval_pawns
+    const v = Math.abs(p.eval_pawns)
     if (v >= lo && v < hi) {
       const idx = Math.floor((v - lo) / binWidth)
       if (idx >= 0 && idx < nbins) buckets[idx].push(p)
