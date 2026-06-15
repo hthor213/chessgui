@@ -10,6 +10,7 @@ import {
   seedsForGames,
   buildProbabilityMap,
   buildEngineCurves,
+  buildEngineWDL,
   eloDelta,
   gameResult,
   uciSquares,
@@ -100,6 +101,8 @@ export function TournamentTab({
   const [report, setReport] = useState<BatchReport | null>(null)
   const [probBins, setProbBins] = useState<ProbBin[]>([])
   const [curveBins, setCurveBins] = useState<EngineCurveBin[]>([])
+  const [sfWdl, setSfWdl] = useState<ProbBin[]>([])
+  const [rkWdl, setRkWdl] = useState<ProbBin[]>([])
   const [error, setError] = useState<string | null>(null)
   // Wall-clock timer for the current run.
   const [startedAt, setStartedAt] = useState<number | null>(null)
@@ -127,6 +130,8 @@ export function TournamentTab({
     setReport(null)
     setProbBins([])
     setCurveBins([])
+    setSfWdl([])
+    setRkWdl([])
     setStartedAt(Date.now())
     setNowTs(Date.now())
     setRunning(true)
@@ -270,6 +275,8 @@ export function TournamentTab({
           hi,
         ),
       )
+      setSfWdl(buildEngineWDL(result.outcomes, evalByIdRef.current, "a", -hi, hi))
+      setRkWdl(buildEngineWDL(result.outcomes, evalByIdRef.current, "b", -hi, hi))
     } catch (e) {
       setError(String(e))
     } finally {
@@ -552,7 +559,29 @@ export function TournamentTab({
           />
         )}
 
-        {/* Probability map */}
+        {/* Per-engine W/D/L: how each engine fared when up vs down each amount. */}
+        {report && sfWdl.length > 0 && (
+          <ProbabilityMap
+            bins={sfWdl}
+            title={`${engineLabel(engineA)} — results by its own starting eval`}
+            desc={`How ${engineLabel(engineA)} fared from its own perspective: +x bins = it began up x pawns (conversion), −x bins = down x pawns (defense). The dot is its mean score.`}
+            winLabel={`${engineLabel(engineA)} win`}
+            lossLabel="loss"
+            scoreLabel="avg score"
+          />
+        )}
+        {report && rkWdl.length > 0 && (
+          <ProbabilityMap
+            bins={rkWdl}
+            title={`${engineLabel(engineB)} — results by its own starting eval`}
+            desc={`How ${engineLabel(engineB)} fared from its own perspective: +x bins = up x pawns (conversion), −x bins = down x pawns (defense). Compare the same bins against ${engineLabel(engineA)} above.`}
+            winLabel={`${engineLabel(engineB)} win`}
+            lossLabel="loss"
+            scoreLabel="avg score"
+          />
+        )}
+
+        {/* Probability map (advantaged side, both engines pooled) */}
         {report && probBins.length > 0 && (
           <ProbabilityMap bins={probBins} />
         )}
@@ -732,18 +761,32 @@ function EngineCurve({
   )
 }
 
-function ProbabilityMap({ bins }: { bins: ProbBin[] }) {
+function ProbabilityMap({
+  bins,
+  title = "Conversion probability map",
+  desc = "Each bar is one ~0.25-pawn starting-eval bin (White-POV). Stacks show how the advantaged (White) side fared; the dot marks the mean White score = how often that advantage converted.",
+  winLabel = "White win",
+  lossLabel = "Black win",
+  scoreLabel = "avg White score",
+}: {
+  bins: ProbBin[]
+  title?: string
+  desc?: string
+  winLabel?: string
+  lossLabel?: string
+  scoreLabel?: string
+}) {
   return (
     <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">
-          Conversion probability map
+          {title}
         </h2>
         {/* Legend */}
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-3 rounded-sm bg-green-500" />
-            White win
+            {winLabel}
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-3 rounded-sm bg-gray-500" />
@@ -751,19 +794,15 @@ function ProbabilityMap({ bins }: { bins: ProbBin[] }) {
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-3 rounded-sm bg-red-500" />
-            Black win
+            {lossLabel}
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-3 rounded-full bg-white" />
-            avg White score
+            {scoreLabel}
           </span>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Each bar is one ~0.25-pawn starting-eval bin (White-POV). Stacks show
-        how the advantaged (White) side fared; the dot marks the mean White
-        score = how often that advantage converted.
-      </p>
+      <p className="text-xs text-muted-foreground">{desc}</p>
 
       {/* Bars */}
       <div className="flex items-stretch gap-1 h-56">

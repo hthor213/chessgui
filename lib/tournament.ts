@@ -457,6 +457,82 @@ export function buildProbabilityMap(
   return bins
 }
 
+/**
+ * W/D/L for ONE engine, binned by THAT engine's signed starting eval
+ * (+x = it began the game up x pawns, -x = down x). Reuses ProbBin: whiteWins =
+ * the engine's wins, blackWins = its losses, draws = draws, avgWhiteScore = its
+ * mean score. Lets you read e.g. "when Stockfish was down 2.0: W/D/L" directly,
+ * and compare the two engines' defense (negative bins) and conversion (positive).
+ */
+export function buildEngineWDL(
+  outcomes: GameOutcome[],
+  evalById: EvalMap,
+  side: "a" | "b",
+  minEval = -2.5,
+  maxEval = 2.5,
+  binWidth = 0.25,
+): ProbBin[] {
+  let lo = Math.min(minEval, maxEval)
+  let hi = Math.max(minEval, maxEval)
+  // Perspective evals span both signs; widen to cover the data either way.
+  for (const { eval: e } of evalById.values()) {
+    const m = Math.abs(e)
+    if (-m < lo) lo = -m
+    if (m + binWidth > hi) hi = m + binWidth
+  }
+  lo = Math.floor(lo / binWidth) * binWidth
+  hi = Math.ceil(hi / binWidth) * binWidth
+  const nbins = Math.max(1, Math.round((hi - lo) / binWidth))
+
+  type Acc = { count: number; w: number; d: number; b: number; scoreSum: number }
+  const accs: Acc[] = Array.from({ length: nbins }, () => ({
+    count: 0, w: 0, d: 0, b: 0, scoreSum: 0,
+  }))
+
+  for (const o of outcomes) {
+    const g = gameResult(o)
+    if (!g) continue
+    const meta = evalById.get(o.id)
+    if (!meta) continue
+    // Engine A is White when !flipped; engine B is White when flipped.
+    const engineIsWhite = side === "a" ? !o.flipped : o.flipped
+    const persp = engineIsWhite ? meta.eval : -meta.eval
+    let idx = Math.floor((persp - lo) / binWidth)
+    if (idx < 0) idx = 0
+    if (idx >= nbins) idx = nbins - 1
+    const acc = accs[idx]
+    acc.count++
+    if (g.result === "1/2-1/2") {
+      acc.d++
+      acc.scoreSum += 0.5
+    } else if ((g.result === "1-0") === engineIsWhite) {
+      acc.w++
+      acc.scoreSum += 1
+    } else {
+      acc.b++
+    }
+  }
+
+  const bins: ProbBin[] = []
+  for (let i = 0; i < nbins; i++) {
+    const acc = accs[i]
+    if (acc.count === 0) continue
+    const binLo = lo + i * binWidth
+    bins.push({
+      lo: binLo,
+      hi: binLo + binWidth,
+      center: binLo + binWidth / 2,
+      count: acc.count,
+      whiteWins: acc.w,
+      draws: acc.d,
+      blackWins: acc.b,
+      avgWhiteScore: acc.scoreSum / acc.count,
+    })
+  }
+  bins.sort((a, b) => a.lo - b.lo)
+  return bins
+}
+
 // ---------------------------------------------------------------------------
 // Per-engine performance curve
 // ---------------------------------------------------------------------------
