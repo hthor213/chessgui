@@ -133,7 +133,7 @@ export function TournamentTab({
 
     try {
       // Coerce the free-text numeric fields with sensible fallbacks/clamps.
-      const nGamesNum = Math.max(2, Math.min(500, Math.round(Number(nGames) || 100)))
+      const nGamesNum = Math.max(2, Math.min(10000, Math.round(Number(nGames) || 100)))
       const concurrencyNum = Math.max(0, Math.round(Number(concurrency) || 0))
 
       // Resolve the time control (game clock, engine-managed).
@@ -399,12 +399,12 @@ export function TournamentTab({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <label className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">
-                Games (max 500, 2 per opening)
+                Games (max 10000, 2 per opening)
               </span>
               <input
                 type="number"
                 min={2}
-                max={500}
+                max={10000}
                 className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                 value={nGames}
                 onChange={(e) => setNGames(e.target.value)}
