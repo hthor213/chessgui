@@ -84,17 +84,21 @@ export function TournamentTab({
   // Numeric fields are held as raw strings so they stay freely editable
   // (clearing/retyping); they are coerced to numbers with fallbacks in run().
   // Absolute imbalance band (pawns); sign is irrelevant under color flip.
-  const [minEval, setMinEval] = useState("0.5")
-  const [maxEval, setMaxEval] = useState("1.5")
-  const [nGames, setNGames] = useState("100")
+  // Defaults tuned for the engine-comparison workflow (full 0-2.4 sweep, fast TC).
+  const [minEval, setMinEval] = useState("0")
+  const [maxEval, setMaxEval] = useState("2.4")
+  const [nGames, setNGames] = useState("1000")
   const [concurrency, setConcurrency] = useState("0")
   // Time control: a preset id, or "custom" with editable base/increment (seconds).
-  const [tcId, setTcId] = useState("standard")
+  const [tcId, setTcId] = useState("fast")
   const [customBaseS, setCustomBaseS] = useState("60")
   const [customIncS, setCustomIncS] = useState("0.6")
   // Adjudicate <=7-man positions via the tablebase (perfect play) — fair, since
   // any engine can bolt on a 7-man tablebase for free.
   const [adjudicateTb, setAdjudicateTb] = useState(true)
+  // Live UCI version of each configured engine (e.g. "Stockfish 18").
+  const [sfVersion, setSfVersion] = useState<string | null>(null)
+  const [rkVersion, setRkVersion] = useState<string | null>(null)
 
   const [running, setRunning] = useState(false)
   const [tally, setTally] = useState<RunningTally | null>(null)
@@ -110,6 +114,53 @@ export function TournamentTab({
 
   // The id -> eval side-table for the current run, used to bucket results.
   const evalByIdRef = useRef<EvalMap>(new Map())
+
+  // Restore the last-used config on mount; persist it on every change. So the
+  // app reopens exactly where you left off instead of snapping to the defaults.
+  const restored = useRef(false)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("chessgui-tournament-config")
+      if (raw) {
+        const c = JSON.parse(raw)
+        if (c.engineA) setEngineA(c.engineA)
+        if (c.engineB) setEngineB(c.engineB)
+        if (c.mode) setMode(c.mode)
+        if (c.minEval != null) setMinEval(String(c.minEval))
+        if (c.maxEval != null) setMaxEval(String(c.maxEval))
+        if (c.nGames != null) setNGames(String(c.nGames))
+        if (c.concurrency != null) setConcurrency(String(c.concurrency))
+        if (c.tcId) setTcId(c.tcId)
+        if (c.customBaseS != null) setCustomBaseS(String(c.customBaseS))
+        if (c.customIncS != null) setCustomIncS(String(c.customIncS))
+        if (typeof c.adjudicateTb === "boolean") setAdjudicateTb(c.adjudicateTb)
+      }
+    } catch { /* ignore corrupt config */ }
+    restored.current = true
+  }, [])
+  useEffect(() => {
+    if (!restored.current) return // don't clobber saved config before restore runs
+    const c = { engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb }
+    try { localStorage.setItem("chessgui-tournament-config", JSON.stringify(c)) } catch { /* ignore */ }
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb])
+
+  // Resolve each engine's UCI version (e.g. "Stockfish 18") for display.
+  useEffect(() => {
+    let cancelled = false
+    setSfVersion(null)
+    invoke<string>("engine_id", { path: engineA })
+      .then((v) => { if (!cancelled) setSfVersion(v) })
+      .catch(() => { if (!cancelled) setSfVersion("not found") })
+    return () => { cancelled = true }
+  }, [engineA])
+  useEffect(() => {
+    let cancelled = false
+    setRkVersion(null)
+    invoke<string>("engine_id", { path: engineB })
+      .then((v) => { if (!cancelled) setRkVersion(v) })
+      .catch(() => { if (!cancelled) setRkVersion("not found") })
+    return () => { cancelled = true }
+  }, [engineB])
 
   // Keep parent informed of run state; clear the live board when a run ends.
   useEffect(() => {
@@ -329,6 +380,9 @@ export function TournamentTab({
                 disabled={running}
                 spellCheck={false}
               />
+              <span className={`text-xs font-mono ${sfVersion === "not found" ? "text-amber-400" : "text-green-400"}`}>
+                {sfVersion ? `→ ${sfVersion}` : "→ checking…"}
+              </span>
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">
@@ -341,6 +395,9 @@ export function TournamentTab({
                 disabled={running}
                 spellCheck={false}
               />
+              <span className={`text-xs font-mono ${rkVersion === "not found" ? "text-amber-400" : "text-sky-400"}`}>
+                {rkVersion ? `→ ${rkVersion}` : "→ checking…"}
+              </span>
             </label>
           </div>
         </section>

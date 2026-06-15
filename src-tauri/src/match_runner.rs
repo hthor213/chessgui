@@ -928,3 +928,43 @@ pub async fn play_batch(
 pub fn cancel_batch(cancel: tauri::State<'_, BatchCancel>) {
     cancel.0.store(true, Ordering::SeqCst);
 }
+
+/// Tauri command: return a UCI engine's `id name` (e.g. "Stockfish 18"), so the
+/// app can show the actual version behind a binary path. Best-effort, 5s cap.
+#[tauri::command]
+pub async fn engine_id(path: String) -> Result<String, String> {
+    use std::process::Stdio;
+    let mut child = Command::new(&path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("spawn failed: {e}"))?;
+    {
+        let mut stdin = child.stdin.take().ok_or("no stdin")?;
+        stdin
+            .write_all(b"uci\nquit\n")
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let stdout = child.stdout.take().ok_or("no stdout")?;
+    let mut lines = BufReader::new(stdout).lines();
+    let read = async {
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(rest) = line.strip_prefix("id name ") {
+                return Some(rest.trim().to_string());
+            }
+            if line.starts_with("uciok") {
+                break;
+            }
+        }
+        None
+    };
+    let name = tokio::time::timeout(Duration::from_secs(5), read)
+        .await
+        .ok()
+        .flatten();
+    let _ = child.wait().await;
+    name.ok_or_else(|| "no id name in UCI output".to_string())
+}

@@ -22,6 +22,7 @@ pub fn run() {
             match_runner::play_game,
             match_runner::play_batch,
             match_runner::cancel_batch,
+            match_runner::engine_id,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
