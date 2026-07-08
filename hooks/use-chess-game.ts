@@ -279,14 +279,15 @@ export function useChessGame() {
   );
 
   const loadGame = useCallback(
-    (sanMoves: string[], headers?: Record<string, string>) => {
-      const setup = parseFen(INITIAL_FEN);
+    (sanMoves: string[], headers?: Record<string, string>, startFen?: string) => {
+      const setup = parseFen(startFen || INITIAL_FEN);
       if (setup.isErr) return;
       const pos = Chess.fromSetup(setup.unwrap());
       if (pos.isErr) return;
       const chess = pos.unwrap();
+      const normStart = makeFen(chess.toSetup());
 
-      const positions: string[] = [INITIAL_FEN];
+      const positions: string[] = [normStart];
       const moves: string[] = [];
       const uciMoves: string[] = [];
       const lastMovesList: ([Key, Key] | undefined)[] = [undefined];
@@ -317,12 +318,31 @@ export function useChessGame() {
         positions,
         lastMoves: lastMovesList,
         currentMoveIndex: finalIndex,
-        startFen: INITIAL_FEN,
+        startFen: normStart,
         headers: headers || {},
       });
     },
     [],
   );
+
+  // Reset the game to an arbitrary position with empty history (position editor).
+  const loadFen = useCallback((fen: string) => {
+    const setup = parseFen(fen);
+    if (setup.isErr) return;
+    const pos = Chess.fromSetup(setup.unwrap());
+    if (pos.isErr) return;
+    const normFen = makeFen(pos.unwrap().toSetup());
+    setState({
+      fen: normFen,
+      moves: [],
+      uciMoves: [],
+      positions: [normFen],
+      lastMoves: [undefined],
+      currentMoveIndex: -1,
+      startFen: normFen,
+      headers: {},
+    });
+  }, []);
 
   const newGame = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
@@ -419,6 +439,7 @@ export function useChessGame() {
     goToMove,
     headers: state.headers,
     loadGame,
+    loadFen,
     newGame,
     playUciMove,
     setOrientation,

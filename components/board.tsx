@@ -18,19 +18,29 @@ interface BoardProps {
   onBoardSize?: (size: number) => void;
   /** Read-only board (no piece interaction) — used for watching live games. */
   viewOnly?: boolean;
+  /** Edit mode: any piece to any square, no legality — used by the position editor. */
+  freeMove?: boolean;
+  /** Fires when a square is clicked/tapped (edit mode placement). */
+  onSelect?: (square: string) => void;
   children?: React.ReactNode;
 }
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, freeMove = false, onSelect, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
+  const onSelectRef = useRef(onSelect);
   const [boardSize, setBoardSize] = useState(560);
 
   onMoveRef.current = onMove;
+  onSelectRef.current = onSelect;
 
   const handleMove = useCallback((from: Key, to: Key) => {
     onMoveRef.current(from, to);
+  }, []);
+
+  const handleSelect = useCallback((key: Key) => {
+    onSelectRef.current?.(key);
   }, []);
 
   useEffect(() => {
@@ -68,14 +78,14 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       coordinates: true,
       turnColor: fen.includes(" w ") ? "white" : "black",
       movable: {
-        color: viewOnly ? undefined : movableColor,
-        free: false,
-        dests: legalMoves,
-        showDests: true,
+        color: freeMove ? "both" : viewOnly ? undefined : movableColor,
+        free: freeMove,
+        dests: freeMove ? undefined : legalMoves,
+        showDests: !freeMove,
       },
       highlight: {
-        lastMove: true,
-        check: true,
+        lastMove: !freeMove,
+        check: !freeMove,
       },
       animation: {
         enabled: true,
@@ -90,6 +100,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       },
       events: {
         move: handleMove,
+        select: onSelectRef.current ? handleSelect : undefined,
       },
       lastMove: lastMove ? [lastMove[0], lastMove[1]] : undefined,
     });
@@ -98,7 +109,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       apiRef.current?.destroy();
       apiRef.current = null;
     };
-  }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove, viewOnly]);
+  }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove, handleSelect, viewOnly, freeMove]);
 
   return (
     <div style={{ position: "relative", width: boardSize, height: boardSize, flexShrink: 0 }}>

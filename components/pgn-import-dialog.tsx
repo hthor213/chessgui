@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -15,16 +15,21 @@ import { Card } from "@/components/ui/card";
 import { parsePgn, startingPosition } from "chessops/pgn";
 import type { PgnNodeData } from "chessops/pgn";
 import { makeSan, parseSan } from "chessops/san";
+import { makeFen } from "chessops/fen";
+import { validateFen, padFen } from "@/lib/fen";
+
+const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 interface PgnGame {
   headers: Record<string, string>;
   moves: string[];
+  startFen: string;
 }
 
 interface PgnImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onLoadGame: (moves: string[], headers?: Record<string, string>) => void;
+  onLoadGame: (moves: string[], headers?: Record<string, string>, startFen?: string) => void;
 }
 
 function extractMoves(
@@ -42,6 +47,13 @@ function extractMoves(
     chess.play(move);
   }
   return moves;
+}
+
+// The start position of a game, honoring any [FEN]/[SetUp] header.
+function startFenFromHeaders(headers: Map<string, string>): string {
+  const pos = startingPosition(headers);
+  if (pos.isErr) return INITIAL_FEN;
+  return makeFen(pos.unwrap().toSetup());
 }
 
 function headersToRecord(headers: Map<string, string>): Record<string, string> {
@@ -69,6 +81,7 @@ export function PgnImportDialog({
   const [pgnText, setPgnText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [parsedGames, setParsedGames] = useState<PgnGame[] | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleClose = () => {
     setPgnText("");
@@ -77,35 +90,47 @@ export function PgnImportDialog({
     onOpenChange(false);
   };
 
-  const handleLoad = () => {
+  const doLoad = (raw: string) => {
     setError(null);
     setParsedGames(null);
 
-    const trimmed = pgnText.trim();
+    const trimmed = raw.trim();
     if (!trimmed) {
-      setError("Please paste a PGN.");
+      setError("Please paste a PGN or FEN.");
       return;
+    }
+
+    // Single line that validates as a FEN → load it as a position.
+    if (!trimmed.includes("\n")) {
+      const padded = padFen(trimmed);
+      if (validateFen(padded).ok) {
+        onLoadGame([], { FEN: padded, SetUp: "1" }, padded);
+        handleClose();
+        return;
+      }
     }
 
     const games = parsePgn(trimmed);
     if (games.length === 0) {
-      setError("No valid games found in PGN.");
+      setError("No valid games found.");
       return;
     }
 
     const parsed: PgnGame[] = games.map((g) => ({
       headers: headersToRecord(g.headers),
       moves: extractMoves(g, g.headers),
+      startFen: startFenFromHeaders(g.headers),
     }));
 
-    const valid = parsed.filter((g) => g.moves.length > 0);
+    // A game with a [FEN] header but no moves is still a valid position import.
+    const valid = parsed.filter((g) => g.moves.length > 0 || g.startFen !== INITIAL_FEN);
     if (valid.length === 0) {
-      setError("Could not parse any moves from the PGN.");
+      setError("Could not parse any moves or position from the input.");
       return;
     }
 
     if (valid.length === 1) {
-      onLoadGame(valid[0].moves, valid[0].headers);
+      onLoadGame(valid[0].moves, valid[0].headers, valid[0].startFen);
       handleClose();
       return;
     }
@@ -113,8 +138,20 @@ export function PgnImportDialog({
     setParsedGames(valid);
   };
 
+  const handleLoad = () => doLoad(pgnText);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    file.text().then((text) => {
+      setPgnText(text);
+      doLoad(text);
+    });
+  };
+
   const handlePickGame = (game: PgnGame) => {
-    onLoadGame(game.moves, game.headers);
+    onLoadGame(game.moves, game.headers, game.startFen);
     handleClose();
   };
 
@@ -122,9 +159,9 @@ export function PgnImportDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[#1e1c19] border-[#2a2825] text-[#bababa] sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-[#f6f6f6]">Import PGN</DialogTitle>
+          <DialogTitle className="text-[#f6f6f6]">Import PGN or FEN</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Paste a PGN game or select from multiple games.
+            Paste a PGN game, a FEN position, or open a .pgn file.
           </DialogDescription>
         </DialogHeader>
 
@@ -161,7 +198,7 @@ export function PgnImportDialog({
         ) : (
           <div className="flex flex-col gap-3">
             <Textarea
-              placeholder="Paste PGN here..."
+              placeholder="Paste PGN or FEN here..."
               rows={10}
               value={pgnText}
               onChange={(e) => setPgnText(e.target.value)}
@@ -172,7 +209,21 @@ export function PgnImportDialog({
                 {error}
               </span>
             )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pgn,.txt"
+              className="hidden"
+              onChange={handleFile}
+            />
             <DialogFooter>
+              <Button
+                variant="ghost"
+                className="text-muted-foreground mr-auto"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Open file…
+              </Button>
               <Button
                 variant="ghost"
                 className="text-muted-foreground"

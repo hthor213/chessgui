@@ -7,6 +7,7 @@ import { MoveList } from "@/components/move-list"
 import { AnalysisPanel } from "@/components/analysis-panel"
 import { PromotionDialog } from "@/components/promotion-dialog"
 import { PgnImportDialog } from "@/components/pgn-import-dialog"
+import { PositionEditorDialog } from "@/components/position-editor-dialog"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { TournamentTab } from "@/components/tournament-tab"
 import { useChessGame } from "@/hooks/use-chess-game"
@@ -41,6 +42,7 @@ export default function Home() {
   // Watch a live engine-vs-engine game on the board while a tournament runs.
   const liveViewing = view === "board" && tournamentRunning
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(false)
   const [now, setNow] = useState(Date.now())
 
   // Force re-render during play mode so the active clock visually ticks
@@ -82,6 +84,15 @@ export default function Home() {
         if (tag !== "INPUT" && tag !== "TEXTAREA") {
           e.preventDefault()
           setPgnDialogOpen(true)
+          return
+        }
+      }
+
+      if (meta && e.key === "e") {
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag !== "INPUT" && tag !== "TEXTAREA") {
+          e.preventDefault()
+          setEditorOpen(true)
           return
         }
       }
@@ -346,6 +357,20 @@ export default function Home() {
               >
                 New
               </button>
+              <button
+                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                onClick={() => setPgnDialogOpen(true)}
+                title="Import PGN or FEN (⌘V)"
+              >
+                Import
+              </button>
+              <button
+                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                onClick={() => setEditorOpen(true)}
+                title="Set up position (⌘E)"
+              >
+                Set up
+              </button>
             </div>
           </div>
 
@@ -367,6 +392,13 @@ export default function Home() {
         open={pgnDialogOpen}
         onOpenChange={setPgnDialogOpen}
         onLoadGame={game.loadGame}
+      />
+
+      <PositionEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        currentFen={game.fen}
+        onSetPosition={game.loadFen}
       />
     </TooltipProvider>
     </ErrorBoundary>
