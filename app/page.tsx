@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import dynamic from "next/dynamic"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { MoveList } from "@/components/move-list"
@@ -11,7 +11,7 @@ import { PgnImportDialog } from "@/components/pgn-import-dialog"
 import { PositionEditorDialog } from "@/components/position-editor-dialog"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { TournamentTab } from "@/components/tournament-tab"
-import { useChessGame } from "@/hooks/use-chess-game"
+import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 import { readClipboardImage, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
 import type { LiveGame } from "@/lib/tournament"
@@ -77,9 +77,12 @@ export default function Home() {
   // Enter "thinking mode": load a position and show only the board + eval bar,
   // with the engine evaluating silently (no lines, no move list). Used after
   // pasting a screenshot of a position — think through it yourself, the bar
-  // only tells you how it's going.
+  // only tells you how it's going. The game that was on the board is
+  // snapshotted so Exit can bring it back.
+  const preThinkingGame = useRef<GameState | null>(null)
   const enterThinkingMode = useCallback(
     async (fen: string) => {
+      preThinkingGame.current = game.getSnapshot()
       game.loadFen(fen)
       setView("thinking")
       if (!engine.state.isRunning) {
@@ -88,8 +91,17 @@ export default function Home() {
         await engine.setPlayMode(false)
       }
     },
-    [game.loadFen, engine.startEngine, engine.setPlayMode, engine.state.isRunning],
+    [game.getSnapshot, game.loadFen, engine.startEngine, engine.setPlayMode, engine.state.isRunning],
   )
+
+  // Leave thinking mode and restore the pre-paste game.
+  const exitThinkingMode = useCallback(() => {
+    if (preThinkingGame.current) {
+      game.restoreSnapshot(preThinkingGame.current)
+      preThinkingGame.current = null
+    }
+    setView("board")
+  }, [game.restoreSnapshot])
 
   // A pasted screenshot means "read this position and let me think about it" —
   // recognize it (Claude vision) and enter thinking mode. Used by global ⌘V
@@ -295,7 +307,7 @@ export default function Home() {
             Engine lines stay hidden: you do the thinking, the bar keeps score. */}
         {view === "thinking" && (
           <main className="flex-1 min-h-0 p-4">
-            <div className="h-full w-full flex items-center justify-center gap-3 overflow-hidden">
+            <div className="relative h-full w-full flex items-center justify-center gap-3 overflow-hidden">
               <div
                 className="shrink-0"
                 style={{ height: thinkingBoardSize + 26, paddingBottom: 26 }}
@@ -330,6 +342,44 @@ export default function Home() {
                   />
                 )}
               </Board>
+              {/* Minimal controls: explore lines with both sides, back up, retry */}
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 flex items-center gap-1">
+                <button
+                  className="px-3 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                  onClick={() => game.goToMove(game.currentMoveIndex - 1)}
+                  title="Take back a move (←)"
+                >
+                  ◀ Undo
+                </button>
+                <button
+                  className="px-3 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                  onClick={() => game.goToMove(game.currentMoveIndex + 1)}
+                  title="Replay a move (→)"
+                >
+                  Redo ▶
+                </button>
+                <button
+                  className="px-3 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                  onClick={() => game.goToMove(-1)}
+                  title="Back to the pasted position (Home)"
+                >
+                  Start over
+                </button>
+                <button
+                  className="px-3 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                  onClick={() => game.flipBoard()}
+                  title="Flip board (F)"
+                >
+                  Flip
+                </button>
+                <button
+                  className="px-3 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                  onClick={exitThinkingMode}
+                  title="Leave thinking mode and restore the game you had before pasting"
+                >
+                  Exit
+                </button>
+              </div>
             </div>
           </main>
         )}

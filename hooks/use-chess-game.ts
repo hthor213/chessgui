@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Chess } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
@@ -30,7 +30,7 @@ function keyToSquare(key: Key): number {
   return rank * 8 + file;
 }
 
-interface GameState {
+export interface GameState {
   fen: string;
   moves: string[];
   uciMoves: string[];
@@ -344,6 +344,13 @@ export function useChessGame() {
     });
   }, []);
 
+  // Snapshot/restore the whole game — used by thinking mode to bring back
+  // the game that was on the board before a screenshot paste replaced it.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const getSnapshot = useCallback((): GameState => stateRef.current, []);
+  const restoreSnapshot = useCallback((snap: GameState) => setState(snap), []);
+
   const newGame = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setState({
@@ -441,6 +448,8 @@ export function useChessGame() {
     loadGame,
     loadFen,
     newGame,
+    getSnapshot,
+    restoreSnapshot,
     playUciMove,
     setOrientation,
     flipBoard: () => setOrientation((o) => (o === "white" ? "black" : "white")),
