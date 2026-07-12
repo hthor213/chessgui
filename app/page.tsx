@@ -204,9 +204,12 @@ export default function Home() {
       <div className="h-screen flex flex-col bg-[#0a0a0a]">
         {/* Header */}
         <header className="flex items-center justify-between px-6 py-3 border-b border-white/10">
-          <div className="flex items-center gap-2">
+          <div className="flex items-baseline gap-2">
             <span className="text-lg font-bold tracking-tight text-foreground">
               ChessGUI
+            </span>
+            <span className="text-[11px] text-muted-foreground font-mono" title="version · commit · build date">
+              v{process.env.NEXT_PUBLIC_APP_VERSION} · {process.env.NEXT_PUBLIC_BUILD_INFO}
             </span>
           </div>
           <nav className="flex items-center gap-1">
