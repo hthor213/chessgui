@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatScore, scoreToNumeric, type PvLine } from "@/lib/uci-parser"
+import { EvalBar } from "@/components/eval-bar"
 import type { EngineState, EngineMode, PlayerColor } from "@/hooks/use-engine"
 
 interface AnalysisPanelProps {
@@ -23,40 +24,6 @@ function formatNodes(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return `${n}`;
-}
-
-function EvalBar({ score, turn }: { score: PvLine["score"]; turn: "white" | "black" }) {
-  const numeric = scoreToNumeric(score, turn);
-  // Clamp to [-10, 10], map to percentage (50% = equal)
-  const clamped = Math.max(-10, Math.min(10, numeric));
-  const whitePct = 50 + (clamped / 10) * 50;
-
-  return (
-    <div className="w-[26px] min-h-[200px] rounded overflow-hidden flex flex-col shrink-0"
-      style={{ height: "100%" }}
-    >
-      <div
-        className="transition-all duration-300 ease-in-out"
-        style={{
-          flex: `${100 - whitePct} 0 0`,
-          backgroundColor: "#403d39",
-        }}
-      />
-      <div
-        className="flex items-start justify-center pt-0.5 transition-all duration-300 ease-in-out"
-        style={{
-          flex: `${whitePct} 0 0`,
-          backgroundColor: "#e8e6e1",
-        }}
-      >
-        {whitePct > 55 && (
-          <span className="text-[9px] font-bold font-mono text-[#333]">
-            {Math.abs(numeric).toFixed(1)}
-          </span>
-        )}
-      </div>
-    </div>
-  );
 }
 
 function ScoreBadge({ score, turn }: { score: PvLine["score"]; turn: "white" | "black" }) {

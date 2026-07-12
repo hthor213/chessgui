@@ -21,13 +21,6 @@
   }
 }
 
-/* Lichess-style coordinate labels */
-coords {
-  font-size: 11px;
-  font-weight: 700;
-  opacity: 0.7;
-}
-
 /* Move highlight color - Lichess yellow-green */
 cg-board square.last-move {
   background-color: rgba(155, 199, 0, 0.41) !important;

@@ -1,4 +1,5 @@
 mod uci;
+mod vision;
 pub mod match_runner;
 
 use std::sync::Mutex;
@@ -12,10 +13,12 @@ fn ping() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Mutex::new(uci::EngineState::default()))
         .manage(match_runner::BatchCancel::default())
         .invoke_handler(tauri::generate_handler![
             ping,
+            vision::recognize_fen,
             uci::start_engine,
             uci::send_command,
             uci::stop_engine,

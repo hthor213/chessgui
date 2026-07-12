@@ -17,6 +17,7 @@ import type { PgnNodeData } from "chessops/pgn";
 import { makeSan, parseSan } from "chessops/san";
 import { makeFen } from "chessops/fen";
 import { validateFen, padFen } from "@/lib/fen";
+import { clipboardEventImage, type ClipboardImage } from "@/lib/recognize-position";
 
 const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -30,6 +31,8 @@ interface PgnImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onLoadGame: (moves: string[], headers?: Record<string, string>, startFen?: string) => void;
+  /** Called when the user pastes a screenshot of a position instead of text. */
+  onImagePaste?: (image: ClipboardImage) => void;
 }
 
 function extractMoves(
@@ -77,6 +80,7 @@ export function PgnImportDialog({
   open,
   onOpenChange,
   onLoadGame,
+  onImagePaste,
 }: PgnImportDialogProps) {
   const [pgnText, setPgnText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -155,13 +159,27 @@ export function PgnImportDialog({
     handleClose();
   };
 
+  // Pasting a screenshot anywhere in the dialog hands the image to the
+  // recognition flow instead of the textarea.
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (!onImagePaste) return;
+    clipboardEventImage(e).then((image) => {
+      if (!image) return;
+      handleClose();
+      onImagePaste(image);
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1e1c19] border-[#2a2825] text-[#bababa] sm:max-w-lg">
+      <DialogContent
+        className="bg-[#1e1c19] border-[#2a2825] text-[#bababa] sm:max-w-lg"
+        onPaste={handlePaste}
+      >
         <DialogHeader>
           <DialogTitle className="text-[#f6f6f6]">Import PGN or FEN</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Paste a PGN game, a FEN position, or open a .pgn file.
+            Paste a PGN game, a FEN position, a screenshot of a board, or open a .pgn file.
           </DialogDescription>
         </DialogHeader>
 

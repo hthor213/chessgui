@@ -25,6 +25,12 @@ interface BoardProps {
   children?: React.ReactNode;
 }
 
+/** Width of the gutters that hold the rank/file labels outside the board. */
+const COORD_GUTTER = 26;
+
+const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
+const RANKS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+
 export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, freeMove = false, onSelect, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
@@ -44,13 +50,15 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
   }, []);
 
   useEffect(() => {
-    const container = boardRef.current?.parentElement?.parentElement;
+    // boardRef -> board square div -> outer wrapper (self-sized) -> layout container
+    const container = boardRef.current?.parentElement?.parentElement?.parentElement;
     if (!container) return;
 
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
-      // Use the smaller of container width/height, leave room for controls below
-      const size = Math.min(rect.width, rect.height - 48);
+      // Use the smaller of container width/height, leave room for controls
+      // below and for the coordinate gutters on the left/bottom.
+      const size = Math.min(rect.width - COORD_GUTTER, rect.height - 48 - COORD_GUTTER);
       const snapped = Math.max(160, Math.floor(size / 8) * 8);
       setBoardSize(snapped);
       onBoardSize?.(snapped);
@@ -75,7 +83,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       fen,
       orientation,
       viewOnly,
-      coordinates: true,
+      coordinates: false,
       turnColor: fen.includes(" w ") ? "white" : "black",
       movable: {
         color: freeMove ? "both" : viewOnly ? undefined : movableColor,
@@ -111,16 +119,38 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
     };
   }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove, handleSelect, viewOnly, freeMove]);
 
+  const files = orientation === "white" ? FILES : [...FILES].reverse();
+  const ranks = orientation === "white" ? [...RANKS].reverse() : RANKS;
+
   return (
-    <div style={{ position: "relative", width: boardSize, height: boardSize, flexShrink: 0 }}>
-      <div
-        ref={boardRef}
-        style={{
-          width: boardSize,
-          height: boardSize,
-        }}
-      />
-      {children}
+    <div style={{ position: "relative", width: boardSize + COORD_GUTTER, height: boardSize + COORD_GUTTER, flexShrink: 0 }}>
+      {/* Rank labels, left of the board */}
+      <div style={{ position: "absolute", left: 0, top: 0, width: COORD_GUTTER, height: boardSize, display: "flex", flexDirection: "column" }}>
+        {ranks.map((r) => (
+          <span key={r} className="flex-1 flex items-center justify-center text-sm font-semibold text-muted-foreground select-none">
+            {r}
+          </span>
+        ))}
+      </div>
+      {/* Board + overlays (promotion dialog, etc.) stay aligned to the board square */}
+      <div style={{ position: "absolute", left: COORD_GUTTER, top: 0, width: boardSize, height: boardSize }}>
+        <div
+          ref={boardRef}
+          style={{
+            width: boardSize,
+            height: boardSize,
+          }}
+        />
+        {children}
+      </div>
+      {/* File labels, below the board */}
+      <div style={{ position: "absolute", left: COORD_GUTTER, top: boardSize, width: boardSize, height: COORD_GUTTER, display: "flex" }}>
+        {files.map((f) => (
+          <span key={f} className="flex-1 flex items-center justify-center text-sm font-semibold text-muted-foreground select-none">
+            {f}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

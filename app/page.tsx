@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { MoveList } from "@/components/move-list"
 import { AnalysisPanel } from "@/components/analysis-panel"
+import { EvalBar } from "@/components/eval-bar"
 import { PromotionDialog } from "@/components/promotion-dialog"
 import { PgnImportDialog } from "@/components/pgn-import-dialog"
 import { PositionEditorDialog } from "@/components/position-editor-dialog"
@@ -12,6 +13,7 @@ import { ErrorBoundary } from "@/components/error-boundary"
 import { TournamentTab } from "@/components/tournament-tab"
 import { useChessGame } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
+import { readClipboardImage, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
 import type { LiveGame } from "@/lib/tournament"
 import type { Key } from "@lichess-org/chessground/types"
 
@@ -36,13 +38,17 @@ export default function Home() {
   const isPlayMode = engine.state.mode === "play"
   const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
-  const [view, setView] = useState<"board" | "tournament">("board")
+  const [view, setView] = useState<"board" | "tournament" | "thinking">("board")
+  // Thinking mode has its own board instance; keep its size separate so the
+  // hidden main board (kept mounted) can't clobber it.
+  const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
   const [tournamentRunning, setTournamentRunning] = useState(false)
   const [liveGame, setLiveGame] = useState<LiveGame | null>(null)
   // Watch a live engine-vs-engine game on the board while a tournament runs.
   const liveViewing = view === "board" && tournamentRunning
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [pasteStatus, setPasteStatus] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
 
   // Force re-render during play mode so the active clock visually ticks
@@ -68,6 +74,58 @@ export default function Home() {
     return `${m}:${s}`;
   };
 
+  // Enter "thinking mode": load a position and show only the board + eval bar,
+  // with the engine evaluating silently (no lines, no move list). Used after
+  // pasting a screenshot of a position — think through it yourself, the bar
+  // only tells you how it's going.
+  const enterThinkingMode = useCallback(
+    async (fen: string) => {
+      game.loadFen(fen)
+      setView("thinking")
+      if (!engine.state.isRunning) {
+        await engine.startEngine()
+      } else {
+        await engine.setPlayMode(false)
+      }
+    },
+    [game.loadFen, engine.startEngine, engine.setPlayMode, engine.state.isRunning],
+  )
+
+  // A pasted screenshot means "read this position and let me think about it" —
+  // recognize it (Claude vision) and enter thinking mode. Used by global ⌘V
+  // and by image pastes inside the Import and Set-up dialogs.
+  const recognizeImage = useCallback(
+    async (image: ClipboardImage) => {
+      setPasteStatus("Reading position from image…")
+      try {
+        const fen = await imageToFen(image)
+        setPasteStatus(null)
+        await enterThinkingMode(fen)
+      } catch (err) {
+        setPasteStatus(err instanceof Error ? err.message : "Couldn't read a position from the image")
+        setTimeout(() => setPasteStatus(null), 5000)
+      }
+    },
+    [enterThinkingMode],
+  )
+
+  // ⌘V outside inputs: image on the clipboard → recognition; otherwise the
+  // PGN/FEN import dialog, as before.
+  const handlePaste = useCallback(async () => {
+    const image = await readClipboardImage()
+    if (!image) {
+      setPgnDialogOpen(true)
+      return
+    }
+    await recognizeImage(image)
+  }, [recognizeImage])
+
+  // Test hook for headless UI verification (see .claude/skills/verify) —
+  // paste can't be driven through Tauri from Playwright.
+  useEffect(() => {
+    ;(window as unknown as Record<string, unknown>).__enterThinkingMode = enterThinkingMode
+  }, [enterThinkingMode])
+
   // Auto-flip board when starting a game as black
   useEffect(() => {
     if (isPlayMode) {
@@ -82,8 +140,12 @@ export default function Home() {
       if (meta && e.key === "v") {
         const tag = (e.target as HTMLElement)?.tagName
         if (tag !== "INPUT" && tag !== "TEXTAREA") {
-          e.preventDefault()
-          setPgnDialogOpen(true)
+          // With a dialog open, let the native paste event reach the
+          // dialog's own onPaste handler (image paste in Import/Set up).
+          if (!pgnDialogOpen && !editorOpen) {
+            e.preventDefault()
+            handlePaste()
+          }
           return
         }
       }
@@ -134,7 +196,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.flipBoard, isPlayMode])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.flipBoard, isPlayMode, handlePaste, pgnDialogOpen, editorOpen])
 
   return (
     <ErrorBoundary>
@@ -183,6 +245,11 @@ export default function Home() {
             >
               Tournament
             </button>
+            {view === "thinking" && (
+              <button className="px-3 py-1.5 text-sm rounded-md text-foreground font-medium bg-white/5" title="Thinking mode — board and eval bar only">
+                Thinking
+              </button>
+            )}
             <button className="px-3 py-1.5 text-sm text-muted-foreground/40 cursor-not-allowed rounded-md" disabled>
               Learn
             </button>
@@ -194,6 +261,13 @@ export default function Home() {
             </div>
           </div>
         </header>
+
+        {/* Transient status for image-paste recognition */}
+        {pasteStatus && (
+          <div className="px-6 py-1.5 text-sm text-amber-200 bg-amber-900/30 border-b border-amber-700/30">
+            {pasteStatus}
+          </div>
+        )}
 
         {/* Tournament view — kept mounted so a running batch survives switching
             to the board to watch a live game. */}
@@ -214,10 +288,53 @@ export default function Home() {
           </main>
         )}
 
+        {/* Thinking mode — just the position and an eval bar, nothing else.
+            Engine lines stay hidden: you do the thinking, the bar keeps score. */}
+        {view === "thinking" && (
+          <main className="flex-1 min-h-0 p-4">
+            <div className="h-full w-full flex items-center justify-center gap-3 overflow-hidden">
+              <div
+                className="shrink-0"
+                style={{ height: thinkingBoardSize + 26, paddingBottom: 26 }}
+              >
+                <EvalBar
+                  score={
+                    engine.state.lines.find((l) => l.multipv === 1)?.score ?? {
+                      type: "cp",
+                      value: 0,
+                    }
+                  }
+                  turn={engine.state.scoreTurn ?? turn}
+                  width={32}
+                />
+              </div>
+              <Board
+                fen={game.fen}
+                orientation={game.orientation}
+                movableColor="both"
+                onMove={game.onMove}
+                legalMoves={game.legalMoves}
+                lastMove={game.lastMove}
+                onBoardSize={setThinkingBoardSize}
+              >
+                {game.pendingPromotion && (
+                  <PromotionDialog
+                    promotion={game.pendingPromotion}
+                    orientation={game.orientation}
+                    boardSize={thinkingBoardSize}
+                    onConfirm={game.confirmPromotion}
+                    onCancel={game.cancelPromotion}
+                  />
+                )}
+              </Board>
+            </div>
+          </main>
+        )}
+
         {/* Main content - three-column grid */}
         <main
           className="flex-1 grid grid-cols-[220px_1fr_220px] gap-4 p-4 min-h-0"
-          style={view === "tournament" || liveViewing ? { display: "none" } : undefined}
+          style={view !== "board" || liveViewing ? { display: "none" } : undefined}
         >
           {/* Left column: Player Panel */}
           <div className="flex flex-col gap-4">
@@ -392,6 +509,7 @@ export default function Home() {
         open={pgnDialogOpen}
         onOpenChange={setPgnDialogOpen}
         onLoadGame={game.loadGame}
+        onImagePaste={recognizeImage}
       />
 
       <PositionEditorDialog
@@ -399,6 +517,7 @@ export default function Home() {
         onOpenChange={setEditorOpen}
         currentFen={game.fen}
         onSetPosition={game.loadFen}
+        onImagePaste={recognizeImage}
       />
     </TooltipProvider>
     </ErrorBoundary>

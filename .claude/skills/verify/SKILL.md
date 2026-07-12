@@ -44,3 +44,8 @@ from playwright.sync_api import sync_playwright  # sync API works well
   (Tauri IPC absent). It lights up the Next.js dev-overlay "1 Issue" badge.
   Ignore it; don't count it as a regression.
 - Keyboard shortcuts use `Meta+` on mac (`page.keyboard.press("Meta+e")`).
+- `window.__enterThinkingMode(fen)` enters thinking mode (board + eval bar
+  only) directly — the image-paste entry path needs Tauri, so use this hook
+  to verify the thinking-mode UI headlessly. Recognition calls
+  (`recognize_fen`) fail in plain-browser mode; expect the amber status
+  banner with "Position recognition failed".

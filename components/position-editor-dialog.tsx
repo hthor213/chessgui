@@ -22,6 +22,7 @@ import {
   type PieceMap,
   type CastlingOptions,
 } from "@/lib/fen";
+import { clipboardEventImage, type ClipboardImage } from "@/lib/recognize-position";
 
 const Board = dynamic(
   () => import("@/components/board").then((m) => ({ default: m.Board })),
@@ -49,6 +50,8 @@ interface PositionEditorDialogProps {
   onOpenChange: (open: boolean) => void;
   currentFen: string;
   onSetPosition: (fen: string) => void;
+  /** Called when the user pastes a screenshot of a position instead of editing. */
+  onImagePaste?: (image: ClipboardImage) => void;
 }
 
 export function PositionEditorDialog({
@@ -56,6 +59,7 @@ export function PositionEditorDialog({
   onOpenChange,
   currentFen,
   onSetPosition,
+  onImagePaste,
 }: PositionEditorDialogProps) {
   const [pieces, setPieces] = useState<PieceMap>(new Map());
   const [turn, setTurn] = useState<Color>("white");
@@ -173,13 +177,27 @@ export function PositionEditorDialog({
       active ? "bg-[#3a3835] text-[#f6f6f6] ring-1 ring-green-600" : "bg-[#2a2825] text-[#bababa] hover:bg-[#3a3835]"
     }`;
 
+  // Pasting a screenshot anywhere in the editor hands the image to the
+  // recognition flow instead of setting up by hand.
+  const handleImagePaste = (e: React.ClipboardEvent) => {
+    if (!onImagePaste) return;
+    clipboardEventImage(e).then((image) => {
+      if (!image) return;
+      onOpenChange(false);
+      onImagePaste(image);
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1e1c19] border-[#2a2825] text-[#bababa] sm:max-w-3xl">
+      <DialogContent
+        className="bg-[#1e1c19] border-[#2a2825] text-[#bababa] sm:max-w-3xl"
+        onPaste={handleImagePaste}
+      >
         <DialogHeader>
           <DialogTitle className="text-[#f6f6f6]">Set up position</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Place pieces, choose the side to move, then load the position.
+            Place pieces, choose the side to move, or paste a screenshot of a board.
           </DialogDescription>
         </DialogHeader>
 
