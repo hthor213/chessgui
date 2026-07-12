@@ -3,10 +3,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { parseFen, makeFen } from "chessops/fen";
 import { Chess } from "chessops";
-
-/** Piece placement, optionally followed by turn/castling/ep/counters. */
-const FEN_RE =
-  /\b([rnbqkpRNBQKP1-8]{1,8}(?:\/[rnbqkpRNBQKP1-8]{1,8}){7})(?:\s+([wb])\s+([KQkqA-Ha-h]+|-)\s+([a-h][36]|-)(?:\s+(\d+)\s+(\d+))?)?/;
+import {
+  parseReading,
+  diffSquares,
+  buildTiebreakPrompt,
+  applyVerdicts,
+  parseTurnVerdict,
+  homeSquareCastling,
+} from "@/lib/fen-consensus";
 
 export interface ClipboardImage {
   base64: string;
@@ -79,30 +83,55 @@ export async function readClipboardImage(): Promise<ClipboardImage | null> {
   return null;
 }
 
-/**
- * Recognize a chess position from a pasted screenshot.
- * The Rust side asks Claude for the FEN; here we extract, complete
- * (white to move by default — flip via the position editor if needed),
- * and validate it with chessops. Throws with a user-facing message on failure.
- */
-export async function imageToFen(image: ClipboardImage): Promise<string> {
-  let text: string;
+async function recognizeOnce(image: ClipboardImage, prompt?: string): Promise<string> {
   try {
-    text = await invoke<string>("recognize_fen", {
+    return await invoke<string>("recognize_fen", {
       imageBase64: image.base64,
       mediaType: image.mediaType,
+      prompt,
     });
   } catch (e) {
     throw new Error(typeof e === "string" ? e : "Position recognition failed");
   }
+}
 
-  const m = text.match(FEN_RE);
-  if (!m) throw new Error("No chess position found in the pasted image");
+/**
+ * Recognize a chess position from a pasted screenshot.
+ *
+ * Two independent transcriptions run in parallel; if they agree the reading
+ * is accepted, otherwise a third call adjudicates exactly the disputed
+ * squares (single reads occasionally flip visually confusable squares).
+ * We trust the model for placement and side to move only — castling is
+ * derived from home squares, en passant and counters are reset — then the
+ * result is validated with chessops. Throws a user-facing message on failure.
+ */
+export async function imageToFen(image: ClipboardImage): Promise<string> {
+  const [textA, textB] = await Promise.all([recognizeOnce(image), recognizeOnce(image)]);
+  const a = parseReading(textA);
+  const b = parseReading(textB);
+  if (!a && !b) throw new Error("No chess position found in the pasted image");
 
-  const fen = [m[1], m[2] ?? "w", m[3] ?? "-", m[4] ?? "-", m[5] ?? "0", m[6] ?? "1"].join(" ");
+  let placement: string;
+  let side: "w" | "b";
+  if (a && b && a.placement !== b.placement) {
+    const disputes = diffSquares(a.placement, b.placement);
+    if (disputes.length > 16) {
+      throw new Error("Couldn't read the board reliably — try a clearer screenshot");
+    }
+    const askTurn = a.side !== b.side;
+    const verdict = await recognizeOnce(image, buildTiebreakPrompt(disputes, askTurn));
+    placement = applyVerdicts(a.placement, disputes, verdict);
+    side = askTurn ? (parseTurnVerdict(verdict) ?? "w") : (a.side ?? "w");
+  } else {
+    const r = (a ?? b)!;
+    placement = r.placement;
+    side = r.side ?? b?.side ?? "w";
+  }
+
+  const fen = [placement, side, homeSquareCastling(placement), "-", "0", "1"].join(" ");
   const setup = parseFen(fen);
-  if (setup.isErr) throw new Error("Recognized position isn't a valid FEN");
+  if (setup.isErr) throw new Error(`Recognized position isn't a valid FEN (${placement})`);
   const pos = Chess.fromSetup(setup.unwrap());
-  if (pos.isErr) throw new Error("Recognized position isn't a legal chess position");
+  if (pos.isErr) throw new Error(`Recognized position isn't legal: ${pos.error.message} (${placement})`);
   return makeFen(pos.unwrap().toSetup());
 }

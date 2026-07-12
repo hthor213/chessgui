@@ -31,25 +31,38 @@ fn anthropic_api_key() -> Result<String, String> {
     Err(format!("ANTHROPIC_API_KEY not found in {env_path}"))
 }
 
-const PROMPT: &str = "This image is a screenshot of a chess position on a 2D board. \
-Read the position and respond with ONLY a FEN string on a single line — no explanation, \
-no code fences. Rules: assume white to move unless the image clearly indicates otherwise; \
-grant castling rights only for kings and rooks standing on their standard home squares; \
-use '-' for en passant and '0 1' for the move counters. Orientation: use the board \
-coordinates if visible; otherwise assume the white pieces are at the bottom.";
+const PROMPT: &str = "This image is a screenshot of a chess position on a 2D board. Transcribe it exactly.\n\
+Important: do NOT assume a standard starting arrangement — the position may be mid-game \
+or Chess960, with pieces on unusual squares. Read each square individually.\n\
+Step 1 — ranks: work rank by rank from rank 8 down to rank 1, using the board coordinates \
+if visible (otherwise assume white plays up the board). For each rank, list files a through \
+h — empty, or the exact piece and color you SEE on that square.\n\
+Step 2 — cross-check: now read the board again column by column (file a from rank 8 down to \
+rank 1, then file b, and so on). Where the column reading disagrees with your rank reading, \
+look at that square again carefully and correct it.\n\
+Step 3 — turn: if a last move is highlighted, use it to decide whose turn it is; otherwise \
+assume white to move.\n\
+Finish your reply with a single last line in exactly this form:\n\
+FEN: <piece placement> <w or b> - - 0 1";
 
 #[tauri::command]
-pub async fn recognize_fen(image_base64: String, media_type: String) -> Result<String, String> {
+pub async fn recognize_fen(
+    image_base64: String,
+    media_type: String,
+    prompt: Option<String>,
+) -> Result<String, String> {
     let key = anthropic_api_key()?;
+    let prompt_text = prompt.unwrap_or_else(|| PROMPT.to_string());
     let body = json!({
-        "model": "claude-sonnet-5",
-        "max_tokens": 2000,
-        "output_config": {"effort": "low"},
+        // Opus reads boards far more reliably than smaller models — a
+        // misrecognized position is worthless, so pay the ~4¢.
+        "model": "claude-opus-4-8",
+        "max_tokens": 8000,
         "messages": [{
             "role": "user",
             "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_base64}},
-                {"type": "text", "text": PROMPT}
+                {"type": "text", "text": prompt_text}
             ]
         }]
     });
