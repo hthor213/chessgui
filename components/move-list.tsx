@@ -129,7 +129,10 @@ export function MoveList({ tree, currentId, onGoToNode }: MoveListProps) {
   const hasMoves = root.children.length > 0;
 
   return (
-    <Card className="bg-[#1e1c19] border-[#2a2825] p-3 flex-1 overflow-hidden">
+    // min-h keeps the list usable when the annotation bar + eval graph
+    // squeeze the column on short windows — without it flex-1 collapses
+    // to zero and the list becomes unclickable under its siblings.
+    <Card className="bg-[#1e1c19] border-[#2a2825] p-3 flex-1 min-h-40 overflow-hidden">
       <span className="text-xs font-semibold text-[#bababa] mb-2 block">Moves</span>
       <ScrollArea className="h-[calc(100%-28px)]">
         {!hasMoves ? (
