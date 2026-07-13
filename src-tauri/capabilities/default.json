@@ -5,6 +5,8 @@
   "permissions": [
     "core:default",
     "clipboard-manager:allow-read-image",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "shell:allow-spawn",
     "shell:allow-stdin-write",
     "shell:allow-kill",

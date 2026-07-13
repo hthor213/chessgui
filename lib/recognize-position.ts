@@ -83,6 +83,28 @@ export async function readClipboardImage(): Promise<ClipboardImage | null> {
   return null;
 }
 
+/**
+ * Read plain text from the system clipboard, if any. Tries the Tauri clipboard
+ * plugin first (native app), then the browser Clipboard API. Returns null when
+ * no text is available — callers fall back to an empty import dialog.
+ */
+export async function readClipboardText(): Promise<string | null> {
+  try {
+    const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+    const text = await readText();
+    if (text && text.trim()) return text;
+  } catch {
+    // Not running in Tauri, or the read-text permission isn't granted.
+  }
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text && text.trim()) return text;
+  } catch {
+    // Clipboard API unavailable or permission denied.
+  }
+  return null;
+}
+
 async function recognizeOnce(image: ClipboardImage, prompt?: string): Promise<string> {
   try {
     return await invoke<string>("recognize_fen", {

@@ -13,7 +13,7 @@ import { ErrorBoundary } from "@/components/error-boundary"
 import { TournamentTab } from "@/components/tournament-tab"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
-import { readClipboardImage, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
+import { readClipboardImage, readClipboardText, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
 import { uciToArrow } from "@/lib/uci-parser"
 import type { LiveGame } from "@/lib/tournament"
 import type { Key } from "@lichess-org/chessground/types"
@@ -52,6 +52,7 @@ export default function Home() {
   // Watch a live engine-vs-engine game on the board while a tournament runs.
   const liveViewing = view === "board" && tournamentRunning
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
+  const [pgnInitialText, setPgnInitialText] = useState("")
   const [editorOpen, setEditorOpen] = useState(false)
   const [pasteStatus, setPasteStatus] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
@@ -146,22 +147,77 @@ export default function Home() {
     [enterThinkingMode],
   )
 
-  // ⌘V outside inputs: image on the clipboard → recognition; otherwise the
-  // PGN/FEN import dialog, as before.
+  // ⌘V outside inputs: image on the clipboard → recognition (thinking mode);
+  // otherwise open the PGN/FEN import dialog, pre-filled with clipboard text
+  // when there is any. Image always wins over text so screenshot-paste keeps
+  // going to vision.
   const handlePaste = useCallback(async () => {
     const image = await readClipboardImage()
-    if (!image) {
-      setPgnDialogOpen(true)
+    if (image) {
+      await recognizeImage(image)
       return
     }
-    await recognizeImage(image)
+    const text = await readClipboardText()
+    setPgnInitialText(text ?? "")
+    setPgnDialogOpen(true)
   }, [recognizeImage])
+
+  // Export the current game as a PGN: copy to clipboard (best-effort) and
+  // download a .pgn file. Native Tauri save dialog is a later enhancement; the
+  // webview download works in both the app and a plain browser.
+  const handleExport = useCallback(async () => {
+    const pgn = game.exportPgn()
+    let copied = false
+    try {
+      await navigator.clipboard.writeText(pgn)
+      copied = true
+    } catch {
+      // clipboard write blocked — the file download still happens
+    }
+    const white = game.headers.White
+    const black = game.headers.Black
+    const base = white || black ? `${white || "white"}_vs_${black || "black"}` : "game"
+    const name = `${base.replace(/[^\w.-]+/g, "_")}.pgn`
+    const blob = new Blob([pgn], { type: "application/x-chess-pgn" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    setPasteStatus(copied ? "PGN exported (copied to clipboard)" : "PGN exported")
+    setTimeout(() => setPasteStatus(null), 3000)
+  }, [game.exportPgn, game.headers])
 
   // Test hook for headless UI verification (see .claude/skills/verify) —
   // paste can't be driven through Tauri from Playwright.
   useEffect(() => {
     ;(window as unknown as Record<string, unknown>).__enterThinkingMode = enterThinkingMode
   }, [enterThinkingMode])
+
+  // Drag-and-drop a .pgn file onto the window → open the import dialog
+  // pre-filled with its contents (reuses the multi-game selector).
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => e.preventDefault()
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault()
+      const file = e.dataTransfer?.files?.[0]
+      if (!file) return
+      if (!/\.pgn$/i.test(file.name) && file.type !== "application/x-chess-pgn") return
+      file.text().then((text) => {
+        setPgnInitialText(text)
+        setPgnDialogOpen(true)
+      })
+    }
+    window.addEventListener("dragover", onDragOver)
+    window.addEventListener("drop", onDrop)
+    return () => {
+      window.removeEventListener("dragover", onDragOver)
+      window.removeEventListener("drop", onDrop)
+    }
+  }, [])
 
   // Auto-flip board when starting a game as black
   useEffect(() => {
@@ -563,10 +619,17 @@ export default function Home() {
               </button>
               <button
                 className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
-                onClick={() => setPgnDialogOpen(true)}
+                onClick={() => { setPgnInitialText(""); setPgnDialogOpen(true) }}
                 title="Import PGN or FEN (⌘V)"
               >
                 Import
+              </button>
+              <button
+                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                onClick={handleExport}
+                title="Export game as PGN"
+              >
+                Export
               </button>
               <button
                 className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
@@ -596,7 +659,8 @@ export default function Home() {
       <PgnImportDialog
         open={pgnDialogOpen}
         onOpenChange={setPgnDialogOpen}
-        onLoadGame={game.loadGame}
+        onLoadTree={game.loadTree}
+        initialText={pgnInitialText}
         onImagePaste={recognizeImage}
       />
 

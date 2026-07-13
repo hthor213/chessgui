@@ -20,6 +20,14 @@ export interface ArrowAnnotation {
   brush: string;
 }
 
+// Numeric evaluation attached to a position (from a PGN [%eval] tag or the
+// engine). Exactly one of pawns/mate is set. Mirrors chessops' Evaluation.
+export interface NodeEval {
+  pawns?: number;
+  mate?: number;
+  depth?: number;
+}
+
 export interface MoveNode {
   id: string;
   move: NormalMove | null; // null for the root node
@@ -32,6 +40,8 @@ export interface MoveNode {
   comment: string;
   nags: number[];
   arrows: ArrowAnnotation[];
+  eval?: NodeEval; // [%eval] — position assessment after this move
+  clock?: number; // [%clk] — clock time in seconds after this move
 }
 
 // Serialized shape for localStorage / snapshots. A plain object graph so it

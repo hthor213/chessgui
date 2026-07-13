@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,61 +12,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { parsePgn, startingPosition } from "chessops/pgn";
-import type { PgnNodeData } from "chessops/pgn";
-import { makeSan, parseSan } from "chessops/san";
-import { makeFen } from "chessops/fen";
 import { validateFen, padFen } from "@/lib/fen";
+import { parsePgnToTrees } from "@/lib/pgn";
+import { GameTree, INITIAL_FEN } from "@/lib/game-tree";
 import { clipboardEventImage, type ClipboardImage } from "@/lib/recognize-position";
-
-const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-interface PgnGame {
-  headers: Record<string, string>;
-  moves: string[];
-  startFen: string;
-}
 
 interface PgnImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onLoadGame: (moves: string[], headers?: Record<string, string>, startFen?: string) => void;
+  /** Load a fully-parsed game tree (variations, comments, NAGs preserved). */
+  onLoadTree: (tree: GameTree) => void;
+  /** Pre-fill the textarea (e.g. from a ⌘V paste or a dropped .pgn file). */
+  initialText?: string;
   /** Called when the user pastes a screenshot of a position instead of text. */
   onImagePaste?: (image: ClipboardImage) => void;
-}
-
-function extractMoves(
-  gameNode: { moves: { mainline(): Iterable<PgnNodeData> } },
-  headers: Map<string, string>,
-): string[] {
-  const pos = startingPosition(headers);
-  if (pos.isErr) return [];
-  const chess = pos.unwrap();
-  const moves: string[] = [];
-  for (const node of gameNode.moves.mainline()) {
-    const move = parseSan(chess, node.san);
-    if (!move) break;
-    moves.push(makeSan(chess, move));
-    chess.play(move);
-  }
-  return moves;
-}
-
-// The start position of a game, honoring any [FEN]/[SetUp] header.
-function startFenFromHeaders(headers: Map<string, string>): string {
-  const pos = startingPosition(headers);
-  if (pos.isErr) return INITIAL_FEN;
-  return makeFen(pos.unwrap().toSetup());
-}
-
-function headersToRecord(headers: Map<string, string>): Record<string, string> {
-  const record: Record<string, string> = {};
-  for (const [k, v] of headers) {
-    if (v && v !== "?" && v !== "????.??.??") {
-      record[k] = v;
-    }
-  }
-  return record;
 }
 
 function gameLabel(headers: Record<string, string>, index: number): string {
@@ -76,16 +35,27 @@ function gameLabel(headers: Record<string, string>, index: number): string {
   return `${index + 1}. ${white} vs ${black}  ${result}`;
 }
 
+// A tree is worth importing if it has moves or a non-standard start position.
+function isImportable(tree: GameTree): boolean {
+  return tree.root().children.length > 0 || tree.startFen !== INITIAL_FEN;
+}
+
 export function PgnImportDialog({
   open,
   onOpenChange,
-  onLoadGame,
+  onLoadTree,
+  initialText,
   onImagePaste,
 }: PgnImportDialogProps) {
   const [pgnText, setPgnText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [parsedGames, setParsedGames] = useState<PgnGame[] | null>(null);
+  const [parsedGames, setParsedGames] = useState<GameTree[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Seed the textarea when the dialog is opened with pre-filled text.
+  useEffect(() => {
+    if (open && initialText) setPgnText(initialText);
+  }, [open, initialText]);
 
   const handleClose = () => {
     setPgnText("");
@@ -108,33 +78,21 @@ export function PgnImportDialog({
     if (!trimmed.includes("\n")) {
       const padded = padFen(trimmed);
       if (validateFen(padded).ok) {
-        onLoadGame([], { FEN: padded, SetUp: "1" }, padded);
+        onLoadTree(GameTree.create(padded, { FEN: padded, SetUp: "1" }));
         handleClose();
         return;
       }
     }
 
-    const games = parsePgn(trimmed);
-    if (games.length === 0) {
-      setError("No valid games found.");
-      return;
-    }
-
-    const parsed: PgnGame[] = games.map((g) => ({
-      headers: headersToRecord(g.headers),
-      moves: extractMoves(g, g.headers),
-      startFen: startFenFromHeaders(g.headers),
-    }));
-
-    // A game with a [FEN] header but no moves is still a valid position import.
-    const valid = parsed.filter((g) => g.moves.length > 0 || g.startFen !== INITIAL_FEN);
+    const trees = parsePgnToTrees(trimmed);
+    const valid = trees.filter(isImportable);
     if (valid.length === 0) {
       setError("Could not parse any moves or position from the input.");
       return;
     }
 
     if (valid.length === 1) {
-      onLoadGame(valid[0].moves, valid[0].headers, valid[0].startFen);
+      onLoadTree(valid[0]);
       handleClose();
       return;
     }
@@ -154,8 +112,8 @@ export function PgnImportDialog({
     });
   };
 
-  const handlePickGame = (game: PgnGame) => {
-    onLoadGame(game.moves, game.headers, game.startFen);
+  const handlePickGame = (tree: GameTree) => {
+    onLoadTree(tree);
     handleClose();
   };
 
@@ -188,19 +146,21 @@ export function PgnImportDialog({
             <span className="text-sm text-[#bababa]">
               Multiple games found. Select one:
             </span>
-            {parsedGames.map((game, i) => (
+            {parsedGames.map((tree, i) => (
               <Card
                 key={i}
                 className="bg-[#2a2825] border-[#3a3835] p-2 cursor-pointer hover:bg-[#3a3835] transition-colors"
-                onClick={() => handlePickGame(game)}
+                onClick={() => handlePickGame(tree)}
               >
                 <span className="text-sm text-[#bababa]">
-                  {gameLabel(game.headers, i)}
+                  {gameLabel(tree.headers, i)}
                 </span>
-                {game.headers["Event"] && (
+                {tree.headers["Event"] && tree.headers["Event"] !== "?" && (
                   <span className="text-xs text-muted-foreground block">
-                    {game.headers["Event"]}
-                    {game.headers["Date"] ? ` - ${game.headers["Date"]}` : ""}
+                    {tree.headers["Event"]}
+                    {tree.headers["Date"] && tree.headers["Date"] !== "????.??.??"
+                      ? ` - ${tree.headers["Date"]}`
+                      : ""}
                   </span>
                 )}
               </Card>

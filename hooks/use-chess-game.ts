@@ -13,6 +13,7 @@ import {
   type MoveNode,
   type SerializedTree,
 } from "@/lib/game-tree";
+import { treeToPgn } from "@/lib/pgn";
 
 export type PromotionRole = "queen" | "rook" | "bishop" | "knight";
 
@@ -266,6 +267,21 @@ export function useChessGame() {
     [bump],
   );
 
+  // Load a fully-built tree (PGN import with variations/comments/NAGs). Lands
+  // on the final mainline move, matching the flat-import behavior.
+  const loadTree = useCallback(
+    (tree: GameTree) => {
+      tree.goToEnd();
+      treeRef.current = tree;
+      bump();
+    },
+    [bump],
+  );
+
+  // Serialize the current game to standard PGN (headers, variations,
+  // comments, NAGs, [%eval]/[%cal]/[%csl] tags).
+  const exportPgn = useCallback((): string => treeToPgn(treeRef.current), []);
+
   // Reset to an arbitrary position with empty history (position editor).
   const loadFen = useCallback(
     (fen: string) => {
@@ -347,6 +363,8 @@ export function useChessGame() {
     goToMove,
     headers: view.headers,
     loadGame,
+    loadTree,
+    exportPgn,
     loadFen,
     newGame,
     getSnapshot,
