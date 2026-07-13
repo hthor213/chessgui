@@ -14,10 +14,15 @@ A macOS-first chess GUI built on Tauri 2 (Rust) + React + TypeScript. Uses Liche
 # Dev mode (hot-reload frontend + Rust backend)
 source "$HOME/.cargo/env" && pnpm tauri dev
 
-# Build debug .app + .dmg
-source "$HOME/.cargo/env" && pnpm tauri build --debug
+# Build debug .app AND install to /Applications (keeps the Dock icon current —
+# ALWAYS use this over a bare `pnpm tauri build --debug` when finishing work)
+scripts/install-app.sh --debug
 
-# Build release
+# Build release + install to /Applications
+scripts/install-app.sh
+
+# Bare builds (no install — bundle stays in src-tauri/target/*/bundle)
+source "$HOME/.cargo/env" && pnpm tauri build --debug
 source "$HOME/.cargo/env" && pnpm tauri build
 
 # Frontend only (no Tauri shell)
