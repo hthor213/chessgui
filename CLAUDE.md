@@ -27,6 +27,11 @@ pnpm dev
 pnpm tsc --noEmit
 ```
 
+Build gotcha: if `pnpm tauri build` fails with ``crate `X` required to be
+available in rlib format`` after a rustc upgrade, the target dir has stale
+artifacts — `cd src-tauri && cargo clean` fixes it (costs a full ~5min
+rebuild). Not a Cargo.toml problem; don't change crate-type for this.
+
 ## Project Structure
 ```
 app/                    # Next.js app directory
