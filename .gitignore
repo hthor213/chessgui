@@ -13,6 +13,14 @@ engines/
 # Raw opening books (large, downloaded — regenerate via scripts/tag_positions.py)
 data/openings/
 
+# Reference-database staging: downloaded dumps + filtered packs + stats +
+# scratch import DBs (large, re-generated via scripts/build_reference_pack.py).
+# Only README.md under data/reference/ is tracked.
+data/reference/*
+!data/reference/README.md
+*.sqlite
+*.pgn.zst
+
 # Next.js build output + TS incremental state (generated)
 .next/
 tsconfig.tsbuildinfo

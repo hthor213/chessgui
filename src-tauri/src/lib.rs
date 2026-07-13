@@ -1,4 +1,4 @@
-mod db;
+pub mod db;
 mod uci;
 mod vision;
 pub mod match_runner;
