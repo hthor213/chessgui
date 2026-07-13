@@ -5,13 +5,18 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Settings } from "lucide-react"
 import { formatScore, scoreToNumeric, type PvLine } from "@/lib/uci-parser"
 import { EvalBar } from "@/components/eval-bar"
+import { EngineSettingsDialog } from "@/components/engine-settings-dialog"
+import type { EngineSettings } from "@/lib/engine-settings"
 import type { EngineState, EngineMode, PlayerColor } from "@/hooks/use-engine"
 
 interface AnalysisPanelProps {
   engine: {
     state: EngineState;
+    settings: EngineSettings;
+    updateSettings: (next: EngineSettings) => Promise<void>;
     startEngine: (path?: string, mode?: EngineMode, playerColor?: PlayerColor) => Promise<void>;
     stopEngine: () => Promise<void>;
     toggleAnalysis: () => void;
@@ -61,13 +66,28 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
   const isPlayWhite = state.mode === "play" && state.playerColor === "white";
   const isPlayBlack = state.mode === "play" && state.playerColor === "black";
 
+  const settingsButton = (
+    <EngineSettingsDialog
+      settings={engine.settings}
+      onSave={engine.updateSettings}
+      trigger={
+        <Button variant="ghost" size="icon" className="h-6 w-6" title="Engine settings">
+          <Settings className="h-3.5 w-3.5" />
+        </Button>
+      }
+    />
+  );
+
   if (!state.isRunning) {
     return (
       <Card className="bg-[#1e1c19] border-[#2a2825] p-4">
         <div className="flex flex-col items-center gap-3 py-6">
-          <span className="text-sm text-muted-foreground">
-            No engine connected
-          </span>
+          <div className="flex items-center gap-1">
+            <span className="text-sm text-muted-foreground">
+              No engine connected
+            </span>
+            {settingsButton}
+          </div>
           <div className="flex flex-col gap-2 w-full">
             <Button
               size="sm"
@@ -124,6 +144,26 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
                 {formatNodes(state.nps)}/s
               </span>
             )}
+            {state.mode !== "play" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-6 w-6 ${engine.settings.showArrows ? "text-blue-400 hover:text-blue-300" : "text-muted-foreground"}`}
+                    onClick={() =>
+                      engine.updateSettings({ ...engine.settings, showArrows: !engine.settings.showArrows })
+                    }
+                  >
+                    <span className="text-xs">{"\u2197"}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {engine.settings.showArrows ? "Hide best-move arrows" : "Show best-move arrows"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {settingsButton}
             {state.mode !== "play" && (
               <Tooltip>
                 <TooltipTrigger asChild>

@@ -14,8 +14,8 @@ Full Stockfish integration: UCI engine communication, real-time analysis display
 - UCI info parser extracts eval, depth, PV, nodes, nps
 - EvalBar component shows advantage
 
-## Known Bug
-- `playUciMove` castling crash: Stockfish sends `e1g1`, chessops expects `e1h1` — fix tracked in spec:002 (migration)
+## Known Bug (fixed)
+- ~~`playUciMove` castling crash: Stockfish sends `e1g1`, chessops expects `e1h1`~~ — fixed properly: castling UCI is now normalized position-aware in both directions via chessops (`normalizeMove`/`castlingSide`/`kingCastlesTo`), including king-takes-rook notation for Chess960 setups. See `parseEngineUci`/`makeEngineUci` in `lib/uci-parser.ts`.
 
 ## Engine Communication (Rust)
 
@@ -33,7 +33,7 @@ Stockfish binary: user-selected via file picker (currently hardcoded for dev)
 - Engine plays one side (black by default)
 - User plays white → board locks → `position fen ... go movetime 10000`
 - Parse `bestmove` → play via `playUciMove()` → unlock board
-- MultiPV 1, max strength (Threads 8, Hash 512)
+- MultiPV 1; Threads/Hash come from user engine settings (defaults: Hash 256 MB, Threads min(4, cores))
 
 ## Done When
 
@@ -52,18 +52,18 @@ Stockfish binary: user-selected via file picker (currently hardcoded for dev)
 
 ### Analysis Panel (from spec:012)
 - [x] Eval bar updates in real-time as engine analyzes
-- [ ] MultiPV lines configurable (1-5)
+- [x] MultiPV lines configurable (1-5)
 - [ ] Clicking a PV line previews it on the board
 - [x] Analysis auto-starts when position changes
 
 ### Best Move Arrows (from spec:100)
-- [ ] Blue arrow drawn for engine's #1 best move (via Chessground `drawable.autoShapes`)
-- [ ] Arrow updates in real-time as engine analyzes
-- [ ] Arrow clears when analysis is paused
-- [ ] Toggle via UI control
+- [x] Blue arrow drawn for engine's #1 best move (via Chessground `drawable.autoShapes`)
+- [x] Arrow updates in real-time as engine analyzes
+- [x] Arrow clears when analysis is paused
+- [x] Toggle via UI control
 
 ### Engine Settings (from spec:101)
-- [ ] UI to configure Threads, Hash size, and MultiPV (1-5)
-- [ ] Changes sent to engine via UCI `setoption`
-- [ ] Settings persist across app restarts
-- [ ] Changing MultiPV immediately updates the number of PV lines shown
+- [x] UI to configure Threads, Hash size, and MultiPV (1-5)
+- [x] Changes sent to engine via UCI `setoption`
+- [x] Settings persist across app restarts
+- [x] Changing MultiPV immediately updates the number of PV lines shown

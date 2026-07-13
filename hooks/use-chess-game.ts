@@ -1,10 +1,10 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { Chess } from "chessops/chess";
+import { Chess, castlingSide, normalizeMove } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
-import { parseUci } from "chessops";
+import { kingCastlesTo } from "chessops";
 import { chessgroundDests } from "chessops/compat";
-import { normalizeUciCastling } from "@/lib/uci-parser";
+import { makeEngineUci, parseEngineUci } from "@/lib/uci-parser";
 import type { NormalMove } from "chessops";
 import type { Key } from "@lichess-org/chessground/types";
 
@@ -77,29 +77,11 @@ function loadSavedState(): GameState | null {
   return null;
 }
 
-// Convert chessops castling (king→rook) to standard UCI (king→destination)
-const castlingToUci: Record<string, string> = {
-  "e1h1": "e1g1", "e1a1": "e1c1",
-  "e8h8": "e8g8", "e8a8": "e8c8",
-};
-
-const promoChar: Record<string, string> = {
-  queen: "q", rook: "r", bishop: "b", knight: "n",
-};
-
+// Chessops stores castling as king→rook; engines expect standard UCI
+// (king→destination) unless the position is Chess960. makeEngineUci is
+// position-aware and handles both (see lib/uci-parser.ts).
 function moveToUci(move: NormalMove, chess: Chess): string {
-  const from = squareToKey(move.from);
-  const to = squareToKey(move.to);
-  const key = `${from}${to}`;
-
-  // Castling: chessops stores king→rook, UCI uses king→destination
-  const piece = chess.board.get(move.from);
-  if (piece?.role === "king" && castlingToUci[key]) {
-    return castlingToUci[key];
-  }
-
-  const promo = move.promotion ? promoChar[move.promotion] || "" : "";
-  return `${from}${to}${promo}`;
+  return makeEngineUci(chess, move);
 }
 
 const defaultState: GameState = {
@@ -173,22 +155,14 @@ export function useChessGame() {
 
       const chess = pos.unwrap();
 
-      // Convert user-friendly castling (king->destination) to chessops format (king->rook)
-      const castlingMap: Record<string, Key> = {
-        "e1g1": "h1", "e1c1": "a1", // white
-        "e8g8": "h8", "e8c8": "a8", // black
-      };
-      const piece = chess.board.get(keyToSquare(from));
-      let actualTo = to;
-      if (piece?.role === "king") {
-        actualTo = castlingMap[`${from}${to}`] || to;
-      }
-
-      const move: NormalMove = {
+      // Board input may express castling as king->destination (e1g1);
+      // normalizeMove converts it to chessops' king->rook form when — and
+      // only when — the move actually castles in this position.
+      const move = normalizeMove(chess, {
         from: keyToSquare(from),
-        to: keyToSquare(actualTo),
+        to: keyToSquare(to),
         promotion,
-      };
+      }) as NormalMove;
 
       const san = makeSan(chess, move);
       const uci = moveToUci(move, chess);
@@ -374,32 +348,26 @@ export function useChessGame() {
         if (pos.isErr) return false;
         const chess = pos.unwrap();
 
-        // Convert standard UCI castling to chessops format (king->rook)
-        // Stockfish sends e1g1 (standard UCI), but chessops expects e1h1 (king-captures-rook)
-        const normalizedUci = normalizeUciCastling(uci);
-
-        const move = parseUci(normalizedUci);
+        // Engines send standard UCI castling (e1g1); chessops wants
+        // king-takes-rook (e1h1). parseEngineUci accepts both forms.
+        const move = parseEngineUci(chess, uci);
         if (!move) return false;
+
+        // Canonical UCI for storage/engine round-trips, computed pre-move
+        const canonicalUci = makeEngineUci(chess, move);
+        // Display squares: castling highlights king destination, not rook
+        const side = castlingSide(chess, move);
+        const m = move as NormalMove;
+        const fromKey = squareToKey(m.from);
+        const toKey = squareToKey(side ? kingCastlesTo(chess.turn, side) : m.to);
 
         const san = makeSan(chess, move);
         chess.play(move);
         const newFen = makeFen(chess.toSetup());
 
-        // Determine display squares (king destination for castling, not rook)
-        const m = move as NormalMove;
-        const fromKey = squareToKey(m.from);
-        let toKey = squareToKey(m.to);
-        // Convert chessops castling (king->rook) to display (king->destination)
-        const castlingDisplay: Record<string, Key> = {
-          "e1h1": "g1", "e1a1": "c1",
-          "e8h8": "g8", "e8a8": "c8",
-        };
-        const displayTo = castlingDisplay[`${fromKey}${toKey}`];
-        if (displayTo) toKey = displayTo;
-
         setState((prev) => {
           const newMoves = [...prev.moves.slice(0, prev.currentMoveIndex + 1), san];
-          const newUciMoves = [...prev.uciMoves.slice(0, prev.currentMoveIndex + 1), uci];
+          const newUciMoves = [...prev.uciMoves.slice(0, prev.currentMoveIndex + 1), canonicalUci];
           const newPositions = [
             ...prev.positions.slice(0, prev.currentMoveIndex + 2),
             newFen,

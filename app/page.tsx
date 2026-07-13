@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import dynamic from "next/dynamic"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { MoveList } from "@/components/move-list"
@@ -14,8 +14,13 @@ import { TournamentTab } from "@/components/tournament-tab"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 import { readClipboardImage, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
+import { uciToArrow } from "@/lib/uci-parser"
 import type { LiveGame } from "@/lib/tournament"
 import type { Key } from "@lichess-org/chessground/types"
+import type { DrawShape } from "@lichess-org/chessground/draw"
+
+// Best-move arrow brushes by MultiPV rank: #1 solid blue, #2/#3 fainter.
+const PV_ARROW_BRUSHES = ["blue", "paleBlue", "paleGrey"]
 
 const Board = dynamic(
   () => import("@/components/board").then((m) => ({ default: m.Board })),
@@ -66,6 +71,26 @@ export default function Home() {
   
   const engineLiveTime = isEngineTurn ? Math.max(0, engineBaseTime - timeSpentThisTurn) : engineBaseTime;
   const humanLiveTime = !isEngineTurn ? timeSpentThisTurn : 0;
+
+  // Engine best-move arrows (analysis mode only — no hints while playing or
+  // in thinking mode). uciToArrow legality-checks each move, so PV lines that
+  // briefly belong to a previous position simply draw nothing.
+  const engineArrows = useMemo<DrawShape[]>(() => {
+    if (!engine.settings.showArrows || !engine.state.isAnalyzing || isPlayMode) return []
+    const shapes: DrawShape[] = []
+    for (const line of engine.state.lines) {
+      if (line.multipv > PV_ARROW_BRUSHES.length || line.uciMoves.length === 0) continue
+      const arrow = uciToArrow(game.fen, line.uciMoves[0])
+      if (arrow) {
+        shapes.push({
+          orig: arrow.orig as Key,
+          dest: arrow.dest as Key,
+          brush: PV_ARROW_BRUSHES[line.multipv - 1],
+        })
+      }
+    }
+    return shapes
+  }, [engine.settings.showArrows, engine.state.isAnalyzing, engine.state.lines, isPlayMode, game.fen])
 
   const formatClock = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -488,6 +513,7 @@ export default function Home() {
                 }
                 lastMove={game.lastMove}
                 onBoardSize={setBoardSize}
+                autoShapes={engineArrows}
               >
                 {game.pendingPromotion && (
                   <PromotionDialog

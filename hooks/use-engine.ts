@@ -3,14 +3,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Chess } from "chessops/chess";
 import { parseFen } from "chessops/fen";
-import { parseUci } from "chessops";
-import { parseUciInfo, uciMovesToSan, normalizeUciCastling, type PvLine } from "@/lib/uci-parser";
+import { parseUciInfo, uciMovesToSan, parseEngineUci, type PvLine } from "@/lib/uci-parser";
+import {
+  defaultEngineSettings,
+  loadEngineSettings,
+  saveEngineSettings,
+  type EngineSettings,
+} from "@/lib/engine-settings";
 import { getOpeningBookMove } from "@/lib/opening-book";
 
 const DEFAULT_ENGINE_PATH = "/opt/homebrew/bin/stockfish";
 const STORAGE_KEY = "engine-path";
 const DEBOUNCE_MS = 50;
-const DEFAULT_MULTI_PV = 3;
 
 export type EngineMode = "analysis" | "play";
 
@@ -66,6 +70,14 @@ export function useEngine(
   currentMoveIndex = -1,
 ) {
   const [state, setState] = useState<EngineState>(initialState);
+  // Settings start at defaults for SSR consistency; hydrated from
+  // localStorage after mount (same pattern as the saved game state).
+  const [settings, setSettings] = useState<EngineSettings>(defaultEngineSettings);
+  const settingsRef = useRef(settings);
+  // Hash/Threads values last sent to the running engine process — lets us
+  // skip redundant setoptions (re-sending Hash makes Stockfish reallocate
+  // and clear the table, which would wreck analysis continuity).
+  const appliedOptionsRef = useRef<{ hash: number; threads: number } | null>(null);
   const fenRef = useRef(fen);
   const isAnalyzingRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -92,6 +104,12 @@ export function useEngine(
   startFenRef.current = startFen;
   moveIndexRef.current = currentMoveIndex;
 
+  useEffect(() => {
+    const loaded = loadEngineSettings();
+    settingsRef.current = loaded;
+    setSettings(loaded);
+  }, []);
+
   const sendCommand = useCallback(async (cmd: string) => {
     try {
       console.log("[engine] >>", cmd);
@@ -100,6 +118,17 @@ export function useEngine(
       console.error("[engine] send failed:", cmd, e);
     }
   }, []);
+
+  // Send Hash/Threads to the engine if they differ from what it already has.
+  // Only call between searches (after "stop" + "isready").
+  const applyEngineOptions = useCallback(async () => {
+    const s = settingsRef.current;
+    const applied = appliedOptionsRef.current;
+    if (applied?.hash === s.hash && applied?.threads === s.threads) return;
+    await sendCommand(`setoption name Threads value ${s.threads}`);
+    await sendCommand(`setoption name Hash value ${s.hash}`);
+    appliedOptionsRef.current = { hash: s.hash, threads: s.threads };
+  }, [sendCommand]);
 
   const startAnalysis = useCallback(
     async (position: string) => {
@@ -117,9 +146,10 @@ export function useEngine(
 
       await sendCommand("stop");
       await sendCommand("isready"); // sync: wait for engine to fully stop
+      await applyEngineOptions(); // pick up Hash/Threads changed mid-session
       // Play mode: MultiPV 1 keeps hash focused on best line for stronger play
-      // Analysis mode: MultiPV 3 shows multiple candidate lines to the user
-      const mpv = modeRef.current === "play" ? 1 : DEFAULT_MULTI_PV;
+      // Analysis mode: user-configured MultiPV shows candidate lines
+      const mpv = modeRef.current === "play" ? 1 : settingsRef.current.multiPv;
       await sendCommand(`setoption name MultiPV value ${mpv}`);
       setState((s) => ({ ...s, scoreTurn: turnFromFen(position), lines: [], depth: 0, nodes: 0, nps: 0 }));
       const posCmd = buildPositionCommand(startFenRef.current, uciMovesRef.current, moveIndexRef.current);
@@ -128,7 +158,7 @@ export function useEngine(
       isAnalyzingRef.current = true;
       setState((s) => ({ ...s, isAnalyzing: true }));
     },
-    [sendCommand],
+    [sendCommand, applyEngineOptions],
   );
 
   const stopAnalysis = useCallback(async () => {
@@ -176,6 +206,7 @@ export function useEngine(
       // Just stop, sync, send new position, and search.
       await sendCommand("stop");
       await sendCommand("isready"); // sync: wait for engine to fully stop
+      await applyEngineOptions(); // pick up Hash/Threads changed mid-session
       setState((s) => ({ ...s, isThinking: true, isAnalyzing: false, scoreTurn: turnFromFen(position), lines: [], depth: 0, nodes: 0, nps: 0 }));
       thinkingRef.current = true;
       turnStartTimeRef.current = Date.now();
@@ -188,7 +219,7 @@ export function useEngine(
       
       await sendCommand(`go wtime ${wtime} btime ${btime} winc 5000 binc 5000`);
     },
-    [sendCommand],
+    [sendCommand, applyEngineOptions],
   );
 
   const playerColorRef = useRef<PlayerColor>("white");
@@ -224,10 +255,10 @@ export function useEngine(
         modeRef.current = mode;
         playerColorRef.current = playerColor;
 
-        // Threads: use all cores minus 1 for OS headroom
-        // Hash: 2048 MB is optimal to avoid Unified Memory compression
-        await sendCommand("setoption name Threads value 8");
-        await sendCommand("setoption name Hash value 2048");
+        // Fresh engine process: forget previously-applied options and send
+        // the user's configured Hash/Threads.
+        appliedOptionsRef.current = null;
+        await applyEngineOptions();
         await sendCommand("isready");
 
         // Reset match clock for the new session
@@ -259,7 +290,36 @@ export function useEngine(
         throw e;
       }
     },
-    [sendCommand, startAnalysis, requestMove],
+    [sendCommand, applyEngineOptions, startAnalysis, requestMove],
+  );
+
+  // Persist new settings and apply them to a running engine. Hash/Threads
+  // are sent between searches; MultiPV takes effect by restarting analysis.
+  const updateSettings = useCallback(
+    async (next: EngineSettings) => {
+      const prev = settingsRef.current;
+      settingsRef.current = next;
+      saveEngineSettings(next);
+      setSettings(next);
+
+      const engineFacing =
+        prev.hash !== next.hash || prev.threads !== next.threads || prev.multiPv !== next.multiPv;
+      if (!engineFacing || !state.isRunning) return;
+
+      // Don't interrupt the engine mid-move in play mode — the new options
+      // are picked up by applyEngineOptions on the next search.
+      if (thinkingRef.current) return;
+
+      if (isAnalyzingRef.current) {
+        // startAnalysis stops, syncs, applies options and MultiPV, restarts
+        await startAnalysis(fenRef.current);
+      } else {
+        await sendCommand("stop");
+        await sendCommand("isready");
+        await applyEngineOptions();
+      }
+    },
+    [state.isRunning, startAnalysis, sendCommand, applyEngineOptions],
   );
 
   const stopEngine = useCallback(async () => {
@@ -361,7 +421,7 @@ export function useEngine(
             if (setup.isOk) {
               const pos = Chess.fromSetup(setup.unwrap());
               if (pos.isOk) {
-                const move = parseUci(normalizeUciCastling(bestmove));
+                const move = parseEngineUci(pos.unwrap(), bestmove);
                 if (!move || !pos.unwrap().isLegal(move)) {
                   console.warn("[engine] ignoring stale/illegal bestmove:", bestmove);
                   return;
@@ -486,6 +546,8 @@ export function useEngine(
 
   return {
     state,
+    settings,
+    updateSettings,
     startEngine,
     stopEngine,
     toggleAnalysis,

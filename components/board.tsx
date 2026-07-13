@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { Chessground } from "@lichess-org/chessground";
 import type { Api } from "@lichess-org/chessground/api";
 import type { Key } from "@lichess-org/chessground/types";
+import type { DrawShape } from "@lichess-org/chessground/draw";
 import "@lichess-org/chessground/assets/chessground.base.css";
 import "@lichess-org/chessground/assets/chessground.brown.css";
 import "@lichess-org/chessground/assets/chessground.cburnett.css";
@@ -22,6 +23,8 @@ interface BoardProps {
   freeMove?: boolean;
   /** Fires when a square is clicked/tapped (edit mode placement). */
   onSelect?: (square: string) => void;
+  /** Program-drawn shapes (e.g. engine best-move arrows). */
+  autoShapes?: DrawShape[];
   children?: React.ReactNode;
 }
 
@@ -31,15 +34,19 @@ const COORD_GUTTER = 26;
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, freeMove = false, onSelect, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, freeMove = false, onSelect, autoShapes, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
   const onSelectRef = useRef(onSelect);
+  // Ref (not a dep of the creation effect) so shape updates don't rebuild
+  // the whole Chessground instance on every engine info line.
+  const autoShapesRef = useRef(autoShapes);
   const [boardSize, setBoardSize] = useState(560);
 
   onMoveRef.current = onMove;
   onSelectRef.current = onSelect;
+  autoShapesRef.current = autoShapes;
 
   const handleMove = useCallback((from: Key, to: Key) => {
     onMoveRef.current(from, to);
@@ -111,6 +118,9 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
         select: onSelectRef.current ? handleSelect : undefined,
       },
       lastMove: lastMove ? [lastMove[0], lastMove[1]] : undefined,
+      drawable: {
+        autoShapes: autoShapesRef.current ?? [],
+      },
     });
 
     return () => {
@@ -118,6 +128,12 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       apiRef.current = null;
     };
   }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove, handleSelect, viewOnly, freeMove]);
+
+  // Update arrows in place as analysis deepens (no board rebuild). The
+  // creation effect above already seeds shapes on rebuild via the ref.
+  useEffect(() => {
+    apiRef.current?.setAutoShapes(autoShapes ?? []);
+  }, [autoShapes]);
 
   const files = orientation === "white" ? FILES : [...FILES].reverse();
   const ranks = orientation === "white" ? [...RANKS].reverse() : RANKS;
