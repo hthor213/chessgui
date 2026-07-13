@@ -1,0 +1,38 @@
+[Event "Test Open"]
+[Site "Reykjavik"]
+[Date "2023.04.01"]
+[Round "1"]
+[White "Carlsen, Magnus"]
+[Black "Nakamura, Hikaru"]
+[Result "1-0"]
+[WhiteElo "2850"]
+[BlackElo "2780"]
+[ECO "B90"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be3 e5 7. Nb3 Be6 1-0
+
+[Event "Test Open"]
+[Site "Reykjavik"]
+[Date "2023.04.02"]
+[Round "2"]
+[White "Firouzja, Alireza"]
+[Black "Carlsen, Magnus"]
+[Result "1/2-1/2"]
+[WhiteElo "2790"]
+[BlackElo "2850"]
+[ECO "B33"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 e5 6. Ndb5 d6 1/2-1/2
+
+[Event "Club Night"]
+[Site "London"]
+[Date "2022.11.15"]
+[Round "3"]
+[White "Smith, John"]
+[Black "Jones, Peter"]
+[Result "0-1"]
+[WhiteElo "1900"]
+[BlackElo "1950"]
+[ECO "C65"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 Nf6 4. O-O Nxe4 5. d4 Nd6 6. Bxc6 dxc6 0-1

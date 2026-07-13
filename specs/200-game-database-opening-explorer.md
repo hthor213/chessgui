@@ -72,15 +72,20 @@ Horizontal stacked bar chart per move (white/draw/black segments), like Lichess.
 ## Done When
 
 ### Database (from spec:200)
-- [ ] Import PGN file(s) into SQLite database (batch, with progress)
-- [ ] List games with headers (players, event, result, date, ECO)
-- [ ] Search/filter by player name
-- [ ] Search/filter by ECO code or opening name
-- [ ] Search/filter by date range
-- [ ] Position search: find all games containing a given position
-- [ ] Click a game to load it into the board for analysis
-- [ ] Game count displayed (handle databases with 100K+ games)
-- [ ] Multiple databases can be open simultaneously
+
+Backend implemented in `src-tauri/src/db.rs` (schema v1, streaming import, search,
+dedup) with typed TS wrappers in `lib/database.ts`. Checked items below are the
+backend capability; UI wiring for several is still pending (see notes).
+
+- [x] Import PGN file(s) into SQLite database (batch) — streaming, 1000-games/commit; **progress events not yet emitted** (thin follow-up via a Tauri Channel)
+- [x] List games with headers (players, event, result, date, ECO) — `db_list_games`, indexed
+- [x] Search/filter by player name — either colour, substring
+- [x] Search/filter by ECO code — ECO prefix; **opening-name lookup not implemented** (needs an ECO→name table)
+- [x] Search/filter by date range — `date_from`/`date_to`
+- [x] Position search: find all games containing a given position — Zobrist index + FEN verification; returns the next move per game
+- [ ] Click a game to load it into the board for analysis — backend `db_get_game` returns full PGN; **board wiring is UI**
+- [~] Game count displayed (handle databases with 100K+ games) — backend `db_stats` + verified ~15k games/s import & 50k-game search; **display is UI**
+- [~] Multiple databases can be open simultaneously — backend `DbManager` keeps one connection per path (pass `dbPath`); **multi-DB UI pending**
 
 ### Opening Explorer (from spec:201)
 - [ ] Panel shows all moves played from current position in the database
