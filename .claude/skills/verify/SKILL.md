@@ -34,6 +34,21 @@ from playwright.sync_api import sync_playwright  # sync API works well
 
 ## Gotchas
 
+- **Stale dev server after builds**: `pnpm build` and `pnpm dev` share `dist/` —
+  running a build while the dev server is up corrupts the Turbopack cache and
+  the server starts returning 500 ("Failed to restore task data"). Fix:
+  `pkill -f "next dev"; rm -rf dist/dev; pnpm dev`. Always curl-check for 200
+  before driving the page.
+- **Second expected console error** (plain-browser only, alongside the
+  transformCallback one): `Failed to start engine: TypeError ... 'invoke'` —
+  fires when a flow auto-starts analysis (e.g. loading a game from the
+  Database tab). Caught and harmless outside Tauri; don't count it as a
+  regression. The dev-overlay badge may read "2 Issues".
+- **Database tab in plain browser** uses the in-memory mock (18 seeded GM
+  games) via `lib/database-mock.ts` — data resets on reload; the real SQLite
+  path needs Tauri. Interactive elements carry `data-testid` (db-row-*,
+  db-filter-*, db-sort-*, db-import-open, db-find-position, db-move-*).
+
 - **Pace clicks**: wait ~150ms after palette selection and ~250ms after each
   board click — each placement rebuilds the Chessground board and
   full-speed scripted clicks get swallowed.
