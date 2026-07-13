@@ -13,6 +13,8 @@ import { PgnImportDialog } from "@/components/pgn-import-dialog"
 import { PositionEditorDialog } from "@/components/position-editor-dialog"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { TournamentTab } from "@/components/tournament-tab"
+import { DatabaseTab } from "@/components/database-tab"
+import { parsePgnToTrees } from "@/lib/pgn"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 import { readClipboardImage, readClipboardText, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
@@ -41,11 +43,23 @@ export default function Home() {
 
   const atLatestMove = game.currentMoveIndex === game.moves.length - 1
   const engine = useEngine(game.fen, handleBestMove, atLatestMove, game.uciMoves, game.startFen, game.currentMoveIndex)
+
+  // Load a game from the database onto the board and switch to analysis.
+  const handleLoadFromDatabase = useCallback(
+    (pgn: string) => {
+      const trees = parsePgnToTrees(pgn)
+      if (trees.length === 0) return
+      game.loadTree(trees[0])
+      setView("board")
+      engine.setPlayMode(false)
+    },
+    [game.loadTree, engine.setPlayMode],
+  )
   const turn = game.fen.includes(" w ") ? ("white" as const) : ("black" as const)
   const isPlayMode = engine.state.mode === "play"
   const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
-  const [view, setView] = useState<"board" | "tournament" | "thinking">("board")
+  const [view, setView] = useState<"board" | "tournament" | "thinking" | "database">("board")
   // Thinking mode has its own board instance; keep its size separate so the
   // hidden main board (kept mounted) can't clobber it.
   const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
@@ -392,6 +406,15 @@ export default function Home() {
             >
               Tournament
             </button>
+            <button
+              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+                view === "database" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => setView("database")}
+              title="Browse the game database and search positions"
+            >
+              Database
+            </button>
             {view === "thinking" && (
               <button className="px-3 py-1.5 text-sm rounded-md text-foreground font-medium bg-white/5" title="Thinking mode — board and eval bar only">
                 Thinking
@@ -427,6 +450,14 @@ export default function Home() {
             onLiveUpdate={setLiveGame}
           />
         </main>
+
+        {/* Database view — game list, filters, position search. Mounted only
+            when active; it re-fetches on mount, which is cheap. */}
+        {view === "database" && (
+          <main className="flex-1 min-h-0">
+            <DatabaseTab currentFen={game.fen} onLoadGame={handleLoadFromDatabase} />
+          </main>
+        )}
 
         {/* Live tournament game viewer */}
         {liveViewing && (

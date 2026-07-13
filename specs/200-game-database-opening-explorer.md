@@ -73,26 +73,31 @@ Horizontal stacked bar chart per move (white/draw/black segments), like Lichess.
 
 ### Database (from spec:200)
 
-Backend implemented in `src-tauri/src/db.rs` (schema v1, streaming import, search,
-dedup) with typed TS wrappers in `lib/database.ts`. Checked items below are the
-backend capability; UI wiring for several is still pending (see notes).
+Backend in `src-tauri/src/db.rs` (schema v1, streaming import, search, dedup)
+with typed TS wrappers in `lib/database.ts`. Database tab UI in
+`components/database-tab.tsx` (wired into `app/page.tsx`), drivable headless via
+the mock in `lib/database-mock.ts`.
 
-- [x] Import PGN file(s) into SQLite database (batch) — streaming, 1000-games/commit; **progress events not yet emitted** (thin follow-up via a Tauri Channel)
-- [x] List games with headers (players, event, result, date, ECO) — `db_list_games`, indexed
-- [x] Search/filter by player name — either colour, substring
+- [x] Import PGN file(s) into SQLite database (batch) — streaming, 1000-games/commit; UI import dialog (paste + file); **progress events not yet emitted** (thin follow-up via a Tauri Channel)
+- [x] List games with headers (players, event, result, date, ECO) — indexed, paginated table with column sort
+- [x] Search/filter by player name — either colour, substring; live-debounced filter bar
 - [x] Search/filter by ECO code — ECO prefix; **opening-name lookup not implemented** (needs an ECO→name table)
 - [x] Search/filter by date range — `date_from`/`date_to`
-- [x] Position search: find all games containing a given position — Zobrist index + FEN verification; returns the next move per game
-- [ ] Click a game to load it into the board for analysis — backend `db_get_game` returns full PGN; **board wiring is UI**
-- [~] Game count displayed (handle databases with 100K+ games) — backend `db_stats` + verified ~15k games/s import & 50k-game search; **display is UI**
-- [~] Multiple databases can be open simultaneously — backend `DbManager` keeps one connection per path (pass `dbPath`); **multi-DB UI pending**
+- [x] Position search: find all games containing a given position — Zobrist index + FEN verification; returns the next move per game; "Find current position" action in the tab
+- [x] Click a game to load it into the board for analysis — row click → `getGame` → `parsePgnToTrees` → `loadTree` → board
+- [x] Game count displayed (handle databases with 100K+ games) — shown in tab header; pagination + backend verified ~15k games/s import & 50k-game search
+- [~] Multiple databases can be open simultaneously — backend `DbManager` keeps one connection per path (pass `dbPath`); **multi-DB UI (open/switch) pending**
 
 ### Opening Explorer (from spec:201)
-- [ ] Panel shows all moves played from current position in the database
-- [ ] Each move shows game count and result percentages (stacked bar)
-- [ ] Moves sorted by frequency (configurable: by count, by performance)
-- [ ] Clicking a move plays it on the board
-- [ ] Updates as user navigates through moves
-- [ ] Lichess API fallback when local database is empty
-- [ ] Average Elo and performance rating shown per move
-- [ ] Tree computation is async — no UI freeze on large databases
+
+First seed landed in the Database tab's position search (grouped next-move
+breakdown). A dedicated live explorer panel is a later slice.
+
+- [x] Panel shows all moves played from current position in the database — grouped by next move
+- [x] Each move shows game count and result percentages (stacked bar) — white/draw/black segments
+- [~] Moves sorted by frequency (configurable: by count, by performance) — sorted by count; **performance sort not implemented**
+- [ ] Clicking a move plays it on the board — moves are display-only this slice
+- [ ] Updates as user navigates through moves — currently a manual "Find current position" action, not auto-updating
+- [ ] Lichess API fallback when local database is empty — not implemented
+- [~] Average Elo and performance rating shown per move — **avg Elo shown**; performance rating not computed
+- [x] Tree computation is async — no UI freeze on large databases — all data access is async; Tauri runs the query off the UI thread

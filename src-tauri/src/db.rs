@@ -622,12 +622,16 @@ impl Db {
         Ok(report)
     }
 
-    /// Paginated, filtered header list, newest-inserted first.
+    /// Paginated, filtered header list. Sort defaults to newest-inserted first
+    /// (`id DESC`); `sort_by` is validated against a column whitelist so it can
+    /// never inject SQL.
     pub fn list_games(
         &self,
         filter: &GameFilter,
         limit: i64,
         offset: i64,
+        sort_by: Option<&str>,
+        desc: bool,
     ) -> rusqlite::Result<Vec<GameHeader>> {
         let mut sql = String::from(
             "SELECT id, white, black, white_elo, black_elo, event, site, round, \
@@ -679,7 +683,23 @@ impl Db {
             sql.push_str(" WHERE ");
             sql.push_str(&clauses.join(" AND "));
         }
-        sql.push_str(" ORDER BY id DESC LIMIT ? OFFSET ?");
+        // Column whitelist: any unrecognized value falls back to `id`, so the
+        // interpolated string is always one of these fixed literals.
+        let col = match sort_by {
+            Some("white") => "white",
+            Some("black") => "black",
+            Some("white_elo") => "white_elo",
+            Some("black_elo") => "black_elo",
+            Some("event") => "event",
+            Some("date") => "date",
+            Some("eco") => "eco",
+            Some("result") => "result",
+            Some("ply_count") => "ply_count",
+            _ => "id",
+        };
+        let dir = if desc { "DESC" } else { "ASC" };
+        // Tie-break on id so pagination is stable when the sort column has dups.
+        sql.push_str(&format!(" ORDER BY {col} {dir}, id DESC LIMIT ? OFFSET ?"));
         args.push(Box::new(limit));
         args.push(Box::new(offset));
 
@@ -1026,10 +1046,16 @@ pub fn db_list_games(
     filter: GameFilter,
     limit: i64,
     offset: i64,
+    sort_by: Option<String>,
+    sort_dir: Option<String>,
     db_path: Option<String>,
 ) -> Result<Vec<GameHeader>, String> {
     let path = resolve_db_path(&app, db_path)?;
-    state.with(&path, |db| db.list_games(&filter, limit, offset))
+    // Default to descending; "asc" opts into ascending.
+    let desc = sort_dir.as_deref() != Some("asc");
+    state.with(&path, |db| {
+        db.list_games(&filter, limit, offset, sort_by.as_deref(), desc)
+    })
 }
 
 #[tauri::command]
@@ -1126,6 +1152,8 @@ mod tests {
                 },
                 100,
                 0,
+                None,
+                true,
             )
             .unwrap();
         assert!(
@@ -1142,12 +1170,29 @@ mod tests {
                 },
                 100,
                 0,
+                None,
+                true,
             )
             .unwrap();
         assert!(by_eco.iter().all(|g| g.eco.starts_with('B')));
 
-        let all = db.list_games(&GameFilter::default(), 100, 0).unwrap();
+        let all = db.list_games(&GameFilter::default(), 100, 0, None, true).unwrap();
         assert_eq!(all.len(), 3);
+
+        // Sort by white ascending: names must be non-decreasing.
+        let by_white = db
+            .list_games(&GameFilter::default(), 100, 0, Some("white"), false)
+            .unwrap();
+        let names: Vec<&str> = by_white.iter().map(|g| g.white.as_str()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted, "ascending sort by white");
+
+        // An unknown sort column falls back to id order rather than erroring.
+        let bogus = db
+            .list_games(&GameFilter::default(), 100, 0, Some("white; DROP TABLE games"), true)
+            .unwrap();
+        assert_eq!(bogus.len(), 3, "injection attempt is ignored, not executed");
     }
 
     #[test]
@@ -1196,7 +1241,7 @@ mod tests {
     fn get_game_roundtrips_movetext() {
         let mut db = Db::open_in_memory().unwrap();
         db.import_pgn_str(SAMPLE, "test").unwrap();
-        let ids = db.list_games(&GameFilter::default(), 1, 0).unwrap();
+        let ids = db.list_games(&GameFilter::default(), 1, 0, None, true).unwrap();
         let pgn = db.get_game_pgn(ids[0].id).unwrap().unwrap();
         assert!(pgn.contains("[White "));
         assert!(pgn.contains("1."));
@@ -1207,7 +1252,7 @@ mod tests {
         let mut db = Db::open_in_memory().unwrap();
         db.import_pgn_str(SAMPLE, "test").unwrap();
         let before = db.stats().unwrap();
-        let ids = db.list_games(&GameFilter::default(), 1, 0).unwrap();
+        let ids = db.list_games(&GameFilter::default(), 1, 0, None, true).unwrap();
         let removed = db.delete_games(&[ids[0].id]).unwrap();
         assert_eq!(removed, 1);
         let after = db.stats().unwrap();
@@ -1293,7 +1338,7 @@ mod tests {
 1. e4 e5 (1... c5 2. Nf3 {Sicilian}) 2. Nf3 Nc6 *\n";
         let rep = db.import_pgn_str(pgn, "t").unwrap();
         assert_eq!(rep.imported, 1);
-        let ids = db.list_games(&GameFilter::default(), 1, 0).unwrap();
+        let ids = db.list_games(&GameFilter::default(), 1, 0, None, true).unwrap();
         let mv = db.get_game(ids[0].id).unwrap().unwrap();
         assert!(mv.contains('('), "variation retained: {mv}");
         assert!(mv.contains("Sicilian"), "comment retained: {mv}");

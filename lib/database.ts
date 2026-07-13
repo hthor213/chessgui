@@ -3,7 +3,12 @@
 // Mirrors the Rust structs and `db_*` Tauri commands in src-tauri/src/db.rs.
 // Struct fields are snake_case to match serde's on-the-wire shape; command
 // argument names are camelCase because Tauri maps them to the Rust snake_case
-// parameters. No UI here — the database tab consumes these wrappers.
+// parameters.
+//
+// Provider seam: in the real desktop app these route to Tauri `invoke`. Outside
+// Tauri (a plain browser — e.g. `pnpm dev` under Playwright, or unit tests) they
+// route to an in-memory mock so the whole Database tab is drivable headless. The
+// mock is loaded via dynamic import, so it stays out of the Tauri bundle.
 
 import { invoke } from "@tauri-apps/api/core"
 
@@ -54,6 +59,20 @@ export type GameFilter = {
   min_elo?: number
 }
 
+/** Columns the backend can sort by (whitelisted server-side). */
+export type SortColumn =
+  | "white"
+  | "black"
+  | "white_elo"
+  | "black_elo"
+  | "event"
+  | "date"
+  | "eco"
+  | "result"
+  | "ply_count"
+
+export type Sort = { by: SortColumn; dir: "asc" | "desc" }
+
 /**
  * A game reaching a searched position, plus the move played next in it — the
  * raw material the opening explorer aggregates. Mirrors Rust `PositionHit`.
@@ -80,15 +99,53 @@ export type DbStats = {
   positions: number
 }
 
+/** The function surface both the Tauri path and the mock implement. */
+export interface DatabaseApi {
+  importPgn(args: {
+    source: string
+    text?: string
+    filePath?: string
+    dbPath?: string
+  }): Promise<ImportReport>
+  listGames(
+    filter: GameFilter,
+    limit: number,
+    offset: number,
+    sort?: Sort,
+    dbPath?: string,
+  ): Promise<GameHeader[]>
+  searchPosition(fen: string, limit?: number, dbPath?: string): Promise<PositionHit[]>
+  getGame(id: number, dbPath?: string): Promise<string | null>
+  deleteGames(ids: number[], dbPath?: string): Promise<number>
+  stats(dbPath?: string): Promise<DbStats>
+}
+
+// ---------------------------------------------------------------------------
+// Provider seam
+// ---------------------------------------------------------------------------
+
+/** True inside the Tauri webview (its IPC globals are injected before load). */
+export function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+let mockApiPromise: Promise<DatabaseApi> | null = null
+function mockApi(): Promise<DatabaseApi> {
+  if (!mockApiPromise) {
+    mockApiPromise = import("./database-mock").then((m) => m.mockDatabase)
+  }
+  return mockApiPromise
+}
+
 // ---------------------------------------------------------------------------
 // Command wrappers
 // ---------------------------------------------------------------------------
 
 /**
  * Import PGN into the database. Provide either `text` (a pasted string) or
- * `filePath` (streamed from disk — use this for large files). `source` is
- * recorded per game as provenance. `dbPath` selects a specific database file;
- * omit it for the default one in the app data dir.
+ * `filePath` (streamed from disk in Tauri — the browser mock only uses `text`).
+ * `source` is recorded per game as provenance. `dbPath` selects a specific
+ * database file; omit it for the default one in the app data dir.
  */
 export function importPgn(args: {
   source: string
@@ -96,6 +153,7 @@ export function importPgn(args: {
   filePath?: string
   dbPath?: string
 }): Promise<ImportReport> {
+  if (!isTauri()) return mockApi().then((m) => m.importPgn(args))
   return invoke<ImportReport>("db_import_pgn", {
     source: args.source,
     text: args.text ?? null,
@@ -104,17 +162,21 @@ export function importPgn(args: {
   })
 }
 
-/** Paginated, filtered header list, newest-inserted first. */
+/** Paginated, filtered header list. Sort defaults to newest-inserted first. */
 export function listGames(
   filter: GameFilter,
   limit: number,
   offset: number,
+  sort?: Sort,
   dbPath?: string,
 ): Promise<GameHeader[]> {
+  if (!isTauri()) return mockApi().then((m) => m.listGames(filter, limit, offset, sort, dbPath))
   return invoke<GameHeader[]>("db_list_games", {
     filter,
     limit,
     offset,
+    sortBy: sort?.by ?? null,
+    sortDir: sort?.dir ?? null,
     dbPath: dbPath ?? null,
   })
 }
@@ -129,6 +191,7 @@ export function searchPosition(
   limit?: number,
   dbPath?: string,
 ): Promise<PositionHit[]> {
+  if (!isTauri()) return mockApi().then((m) => m.searchPosition(fen, limit, dbPath))
   return invoke<PositionHit[]>("db_search_position", {
     fen,
     limit: limit ?? null,
@@ -138,15 +201,18 @@ export function searchPosition(
 
 /** Full PGN (tags + movetext) for one game, ready to load into a GameTree. */
 export function getGame(id: number, dbPath?: string): Promise<string | null> {
+  if (!isTauri()) return mockApi().then((m) => m.getGame(id, dbPath))
   return invoke<string | null>("db_get_game", { id, dbPath: dbPath ?? null })
 }
 
 /** Delete games by id (their indexed positions cascade). Returns count removed. */
 export function deleteGames(ids: number[], dbPath?: string): Promise<number> {
+  if (!isTauri()) return mockApi().then((m) => m.deleteGames(ids, dbPath))
   return invoke<number>("db_delete_games", { ids, dbPath: dbPath ?? null })
 }
 
 /** Aggregate counts for the database. */
 export function stats(dbPath?: string): Promise<DbStats> {
+  if (!isTauri()) return mockApi().then((m) => m.stats(dbPath))
   return invoke<DbStats>("db_stats", { dbPath: dbPath ?? null })
 }
