@@ -184,6 +184,14 @@ export default function Home() {
       ) {
         e.preventDefault()
         game.goToMove(game.currentMoveIndex + 1)
+      } else if (e.key === "ArrowUp") {
+        // Move to the previous sibling variation at this branch point.
+        e.preventDefault()
+        game.cycleVariation(-1)
+      } else if (e.key === "ArrowDown") {
+        // Move to the next sibling variation at this branch point.
+        e.preventDefault()
+        game.cycleVariation(1)
       } else if (e.key === "Home") {
         e.preventDefault()
         game.goToMove(-1)
@@ -208,7 +216,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.flipBoard, isPlayMode, handlePaste, pgnDialogOpen, editorOpen])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, handlePaste, pgnDialogOpen, editorOpen])
 
   return (
     <ErrorBoundary>
@@ -550,9 +558,10 @@ export default function Home() {
               <AnalysisPanel engine={engine} turn={turn} />
             </div>
             <MoveList
-              moves={game.moves}
-              currentIndex={game.currentMoveIndex}
-              onGoToMove={game.goToMove}
+              tree={game.tree}
+              currentId={game.currentNodeId}
+              onGoToNode={game.goToNode}
+              version={game.treeVersion}
             />
           </div>
         </main>

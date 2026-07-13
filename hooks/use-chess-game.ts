@@ -1,14 +1,16 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Chess } from "chessops/chess";
-import { makeFen, parseFen } from "chessops/fen";
-import { makeSan, parseSan } from "chessops/san";
-import { parseUci } from "chessops";
+import { parseFen } from "chessops/fen";
 import { chessgroundDests } from "chessops/compat";
-import { normalizeUciCastling } from "@/lib/uci-parser";
 import type { NormalMove } from "chessops";
 import type { Key } from "@lichess-org/chessground/types";
-
-const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+import {
+  GameTree,
+  INITIAL_FEN,
+  keyToSquare,
+  type MoveNode,
+  type SerializedTree,
+} from "@/lib/game-tree";
 
 export type PromotionRole = "queen" | "rook" | "bishop" | "knight";
 
@@ -18,137 +20,101 @@ export interface PendingPromotion {
   color: "white" | "black";
 }
 
-function squareToKey(square: number): Key {
-  const file = String.fromCharCode(97 + (square & 7));
-  const rank = String.fromCharCode(49 + (square >> 3));
-  return `${file}${rank}` as Key;
-}
-
-function keyToSquare(key: Key): number {
-  const file = key.charCodeAt(0) - 97;
-  const rank = key.charCodeAt(1) - 49;
-  return rank * 8 + file;
-}
-
-export interface GameState {
-  fen: string;
-  moves: string[];
-  uciMoves: string[];
-  positions: string[];
-  lastMoves: ([Key, Key] | undefined)[];
-  currentMoveIndex: number;
-  startFen: string;
-  headers: Record<string, string>;
-}
+// The persisted / snapshotted game is now the serialized variation tree. The
+// name is kept so page.tsx's snapshot ref type stays stable.
+export type GameState = SerializedTree;
 
 const STORAGE_KEY = "chessgui-game";
 
-function rebuildUciMoves(startFen: string, sanMoves: string[]): string[] {
-  const setup = parseFen(startFen);
-  if (setup.isErr) return [];
-  const pos = Chess.fromSetup(setup.unwrap());
-  if (pos.isErr) return [];
-  const chess = pos.unwrap();
-  const uciMoves: string[] = [];
-  for (const san of sanMoves) {
-    const move = parseSan(chess, san);
-    if (!move) break;
-    uciMoves.push(moveToUci(move as NormalMove, chess));
-    chess.play(move);
-  }
-  return uciMoves;
-}
-
-function loadSavedState(): GameState | null {
+// Rebuild a tree from whatever is in localStorage. Handles three cases: a
+// current serialized tree, a legacy flat-move save, or garbage — never throws.
+function loadSavedTree(): GameTree | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const saved = JSON.parse(raw) as GameState;
-    // Sanity check: positions array must be consistent
-    if (saved.positions?.length > 0 && saved.currentMoveIndex >= -1) {
-      // Migrate old saves that lack uciMoves/startFen
-      if (!saved.startFen) saved.startFen = INITIAL_FEN;
-      if (!saved.uciMoves) {
-        saved.uciMoves = rebuildUciMoves(saved.startFen, saved.moves);
-      }
-      return saved;
+    const saved = JSON.parse(raw);
+    if (saved && saved.nodes && saved.rootId) {
+      return GameTree.fromJSON(saved as SerializedTree);
     }
-  } catch { /* ignore corrupt data */ }
+    // Legacy shape: { moves: string[], startFen?, headers? }
+    if (Array.isArray(saved?.moves)) {
+      const tree = GameTree.fromMoves(
+        saved.moves,
+        saved.startFen || INITIAL_FEN,
+        saved.headers || {},
+      );
+      tree.goToEnd();
+      return tree;
+    }
+  } catch {
+    /* ignore corrupt data */
+  }
   return null;
 }
 
-// Convert chessops castling (king→rook) to standard UCI (king→destination)
-const castlingToUci: Record<string, string> = {
-  "e1h1": "e1g1", "e1a1": "e1c1",
-  "e8h8": "e8g8", "e8a8": "e8c8",
-};
-
-const promoChar: Record<string, string> = {
-  queen: "q", rook: "r", bishop: "b", knight: "n",
-};
-
-function moveToUci(move: NormalMove, chess: Chess): string {
-  const from = squareToKey(move.from);
-  const to = squareToKey(move.to);
-  const key = `${from}${to}`;
-
-  // Castling: chessops stores king→rook, UCI uses king→destination
-  const piece = chess.board.get(move.from);
-  if (piece?.role === "king" && castlingToUci[key]) {
-    return castlingToUci[key];
-  }
-
-  const promo = move.promotion ? promoChar[move.promotion] || "" : "";
-  return `${from}${to}${promo}`;
-}
-
-const defaultState: GameState = {
-  fen: INITIAL_FEN,
-  moves: [],
-  uciMoves: [],
-  positions: [INITIAL_FEN],
-  lastMoves: [undefined],
-  currentMoveIndex: -1,
-  startFen: INITIAL_FEN,
-  headers: {},
+// User-friendly castling (king→destination) → chessops format (king→rook).
+const castlingMap: Record<string, Key> = {
+  e1g1: "h1",
+  e1c1: "a1",
+  e8g8: "h8",
+  e8c8: "a8",
 };
 
 export function useChessGame() {
-  const [state, setState] = useState<GameState>(defaultState);
+  const treeRef = useRef<GameTree>(GameTree.create());
+  const [version, setVersion] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const bump = useCallback(() => setVersion((v) => v + 1), []);
 
-  // Hydrate from localStorage after mount (avoids SSR mismatch)
+  // Hydrate from localStorage after mount (avoids SSR mismatch).
   useEffect(() => {
-    const saved = loadSavedState();
-    if (saved) setState(saved);
+    const saved = loadSavedTree();
+    if (saved) {
+      treeRef.current = saved;
+      setVersion((v) => v + 1);
+    }
     setHydrated(true);
   }, []);
 
-  // Persist game state to localStorage so it survives crashes and restarts
+  // Persist after every mutation so the game survives crashes and restarts.
   useEffect(() => {
-    if (hydrated) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state, hydrated]);
+    if (hydrated) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(treeRef.current.toJSON()));
+    }
+  }, [version, hydrated]);
+
   const [orientation, setOrientation] = useState<"white" | "black">("white");
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
 
-  const legalMoves = useMemo(() => {
-    const setup = parseFen(state.fen);
-    if (setup.isErr) return new Map<Key, Key[]>();
+  // Derived view of the tree at the current cursor. Recomputed whenever a
+  // mutation bumps `version`.
+  const view = useMemo(() => {
+    const tree = treeRef.current;
+    const current = tree.currentNode();
+    const line = tree.currentLine();
+    return {
+      fen: current.fen,
+      moves: line.map((n) => n.san),
+      uciMoves: line.map((n) => n.uci),
+      currentMoveIndex: tree.currentIndex(),
+      startFen: tree.startFen,
+      headers: tree.headers,
+      currentNode: current,
+      currentNodeId: current.id,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version]);
 
+  const legalMoves = useMemo(() => {
+    const setup = parseFen(view.fen);
+    if (setup.isErr) return new Map<Key, Key[]>();
     const pos = Chess.fromSetup(setup.unwrap());
     if (pos.isErr) return new Map<Key, Key[]>();
-
-    // Use the official chessops chessground compatibility function.
-    // It correctly handles castling dests (both king->rook and king->destination)
-    // and iterates SquareSets properly.
     return chessgroundDests(pos.unwrap()) as Map<Key, Key[]>;
-  }, [state.fen]);
+  }, [view.fen]);
 
-  // Derived game status for the current position (checkmate / stalemate / draw /
-  // check). Surfaces an explicit signal to the UI instead of leaving the user to
-  // guess whether a position is terminal.
   const status = useMemo((): { over: boolean; label: string | null } => {
-    const setup = parseFen(state.fen);
+    const setup = parseFen(view.fen);
     if (setup.isErr) return { over: false, label: null };
     const pos = Chess.fromSetup(setup.unwrap());
     if (pos.isErr) return { over: false, label: null };
@@ -161,73 +127,41 @@ export function useChessGame() {
     if (chess.isInsufficientMaterial()) return { over: true, label: "Draw — insufficient material" };
     if (chess.isCheck()) return { over: false, label: "Check" };
     return { over: false, label: null };
-  }, [state.fen]);
+  }, [view.fen]);
 
   const playMove = useCallback(
     (from: Key, to: Key, promotion?: PromotionRole) => {
-      const setup = parseFen(state.fen);
+      const tree = treeRef.current;
+      const setup = parseFen(tree.currentNode().fen);
       if (setup.isErr) return;
-
       const pos = Chess.fromSetup(setup.unwrap());
       if (pos.isErr) return;
-
       const chess = pos.unwrap();
 
-      // Convert user-friendly castling (king->destination) to chessops format (king->rook)
-      const castlingMap: Record<string, Key> = {
-        "e1g1": "h1", "e1c1": "a1", // white
-        "e8g8": "h8", "e8c8": "a8", // black
-      };
+      // Convert king→destination castling to chessops king→rook format.
       const piece = chess.board.get(keyToSquare(from));
       let actualTo = to;
       if (piece?.role === "king") {
         actualTo = castlingMap[`${from}${to}`] || to;
       }
-
       const move: NormalMove = {
         from: keyToSquare(from),
         to: keyToSquare(actualTo),
         promotion,
       };
-
-      const san = makeSan(chess, move);
-      const uci = moveToUci(move, chess);
-      chess.play(move);
-      const newFen = makeFen(chess.toSetup());
-
-      setState((prev) => {
-        const newMoves = [...prev.moves.slice(0, prev.currentMoveIndex + 1), san];
-        const newUciMoves = [...prev.uciMoves.slice(0, prev.currentMoveIndex + 1), uci];
-        const newPositions = [
-          ...prev.positions.slice(0, prev.currentMoveIndex + 2),
-          newFen,
-        ];
-        const newLastMoves: ([Key, Key] | undefined)[] = [
-          ...prev.lastMoves.slice(0, prev.currentMoveIndex + 2),
-          [from, to],
-        ];
-        return {
-          ...prev,
-          fen: newFen,
-          moves: newMoves,
-          uciMoves: newUciMoves,
-          positions: newPositions,
-          lastMoves: newLastMoves,
-          currentMoveIndex: newMoves.length - 1,
-        };
-      });
+      // addMove creates a variation when a different move is played mid-game,
+      // reuses an existing branch for the same move, and never truncates.
+      if (tree.addMove(move)) bump();
     },
-    [state.fen],
+    [bump],
   );
 
   const onMove = useCallback(
     (from: Key, to: Key) => {
-      const setup = parseFen(state.fen);
+      const setup = parseFen(treeRef.current.currentNode().fen);
       if (setup.isErr) return;
-
       const pos = Chess.fromSetup(setup.unwrap());
       if (pos.isErr) return;
-
       const chess = pos.unwrap();
       const fromSquare = keyToSquare(from);
       const toSquare = keyToSquare(to);
@@ -244,10 +178,9 @@ export function useChessGame() {
           return;
         }
       }
-
       playMove(from, to);
     },
-    [state.fen, playMove],
+    [playMove],
   );
 
   const confirmPromotion = useCallback(
@@ -259,192 +192,156 @@ export function useChessGame() {
     [pendingPromotion, playMove],
   );
 
-  const cancelPromotion = useCallback(() => {
-    setPendingPromotion(null);
-  }, []);
+  const cancelPromotion = useCallback(() => setPendingPromotion(null), []);
 
+  // Navigate the current line by ply index (-1 = start). Preserves the flat
+  // index-based API the keyboard handlers and move list rely on.
   const goToMove = useCallback(
     (index: number) => {
-      setState((prev) => {
-        const posIndex = index + 1; // positions[0] is initial position
-        if (posIndex < 0 || posIndex >= prev.positions.length) return prev;
-        return {
-          ...prev,
-          fen: prev.positions[posIndex],
-          currentMoveIndex: index,
-        };
-      });
+      const tree = treeRef.current;
+      if (index < 0) {
+        tree.goToStart();
+      } else {
+        const line = tree.currentLine();
+        if (index >= line.length) return;
+        tree.goTo(line[index].id);
+      }
+      bump();
     },
-    [],
+    [bump],
+  );
+
+  // Jump straight to any node in the tree (used by the variation-aware list).
+  const goToNode = useCallback(
+    (id: string) => {
+      if (treeRef.current.goTo(id)) bump();
+    },
+    [bump],
+  );
+
+  // Move between sibling branches at the current ply (up/down keys).
+  const cycleVariation = useCallback(
+    (direction: 1 | -1) => {
+      const tree = treeRef.current;
+      const node = tree.currentNode();
+      if (!node.parent) return;
+      const siblings = tree.get(node.parent)!.children;
+      const idx = siblings.indexOf(node.id);
+      const next = idx + direction;
+      if (next < 0 || next >= siblings.length) return;
+      tree.goTo(siblings[next]);
+      bump();
+    },
+    [bump],
+  );
+
+  const promoteVariation = useCallback(
+    (id: string) => {
+      if (treeRef.current.promoteVariation(id)) bump();
+    },
+    [bump],
+  );
+
+  const deleteVariation = useCallback(
+    (id: string) => {
+      if (treeRef.current.deleteVariation(id)) bump();
+    },
+    [bump],
+  );
+
+  const setComment = useCallback(
+    (id: string, comment: string) => {
+      treeRef.current.setComment(id, comment);
+      bump();
+    },
+    [bump],
+  );
+
+  const setNags = useCallback(
+    (id: string, nags: number[]) => {
+      treeRef.current.setNags(id, nags);
+      bump();
+    },
+    [bump],
   );
 
   const loadGame = useCallback(
     (sanMoves: string[], headers?: Record<string, string>, startFen?: string) => {
-      const setup = parseFen(startFen || INITIAL_FEN);
+      const tree = GameTree.fromMoves(sanMoves, startFen || INITIAL_FEN, headers || {});
+      tree.goToEnd();
+      treeRef.current = tree;
+      bump();
+    },
+    [bump],
+  );
+
+  // Reset to an arbitrary position with empty history (position editor).
+  const loadFen = useCallback(
+    (fen: string) => {
+      const setup = parseFen(fen);
       if (setup.isErr) return;
       const pos = Chess.fromSetup(setup.unwrap());
       if (pos.isErr) return;
-      const chess = pos.unwrap();
-      const normStart = makeFen(chess.toSetup());
-
-      const positions: string[] = [normStart];
-      const moves: string[] = [];
-      const uciMoves: string[] = [];
-      const lastMovesList: ([Key, Key] | undefined)[] = [undefined];
-
-      for (const san of sanMoves) {
-        const move = parseSan(chess, san);
-        if (!move) break;
-        const normalizedSan = makeSan(chess, move);
-        const uci = moveToUci(move as NormalMove, chess);
-        chess.play(move);
-        const fen = makeFen(chess.toSetup());
-        moves.push(normalizedSan);
-        uciMoves.push(uci);
-        positions.push(fen);
-        const m = move as NormalMove;
-        if (m.from !== undefined && m.to !== undefined) {
-          lastMovesList.push([squareToKey(m.from), squareToKey(m.to)]);
-        } else {
-          lastMovesList.push(undefined);
-        }
-      }
-
-      const finalIndex = moves.length - 1;
-      setState({
-        fen: positions[positions.length - 1],
-        moves,
-        uciMoves,
-        positions,
-        lastMoves: lastMovesList,
-        currentMoveIndex: finalIndex,
-        startFen: normStart,
-        headers: headers || {},
-      });
+      treeRef.current = GameTree.create(fen);
+      bump();
     },
-    [],
+    [bump],
   );
 
-  // Reset the game to an arbitrary position with empty history (position editor).
-  const loadFen = useCallback((fen: string) => {
-    const setup = parseFen(fen);
-    if (setup.isErr) return;
-    const pos = Chess.fromSetup(setup.unwrap());
-    if (pos.isErr) return;
-    const normFen = makeFen(pos.unwrap().toSetup());
-    setState({
-      fen: normFen,
-      moves: [],
-      uciMoves: [],
-      positions: [normFen],
-      lastMoves: [undefined],
-      currentMoveIndex: -1,
-      startFen: normFen,
-      headers: {},
-    });
-  }, []);
-
-  // Snapshot/restore the whole game — used by thinking mode to bring back
-  // the game that was on the board before a screenshot paste replaced it.
-  const stateRef = useRef(state);
-  stateRef.current = state;
-  const getSnapshot = useCallback((): GameState => stateRef.current, []);
-  const restoreSnapshot = useCallback((snap: GameState) => setState(snap), []);
+  // Snapshot/restore the whole game — used by thinking mode to bring back the
+  // game that was on the board before a screenshot paste replaced it. The
+  // snapshot is a serialized, independent copy.
+  const getSnapshot = useCallback((): GameState => treeRef.current.toJSON(), []);
+  const restoreSnapshot = useCallback(
+    (snap: GameState) => {
+      treeRef.current = GameTree.fromJSON(snap);
+      bump();
+    },
+    [bump],
+  );
 
   const newGame = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
-    setState({
-      fen: INITIAL_FEN,
-      moves: [],
-      uciMoves: [],
-      positions: [INITIAL_FEN],
-      lastMoves: [undefined],
-      currentMoveIndex: -1,
-      startFen: INITIAL_FEN,
-      headers: {},
-    });
-  }, []);
+    treeRef.current = GameTree.create();
+    bump();
+  }, [bump]);
 
   const playUciMove = useCallback(
     (uci: string): boolean => {
       try {
-        const setup = parseFen(state.fen);
-        if (setup.isErr) return false;
-        const pos = Chess.fromSetup(setup.unwrap());
-        if (pos.isErr) return false;
-        const chess = pos.unwrap();
-
-        // Convert standard UCI castling to chessops format (king->rook)
-        // Stockfish sends e1g1 (standard UCI), but chessops expects e1h1 (king-captures-rook)
-        const normalizedUci = normalizeUciCastling(uci);
-
-        const move = parseUci(normalizedUci);
-        if (!move) return false;
-
-        const san = makeSan(chess, move);
-        chess.play(move);
-        const newFen = makeFen(chess.toSetup());
-
-        // Determine display squares (king destination for castling, not rook)
-        const m = move as NormalMove;
-        const fromKey = squareToKey(m.from);
-        let toKey = squareToKey(m.to);
-        // Convert chessops castling (king->rook) to display (king->destination)
-        const castlingDisplay: Record<string, Key> = {
-          "e1h1": "g1", "e1a1": "c1",
-          "e8h8": "g8", "e8a8": "c8",
-        };
-        const displayTo = castlingDisplay[`${fromKey}${toKey}`];
-        if (displayTo) toKey = displayTo;
-
-        setState((prev) => {
-          const newMoves = [...prev.moves.slice(0, prev.currentMoveIndex + 1), san];
-          const newUciMoves = [...prev.uciMoves.slice(0, prev.currentMoveIndex + 1), uci];
-          const newPositions = [
-            ...prev.positions.slice(0, prev.currentMoveIndex + 2),
-            newFen,
-          ];
-          const newLastMoves: ([Key, Key] | undefined)[] = [
-            ...prev.lastMoves.slice(0, prev.currentMoveIndex + 2),
-            [fromKey, toKey],
-          ];
-          return {
-            ...prev,
-            fen: newFen,
-            moves: newMoves,
-            uciMoves: newUciMoves,
-            positions: newPositions,
-            lastMoves: newLastMoves,
-            currentMoveIndex: newMoves.length - 1,
-          };
-        });
-        return true;
+        const id = treeRef.current.addMoveUci(uci);
+        if (id) {
+          bump();
+          return true;
+        }
+        return false;
       } catch (e) {
         console.error("[playUciMove] failed:", uci, e);
         return false;
       }
     },
-    [state.fen],
+    [bump],
   );
 
   const lastMove = useMemo((): [Key, Key] | undefined => {
-    const posIndex = state.currentMoveIndex + 1;
-    return state.lastMoves[posIndex];
-  }, [state.currentMoveIndex, state.lastMoves]);
+    const node = view.currentNode;
+    if (!node.uci) return undefined;
+    return [node.uci.slice(0, 2) as Key, node.uci.slice(2, 4) as Key];
+  }, [view.currentNode]);
 
   return {
-    fen: state.fen,
+    fen: view.fen,
     orientation,
     onMove,
     legalMoves,
     status,
     lastMove,
-    moves: state.moves,
-    uciMoves: state.uciMoves,
-    startFen: state.startFen,
-    currentMoveIndex: state.currentMoveIndex,
+    moves: view.moves,
+    uciMoves: view.uciMoves,
+    startFen: view.startFen,
+    currentMoveIndex: view.currentMoveIndex,
     goToMove,
-    headers: state.headers,
+    headers: view.headers,
     loadGame,
     loadFen,
     newGame,
@@ -456,5 +353,16 @@ export function useChessGame() {
     pendingPromotion,
     confirmPromotion,
     cancelPromotion,
+    // Tree-aware surface (spec 016)
+    tree: treeRef.current,
+    currentNodeId: view.currentNodeId,
+    currentNode: view.currentNode as MoveNode,
+    goToNode,
+    cycleVariation,
+    promoteVariation,
+    deleteVariation,
+    setComment,
+    setNags,
+    treeVersion: version,
   };
 }

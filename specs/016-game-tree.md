@@ -1,6 +1,6 @@
 # 016: Game Tree — Variation Tree Model
 
-**Status:** draft
+**Status:** implemented (core); PGN variation import/export deferred to 013
 **Band:** Foundation
 **Depends on:** 001 (board & gameplay), 002 (UX/UI migration), 013 (PGN import)
 **Blocks:** 200 (database & opening explorer), 202 (annotations & eval graph)
@@ -156,14 +156,14 @@ This is a recursive rendering problem. Each variation is indented and rendered i
 
 ## Done When
 
-- [ ] `GameTree` data structure with nodes, cursor, and navigation
-- [ ] `addMove` works: playing moves builds the tree (mainline)
-- [ ] `addVariation` works: alternative moves create branches
-- [ ] `promoteVariation` swaps a variation with the mainline
-- [ ] `deleteVariation` removes a subtree
-- [ ] Navigation: forward, backward, enter/exit variation, go to start/end
-- [ ] MoveList renders variations (indented or inline)
-- [ ] PGN import preserves variations from the PGN
-- [ ] PGN export includes variations
-- [ ] Existing flat-move workflows (play, analyze) still work unchanged
-- [ ] Per-node comment and NAG storage (display can come in spec:202)
+- [x] `GameTree` data structure with nodes, cursor, and navigation
+- [x] `addMove` works: playing moves builds the tree (mainline)
+- [x] `addVariation` works: alternative moves create branches (unified into `addMove` — a different move mid-line auto-branches, same move reuses)
+- [x] `promoteVariation` swaps a variation with the mainline
+- [x] `deleteVariation` removes a subtree
+- [x] Navigation: forward, backward, enter/exit variation, go to start/end
+- [x] MoveList renders variations (indented + inline, parenthesized)
+- [ ] PGN import preserves variations from the PGN — deferred to spec 013 (import still loads mainline flat via `loadGame`)
+- [ ] PGN export includes variations — deferred to spec 013
+- [x] Existing flat-move workflows (play, analyze) still work unchanged
+- [x] Per-node comment and NAG storage (display can come in spec:202)
