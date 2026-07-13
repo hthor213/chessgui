@@ -15,7 +15,7 @@ use std::time::Instant;
 use chessgui_lib::match_runner::{run_batch_core, GameSpec};
 
 const STOCKFISH: &str = "/opt/homebrew/bin/stockfish";
-const RECKLESS: &str = "/Users/hjalti/Documents/GitHub/chessgui/engines/reckless";
+const RECKLESS: &str = "/Users/hjalti/github/chessgui/engines/reckless";
 
 /// Spawn the engine, ask UCI, return its `id name` (e.g. "Stockfish 18").
 fn engine_id(path: &str) -> String {

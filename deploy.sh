@@ -4,7 +4,7 @@
 
 set -e
 
-PLATFORM_DIR="$HOME/Documents/GitHub/platform"
+PLATFORM_DIR="$HOME/github/platform"
 source "$PLATFORM_DIR/lib/shell/macstudio_connect.sh"
 
 echo "Deploying to MacStudio ($MACSTUDIO_NETWORK)..."

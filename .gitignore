@@ -12,3 +12,10 @@ engines/
 
 # Raw opening books (large, downloaded — regenerate via scripts/tag_positions.py)
 data/openings/
+
+# Next.js build output + TS incremental state (generated)
+.next/
+tsconfig.tsbuildinfo
+
+# Vendored third-party lichess-bot checkout (not part of the app)
+lichess-bot/

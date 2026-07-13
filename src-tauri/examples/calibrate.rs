@@ -20,7 +20,7 @@ use std::time::Instant;
 use chessgui_lib::match_runner::{run_batch_core, GameSpec};
 
 const STOCKFISH: &str = "/opt/homebrew/bin/stockfish";
-const RECKLESS: &str = "/Users/hjalti/Documents/GitHub/chessgui/engines/reckless";
+const RECKLESS: &str = "/Users/hjalti/github/chessgui/engines/reckless";
 const BASE_MS: u64 = 60_000;
 const INC_MS: u64 = 600;
 const MAX_PLIES: usize = 600;

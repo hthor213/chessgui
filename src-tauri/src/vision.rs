@@ -16,7 +16,7 @@ fn anthropic_api_key() -> Result<String, String> {
         }
     }
     let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-    let env_path = format!("{home}/Documents/GitHub/ai-dev-framework/.env");
+    let env_path = format!("{home}/github/ai-dev-framework/.env");
     let content = std::fs::read_to_string(&env_path).map_err(|e| {
         format!("ANTHROPIC_API_KEY not in environment and couldn't read {env_path}: {e}")
     })?;

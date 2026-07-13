@@ -14,7 +14,7 @@ import {
 
 const key = (() => {
   if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY.trim();
-  const env = readFileSync(`${process.env.HOME}/Documents/GitHub/ai-dev-framework/.env`, "utf8");
+  const env = readFileSync(`${process.env.HOME}/github/ai-dev-framework/.env`, "utf8");
   return env.split("\n").find((l) => l.startsWith("ANTHROPIC_API_KEY=")).split("=")[1].trim();
 })();
 

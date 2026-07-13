@@ -30,7 +30,7 @@ import {
 
 const STOCKFISH_DEFAULT = "/opt/homebrew/bin/stockfish"
 const RECKLESS_DEFAULT =
-  "/Users/hjalti/Documents/GitHub/chessgui/engines/reckless"
+  "/Users/hjalti/github/chessgui/engines/reckless"
 
 const MAX_PLIES = 400
 

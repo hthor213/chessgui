@@ -10,7 +10,7 @@
 use chessgui_lib::match_runner::play_game_core;
 
 const STOCKFISH: &str = "/opt/homebrew/bin/stockfish";
-const RECKLESS: &str = "/Users/hjalti/Documents/GitHub/chessgui/engines/reckless";
+const RECKLESS: &str = "/Users/hjalti/github/chessgui/engines/reckless";
 
 #[tokio::main]
 async fn main() {

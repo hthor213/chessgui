@@ -50,7 +50,7 @@ The mixed pool is written to `data/openings/combined_pool.epd`.
 
 ## How to regenerate
 
-From the repo root (`/Users/hjalti/Documents/GitHub/chessgui`):
+From the repo root (`/Users/hjalti/github/chessgui`):
 
 ```bash
 # 1. Download + unzip the raw books
