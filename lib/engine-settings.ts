@@ -1,0 +1,64 @@
+// Engine settings persisted to localStorage, alongside the "engine-path" key.
+
+export interface EngineSettings {
+  /** UCI Hash table size in MB. */
+  hash: number;
+  /** UCI Threads. */
+  threads: number;
+  /** Number of PV lines shown in analysis mode (play mode always uses 1). */
+  multiPv: number;
+  /** Draw the engine's best-move arrows on the board in analysis mode. */
+  showArrows: boolean;
+}
+
+const STORAGE_KEY = "engine-settings";
+
+export const HASH_MIN = 16;
+export const HASH_MAX = 8192;
+export const MULTI_PV_MIN = 1;
+export const MULTI_PV_MAX = 5;
+
+export function maxThreads(): number {
+  return typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
+}
+
+export function defaultEngineSettings(): EngineSettings {
+  return {
+    hash: 256,
+    threads: Math.min(4, maxThreads()),
+    multiPv: 3,
+    showArrows: true,
+  };
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === "number" ? Math.round(value) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+export function loadEngineSettings(): EngineSettings {
+  const defaults = defaultEngineSettings();
+  if (typeof window === "undefined") return defaults;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaults;
+    const saved = JSON.parse(raw) as Partial<EngineSettings>;
+    return {
+      hash: clampInt(saved.hash, HASH_MIN, HASH_MAX, defaults.hash),
+      threads: clampInt(saved.threads, 1, maxThreads(), defaults.threads),
+      multiPv: clampInt(saved.multiPv, MULTI_PV_MIN, MULTI_PV_MAX, defaults.multiPv),
+      showArrows: typeof saved.showArrows === "boolean" ? saved.showArrows : defaults.showArrows,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+export function saveEngineSettings(settings: EngineSettings): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // localStorage unavailable — settings just won't persist
+  }
+}

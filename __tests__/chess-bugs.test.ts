@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { Chess } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
-import { parseUci, makeSquare } from "chessops";
+import { makeSquare } from "chessops";
 import { chessgroundDests } from "chessops/compat";
 import type { NormalMove } from "chessops";
-import { normalizeUciCastling, uciMovesToSan } from "@/lib/uci-parser";
+import { parseEngineUci, makeEngineUci, uciToArrow, uciMovesToSan } from "@/lib/uci-parser";
 
 const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -302,35 +302,84 @@ describe("Bug 2: Underpromotion works correctly", () => {
 // Bug 3: UCI castling notation conversion
 // =============================================================================
 describe("Bug 3: UCI castling notation normalization", () => {
-  it("normalizes white kingside castling e1g1 -> e1h1", () => {
-    expect(normalizeUciCastling("e1g1")).toBe("e1h1");
+  // Position where white can castle kingside
+  const KS_FEN = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+  // Position where white can castle queenside
+  const QS_FEN = "r3kbnr/pppqpppp/2n5/3p1b2/3P1B2/2N5/PPPQPPPP/R3KBNR w KQkq - 6 5";
+
+  it("parses standard castling UCI (e1g1) into king-takes-rook form", () => {
+    const chess = posFromFen(KS_FEN);
+    const move = parseEngineUci(chess, "e1g1") as NormalMove;
+    expect(move).toBeDefined();
+    expect(makeSquare(move.from)).toBe("e1");
+    expect(makeSquare(move.to)).toBe("h1"); // chessops internal: king takes rook
   });
 
-  it("normalizes white queenside castling e1c1 -> e1a1", () => {
-    expect(normalizeUciCastling("e1c1")).toBe("e1a1");
+  it("accepts king-takes-rook UCI (e1h1) unchanged", () => {
+    const chess = posFromFen(KS_FEN);
+    const move = parseEngineUci(chess, "e1h1") as NormalMove;
+    expect(makeSquare(move.to)).toBe("h1");
   });
 
-  it("normalizes black kingside castling e8g8 -> e8h8", () => {
-    expect(normalizeUciCastling("e8g8")).toBe("e8h8");
+  it("parses queenside castling e1c1 -> king takes a1 rook", () => {
+    const chess = posFromFen(QS_FEN);
+    const move = parseEngineUci(chess, "e1c1") as NormalMove;
+    expect(makeSquare(move.to)).toBe("a1");
   });
 
-  it("normalizes black queenside castling e8c8 -> e8a8", () => {
-    expect(normalizeUciCastling("e8c8")).toBe("e8a8");
+  it("does not treat non-castling moves as castling", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    const move = parseEngineUci(chess, "e2e4") as NormalMove;
+    expect(makeSquare(move.from)).toBe("e2");
+    expect(makeSquare(move.to)).toBe("e4");
   });
 
-  it("does not modify non-castling moves", () => {
-    expect(normalizeUciCastling("e2e4")).toBe("e2e4");
-    expect(normalizeUciCastling("g1f3")).toBe("g1f3");
-    expect(normalizeUciCastling("e7e8q")).toBe("e7e8q");
+  it("does not rewrite a king move to g1 when castling rights are gone", () => {
+    // King on f1 can step to g1 — that is a normal move, not castling
+    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1K1R w kq - 6 5";
+    const chess = posFromFen(fen);
+    const move = parseEngineUci(chess, "f1g1") as NormalMove;
+    expect(makeSquare(move.to)).toBe("g1");
+  });
+
+  it("makeEngineUci renders castling as standard UCI (e1g1)", () => {
+    const chess = posFromFen(KS_FEN);
+    const move = parseEngineUci(chess, "e1h1")!; // king-takes-rook in
+    expect(makeEngineUci(chess, move)).toBe("e1g1"); // standard UCI out
+  });
+
+  it("makeEngineUci renders queenside castling as e1c1", () => {
+    const chess = posFromFen(QS_FEN);
+    const move = parseEngineUci(chess, "e1a1")!;
+    expect(makeEngineUci(chess, move)).toBe("e1c1");
+  });
+
+  it("makeEngineUci round-trips normal moves and promotions", () => {
+    const chess = posFromFen(INITIAL_FEN);
+    const move = parseEngineUci(chess, "g1f3")!;
+    expect(makeEngineUci(chess, move)).toBe("g1f3");
+
+    const promoFen = "8/4P3/8/8/8/1k6/8/1K6 w - - 0 1";
+    const promoPos = posFromFen(promoFen);
+    const promo = parseEngineUci(promoPos, "e7e8q")!;
+    expect(makeEngineUci(promoPos, promo)).toBe("e7e8q");
+  });
+
+  it("Chess960: keeps king-takes-rook UCI for non-classical castling setups", () => {
+    // 960-style setup: white king on c1, rook on a1 with castling rights
+    // (X-FEN "Q" right). Standard e1c1-style notation cannot express this;
+    // the move must stay king-takes-rook (c1a1).
+    const fen = "rnbq1bnr/pppkpppp/8/3p4/3P4/8/PPPBPPPP/R1K2BNR w Q - 0 1";
+    const setup = parseFen(fen).unwrap();
+    const chess = Chess.fromSetup(setup).unwrap();
+    const move = parseEngineUci(chess, "c1a1");
+    expect(move).toBeDefined();
+    expect(makeEngineUci(chess, move!)).toBe("c1a1");
   });
 
   it("normalized castling UCI produces correct SAN via makeSan", () => {
-    // Position where white can castle kingside
-    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
-    const chess = posFromFen(fen);
-
-    const normalized = normalizeUciCastling("e1g1");
-    const move = parseUci(normalized);
+    const chess = posFromFen(KS_FEN);
+    const move = parseEngineUci(chess, "e1g1");
     expect(move).toBeDefined();
 
     const san = makeSan(chess, move!);
@@ -338,16 +387,27 @@ describe("Bug 3: UCI castling notation normalization", () => {
   });
 
   it("normalized castling UCI + play produces correct position", () => {
-    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
-    const chess = posFromFen(fen);
-
-    const normalized = normalizeUciCastling("e1g1");
-    const move = parseUci(normalized)!;
+    const chess = posFromFen(KS_FEN);
+    const move = parseEngineUci(chess, "e1g1")!;
     chess.play(move);
 
     const newFen = makeFen(chess.toSetup());
     // King should be on g1, rook on f1
     expect(newFen).toContain("RNBQ1RK1");
+  });
+
+  it("uciToArrow points castling arrows at the king destination", () => {
+    const arrow = uciToArrow(KS_FEN, "e1g1");
+    expect(arrow).toEqual({ orig: "e1", dest: "g1" });
+    // king-takes-rook input renders the same arrow
+    const arrow2 = uciToArrow(KS_FEN, "e1h1");
+    expect(arrow2).toEqual({ orig: "e1", dest: "g1" });
+  });
+
+  it("uciToArrow rejects illegal/stale moves", () => {
+    expect(uciToArrow(INITIAL_FEN, "e1g1")).toBeNull(); // can't castle yet
+    expect(uciToArrow(INITIAL_FEN, "e4e5")).toBeNull(); // no piece on e4
+    expect(uciToArrow(INITIAL_FEN, "zz99")).toBeNull(); // garbage
   });
 
   it("uciMovesToSan handles castling in PV lines", () => {
@@ -366,13 +426,10 @@ describe("Bug 3: UCI castling notation normalization", () => {
   });
 
   it("playUciMove-style flow: Stockfish castling does not throw", () => {
-    const fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
-    const chess = posFromFen(fen);
+    const chess = posFromFen(KS_FEN);
 
     // Simulate what playUciMove does
-    const uci = "e1g1"; // Stockfish notation
-    const normalizedUci = normalizeUciCastling(uci);
-    const move = parseUci(normalizedUci);
+    const move = parseEngineUci(chess, "e1g1"); // Stockfish notation
     expect(move).toBeDefined();
 
     // Should not throw

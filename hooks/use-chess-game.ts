@@ -1,13 +1,15 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { Chess } from "chessops/chess";
+import { Chess, castlingSide, normalizeMove } from "chessops/chess";
 import { parseFen } from "chessops/fen";
 import { chessgroundDests } from "chessops/compat";
+import { kingCastlesTo } from "chessops";
 import type { NormalMove } from "chessops";
 import type { Key } from "@lichess-org/chessground/types";
 import {
   GameTree,
   INITIAL_FEN,
   keyToSquare,
+  squareToKey,
   type MoveNode,
   type SerializedTree,
 } from "@/lib/game-tree";
@@ -51,14 +53,6 @@ function loadSavedTree(): GameTree | null {
   }
   return null;
 }
-
-// User-friendly castling (king→destination) → chessops format (king→rook).
-const castlingMap: Record<string, Key> = {
-  e1g1: "h1",
-  e1c1: "a1",
-  e8g8: "h8",
-  e8c8: "a8",
-};
 
 export function useChessGame() {
   const treeRef = useRef<GameTree>(GameTree.create());
@@ -138,17 +132,14 @@ export function useChessGame() {
       if (pos.isErr) return;
       const chess = pos.unwrap();
 
-      // Convert king→destination castling to chessops king→rook format.
-      const piece = chess.board.get(keyToSquare(from));
-      let actualTo = to;
-      if (piece?.role === "king") {
-        actualTo = castlingMap[`${from}${to}`] || to;
-      }
-      const move: NormalMove = {
+      // Board input may express castling as king→destination (e1g1);
+      // normalizeMove converts it to chessops' king→rook form when — and only
+      // when — the move actually castles in this position (Chess960-safe).
+      const move = normalizeMove(chess, {
         from: keyToSquare(from),
-        to: keyToSquare(actualTo),
+        to: keyToSquare(to),
         promotion,
-      };
+      }) as NormalMove;
       // addMove creates a variation when a different move is played mid-game,
       // reuses an existing branch for the same move, and never truncates.
       if (tree.addMove(move)) bump();
@@ -323,10 +314,23 @@ export function useChessGame() {
     [bump],
   );
 
+  // Highlight squares for the last move. Castling highlights the king's
+  // destination (not the rook), derived against the position before the move
+  // so it stays correct in Chess960 where the stored UCI is king-takes-rook.
   const lastMove = useMemo((): [Key, Key] | undefined => {
     const node = view.currentNode;
-    if (!node.uci) return undefined;
-    return [node.uci.slice(0, 2) as Key, node.uci.slice(2, 4) as Key];
+    if (!node.move || node.parent == null) return undefined;
+    const parent = treeRef.current.get(node.parent);
+    if (!parent) return undefined;
+    const setup = parseFen(parent.fen);
+    if (setup.isErr) return undefined;
+    const pos = Chess.fromSetup(setup.unwrap());
+    if (pos.isErr) return undefined;
+    const chess = pos.unwrap();
+    const side = castlingSide(chess, node.move);
+    const from = squareToKey(node.move.from) as Key;
+    const to = squareToKey(side ? kingCastlesTo(chess.turn, side) : node.move.to) as Key;
+    return [from, to];
   }, [view.currentNode]);
 
   return {

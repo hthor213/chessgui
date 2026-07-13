@@ -7,9 +7,9 @@
 import { Chess } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
-import { parseUci } from "chessops";
+import { isNormal } from "chessops";
 import type { NormalMove } from "chessops";
-import { normalizeUciCastling } from "@/lib/uci-parser";
+import { makeEngineUci, parseEngineUci } from "@/lib/uci-parser";
 
 export const INITIAL_FEN =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -24,7 +24,7 @@ export interface MoveNode {
   id: string;
   move: NormalMove | null; // null for the root node
   san: string; // "" for root
-  uci: string; // king→destination for castling; "" for root
+  uci: string; // canonical engine UCI (960-safe via makeEngineUci); "" for root
   fen: string; // position AFTER this move (root: the start position)
   parent: string | null;
   children: string[]; // children[0] = mainline continuation, [1..] = variations
@@ -61,33 +61,6 @@ export function keyToSquare(key: string): number {
   const file = key.charCodeAt(0) - 97;
   const rank = key.charCodeAt(1) - 49;
   return rank * 8 + file;
-}
-
-// chessops stores castling as king→rook; standard UCI is king→destination.
-const castlingToUci: Record<string, string> = {
-  e1h1: "e1g1",
-  e1a1: "e1c1",
-  e8h8: "e8g8",
-  e8a8: "e8c8",
-};
-
-const promoChar: Record<string, string> = {
-  queen: "q",
-  rook: "r",
-  bishop: "b",
-  knight: "n",
-};
-
-export function moveToUci(move: NormalMove, chess: Chess): string {
-  const from = squareToKey(move.from);
-  const to = squareToKey(move.to);
-  const key = `${from}${to}`;
-  const piece = chess.board.get(move.from);
-  if (piece?.role === "king" && castlingToUci[key]) {
-    return castlingToUci[key];
-  }
-  const promo = move.promotion ? promoChar[move.promotion] || "" : "";
-  return `${from}${to}${promo}`;
 }
 
 function chessFromFen(fen: string): Chess {
@@ -323,7 +296,9 @@ export class GameTree {
     }
     // makeSan returns "--" for a null/illegal move in some chessops versions.
     if (!san || san === "--") return null;
-    const uci = moveToUci(move, chess);
+    // Canonical UCI: standard castling (e1g1) for classical setups,
+    // king-takes-rook for Chess960 — computed against the pre-move position.
+    const uci = makeEngineUci(chess, move);
 
     const existing = parent.children.find((cid) => this.nodes.get(cid)!.uci === uci);
     if (existing) {
@@ -351,10 +326,19 @@ export class GameTree {
     return this.addMove(move as NormalMove);
   }
 
+  // Accepts engine UCI in either standard (e1g1) or king-takes-rook (e1h1)
+  // castling form; parseEngineUci normalizes against the current position.
   addMoveUci(uci: string): string | null {
-    const move = parseUci(normalizeUciCastling(uci));
-    if (!move || !("from" in move)) return null;
-    return this.addMove(move as NormalMove);
+    const parent = this.currentNode();
+    let chess: Chess;
+    try {
+      chess = chessFromFen(parent.fen);
+    } catch {
+      return null;
+    }
+    const move = parseEngineUci(chess, uci);
+    if (!move || !isNormal(move)) return null;
+    return this.addMove(move);
   }
 
   /**
