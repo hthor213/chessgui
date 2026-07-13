@@ -16,14 +16,19 @@ export const INITIAL_FEN =
 
 export interface ArrowAnnotation {
   orig: string;
-  dest: string;
+  /** Absent for a square highlight / circle (PGN [%csl]); present for an arrow ([%cal]). */
+  dest?: string;
   brush: string;
 }
 
-// Numeric evaluation attached to a position (from a PGN [%eval] tag or the
-// engine). Exactly one of pawns/mate is set. Mirrors chessops' Evaluation.
+/**
+ * Evaluation stored per node — from a PGN [%eval] tag or the engine. White's
+ * perspective (positive = White better), `cp` in centipawns, `mate` in moves.
+ * Exactly one of cp/mate is set. `depth` is absent for PGN-imported evals
+ * (treated as 0 when comparing in setEval).
+ */
 export interface NodeEval {
-  pawns?: number;
+  cp?: number;
   mate?: number;
   depth?: number;
 }
@@ -40,7 +45,7 @@ export interface MoveNode {
   comment: string;
   nags: number[];
   arrows: ArrowAnnotation[];
-  eval?: NodeEval; // [%eval] — position assessment after this move
+  eval?: NodeEval; // [%eval]/engine — optional so pre-0.2 saves load unchanged
   clock?: number; // [%clk] — clock time in seconds after this move
 }
 
@@ -255,6 +260,17 @@ export class GameTree {
     return this.pathToNode(this.currentId).length - 2;
   }
 
+  /** Root plus the mainline (children[0] chain) — the eval graph's x-axis. */
+  mainlineNodes(): MoveNode[] {
+    const out: MoveNode[] = [this.root()];
+    let node = this.root();
+    while (node.children.length > 0) {
+      node = this.nodes.get(node.children[0])!;
+      out.push(node);
+    }
+    return out;
+  }
+
   /** Siblings of the branch that the current node belongs to (for up/down nav). */
   siblingBranchRoots(): string[] {
     const node = this.currentNode();
@@ -418,6 +434,23 @@ export class GameTree {
     if (node) node.arrows = [...arrows];
   }
 
+  /**
+   * Store an engine eval on a node. Refuses to overwrite a deeper eval with a
+   * shallower one (live analysis streams increasing depths; a re-visit at low
+   * depth shouldn't degrade what's stored). Returns true when the node changed.
+   */
+  setEval(id: string, ev: NodeEval): boolean {
+    const node = this.nodes.get(id);
+    if (!node) return false;
+    const prev = node.eval;
+    if (prev && (prev.depth ?? 0) > (ev.depth ?? 0)) return false;
+    if (prev && prev.depth === ev.depth && prev.cp === ev.cp && prev.mate === ev.mate) {
+      return false;
+    }
+    node.eval = { ...ev };
+    return true;
+  }
+
   // ---- serialization ----
 
   toJSON(): SerializedTree {
@@ -437,6 +470,14 @@ export class GameTree {
   static fromJSON(data: SerializedTree): GameTree {
     const tree = GameTree.create(data.startFen, data.headers);
     tree.nodes = new Map(Object.entries(data.nodes));
+    // Saves from before an annotation field existed simply lack the key —
+    // normalize so the rest of the code never sees undefined arrays. `eval`
+    // stays optional by design.
+    for (const node of tree.nodes.values()) {
+      node.comment ??= "";
+      node.nags ??= [];
+      node.arrows ??= [];
+    }
     tree.rootId = data.rootId;
     tree.currentId = tree.nodes.has(data.currentId) ? data.currentId : data.rootId;
     tree.startFen = data.startFen;

@@ -25,6 +25,10 @@ interface BoardProps {
   onSelect?: (square: string) => void;
   /** Program-drawn shapes (e.g. engine best-move arrows). */
   autoShapes?: DrawShape[];
+  /** User-drawn shapes (right-click drag) restored from the game tree. */
+  userShapes?: DrawShape[];
+  /** Fires when the user finishes drawing or clears shapes — persist them here. */
+  onShapesChange?: (shapes: DrawShape[]) => void;
   children?: React.ReactNode;
 }
 
@@ -34,19 +38,23 @@ const COORD_GUTTER = 26;
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, freeMove = false, onSelect, autoShapes, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
   const onSelectRef = useRef(onSelect);
-  // Ref (not a dep of the creation effect) so shape updates don't rebuild
+  // Refs (not deps of the creation effect) so shape updates don't rebuild
   // the whole Chessground instance on every engine info line.
   const autoShapesRef = useRef(autoShapes);
+  const userShapesRef = useRef(userShapes);
+  const onShapesChangeRef = useRef(onShapesChange);
   const [boardSize, setBoardSize] = useState(560);
 
   onMoveRef.current = onMove;
   onSelectRef.current = onSelect;
   autoShapesRef.current = autoShapes;
+  userShapesRef.current = userShapes;
+  onShapesChangeRef.current = onShapesChange;
 
   const handleMove = useCallback((from: Key, to: Key) => {
     onMoveRef.current(from, to);
@@ -120,6 +128,11 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       lastMove: lastMove ? [lastMove[0], lastMove[1]] : undefined,
       drawable: {
         autoShapes: autoShapesRef.current ?? [],
+        // User annotations (drawn with right-click drag) live in the game
+        // tree; seed them on rebuild and persist edits via onChange. Fires
+        // only on user draw/clear, never from setShapes, so no feedback loop.
+        shapes: userShapesRef.current ?? [],
+        onChange: (shapes: DrawShape[]) => onShapesChangeRef.current?.(shapes),
       },
     });
 
@@ -134,6 +147,12 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
   useEffect(() => {
     apiRef.current?.setAutoShapes(autoShapes ?? []);
   }, [autoShapes]);
+
+  // Restore the current node's saved annotations when navigating without a
+  // FEN change wouldn't rebuild — and after a save round-trips through state.
+  useEffect(() => {
+    apiRef.current?.setShapes(userShapes ?? []);
+  }, [userShapes]);
 
   const files = orientation === "white" ? FILES : [...FILES].reverse();
   const ranks = orientation === "white" ? [...RANKS].reverse() : RANKS;

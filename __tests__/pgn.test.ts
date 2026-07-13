@@ -112,13 +112,13 @@ describe("PGN round-trip", () => {
     const { first, second } = roundTrip(pgn);
     treesEqual(first, second);
     const e4 = first.get(first.root().children[0])!;
-    expect(e4.eval).toEqual({ pawns: 0.24, depth: undefined });
+    expect(e4.eval).toEqual({ cp: 24, depth: undefined });
     expect(e4.clock).toBe(300);
     const e5 = first.get(e4.children[0])!;
-    expect(e5.eval).toEqual({ pawns: 0.19, depth: undefined });
-    // csl circles are stored before cal arrows (canonical [%csl]/[%cal] order)
+    expect(e5.eval).toEqual({ cp: 19, depth: undefined });
+    // csl circles (dest-less) are stored before cal arrows (canonical order)
     expect(e5.arrows).toEqual([
-      { orig: "e5", dest: "e5", brush: "yellow" },
+      { orig: "e5", brush: "yellow" },
       { orig: "d2", dest: "d4", brush: "green" },
       { orig: "f1", dest: "c4", brush: "red" },
     ]);

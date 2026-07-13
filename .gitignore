@@ -19,3 +19,6 @@ tsconfig.tsbuildinfo
 
 # Vendored third-party lichess-bot checkout (not part of the app)
 lichess-bot/
+
+# Agent worktrees (session tooling)
+.claude/worktrees/

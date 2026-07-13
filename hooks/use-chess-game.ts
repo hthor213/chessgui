@@ -10,7 +10,9 @@ import {
   INITIAL_FEN,
   keyToSquare,
   squareToKey,
+  type ArrowAnnotation,
   type MoveNode,
+  type NodeEval,
   type SerializedTree,
 } from "@/lib/game-tree";
 import { treeToPgn } from "@/lib/pgn";
@@ -257,6 +259,23 @@ export function useChessGame() {
     [bump],
   );
 
+  const setArrows = useCallback(
+    (id: string, arrows: ArrowAnnotation[]) => {
+      treeRef.current.setArrows(id, arrows);
+      bump();
+    },
+    [bump],
+  );
+
+  // Live eval capture: the tree refuses shallower-than-stored writes, so this
+  // only bumps (re-render + persist) when something actually changed.
+  const setEval = useCallback(
+    (id: string, ev: NodeEval) => {
+      if (treeRef.current.setEval(id, ev)) bump();
+    },
+    [bump],
+  );
+
   const loadGame = useCallback(
     (sanMoves: string[], headers?: Record<string, string>, startFen?: string) => {
       const tree = GameTree.fromMoves(sanMoves, startFen || INITIAL_FEN, headers || {});
@@ -385,6 +404,8 @@ export function useChessGame() {
     deleteVariation,
     setComment,
     setNags,
+    setArrows,
+    setEval,
     treeVersion: version,
   };
 }

@@ -34,12 +34,18 @@ function brushToColor(brush: string): CommentShapeColor {
   return (SHAPE_COLORS.has(brush) ? brush : "green") as CommentShapeColor;
 }
 
+// PGN [%eval] is in pawns (white-perspective); the tree stores centipawns.
+// Convert at this boundary in both directions.
 function evalToNode(ev: Evaluation): NodeEval {
-  return "pawns" in ev ? { pawns: ev.pawns, depth: ev.depth } : { mate: ev.mate, depth: ev.depth };
+  return "pawns" in ev
+    ? { cp: Math.round(ev.pawns * 100), depth: ev.depth }
+    : { mate: ev.mate, depth: ev.depth };
 }
 
 function nodeToEval(ev: NodeEval): Evaluation {
-  return ev.mate !== undefined ? { mate: ev.mate, depth: ev.depth } : { pawns: ev.pawns ?? 0, depth: ev.depth };
+  return ev.mate !== undefined
+    ? { mate: ev.mate, depth: ev.depth }
+    : { pawns: (ev.cp ?? 0) / 100, depth: ev.depth };
 }
 
 // ---- Import -------------------------------------------------------------
@@ -66,7 +72,13 @@ function applyPgnData(tree: GameTree, id: string, data: PgnNodeData): void {
     const c = parseComment(s);
     if (c.text) texts.push(c.text);
     for (const shape of c.shapes) {
-      arrows.push({ orig: makeSquare(shape.from), dest: makeSquare(shape.to), brush: shape.color });
+      // Circles ([%csl], from === to) are stored dest-less — the same
+      // convention the board's user-drawn shapes use.
+      if (shape.from === shape.to) {
+        arrows.push({ orig: makeSquare(shape.from), brush: shape.color });
+      } else {
+        arrows.push({ orig: makeSquare(shape.from), dest: makeSquare(shape.to), brush: shape.color });
+      }
     }
     if (c.evaluation) evaluation = c.evaluation;
     if (c.clock !== undefined) clock = c.clock;
@@ -78,8 +90,8 @@ function applyPgnData(tree: GameTree, id: string, data: PgnNodeData): void {
   // arrow order would flip on the first round-trip.
   if (arrows.length) {
     node.arrows = [
-      ...arrows.filter((a) => a.orig === a.dest),
-      ...arrows.filter((a) => a.orig !== a.dest),
+      ...arrows.filter((a) => a.dest === undefined),
+      ...arrows.filter((a) => a.dest !== undefined),
     ];
   }
   if (evaluation) node.eval = evalToNode(evaluation);
@@ -133,7 +145,8 @@ function nodeToData(node: MoveNode): PgnNodeData {
   const shapes: CommentShape[] = [];
   for (const a of node.arrows) {
     const from = parseSquare(a.orig);
-    const to = parseSquare(a.dest);
+    // Dest-less entries are circles; chessops encodes a circle as from === to.
+    const to = a.dest === undefined ? from : parseSquare(a.dest);
     if (from === undefined || to === undefined) continue;
     shapes.push({ color: brushToColor(a.brush), from, to });
   }
