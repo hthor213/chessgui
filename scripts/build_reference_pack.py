@@ -74,11 +74,16 @@ def parse_args():
     p.add_argument("-o", "--output", required=True,
                    help="Output .pgn path for matching games (staging).")
     p.add_argument("--time-control", default=DEFAULT_TIME_CONTROL,
-                   help=f'Exact TimeControl to keep (default "{DEFAULT_TIME_CONTROL}"). '
-                        'Pass "any" to disable this filter.')
+                   help='TimeControl(s) to keep, comma-separated for several '
+                        f'(default "{DEFAULT_TIME_CONTROL}"; e.g. '
+                        '"600+5,900+10,1800+0,1800+20"). Pass "any" to disable '
+                        'this filter.')
     p.add_argument("--min-elo", type=int, default=DEFAULT_MIN_ELO,
                    help="Minimum Elo required of BOTH players "
                         f"(default {DEFAULT_MIN_ELO}).")
+    p.add_argument("--require-evals", action="store_true",
+                   help="Keep only games whose movetext carries [%%eval] "
+                        "annotations (the mistake-mining corpus). Cuts yield.")
     p.add_argument("--rated-only", dest="rated_only", action="store_true",
                    default=True,
                    help="Keep only rated games (default on).")
@@ -252,13 +257,17 @@ def parse_header_line(line):
 
 
 def game_matches(headers, args):
-    """True if this game's headers pass the filter. Raises on malformed Elo."""
+    """True if this game's headers pass the filter. Raises on malformed Elo.
+
+    Header-only checks; --require-evals is applied separately (it needs the
+    movetext, not the headers).
+    """
     if args.rated_only:
         event = headers.get("Event", "")
         if not event.lower().startswith("rated"):
             return False
-    if args.time_control.lower() != "any":
-        if headers.get("TimeControl") != args.time_control:
+    if args.tc_set is not None:
+        if headers.get("TimeControl") not in args.tc_set:
             return False
     # Elo: both required and both >= threshold. Missing/"?" => not a match.
     we = headers.get("WhiteElo")
@@ -286,12 +295,20 @@ def year_of(headers):
 def main():
     args = parse_args()
 
+    # Comma-separated TimeControls -> a set, or None to disable the filter.
+    if args.time_control.strip().lower() == "any":
+        args.tc_set = None
+    else:
+        args.tc_set = {t.strip() for t in args.time_control.split(",")
+                       if t.strip()}
+
     out_dir = os.path.dirname(os.path.abspath(args.output))
     os.makedirs(out_dir, exist_ok=True)
     stats_path = args.output + ".stats.json"
 
     seen = matched = errors = 0
     by_year = {}
+    by_tc = {}
     started = time.time()
 
     # Per-game accumulation. A new game begins at a '[' header line that
@@ -316,14 +333,19 @@ def main():
         except (ValueError, TypeError):
             errors += 1
             return False
+        text = "".join(buf)
+        if keep and args.require_evals and "%eval" not in text:
+            keep = False
         if keep:
-            out.write("".join(buf))
-            if not buf[-1].endswith("\n"):
+            out.write(text)
+            if not text.endswith("\n"):
                 out.write("\n")
             out.write("\n")  # blank line separator between games
             matched += 1
             y = year_of(headers)
             by_year[y] = by_year.get(y, 0) + 1
+            tc = headers.get("TimeControl", "?")
+            by_tc[tc] = by_tc.get(tc, 0) + 1
             if args.limit and matched >= args.limit:
                 return True
         return False
@@ -363,11 +385,14 @@ def main():
             "rated_only": args.rated_only,
             "time_control": args.time_control,
             "min_elo": args.min_elo,
+            "require_evals": args.require_evals,
         },
         "games_seen": seen,
         "games_matched": matched,
         "errors_malformed": errors,
         "matched_by_year": dict(sorted(by_year.items())),
+        "matched_by_time_control": dict(sorted(by_tc.items(),
+                                               key=lambda kv: -kv[1])),
         "limit_hit": bool(args.limit and matched >= args.limit),
         "max_input_bytes": args.max_input_bytes or None,
         "compressed_bytes_read": last_bytes,
