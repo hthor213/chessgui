@@ -80,23 +80,32 @@ Red dots where eval drops significantly:
 
 ## Done When
 
+> Status 2026-07-13: annotation UI + eval graph implemented (`lib/annotations.ts`,
+> `components/annotation-bar.tsx`, `components/eval-graph.tsx`). Data layer
+> (per-node `eval`, serialization back-compat, NAG/comment/[%eval] helpers) is
+> unit-tested; the UI type-checks and builds but has NOT yet been verified in
+> the running app. Circles are stored as dest-less entries in `arrows` (one
+> field for both [%cal] and [%csl] shapes) rather than a separate `squares`
+> array.
+
 ### Annotations (from spec:202)
-- [ ] Engine eval auto-saved per move as `[%eval]` during analysis
-- [ ] User can add/edit text comments on any move
-- [ ] NAG symbols (!, ?, !!, ??) via keyboard
-- [ ] Annotations visible in move list (eval badges, comment text, NAG glyphs)
-- [ ] Arrow annotations drawn on board (right-click drag)
-- [ ] Square annotations highlighted on board (right-click)
-- [ ] Annotated PGN export includes comments, evals, NAGs, arrows, squares
-- [ ] PGN import preserves all annotation types
-- [ ] Annotations persist in database (spec:200)
+- [x] Engine eval auto-saved per move during analysis (stored in `node.eval`,
+      white-perspective; writing it out as `[%eval]` belongs to PGN export, spec 013)
+- [x] User can add/edit text comments on any move (annotation bar; `[%…]` tags preserved through edits) — not yet verified in-app
+- [x] NAG symbols (!, ?, !!, ??, !?, ?!) via keyboard (`!`/`?` combos, `=` for equality) and toolbar buttons — not yet verified in-app
+- [x] Annotations visible in move list (comment text + NAG glyphs; per-move eval badges deferred — evals live in the graph tooltip)
+- [x] Arrow annotations drawn on board (right-click drag), persisted per node — not yet verified in-app
+- [x] Square annotations highlighted on board (right-click), persisted as dest-less arrows — not yet verified in-app
+- [ ] Annotated PGN export includes comments, evals, NAGs, arrows, squares (spec 013 task)
+- [ ] PGN import preserves all annotation types (spec 013 task)
+- [ ] Annotations persist in database (spec:200) — they do persist in the localStorage save today
 
 ### Eval Graph (from spec:203)
-- [ ] Eval graph displayed below move list
-- [ ] Graph renders from stored `[%eval]` in game tree
-- [ ] Graph updates in real-time as engine analyzes
-- [ ] Clicking a point navigates to that move
-- [ ] Current move shown with vertical indicator
-- [ ] White/dark fill regions show advantage (Lichess-style)
-- [ ] Mate scores at full extent
-- [ ] Blunders/mistakes visually highlighted (stretch goal)
+- [x] Eval graph displayed below move list (analyze mode only)
+- [x] Graph renders from stored evals in the game tree (`node.eval`, with `[%eval]` comment tags as fallback)
+- [x] Graph updates in real-time as engine analyzes (evals stream into the current node, gated on the engine's `analysisFen`) — not yet verified in-app
+- [x] Clicking a point navigates to that move
+- [x] Current move shown with vertical indicator (variations mark their mainline branch point)
+- [x] White/dark fill regions show advantage (Lichess-style sigmoid scaling)
+- [x] Mate scores at full extent (clamped to ±1, unit-tested)
+- [ ] Blunders/mistakes visually highlighted (stretch goal — deferred)

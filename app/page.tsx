@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import dynamic from "next/dynamic"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { MoveList } from "@/components/move-list"
+import { AnnotationBar } from "@/components/annotation-bar"
+import { EvalGraph } from "@/components/eval-graph"
 import { AnalysisPanel } from "@/components/analysis-panel"
 import { EvalBar } from "@/components/eval-bar"
 import { PromotionDialog } from "@/components/promotion-dialog"
@@ -91,6 +93,47 @@ export default function Home() {
     }
     return shapes
   }, [engine.settings.showArrows, engine.state.isAnalyzing, engine.state.lines, isPlayMode, game.fen])
+
+  // User-drawn arrows/circles saved on the current node (spec 202). Chessground
+  // keeps these (drawable.shapes) separate from the engine's autoShapes.
+  const userShapes = useMemo<DrawShape[]>(
+    () =>
+      game.currentNode.arrows.map((a) => ({
+        orig: a.orig as Key,
+        dest: a.dest as Key | undefined,
+        brush: a.brush,
+      })),
+    [game.currentNode, game.treeVersion],
+  )
+
+  const handleShapesChange = useCallback(
+    (shapes: DrawShape[]) => {
+      game.setArrows(
+        game.currentNodeId,
+        shapes.map((s) => ({ orig: s.orig, dest: s.dest, brush: s.brush ?? "green" })),
+      )
+    },
+    [game.setArrows, game.currentNodeId],
+  )
+
+  // Auto-save the engine's best-line eval onto the node it analyzed (spec 202)
+  // so the eval graph fills in as you step through. analysisFen gates out
+  // stale lines from the previous position; scoreTurn normalizes the UCI
+  // side-to-move score to White's perspective. Depth < 8 is noise — skip it;
+  // the tree also refuses to overwrite a deeper stored eval.
+  useEffect(() => {
+    if (isPlayMode || !engine.state.isAnalyzing) return
+    if (engine.state.analysisFen !== game.fen) return
+    const best = engine.state.lines.find((l) => l.multipv === 1)
+    if (!best || best.depth < 8) return
+    const flip = engine.state.scoreTurn === "white" ? 1 : -1
+    game.setEval(
+      game.currentNodeId,
+      best.score.type === "mate"
+        ? { mate: best.score.value * flip, depth: best.depth }
+        : { cp: best.score.value * flip, depth: best.depth },
+    )
+  }, [engine.state.lines, engine.state.analysisFen, engine.state.isAnalyzing, engine.state.scoreTurn, isPlayMode, game.fen, game.currentNodeId, game.setEval])
 
   const formatClock = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -522,6 +565,8 @@ export default function Home() {
                 lastMove={game.lastMove}
                 onBoardSize={setBoardSize}
                 autoShapes={engineArrows}
+                userShapes={userShapes}
+                onShapesChange={handleShapesChange}
               >
                 {game.pendingPromotion && (
                   <PromotionDialog
@@ -589,6 +634,23 @@ export default function Home() {
               onGoToNode={game.goToNode}
               version={game.treeVersion}
             />
+            {/* Annotation editing + eval graph (spec 202) — analyze mode only */}
+            {!isPlayMode && (
+              <>
+                <AnnotationBar
+                  node={game.currentNode}
+                  onSetNags={game.setNags}
+                  onSetComment={game.setComment}
+                  active={view === "board" && !liveViewing && !pgnDialogOpen && !editorOpen}
+                />
+                <EvalGraph
+                  tree={game.tree}
+                  currentId={game.currentNodeId}
+                  onGoToNode={game.goToNode}
+                  version={game.treeVersion}
+                />
+              </>
+            )}
           </div>
         </main>
       </div>

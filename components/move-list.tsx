@@ -2,6 +2,7 @@
 
 import { Card } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { nagsToGlyphs, splitComment } from "@/lib/annotations"
 import type { GameTree, MoveNode } from "@/lib/game-tree"
 
 interface MoveListProps {
@@ -32,7 +33,7 @@ function MoveToken({
   label: string | null;
   onClick: () => void;
 }) {
-  const nags = node.nags.length ? node.nags.map((n) => NAG_GLYPHS[n] ?? "").join("") : "";
+  const nags = node.nags.length ? nagsToGlyphs(node.nags) : "";
   return (
     <span className="inline-flex items-baseline">
       {label && (
@@ -53,15 +54,12 @@ function MoveToken({
   );
 }
 
-// Common NAG codes → glyphs (display only; storage is spec 202's job).
-const NAG_GLYPHS: Record<number, string> = {
-  1: "!",
-  2: "?",
-  3: "!!",
-  4: "??",
-  5: "!?",
-  6: "?!",
-};
+/** Human comment text (with [%…] tags stripped), rendered inline after a move. */
+function CommentSpan({ comment }: { comment: string }) {
+  const { text } = splitComment(comment);
+  if (!text) return null;
+  return <span className="text-xs italic text-[#8a8783] mr-1 break-words">{text}</span>;
+}
 
 // Render one line: follow children[0], emitting each move and, after it, any
 // variations that branch from the same point (its siblings). Variations recurse
@@ -90,6 +88,16 @@ export function renderLine(
       />,
     );
     forceBlackNumber = false;
+
+    if (node.comment) {
+      const { text } = splitComment(node.comment);
+      if (text) {
+        out.push(<CommentSpan key={`c-${node.id}`} comment={node.comment} />);
+        // A comment interrupts the "1. e4 e5" pairing, so the next move
+        // reprints its number ("1... e5").
+        forceBlackNumber = true;
+      }
+    }
 
     // Variations attached to THIS move = its siblings after the mainline slot.
     const parent = node.parent ? tree.get(node.parent) : undefined;

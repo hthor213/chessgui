@@ -28,6 +28,7 @@ export interface EngineState {
   playerColor: PlayerColor; // which side the human plays
   isThinking: boolean; // true while engine is computing its move in play mode
   scoreTurn: "white" | "black"; // which side was to move when current lines were computed
+  analysisFen: string; // position the current `lines` were computed for ("" before first search)
   lines: PvLine[];
   depth: number;
   nodes: number;
@@ -46,6 +47,7 @@ const initialState: EngineState = {
   playerColor: "white",
   isThinking: false,
   scoreTurn: "white",
+  analysisFen: "",
   lines: [],
   depth: 0,
   nodes: 0,
@@ -151,7 +153,7 @@ export function useEngine(
       // Analysis mode: user-configured MultiPV shows candidate lines
       const mpv = modeRef.current === "play" ? 1 : settingsRef.current.multiPv;
       await sendCommand(`setoption name MultiPV value ${mpv}`);
-      setState((s) => ({ ...s, scoreTurn: turnFromFen(position), lines: [], depth: 0, nodes: 0, nps: 0 }));
+      setState((s) => ({ ...s, scoreTurn: turnFromFen(position), analysisFen: position, lines: [], depth: 0, nodes: 0, nps: 0 }));
       const posCmd = buildPositionCommand(startFenRef.current, uciMovesRef.current, moveIndexRef.current);
       await sendCommand(posCmd);
       await sendCommand("go infinite");
