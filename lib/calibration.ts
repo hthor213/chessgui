@@ -49,6 +49,12 @@ export type CalibrationPosition = {
   played_san: string | null
   /** The next up-to-three moves after the played one, SAN. */
   continuation_san: string[]
+  // --- v3: training-value stratification + engine line (optional; v1/v2
+  //     sessions lack them). ---
+  /** Training deck: "conversion" | "critical" | "endgame" | "level". */
+  deck?: string
+  /** Stockfish's best-play line (PV1), SAN, up to 6 plies. */
+  sf_pv_san?: string[]
 }
 
 /** A calibration session. Mirrors Rust `CalibrationSession`. */
@@ -152,6 +158,7 @@ export type CoachInput = {
   continuation_san: string[] | null
   white_elo: number | null
   black_elo: number | null
+  sf_pv_san: string[] | null
 }
 
 /** Per-band accuracy row. */
@@ -292,6 +299,7 @@ export function coachInputFor(answer: CalibrationAnswer, position: CalibrationPo
     continuation_san: position.continuation_san ?? null,
     white_elo: position.white_elo ?? null,
     black_elo: position.black_elo ?? null,
+    sf_pv_san: position.sf_pv_san ?? null,
   }
 }
 

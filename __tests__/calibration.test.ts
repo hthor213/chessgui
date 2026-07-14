@@ -324,4 +324,13 @@ describe("coachInputFor — v1 session tolerance", () => {
     expect(input.white_elo).toBe(1900)
     expect(input.to_move).toBe("white")
   })
+
+  it("passes the v3 engine line through, and nulls it when absent", () => {
+    const withPv = coachInputFor(ans({}), pos({ sf_pv_san: ["e4", "e5", "Nf3"] }))
+    expect(withPv.sf_pv_san).toEqual(["e4", "e5", "Nf3"])
+    // A stored position without a PV (v1/v2, or the mock omitting it) → null,
+    // never a dropped key (Rust's #[serde(default)] tolerates the null).
+    const withoutPv = coachInputFor(ans({}), pos({}))
+    expect(withoutPv.sf_pv_san).toBeNull()
+  })
 })

@@ -19,7 +19,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use shakmaty::san::San;
 use shakmaty::uci::UciMove;
-use shakmaty::{CastlingMode, Chess};
+use shakmaty::{CastlingMode, Chess, Position};
 use shakmaty::fen::Fen;
 use tauri::ipc::Channel;
 use tauri::Manager;
@@ -29,10 +29,14 @@ use tokio::time::timeout;
 
 use crate::db::{self, Db, SampledPosition};
 
-/// On-disk schema version for session and result files. v2 adds known-Elo game
-/// context per position (`white_elo`/`black_elo`/`played_*`/`continuation_san`/
-/// `elo_band`); v1 files stay readable (the added fields are simply absent).
-const SESSION_VERSION: u32 = 2;
+/// On-disk schema version for session and result files. v3 stratifies by
+/// training-value `deck` (conversion / critical / endgame / level) instead of
+/// |SF eval| band × Elo band, and stores a short SAN PV (`sf_pv_san`) per
+/// position. v2 added known-Elo game context (`white_elo`/`black_elo`/
+/// `played_*`/`continuation_san`/`elo_band`). Older files stay readable — the
+/// v3 fields carry `#[serde(default)]`, so v1/v2 sessions deserialize with them
+/// empty.
+const SESSION_VERSION: u32 = 3;
 
 /// Default Stockfish binary (Homebrew, Apple Silicon). Overridable per call.
 pub const DEFAULT_STOCKFISH: &str = "/opt/homebrew/bin/stockfish";
@@ -56,12 +60,17 @@ const ELO_BANDS: [(i64, i64, &str); 4] = [
     (2400, 100000, "2400+"),
 ];
 
-/// Number of strata: |SF eval| band (4) × Elo band (4). Phase is captured and
-/// reported but not a hard stratum — endgames are too sparse in the corpus to
-/// bucket on (see the coverage note in spec 213); Elo, which has data across all
-/// bands, replaces it as the second stratification axis (user directive, v2).
-const N_EVAL_BANDS: usize = 4;
-const N_BUCKETS: usize = N_EVAL_BANDS * ELO_BANDS.len();
+/// The four training-value decks (spec 213 sampler v3), their labels and their
+/// per-100 quotas. Positions are stratified by deck rather than by engine-pawn
+/// band: engine-pawn bands measure the *perception* curve (the user-as-labeler
+/// purpose), but training the user wants positions where outcomes at the
+/// student's band actually diverge (design decision 2026-07-14). Elo balance is
+/// preserved by the interleaved candidate pool (see `build_session`), not by a
+/// hard deck × Elo bucket. `|SF eval|` band and phase are still captured per
+/// position for reporting.
+const N_DECKS: usize = 4;
+const DECK_LABELS: [&str; N_DECKS] = ["conversion", "critical", "endgame", "level"];
+const DECK_PCTS: [usize; N_DECKS] = [30, 25, 25, 20];
 
 // ---------------------------------------------------------------------------
 // Serde boundary types (mirrored in lib/calibration.ts)
@@ -105,6 +114,16 @@ pub struct CalibrationPosition {
     pub played_san: Option<String>,
     /// The next up-to-three moves after the played one, SAN.
     pub continuation_san: Vec<String>,
+    // --- v3: training-value stratification + engine line ---
+    /// Which training deck this position was drawn for: "conversion" |
+    /// "critical" | "endgame" | "level". Empty on v1/v2 sessions.
+    #[serde(default)]
+    pub deck: String,
+    /// Up to 6 plies of Stockfish's PV1, in SAN, captured during scoring — the
+    /// engine's best-play line, so the coach can explain a tactic concretely.
+    /// Empty on v1/v2 sessions (or when the line couldn't be rendered).
+    #[serde(default)]
+    pub sf_pv_san: Vec<String>,
 }
 
 /// A whole calibration session, returned to the UI and written to disk.
@@ -188,6 +207,8 @@ struct RawEval {
     /// |cp(pv1) − cp(pv2)|, POV-invariant; None unless both lines are cp scores.
     gap_cp: Option<i64>,
     best_uci: Option<String>,
+    /// First up-to-6 plies of PV1, UCI, as reported by the engine.
+    pv_uci: Vec<String>,
 }
 
 struct Engine {
@@ -262,18 +283,18 @@ impl Engine {
     async fn eval(&mut self, fen: &str, movetime_ms: u64) -> Result<RawEval, String> {
         self.send(&format!("position fen {}", fen)).await?;
         let mut pv1: (Option<i64>, Option<i64>) = (None, None);
-        let mut pv1_first: Option<String> = None;
+        let mut pv1_moves: Vec<String> = Vec::new();
         let mut pv2_cp: Option<i64> = None;
         self.send(&format!("go movetime {}", movetime_ms)).await?;
         let wait = Duration::from_millis(movetime_ms.saturating_add(8000).max(8000));
         let bestline = self
             .read_until(wait, |line| {
                 if line.starts_with("info ") {
-                    if let Some((idx, cp, mate, first)) = parse_multipv_line(line) {
+                    if let Some((idx, cp, mate, pv)) = parse_multipv_line(line) {
                         if idx == 1 {
                             pv1 = (cp, mate);
-                            if first.is_some() {
-                                pv1_first = first;
+                            if !pv.is_empty() {
+                                pv1_moves = pv;
                             }
                         } else if idx == 2 && cp.is_some() {
                             pv2_cp = cp;
@@ -290,17 +311,19 @@ impl Engine {
             .nth(1)
             .filter(|m| *m != "(none)" && *m != "0000")
             .map(|m| m.to_string())
-            .or(pv1_first);
+            .or_else(|| pv1_moves.first().cloned());
 
         let gap_cp = match (pv1.0, pv2_cp) {
             (Some(a), Some(b)) => Some((a - b).abs()),
             _ => None,
         };
+        pv1_moves.truncate(6);
         Ok(RawEval {
             cp: pv1.0,
             mate: pv1.1,
             gap_cp,
             best_uci,
+            pv_uci: pv1_moves,
         })
     }
 
@@ -311,13 +334,14 @@ impl Engine {
     }
 }
 
-/// Parse a `multipv` index, score, and first PV move from a UCI `info` line.
-/// Returns None if the line carries none of them. Score is side-to-move POV.
-fn parse_multipv_line(line: &str) -> Option<(u32, Option<i64>, Option<i64>, Option<String>)> {
+/// Parse a `multipv` index, score, and the PV move list from a UCI `info` line.
+/// Returns None if the line carries none of them. Score is side-to-move POV; the
+/// PV is every move after the `pv` token, in order.
+fn parse_multipv_line(line: &str) -> Option<(u32, Option<i64>, Option<i64>, Vec<String>)> {
     let mut idx = 1u32; // engines omit `multipv` when MultiPV=1
     let mut cp = None;
     let mut mate = None;
-    let mut first = None;
+    let mut pv: Vec<String> = Vec::new();
     let mut it = line.split_whitespace();
     while let Some(tok) = it.next() {
         match tok {
@@ -332,16 +356,16 @@ fn parse_multipv_line(line: &str) -> Option<(u32, Option<i64>, Option<i64>, Opti
                 _ => {}
             },
             "pv" => {
-                first = it.next().map(|s| s.to_string());
+                pv = it.by_ref().map(|s| s.to_string()).collect();
                 break; // score always precedes pv on a UCI info line
             }
             _ => {}
         }
     }
-    if cp.is_none() && mate.is_none() && first.is_none() {
+    if cp.is_none() && mate.is_none() && pv.is_empty() {
         return None;
     }
-    Some((idx, cp, mate, first))
+    Some((idx, cp, mate, pv))
 }
 
 /// Whether it is Black to move in `fen` (2nd FEN field).
@@ -359,26 +383,161 @@ fn san_for(fen: &str, uci: &str) -> Option<String> {
     Some(San::from_move(&pos, m).to_string())
 }
 
+/// Render a UCI PV as SAN by replaying it from `fen`, stopping at the first move
+/// that won't parse or is illegal in its position. Returns up to 6 SANs (already
+/// truncated upstream, but bounded here too). Empty if the FEN itself won't
+/// parse — the coach simply gets no line.
+fn pv_san(fen: &str, pv: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(setup) = Fen::from_ascii(fen.as_bytes()) else {
+        return out;
+    };
+    let pos: Result<Chess, _> = setup.into_position(CastlingMode::Standard);
+    let Ok(mut pos) = pos else { return out };
+    for uci in pv.iter().take(6) {
+        let Ok(parsed) = UciMove::from_ascii(uci.as_bytes()) else {
+            break;
+        };
+        let Ok(mv) = parsed.to_move(&pos) else { break };
+        out.push(San::from_move(&pos, mv).to_string());
+        pos.play_unchecked(mv);
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Deck classification (spec 213 sampler v3)
+// ---------------------------------------------------------------------------
+
+/// A minor-piece imbalance: the two sides hold different bishop or knight counts
+/// (a bishop pair vs two knights, an extra minor of one type, …). Read from the
+/// board field of `fen`; material can be level while the minor mix differs.
+fn minor_imbalance(fen: &str) -> bool {
+    let board = fen.split_whitespace().next().unwrap_or("");
+    let (mut wb, mut wn, mut bb, mut bn) = (0i32, 0i32, 0i32, 0i32);
+    for c in board.chars() {
+        match c {
+            'B' => wb += 1,
+            'N' => wn += 1,
+            'b' => bb += 1,
+            'n' => bn += 1,
+            _ => {}
+        }
+    }
+    wb != bb || wn != bn
+}
+
+/// The `conversion` deck test: a decisive-but-convertible edge. The White-POV
+/// eval sits in [0.75, 3.5] pawns, the position carries a real imbalance
+/// (≥ 2 points of material, or a minor-piece imbalance), and the advantage is on
+/// the material side — the eval agrees in sign with the material lead, so it's
+/// "you're better and it's the convertible kind", not compensation for the
+/// materially-worse side. With material level, the edge is the minor imbalance
+/// itself, so its mere presence stands in for the sign check.
+fn is_conversion(sf_cp: Option<i64>, sf_mate: Option<i64>, material: i32, fen: &str) -> bool {
+    if sf_mate.is_some() {
+        return false; // a mate is out of the conversion band by definition
+    }
+    let Some(cp) = sf_cp else { return false };
+    let mag = cp.abs();
+    if !(75..=350).contains(&mag) {
+        return false;
+    }
+    let has_imbalance = material.abs() >= 2 || minor_imbalance(fen);
+    if !has_imbalance {
+        return false;
+    }
+    if material != 0 {
+        cp.signum() == material.signum() as i64
+    } else {
+        // Material level: the advantage rides on the minor imbalance, which
+        // `has_imbalance` already confirmed.
+        true
+    }
+}
+
+/// Classify a scored position into its training deck, or None if it fits none
+/// (and is rejected). Overlap priority, highest first: endgame > conversion >
+/// critical > level. `phase_weight` is the non-pawn material weight; `gap_cp` is
+/// the PV1−PV2 margin (`multipv_gap_cp`).
+fn deck_of(
+    sf_cp: Option<i64>,
+    sf_mate: Option<i64>,
+    material: i32,
+    phase_weight: u32,
+    gap_cp: Option<i64>,
+    fen: &str,
+) -> Option<&'static str> {
+    if phase_weight <= ENDGAME_PHASE_MAX {
+        return Some("endgame");
+    }
+    if is_conversion(sf_cp, sf_mate, material, fen) {
+        return Some("conversion");
+    }
+    if gap_cp.is_some_and(|g| g >= 100) {
+        return Some("critical");
+    }
+    // `level`: a genuinely equal middlegame (|eval| < 0.5), the user's worst
+    // band — imagined advantage where none exists. Mates never qualify.
+    if sf_mate.is_none() && sf_cp.is_some_and(|cp| cp.abs() < 50) {
+        return Some("level");
+    }
+    None
+}
+
+/// Index of a deck label within `DECK_LABELS` (its quota/count bucket).
+fn deck_index(deck: &str) -> Option<usize> {
+    DECK_LABELS.iter().position(|d| *d == deck)
+}
+
+/// Per-deck quotas for a session of `n`, following `DECK_PCTS`. Any rounding
+/// remainder is handed out one at a time in deck order, so the caps sum to `n`.
+fn deck_caps(n: usize) -> [usize; N_DECKS] {
+    let mut caps = [0usize; N_DECKS];
+    let mut assigned = 0;
+    for i in 0..N_DECKS {
+        caps[i] = n * DECK_PCTS[i] / 100;
+        assigned += caps[i];
+    }
+    let mut i = 0;
+    while assigned < n {
+        caps[i % N_DECKS] += 1;
+        assigned += 1;
+        i += 1;
+    }
+    caps
+}
+
 // ---------------------------------------------------------------------------
 // The sampler
 // ---------------------------------------------------------------------------
 
 /// Turn a sampled candidate + its Stockfish read into a finished position,
-/// converting the engine score to White-POV. The returned bucket index is over
-/// the |SF eval| band × Elo band strata.
-fn finish_position(cand: &SampledPosition, ev: RawEval) -> (CalibrationPosition, usize) {
+/// converting the engine score to White-POV. The second return value is the
+/// deck's quota bucket, or None when the position fits no deck (rejected).
+fn finish_position(cand: &SampledPosition, ev: RawEval) -> (CalibrationPosition, Option<usize>) {
     let flip = black_to_move(&cand.fen);
     let sf_cp = ev.cp.map(|v| if flip { -v } else { v });
     let sf_mate = ev.mate.map(|v| if flip { -v } else { v });
-    let (band_i, band) = eval_band(sf_cp, sf_mate);
+    let (_band_i, band) = eval_band(sf_cp, sf_mate);
     let (_phase_i, phase) = phase_of(cand.phase);
-    let (elo_i, elo_band) = elo_band_of(cand.white_elo, cand.black_elo);
+    let (_elo_i, elo_band) = elo_band_of(cand.white_elo, cand.black_elo);
     let best = ev.best_uci.unwrap_or_default();
     let san = if best.is_empty() {
         None
     } else {
         san_for(&cand.fen, &best)
     };
+    let pv_san = pv_san(&cand.fen, &ev.pv_uci);
+    let deck = deck_of(
+        sf_cp,
+        sf_mate,
+        cand.material,
+        cand.phase,
+        ev.gap_cp,
+        &cand.fen,
+    );
+    let bucket = deck.and_then(deck_index);
     let pos = CalibrationPosition {
         fen: cand.fen.clone(),
         sf_cp,
@@ -398,8 +557,10 @@ fn finish_position(cand: &SampledPosition, ev: RawEval) -> (CalibrationPosition,
         played_uci: cand.played_uci.clone(),
         played_san: cand.played_san.clone(),
         continuation_san: cand.continuation_san.clone(),
+        deck: deck.unwrap_or_default().to_string(),
+        sf_pv_san: pv_san,
     };
-    (pos, band_i * ELO_BANDS.len() + elo_i)
+    (pos, bucket)
 }
 
 /// Round-robin merge several candidate lists into one, so consuming the front of
@@ -424,14 +585,15 @@ fn interleave(mut bands: Vec<Vec<SampledPosition>>) -> Vec<SampledPosition> {
     out
 }
 
-/// Build a stratified session of `n` positions.
+/// Build a deck-stratified session of `n` positions.
 ///
 /// An Elo-balanced candidate pool is drawn from the DB, then Stockfish scores
 /// candidates that pass the cheap filters (not in check, not adjacent to a
-/// capture, not a duplicate position) until each of the 16 strata (|SF eval|
-/// band × Elo band) reaches its share of `n`. Stockfish work is bounded:
-/// scored-but-not-needed positions are kept and used to top up to `n` if some
-/// stratum can't fill, so no evaluation is wasted.
+/// capture, not a duplicate position) until each training deck (conversion /
+/// critical / endgame / level) reaches its quota of `n`. Elo balance rides on
+/// the interleaved pool, not a hard bucket. Stockfish work is bounded:
+/// candidates that fit a full deck are kept as leftovers and used to top up to
+/// `n` if some deck can't fill; candidates that fit no deck are dropped.
 async fn build_session(
     db_path: String,
     n: usize,
@@ -470,12 +632,9 @@ async fn build_session(
     let mut engine = Engine::spawn(&stockfish_path).await?;
     engine.init().await?;
 
-    // Distribute n across 8 strata; the first (n % 8) get one extra.
-    let mut caps = [n / N_BUCKETS; N_BUCKETS];
-    for c in caps.iter_mut().take(n % N_BUCKETS) {
-        *c += 1;
-    }
-    let mut counts = [0usize; N_BUCKETS];
+    // Deck quotas (conversion 30 / critical 25 / endgame 25 / level 20 per 100).
+    let caps = deck_caps(n);
+    let mut counts = [0usize; N_DECKS];
     let mut accepted: Vec<CalibrationPosition> = Vec::with_capacity(n);
     let mut leftovers: Vec<CalibrationPosition> = Vec::new();
     let mut seen: HashSet<i64> = HashSet::new();
@@ -503,11 +662,15 @@ async fn build_session(
         };
         evaluated += 1;
         let (pos, bucket) = finish_position(cand, ev);
-        if counts[bucket] < caps[bucket] {
-            counts[bucket] += 1;
-            accepted.push(pos);
-        } else {
-            leftovers.push(pos);
+        match bucket {
+            Some(b) if counts[b] < caps[b] => {
+                counts[b] += 1;
+                accepted.push(pos);
+            }
+            // A full deck: keep for a possible top-up if another deck underfills.
+            Some(_) => leftovers.push(pos),
+            // No matching deck: not training-relevant, drop it.
+            None => {}
         }
         if let Some(ch) = &on_progress {
             let _ = ch.send(CalibrationProgress {
@@ -632,12 +795,13 @@ mod tests {
 
     #[test]
     fn parses_multipv_info_line() {
-        let (idx, cp, mate, first) =
+        let (idx, cp, mate, pv) =
             parse_multipv_line("info depth 18 multipv 2 score cp -34 nodes 5 pv e2e4 e7e5").unwrap();
         assert_eq!(idx, 2);
         assert_eq!(cp, Some(-34));
         assert_eq!(mate, None);
-        assert_eq!(first.as_deref(), Some("e2e4"));
+        // The whole PV is captured, in order, not just the first move.
+        assert_eq!(pv, vec!["e2e4".to_string(), "e7e5".to_string()]);
 
         let (idx, _cp, mate, _) =
             parse_multipv_line("info depth 20 multipv 1 score mate 3 pv h5f7").unwrap();
@@ -645,9 +809,10 @@ mod tests {
         assert_eq!(mate, Some(3));
 
         // No multipv token (MultiPV=1 engines) defaults to line 1.
-        let (idx, cp, _, _) = parse_multipv_line("info depth 5 score cp 128 pv d2d4").unwrap();
+        let (idx, cp, _, pv) = parse_multipv_line("info depth 5 score cp 128 pv d2d4").unwrap();
         assert_eq!(idx, 1);
         assert_eq!(cp, Some(128));
+        assert_eq!(pv, vec!["d2d4".to_string()]);
 
         assert!(parse_multipv_line("info string just a note").is_none());
     }
@@ -686,6 +851,7 @@ mod tests {
             mate: None,
             gap_cp: Some(30),
             best_uci: Some("e7e5".to_string()),
+            pv_uci: vec!["e7e5".to_string(), "g1f3".to_string()],
         };
         let (pos, bucket) = finish_position(&cand, ev);
         assert_eq!(pos.sf_cp, Some(120));
@@ -695,8 +861,12 @@ mod tests {
         assert_eq!(pos.elo_band, "<1600");
         assert_eq!(pos.to_move, "black");
         assert_eq!(pos.played_san.as_deref(), Some("e5"));
-        // band 1 (0.5-1.5) × Elo band 0 (<1600) → bucket 1*4 + 0 = 4.
-        assert_eq!(bucket, 4);
+        // The PV was rendered to SAN by replaying it from the FEN.
+        assert_eq!(pos.sf_pv_san, vec!["e5".to_string(), "Nf3".to_string()]);
+        // Middlegame, |eval| 1.2, no imbalance, gap 30, so it's neither endgame,
+        // conversion, critical, nor level → no deck, and it's rejected.
+        assert_eq!(pos.deck, "");
+        assert_eq!(bucket, None);
     }
 
     #[test]
@@ -706,6 +876,109 @@ mod tests {
         assert_eq!(elo_band_of(Some(2100), Some(2300)).1, "2000-2400"); // avg 2200
         assert_eq!(elo_band_of(Some(2500), Some(2700)).1, "2400+");
         assert_eq!(elo_band_of(None, Some(2000)).1, "2400+"); // fallback
+    }
+
+    // -----------------------------------------------------------------------
+    // Deck classification (v3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn pv_san_replays_and_stops_on_illegal() {
+        let start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        assert_eq!(
+            pv_san(start, &["e2e4".into(), "e7e5".into(), "g1f3".into()]),
+            vec!["e4", "e5", "Nf3"]
+        );
+        // Second move is illegal (e2 is empty after e4) → stops after the first.
+        assert_eq!(pv_san(start, &["e2e4".into(), "e2e4".into()]), vec!["e4"]);
+        // Never yields more than 6 plies.
+        let long: Vec<String> = vec![
+            "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        assert_eq!(pv_san(start, &long).len(), 6);
+        // Unparseable FEN → empty, no panic.
+        assert!(pv_san("not a fen", &["e2e4".into()]).is_empty());
+    }
+
+    #[test]
+    fn minor_imbalance_reads_the_board() {
+        // Startpos: mirrored minors → no imbalance.
+        assert!(!minor_imbalance(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        ));
+        // White bishop pair vs Black two knights: material level, minors differ.
+        assert!(minor_imbalance("4knn1/8/8/8/8/8/8/1BB1K3 w - - 0 1"));
+        // Bare kings: no minors either side → no imbalance.
+        assert!(!minor_imbalance("4k3/8/8/8/8/8/8/4K3 w - - 0 1"));
+    }
+
+    #[test]
+    fn conversion_needs_range_imbalance_and_matching_advantage() {
+        let none = "8/8/8/8/8/8/8/8 w - - 0 1"; // fen unused when |material| ≥ 2
+        // In band, White up a rook, eval agrees in sign → convertible.
+        assert!(is_conversion(Some(200), None, 5, none));
+        // Below the band (0.5 pawns) → not conversion.
+        assert!(!is_conversion(Some(50), None, 5, none));
+        // Above the band (4 pawns) → not conversion.
+        assert!(!is_conversion(Some(400), None, 5, none));
+        // Material lead, but the eval favours the OTHER side (compensation).
+        assert!(!is_conversion(Some(-200), None, 5, none));
+        // A mate is never in the conversion band.
+        assert!(!is_conversion(None, Some(3), 5, none));
+        // No imbalance at all (level material, mirrored minors) → not conversion.
+        assert!(!is_conversion(
+            Some(120),
+            None,
+            0,
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        ));
+        // Material level but a minor imbalance carries the edge → conversion.
+        assert!(is_conversion(Some(120), None, 0, "4knn1/8/8/8/8/8/8/1BB1K3 w - - 0 1"));
+    }
+
+    #[test]
+    fn deck_of_classifies_by_priority() {
+        let mid = 24; // middlegame phase weight
+        let eg = 6; // endgame phase weight
+        let plain = "8/8/8/8/8/8/8/8 w - - 0 1";
+
+        // Endgame wins over everything: even a would-be conversion or critical.
+        assert_eq!(
+            deck_of(Some(200), None, 5, eg, Some(150), plain),
+            Some("endgame")
+        );
+        // Conversion: middlegame, in band, material lead, sign agrees.
+        assert_eq!(
+            deck_of(Some(200), None, 5, mid, Some(40), plain),
+            Some("conversion")
+        );
+        // Critical over level: tiny eval (would be level) but a decisive margin.
+        assert_eq!(
+            deck_of(Some(30), None, 0, mid, Some(120), plain),
+            Some("critical")
+        );
+        // Level: equal middlegame, no margin.
+        assert_eq!(deck_of(Some(20), None, 0, mid, Some(30), plain), Some("level"));
+        // No deck: middlegame, mid-size eval, no imbalance, no margin → rejected.
+        assert_eq!(deck_of(Some(200), None, 0, mid, Some(40), plain), None);
+    }
+
+    #[test]
+    fn deck_caps_sum_to_n() {
+        // Exact per-100 quotas.
+        assert_eq!(deck_caps(100), [30, 25, 25, 20]);
+        // n=20 divides cleanly too.
+        assert_eq!(deck_caps(20), [6, 5, 5, 4]);
+        // A remainder is handed out in deck order; caps always sum to n.
+        for n in [1usize, 7, 33, 50, 99, 137] {
+            let caps = deck_caps(n);
+            assert_eq!(caps.iter().sum::<usize>(), n, "caps for n={n} sum to n");
+        }
+        // n=50 → 15/12/12/10 = 49, remainder 1 goes to conversion.
+        assert_eq!(deck_caps(50), [16, 12, 12, 10]);
     }
 
     // -----------------------------------------------------------------------
@@ -813,6 +1086,12 @@ mod tests {
                 p.band
             );
             assert!(["middlegame", "endgame"].contains(&p.phase.as_str()));
+            // Every accepted position carries a valid training deck (v3).
+            assert!(
+                ["conversion", "critical", "endgame", "level"].contains(&p.deck.as_str()),
+                "valid deck label: {:?}",
+                p.deck
+            );
             // A best move was read for a non-terminal position.
             assert!(!p.sf_best_uci.is_empty(), "best move present");
             // v2 context: Elo-known, banded, with the played move captured.

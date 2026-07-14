@@ -37,6 +37,8 @@ const SAMPLES: CalibrationPosition[] = [
     played_uci: "a7a6",
     played_san: "a6",
     continuation_san: ["Ba4", "Nf6"],
+    deck: "level",
+    sf_pv_san: ["a6", "Ba4", "Nf6", "O-O"],
   },
   {
     // Italian, White slightly better development.
@@ -58,6 +60,8 @@ const SAMPLES: CalibrationPosition[] = [
     played_uci: "e1g1",
     played_san: "O-O",
     continuation_san: ["Nf6", "d3"],
+    deck: "critical",
+    sf_pv_san: ["c3", "Nf6", "d3", "d6"],
   },
   {
     // Middlegame, White up a clear pawn and pressing.
@@ -79,6 +83,8 @@ const SAMPLES: CalibrationPosition[] = [
     played_uci: "d1d2",
     played_san: "Qd2",
     continuation_san: ["O-O-O", "Rd8"],
+    deck: "conversion",
+    sf_pv_san: ["Qd2", "O-O-O", "Rd8"],
   },
   {
     // K+R vs K — winning endgame.
@@ -100,6 +106,8 @@ const SAMPLES: CalibrationPosition[] = [
     played_uci: "e4d4",
     played_san: "Kd4",
     continuation_san: ["Kf6", "Rd6+"],
+    deck: "endgame",
+    sf_pv_san: ["Kd4", "Kf6", "Rd6+", "Kg5"],
   },
   {
     // Pawn endgame, near-equal.
@@ -121,6 +129,8 @@ const SAMPLES: CalibrationPosition[] = [
     played_uci: "f4f5",
     played_san: "f5",
     continuation_san: ["gxf5+", "Kxf5"],
+    deck: "endgame",
+    sf_pv_san: ["f5", "gxf5+", "Kxf5"],
   },
   {
     // Sharp middlegame, Black clearly better.
@@ -142,6 +152,8 @@ const SAMPLES: CalibrationPosition[] = [
     played_uci: "a5c7",
     played_san: "Qc7",
     continuation_san: ["e4", "e5"],
+    deck: "critical",
+    sf_pv_san: ["Qc7", "e4", "e5"],
   },
 ]
 
@@ -162,7 +174,7 @@ export async function buildMockSession(
     }
   }
   return {
-    version: 2,
+    version: 3,
     n: positions.length,
     created_at: Date.now(),
     stockfish_path: "(mock)",

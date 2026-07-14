@@ -769,8 +769,18 @@ function AnsweringScreen({
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="px-6 py-3 border-b border-white/10 flex items-center justify-between">
-        <span className="text-sm font-medium tabular-nums">
-          Position {index + 1} <span className="text-muted-foreground">of {total}</span>
+        <span className="text-sm font-medium tabular-nums flex items-center gap-2">
+          <span>
+            Position {index + 1} <span className="text-muted-foreground">of {total}</span>
+          </span>
+          {position.deck && (
+            <span
+              data-testid="calib-deck"
+              className="px-1.5 py-0.5 rounded text-[11px] font-normal capitalize bg-white/10 text-muted-foreground"
+            >
+              {position.deck}
+            </span>
+          )}
         </span>
         <div className="h-1.5 w-48 rounded-full bg-white/10 overflow-hidden">
           <div
@@ -1079,6 +1089,17 @@ function RevealCard({
             <span className="text-muted-foreground">Margin over 2nd</span>
             <span className="font-mono tabular-nums text-muted-foreground">
               {gapPawns < 0.3 ? `${gapPawns.toFixed(1)} (close)` : gapPawns.toFixed(1)}
+            </span>
+          </div>
+        )}
+        {position.sf_pv_san && position.sf_pv_san.length >= 2 && (
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-muted-foreground shrink-0">Line</span>
+            <span
+              className="font-mono text-xs text-muted-foreground text-right"
+              data-testid="calib-pv-line"
+            >
+              {position.sf_pv_san.join(" ")}
             </span>
           </div>
         )}

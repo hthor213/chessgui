@@ -55,10 +55,12 @@ coarse quick-select grid (0.5-pawn steps below 1, whole pawns above), so treat a
 grid step (~0.25 below 1.0, ~0.5 above) as input granularity, not misjudgment — do not scold \
 precision the input cannot express.\n\
 - If the engine's best move looks like it hangs or loses material, do NOT invent a positional \
-justification for it (\"gains space\", \"takes the initiative\"). You are not given the engine's \
-line, so say plainly that the move's justification is concrete and tactical, that the data you \
-have doesn't show the refutation, and that asking \"doesn't this just lose material?\" is exactly \
-the right question to take to the board.\n\
+justification for it (\"gains space\", \"takes the initiative\"). When an engine line (best play) \
+IS provided, use it to explain the concrete tactical point: walk the student through those moves \
+and show how the material comes back or the threat lands, citing only the moves in that line. When \
+NO engine line is provided, say plainly that the move's justification is concrete and tactical, \
+that the data you have doesn't show the refutation, and that asking \"doesn't this just lose \
+material?\" is exactly the right question to take to the board.\n\
 - Write 2 to 4 sentences in a direct, warm coach voice, addressing the student as \"you\". Name \
 concrete squares and pieces, and refer to what THEY actually wrote. Be specific and useful; never \
 praise emptily.\n\n\
@@ -94,6 +96,11 @@ pub struct CoachInput {
     pub continuation_san: Option<Vec<String>>,
     pub white_elo: Option<i64>,
     pub black_elo: Option<i64>,
+    /// Stockfish's best-play line (PV1), SAN, up to ~6 plies (v3 sessions). Lets
+    /// the coach explain a tactical justification concretely. `#[serde(default)]`
+    /// so v1/v2 frontends that omit it deserialize as None.
+    #[serde(default)]
+    pub sf_pv_san: Option<Vec<String>>,
 }
 
 /// The coach's response: a note plus structured taxonomy labels. Mirrors the
@@ -142,6 +149,9 @@ fn user_text(input: &CoachInput) -> String {
             "Best move's margin over the 2nd-best line: {:.2} pawns\n",
             gap as f64 / 100.0
         ));
+    }
+    if let Some(pv) = input.sf_pv_san.as_ref().filter(|p| !p.is_empty()) {
+        s.push_str(&format!("Engine line (best play): {}\n", pv.join(" ")));
     }
     if let Some(played) = &input.played_san {
         let elo = if input.to_move == "white" { input.white_elo } else { input.black_elo };
@@ -378,6 +388,7 @@ mod tests {
             continuation_san: Some(vec!["exd5".to_string(), "Qc2".to_string()]),
             white_elo: Some(2100),
             black_elo: Some(2080),
+            sf_pv_san: Some(vec!["Qc2".to_string(), "dxc4".to_string(), "Bxc4".to_string()]),
         }
     }
 
@@ -431,6 +442,8 @@ mod tests {
         let input: CoachInput = serde_json::from_value(wire).expect("v1 wire payload must deserialize");
         assert_eq!(input.to_move, "black");
         assert!(input.played_san.is_none());
+        // v3's PV is absent on the v1 wire → None via #[serde(default)].
+        assert!(input.sf_pv_san.is_none());
     }
 
     #[test]
@@ -449,6 +462,11 @@ mod tests {
         assert!(text.contains("Qc2"), "best move present");
         assert!(text.contains("wins a pawn on e7"), "their reasoning present");
         assert!(text.contains("2100-rated") || text.contains("2100"), "player Elo present");
+        // The v3 PV line renders in the engine-evidence section.
+        assert!(
+            text.contains("Engine line (best play): Qc2 dxc4 Bxc4"),
+            "engine PV line present"
+        );
     }
 
     #[test]
