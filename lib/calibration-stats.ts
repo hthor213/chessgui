@@ -10,6 +10,7 @@ import type {
   CalibrationSession,
   CalibrationSummary,
   Miss,
+  PhaseStat,
 } from "./calibration"
 
 /** Mate is capped to this many pawns for numeric comparison, so a single mate
@@ -18,6 +19,9 @@ export const MATE_PAWNS = 12
 
 /** The four |SF eval| bands, in order — the fixed rows of the per-band table. */
 export const BANDS = ["0-0.5", "0.5-1.5", "1.5-3", "3+"] as const
+
+/** The two game phases, in order — the fixed rows of the per-phase table. */
+export const PHASES = ["middlegame", "endgame"] as const
 
 /** Stockfish eval for a position, in pawns (White-POV), clamped to ±MATE_PAWNS. */
 export function sfEvalPawns(p: CalibrationPosition): number {
@@ -90,8 +94,31 @@ export function scoredAnswers(
   return out
 }
 
-/** Full results summary: correlation, error, per-band table, move hit-rate, and
- *  the biggest misses (up to `missCount`, default 10). */
+/** Accuracy metrics over a subset of scored answers — MAE, correlation, and
+ *  best-move hit rate, each null when there isn't enough data. */
+export function groupStats(scored: Scored[]): {
+  count: number
+  mae: number | null
+  pearson: number | null
+  bestMoveHitRate: number | null
+  moveAnswers: number
+} {
+  const withMove = scored.filter((s) => s.answer.move_uci != null)
+  const hits = withMove.filter((s) => s.answer.move_uci === s.pos.sf_best_uci).length
+  return {
+    count: scored.length,
+    mae: scored.length ? mean(scored.map((s) => s.absError)) : null,
+    pearson: pearson(
+      scored.map((s) => s.userEval),
+      scored.map((s) => s.sfEval),
+    ),
+    bestMoveHitRate: withMove.length ? hits / withMove.length : null,
+    moveAnswers: withMove.length,
+  }
+}
+
+/** Full results summary: correlation, error, per-band + per-phase tables, move
+ *  hit-rate, and the biggest misses (up to `missCount`, default 10). */
 export function summarize(
   session: CalibrationSession,
   answers: CalibrationAnswer[],
@@ -100,16 +127,7 @@ export function summarize(
   const scored = scoredAnswers(session, answers)
   const skipped = answers.filter((a) => a.skipped).length
 
-  const pearsonR = pearson(
-    scored.map((s) => s.userEval),
-    scored.map((s) => s.sfEval),
-  )
-  const mae = scored.length ? mean(scored.map((s) => s.absError)) : null
-
-  // Best-move hit rate over answers that picked a move.
-  const withMove = scored.filter((s) => s.answer.move_uci != null)
-  const hits = withMove.filter((s) => s.answer.move_uci === s.pos.sf_best_uci).length
-  const bestMoveHitRate = withMove.length ? hits / withMove.length : null
+  const overall = groupStats(scored)
 
   const perBand: BandStat[] = BANDS.map((band) => {
     const inBand = scored.filter((s) => s.pos.band === band)
@@ -119,6 +137,11 @@ export function summarize(
       mae: inBand.length ? mean(inBand.map((s) => s.absError)) : null,
     }
   })
+
+  const perPhase: PhaseStat[] = PHASES.map((phase) => ({
+    phase,
+    ...groupStats(scored.filter((s) => s.pos.phase === phase)),
+  }))
 
   const biggestMisses: Miss[] = [...scored]
     .sort((a, b) => b.absError - a.absError)
@@ -135,11 +158,12 @@ export function summarize(
   return {
     answered: scored.length,
     skipped,
-    moveAnswers: withMove.length,
-    pearson: pearsonR,
-    mae,
-    bestMoveHitRate,
+    moveAnswers: overall.moveAnswers,
+    pearson: overall.pearson,
+    mae: overall.mae,
+    bestMoveHitRate: overall.bestMoveHitRate,
     perBand,
+    perPhase,
     biggestMisses,
   }
 }

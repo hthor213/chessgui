@@ -22,10 +22,12 @@ import {
   sampleSession,
   saveResults,
   RESULTS_VERSION,
+  MIN_PHASE_N,
   type CalibrationAnswer,
   type CalibrationPosition,
   type CalibrationProgress,
   type CalibrationSession,
+  type PhaseStat,
 } from "@/lib/calibration"
 import { summarize, scoredAnswers, formatPawns, type Scored } from "@/lib/calibration-stats"
 
@@ -660,6 +662,8 @@ function ResultsScreen({
           </div>
         </div>
 
+        <PhaseTable perPhase={summary.perPhase} />
+
         {summary.biggestMisses.length > 0 && (
           <div className="space-y-2">
             <h2 className="text-sm font-semibold text-muted-foreground">Biggest misses</h2>
@@ -692,6 +696,64 @@ function ResultsScreen({
           human evaluator (spec 213).
         </p>
       </div>
+    </div>
+  )
+}
+
+/** Per-phase accuracy — a chess eval skill is per-phase, not scalar. Absent
+ *  phases get an explicit note rather than an empty row (the sampler barely
+ *  reaches endgames given the ply-40 index cap), and thin phases are flagged. */
+function PhaseTable({ perPhase }: { perPhase: PhaseStat[] }) {
+  const fmt = (v: number | null, digits = 2) => (v == null ? "—" : v.toFixed(digits))
+  const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`)
+  const present = perPhase.filter((p) => p.count > 0)
+  const empty = perPhase.filter((p) => p.count === 0)
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm font-semibold text-muted-foreground">By game phase</h2>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-muted-foreground text-left border-b border-white/10">
+            <th className="py-1.5 font-medium">Phase</th>
+            <th className="py-1.5 font-medium text-right">Positions</th>
+            <th className="py-1.5 font-medium text-right">MAE</th>
+            <th className="py-1.5 font-medium text-right">Correlation</th>
+            <th className="py-1.5 font-medium text-right">Best-move</th>
+          </tr>
+        </thead>
+        <tbody>
+          {present.map((p) => (
+            <tr key={p.phase} className="border-b border-white/5">
+              <td className="py-1.5 capitalize">
+                {p.phase}
+                {p.count < MIN_PHASE_N && (
+                  <span className="ml-2 text-xs text-amber-400/80">thin sample</span>
+                )}
+              </td>
+              <td className="py-1.5 text-right tabular-nums">{p.count}</td>
+              <td className="py-1.5 text-right tabular-nums">{fmt(p.mae)}</td>
+              <td className="py-1.5 text-right tabular-nums">{fmt(p.pearson)}</td>
+              <td className="py-1.5 text-right tabular-nums">
+                {p.bestMoveHitRate == null ? "—" : `${pct(p.bestMoveHitRate)}`}
+                {p.moveAnswers > 0 && (
+                  <span className="text-muted-foreground text-xs"> ({p.moveAnswers})</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {empty.map((p) => (
+        <p key={p.phase} className="text-xs text-muted-foreground">
+          No {p.phase} positions in this session — the position index only reaches ply 40, so{" "}
+          {p.phase}s are barely sampled yet.
+        </p>
+      ))}
+      {present.some((p) => p.count > 0 && p.count < MIN_PHASE_N) && (
+        <p className="text-xs text-muted-foreground">
+          A phase with fewer than {MIN_PHASE_N} positions is too thin to read much into.
+        </p>
+      )}
     </div>
   )
 }

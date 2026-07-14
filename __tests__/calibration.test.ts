@@ -5,6 +5,7 @@ import {
   sfEvalPawns,
   scoredAnswers,
   summarize,
+  groupStats,
   formatPawns,
 } from "@/lib/calibration-stats"
 import type {
@@ -139,6 +140,65 @@ describe("summarize", () => {
     expect(sum.mae).toBeNull()
     expect(sum.pearson).toBeNull()
     expect(sum.bestMoveHitRate).toBeNull()
+  })
+})
+
+describe("groupStats", () => {
+  it("computes count, MAE, correlation, and hit rate for a subset", () => {
+    const s = session([
+      pos({ sf_cp: 100, sf_best_uci: "d2d4" }),
+      pos({ sf_cp: 200, sf_best_uci: "a2a4" }),
+    ])
+    const scored = scoredAnswers(s, [
+      ans({ index: 0, eval: 1.0, move_uci: "d2d4" }), // err 0.0, move hit
+      ans({ index: 1, eval: 1.0, move_uci: "e2e4" }), // err 1.0, move miss
+    ])
+    const g = groupStats(scored)
+    expect(g.count).toBe(2)
+    expect(g.mae).toBeCloseTo(0.5)
+    expect(g.moveAnswers).toBe(2)
+    expect(g.bestMoveHitRate).toBeCloseTo(0.5)
+    // user [1,1] is constant → correlation undefined.
+    expect(g.pearson).toBeNull()
+  })
+
+  it("returns null metrics for an empty group", () => {
+    const g = groupStats([])
+    expect(g.count).toBe(0)
+    expect(g.mae).toBeNull()
+    expect(g.pearson).toBeNull()
+    expect(g.bestMoveHitRate).toBeNull()
+    expect(g.moveAnswers).toBe(0)
+  })
+})
+
+describe("summarize — per-phase breakdown", () => {
+  it("splits stats by phase and leaves an absent phase empty", () => {
+    // All middlegame — a common shape given the endgame sampling gap.
+    const s = session([
+      pos({ phase: "middlegame", sf_cp: 50, sf_best_uci: "g1f3" }),
+      pos({ phase: "middlegame", sf_cp: 150, sf_best_uci: "d2d4" }),
+      pos({ phase: "middlegame", sf_cp: 250, sf_best_uci: "a2a4" }),
+    ])
+    const sum = summarize(s, [
+      ans({ index: 0, eval: 0.4, move_uci: "g1f3" }),
+      ans({ index: 1, eval: 1.6, move_uci: "d2d4" }),
+      ans({ index: 2, eval: 2.6, move_uci: "b1c3" }),
+    ])
+
+    expect(sum.perPhase.map((p) => p.phase)).toEqual(["middlegame", "endgame"])
+    const mid = sum.perPhase.find((p) => p.phase === "middlegame")!
+    expect(mid.count).toBe(3)
+    expect(mid.mae).toBeCloseTo(0.1) // each off by ~0.1
+    expect(mid.moveAnswers).toBe(3)
+    expect(mid.bestMoveHitRate).toBeCloseTo(2 / 3)
+    expect(mid.pearson).not.toBeNull()
+
+    const end = sum.perPhase.find((p) => p.phase === "endgame")!
+    expect(end.count).toBe(0)
+    expect(end.mae).toBeNull()
+    expect(end.pearson).toBeNull()
+    expect(end.bestMoveHitRate).toBeNull()
   })
 })
 

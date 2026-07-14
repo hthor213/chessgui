@@ -78,6 +78,19 @@ export type BandStat = {
   mae: number | null
 }
 
+/** Per-phase accuracy row (middlegame / endgame). Fuller than a band row: a
+ *  chess eval skill is per-phase, so we surface correlation and move accuracy
+ *  too. `null` metrics mean too few (or no) answers to compute them. */
+export type PhaseStat = {
+  phase: string
+  count: number
+  mae: number | null
+  pearson: number | null
+  bestMoveHitRate: number | null
+  /** Positions in this phase on which the user chose a move. */
+  moveAnswers: number
+}
+
 /** A position the user was furthest off on. */
 export type Miss = {
   index: number
@@ -101,8 +114,13 @@ export type CalibrationSummary = {
   /** Fraction of move-answers matching Stockfish's best move; null if none. */
   bestMoveHitRate: number | null
   perBand: BandStat[]
+  perPhase: PhaseStat[]
   biggestMisses: Miss[]
 }
+
+/** Fewer than this many answers in a phase → its metrics are too thin to read
+ *  much into; the UI flags it. */
+export const MIN_PHASE_N = 8
 
 /** The research artifact written on completion. Self-contained: it carries the
  *  full session so each file stands alone. Mirrors the schema documented in
