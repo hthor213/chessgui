@@ -109,29 +109,41 @@ def parse_args():
 # --------------------------------------------------------------------------- #
 # Byte-capped raw reader (works for local files and URL streams alike)
 # --------------------------------------------------------------------------- #
-class _CappedReader:
-    """Wrap a binary stream, counting bytes read and stopping at `cap`."""
+class _CappedReader(io.RawIOBase):
+    """Wrap a binary stream, counting bytes read and stopping at `cap`.
+
+    A real io.RawIOBase (not just a duck-typed .read()): io.TextIOWrapper on
+    the plain-.pgn path requires readable()/the buffered protocol and crashes
+    on a bare object (AttributeError: no attribute 'readable').
+    """
 
     def __init__(self, raw, cap):
+        super().__init__()
         self.raw = raw
         self.cap = cap if cap and cap > 0 else None
         self.read_n = 0
 
-    def read(self, size=-1):
+    def readable(self):
+        return True
+
+    def readinto(self, b):
         if self.cap is not None and self.read_n >= self.cap:
-            return b""
-        want = 65536 if (size is None or size < 0) else size
+            return 0
+        want = len(b)
         if self.cap is not None:
             want = min(want, self.cap - self.read_n)
         chunk = self.raw.read(want)
-        self.read_n += len(chunk)
-        return chunk
+        n = len(chunk)
+        b[:n] = chunk
+        self.read_n += n
+        return n
 
     def close(self):
         try:
             self.raw.close()
         except Exception:
             pass
+        super().close()
 
 
 def _open_raw(source):
@@ -159,7 +171,7 @@ def line_stream(source, max_input_bytes):
     capped = _CappedReader(raw, max_input_bytes)
 
     if not is_zst:
-        text = io.TextIOWrapper(capped, encoding="utf-8", errors="replace")
+        text = io.TextIOWrapper(io.BufferedReader(capped), encoding="utf-8", errors="replace")
         try:
             for line in text:
                 yield line, capped.read_n
