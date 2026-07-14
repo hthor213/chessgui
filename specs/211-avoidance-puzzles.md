@@ -91,9 +91,13 @@ Pipeline built (`scripts/mining/`, stdlib-only, streaming) and the homeserver is
 sf_18 BMI2 + pgn-extract installed, 2026-05/06 dumps (~58 GB raw) downloaded, three
 tuning tables saved to `~/chess-corpus/tune_*.out`.
 
-**DECIDED 2026-07-14 (user):** broadened 8-TC rapid+classical incl. 600+0 (~1.58M
-games/mo — caps genuinely flatten 1400–2000; accepted purity cost of mixing rapid and
-classical rating populations); **cap N = 200k per band, per-month accounting** (temporal
+**DECIDED 2026-07-14 (user):** broadened 8-TC rapid+classical — the exact set is
+`600+0,600+5,900+0,900+10,1200+0,1800+0,1800+20,2700+0` (strict four + 600+0, 900+0,
+1200+0, 2700+0; chosen as the popular members of Lichess rapid 480–1500s / classical
+≥1500s; recovered from the 2026-07-13 tuning transcript after nearly being lost — a
+decided parameter must live in the spec, not a chat log) (~1.58M games/mo — caps
+genuinely flatten 1400–2000; accepted purity cost of mixing rapid and classical rating
+populations); **cap N = 200k per band, per-month accounting** (temporal
 uniformity + idempotent re-runs; ~7 months of dumps to target — extend with more months
 later if the 2400+ tail proves thin); **target = 10M games** (~33 GB at the real
 3.3 KB/game; the old "50–60 GB" figure is dropped). Build dispatched; the rejected
