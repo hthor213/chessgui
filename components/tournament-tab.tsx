@@ -72,11 +72,23 @@ async function loadPositions(): Promise<TaggedPosition[]> {
 export function TournamentTab({
   onRunningChange,
   onLiveUpdate,
+  currentFen,
+  bottomColor = "white",
+  presetNonce = 0,
 }: {
   /** Reports whether a batch is currently running (for the header View toggle). */
   onRunningChange?: (running: boolean) => void
   /** Streams the currently-featured live game to the board viewer (null = none). */
   onLiveUpdate?: (live: LiveGame | null) => void
+  /** The FEN currently on the analysis board (for "Current position" mode). */
+  currentFen?: string
+  /** Which color is at the bottom of the user's board (board orientation). */
+  bottomColor?: "white" | "black"
+  /**
+   * Bumped by the board view's "Play this out" button: enter Current-position
+   * mode with its defaults (engine A on the user's side, 10m+5s, 2 games).
+   */
+  presetNonce?: number
 } = {}) {
   const [engineA, setEngineA] = useState(STOCKFISH_DEFAULT)
   const [engineB, setEngineB] = useState(RECKLESS_DEFAULT)
@@ -96,6 +108,10 @@ export function TournamentTab({
   // Adjudicate <=7-man positions via the tablebase (perfect play) — fair, since
   // any engine can bolt on a 7-man tablebase for free.
   const [adjudicateTb, setAdjudicateTb] = useState(true)
+  // "Current position" mode: which color engine A takes in the odd games
+  // (pairs always flip). Defaults to the side at the bottom of the user's
+  // board — "Stockfish plays my side" — and stays editable before launch.
+  const [engineASide, setEngineASide] = useState<"white" | "black">("white")
   // Live UCI version of each configured engine (e.g. "Stockfish 18").
   const [sfVersion, setSfVersion] = useState<string | null>(null)
   const [rkVersion, setRkVersion] = useState<string | null>(null)
@@ -162,6 +178,24 @@ export function TournamentTab({
     return () => { cancelled = true }
   }, [engineB])
 
+  // Enter "Current position" mode with its defaults: engine A (Stockfish) on
+  // the side at the bottom of the user's board, 10m+5s, one flipped pair.
+  // Everything stays editable before Run.
+  const enterCurrentMode = useCallback(() => {
+    setMode("current")
+    setEngineASide(bottomColor)
+    setTcId("rapid")
+    setNGames("2")
+  }, [bottomColor])
+
+  // "Play this out" pressed in the board view (nonce bumped by the parent).
+  const lastPreset = useRef(0)
+  useEffect(() => {
+    if (presetNonce === 0 || presetNonce === lastPreset.current) return
+    lastPreset.current = presetNonce
+    if (!running) enterCurrentMode()
+  }, [presetNonce, running, enterCurrentMode])
+
   // Keep parent informed of run state; clear the live board when a run ends.
   useEffect(() => {
     onRunningChange?.(running)
@@ -207,9 +241,14 @@ export function TournamentTab({
       const lo = Math.min(a, b)
       const hi = Math.max(a, b)
 
-      const positions = await loadPositions()
+      // "normal"/"current" don't need the tagged-position set — skip the fetch.
+      const positions =
+        mode === "normal" || mode === "current" ? [] : await loadPositions()
       const nSeeds = seedsForGames(nGamesNum)
-      const seeds = buildSeeds(mode, nSeeds, positions, lo, hi)
+      const seeds = buildSeeds(mode, nSeeds, positions, lo, hi, currentFen ?? null)
+      // Current-position mode: engine A takes the user's chosen side in the
+      // odd games; pairs still flip. flipFirst reverses each pair's order.
+      const flipFirst = mode === "current" && engineASide === "black"
       const { specs, evalById } = buildSpecs(
         seeds,
         engineA,
@@ -218,6 +257,7 @@ export function TournamentTab({
         incMs,
         MAX_PLIES,
         adjudicateTb,
+        flipFirst,
       )
       evalByIdRef.current = evalById
 
@@ -334,7 +374,7 @@ export function TournamentTab({
       setNowTs(Date.now()) // freeze elapsed at the final value
       setRunning(false)
     }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, concurrency, adjudicateTb])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, concurrency, adjudicateTb, currentFen, engineASide, onLiveUpdate])
 
   const cancel = useCallback(async () => {
     try {
@@ -411,11 +451,13 @@ export function TournamentTab({
                 ["normal", "Start Normal"],
                 ["book", "Use Opening Book"],
                 ["eval", "Eval-Qualified (range)"],
+                ["current", "Current Position"],
               ] as [StartMode, string][]
             ).map(([m, label]) => (
               <button
                 key={m}
-                onClick={() => setMode(m)}
+                data-testid={`tournament-mode-${m}`}
+                onClick={() => (m === "current" ? enterCurrentMode() : setMode(m))}
                 disabled={running}
                 className={`px-3 py-1.5 text-sm rounded-md border transition-colors disabled:opacity-50 ${
                   mode === m
@@ -427,6 +469,46 @@ export function TournamentTab({
               </button>
             ))}
           </div>
+
+          {mode === "current" && (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">
+                  Starting position (the board in the Analyze view)
+                </span>
+                <span
+                  data-testid="tournament-current-fen"
+                  className="bg-background border border-input rounded-md px-2 py-1.5 text-xs text-foreground font-mono break-all"
+                >
+                  {currentFen ?? "—"}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {engineLabel(engineA)} plays the first game as
+                </span>
+                {(["white", "black"] as const).map((c) => (
+                  <button
+                    key={c}
+                    data-testid={`tournament-side-${c}`}
+                    onClick={() => setEngineASide(c)}
+                    disabled={running}
+                    className={`px-3 py-1 text-sm rounded-md border transition-colors disabled:opacity-50 ${
+                      engineASide === c
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-input hover:text-foreground"
+                    }`}
+                  >
+                    {c === "white" ? "White" : "Black"}
+                  </button>
+                ))}
+                <span className="text-xs text-muted-foreground">
+                  (defaults to the side at the bottom of your board; colors flip
+                  every second game)
+                </span>
+              </div>
+            </div>
+          )}
 
           {mode === "eval" && (
             <div className="flex flex-wrap items-end gap-4">
