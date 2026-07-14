@@ -183,6 +183,15 @@ optional move, and score them against Stockfish. Files are the research artifact
       long-range threats are the bottleneck") and the session budget spends itself on
       the scarcest data.
 
+- [ ] Sampler v3 — stratify by training value, not engine-pawn bands (from calibration
+      session 2026-07-14): for a 1300 aiming at 1900, +0.3 vs +0.9 in a middlegame is
+      immaterial — the win-prob curve at that level is flat there (212's curve quantifies
+      this) — EXCEPT with a material imbalance, where conversion is mechanical and the curve
+      is steep. Engine-pawn bands measure the perception curve (user-as-labeler purpose);
+      training the user wants a different axis: sample where outcomes at the student's band
+      actually diverge — material-imbalance conversion, endgames, rake-avoidance (spec 211),
+      sign-confusion positions. Two purposes, two samplers; make the session type explicit
+      in the UI so the data streams stay separable.
 - [ ] Range elicitation (from calibration session 2026-07-14): replace point-value quick
       buttons with log-spaced RANGES (+0.1–0.3, 0.3–0.6, 0.6–1.0, 1–2, 2–4, 4+ and mirrored),
       matching Weber-Fechner discrimination — nobody distinguishes 1.6 from 1.8, and forcing
