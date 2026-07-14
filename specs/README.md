@@ -29,6 +29,7 @@ Feature specs live here. They define **what** we're building and **when it's don
 | 202 | [Annotations & Eval Graph](202-annotations-eval-graph.md) | Draft |
 | 210 | [Engine Tournament & Win-Probability Lab](210-engine-tournament.md) | Draft |
 | 211 | [Avoidance Puzzles — "Don't Step On the Rake"](211-avoidance-puzzles.md) | Draft |
+| 212 | [Tournament Game Analysis](212-tournament-game-analysis.md) | Draft |
 | 900 | [Backlog](900-backlog.md) | Ideas |
 
 ## Dependency Graph
