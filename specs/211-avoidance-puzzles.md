@@ -89,16 +89,16 @@ blunder in").
 
 Pipeline built (`scripts/mining/`, stdlib-only, streaming) and the homeserver is staged:
 sf_18 BMI2 + pgn-extract installed, 2026-05/06 dumps (~58 GB raw) downloaded, three
-tuning tables saved to `~/chess-corpus/tune_*.out`. Build is HELD on four user decisions
-(full tables in LAST_SESSION.md):
+tuning tables saved to `~/chess-corpus/tune_*.out`.
 
-1. **TC scope** — strict calibrated 4 TCs yield only ~526k games/mo: every band ≤95k,
-   so band caps barely engage and 10M games ≈ 19 months. Broadened 8-TC rapid+classical
-   (incl. 600+0) yields ~1.58M/mo and makes a 100k cap genuinely flatten 1400–2000.
-2. **Cap N** (meaningful only under broadened): 100k ≈ 12 mo to 10M; 200k ≈ 7 mo.
-3. **Per-month vs corpus-cumulative caps** (`band_cap.py --state` exists for cumulative).
-4. **Target metric** — avg game ≈3.3 KB, so 10M games ≈ 33 GB; the v3 pairing
-   "50–60 GB and ~10M games" is internally inconsistent — pick games or GB.
+**DECIDED 2026-07-14 (user):** broadened 8-TC rapid+classical incl. 600+0 (~1.58M
+games/mo — caps genuinely flatten 1400–2000; accepted purity cost of mixing rapid and
+classical rating populations); **cap N = 200k per band, per-month accounting** (temporal
+uniformity + idempotent re-runs; ~7 months of dumps to target — extend with more months
+later if the 2400+ tail proves thin); **target = 10M games** (~33 GB at the real
+3.3 KB/game; the old "50–60 GB" figure is dropped). Build dispatched; the rejected
+alternatives and tuning tables remain in `~/chess-corpus/tune_*.out` and the 2026-07-14
+LAST_SESSION entry.
 
 ## Checklist
 
