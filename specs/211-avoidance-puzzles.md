@@ -109,6 +109,11 @@ LAST_SESSION entry.
 - [ ] Tier-1 generator: eval-cliff scanner over the games DB (Rust, batch command)
 - [ ] Engine re-verification pass (local Stockfish, fixed depth, threshold config)
 - [ ] Attractiveness filters (played-by-human, ≥3 alternatives, natural-move heuristics)
+- [ ] Engagement filter (2026-07-14, from rival-analysis methodology): a blunder in a
+      distracted game is not a perceptual rake. Use %clk signals (near-instant move
+      bursts, big clock gap then collapse, timeout/abandon terminations) to exclude
+      disengaged games from cliff mining — same 1.5σ-vs-own-median approach as the
+      rival dossiers.
 - [ ] `puzzles` table + import/dedup
 - [ ] Solver UI: prompt, many-correct grading, rake-replay with refutation shapes
 - [ ] Calm-position decks mixed in (70/30 default)
