@@ -198,9 +198,27 @@ optional move, and score them against Stockfish. Files are the research artifact
       this) — EXCEPT with a material imbalance, where conversion is mechanical and the curve
       is steep. Engine-pawn bands measure the perception curve (user-as-labeler purpose);
       training the user wants a different axis: sample where outcomes at the student's band
-      actually diverge — material-imbalance conversion, endgames, rake-avoidance (spec 211),
-      sign-confusion positions. Two purposes, two samplers; make the session type explicit
-      in the UI so the data streams stay separable.
+      actually diverge. Two purposes, two samplers; the session records its sampler version
+      so the data streams stay separable.
+
+      **v3 design (decided 2026-07-14).** SESSION_VERSION 3. Four decks with quotas per
+      100 (still interleaved across elo bands like v2):
+      - `conversion` 30: |eval| in [0.75, 3.5] AND (|material| ≥ 2 or a minor-piece
+        imbalance), advantage on the material side — "you're better and it's the
+        convertible kind"; per the user's standing report this is where sub-2000 rating
+        points live.
+      - `critical` 25: multipv_gap_cp ≥ 100 — the move genuinely matters (proto-rake;
+        real rake decks arrive with spec 211 tier-1).
+      - `endgame` 25: existing phase detection — the v1 hole (2/100).
+      - `level` 20: |eval| < 0.5 middlegames — kept deliberately small but present:
+        the user's worst band (MAE 1.01 vs 0.50) is imagined advantage in equal
+        positions, so it stays as targeted training, not filler.
+      Overlap priority: endgame > conversion > critical > level; a candidate fills the
+      first matching deck with an unmet quota. Each position stores its `deck` (shown as
+      a chip in the reveal + results grouping). PV plumbing ships with v3: capture up to
+      6 plies of PV1 as SAN (`sf_pv_san`) during the scoring pass, pass it in CoachInput,
+      and let the coach cite the line (the no-inventing rule stays; the "admit when the
+      justification is outside your data" guard now only applies when no PV is present).
 - [ ] PV plumbing for the coach (2026-07-14, the ...b5 Benoni case): CoachInput carries only
       best-move + margin, so when the engine's move needs a tactical justification the coach
       cannot give it — and it invented a positional story ("gains space") for a move that is
