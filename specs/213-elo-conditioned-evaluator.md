@@ -234,6 +234,23 @@ optional move, and score them against Stockfish. Files are the research artifact
       Zobrist position index; post-own-blunder degradation curve (magnitude × duration
       × band) → state modifiers; analyze board passes game history, bare-FEN mode
       degrades to position-only with a UI indicator
+- [ ] E-imbalance (from calibration session 2026-07-14, bishop-pair note): Elo-dependent
+      feature values. Query: SF-equal positions (|eval| < 0.3) with a bishop-pair-vs-knight
+      imbalance, bucketed by Elo band; measure the bishop-pair side's actual score per band
+      and convert to pawns via the 212 win-prob curve. Hypothesis: bishops are perceptually
+      cheap (pressure without calculation) while a knight's value needs deep lines, so the
+      imbalance is worth more at low Elo and decays toward the engine's ~0 with rating.
+      First real query candidate once the mining corpus lands. Generalizes to other
+      imbalances (opposite-color bishops, rook-vs-two-minors) if the pipeline is cheap.
+- [ ] E-conversion (advantage decay): condition on SF eval bucket (e.g. +3..+5) × position
+      complexity (bestMoveGapCp / 212 swing volatility); measure conversion rate (expected
+      score) per band. Hypothesis: a "clean material" +4 barely decays with rating; a
+      "deep-only" +4 decays steeply (2800 keeps most of it, 2100 a fraction). This is the
+      curve the rating slider should ultimately report. NOTE the perception/conversion
+      distinction: calibration sessions measure what a player of rating R *perceives* the
+      position to be worth; the corpus measures what R actually *converts*. Eval_R targets
+      conversion; perception data calibrates the coach — and the perception−conversion gap
+      per player is itself a signal (intuition outrunning judgment or vice versa).
 - [ ] E6 (design doc §1.5/§4): per-player phase profiles from the corpus; does the
       endgame-dragged cohort's middlegame match Maia of its overall rating or of its
       phase rating — gates the "unlock phases" UI
