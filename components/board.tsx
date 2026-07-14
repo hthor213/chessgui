@@ -162,7 +162,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       {/* Rank labels, left of the board */}
       <div style={{ position: "absolute", left: 0, top: 0, width: COORD_GUTTER, height: boardSize, display: "flex", flexDirection: "column" }}>
         {ranks.map((r) => (
-          <span key={r} className="flex-1 flex items-center justify-center text-sm font-semibold text-muted-foreground select-none">
+          <span key={r} className="flex-1 flex items-center justify-center text-base font-semibold text-muted-foreground select-none">
             {r}
           </span>
         ))}
@@ -181,7 +181,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       {/* File labels, below the board */}
       <div style={{ position: "absolute", left: COORD_GUTTER, top: boardSize, width: boardSize, height: COORD_GUTTER, display: "flex" }}>
         {files.map((f) => (
-          <span key={f} className="flex-1 flex items-center justify-center text-sm font-semibold text-muted-foreground select-none">
+          <span key={f} className="flex-1 flex items-center justify-center text-base font-semibold text-muted-foreground select-none">
             {f}
           </span>
         ))}

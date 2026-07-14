@@ -25,7 +25,7 @@ Take the best of three existing chess tools and combine them:
 
 ## Philosophy
 
-Think of this as a **modern ChessBase with half the features and twice the polish**. ChessBase has 20 ways to do the same thing and a complicated UX that accreted over decades. We aim for 50% of the total feature surface but 99% of what serious players actually use day-to-day. Every feature earns its place; nothing ships just because a competitor has it.
+Think of this as a **modern ChessBase with most of the features, twice the polish, and much simpler**. ChessBase has 20 ways to do the same thing due to legacy and a complicated UX that accreted over decades. We aim for 80% of the total feature surface but 99% of what serious players actually use day-to-day. Every feature earns its place; nothing ships just because a competitor has it.
 
 ## Feature Map
 

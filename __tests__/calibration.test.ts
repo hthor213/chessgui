@@ -54,6 +54,8 @@ function ans(over: Partial<CalibrationAnswer>): CalibrationAnswer {
     revision_note: null,
     revised_at: null,
     coach: null,
+    rebuttal: null,
+    coach_reply: null,
     skipped: false,
     ...over,
   }
@@ -263,6 +265,9 @@ describe("normalizeAnswer — retroactive upgrade", () => {
     expect(up.revision_note).toBeNull()
     expect(up.revised_at).toBeNull()
     expect(up.coach).toBeNull()
+    // Rebuttal-dialogue fields (2026-07-14) default to null on old answers.
+    expect(up.rebuttal).toBeNull()
+    expect(up.coach_reply).toBeNull()
     // A current-schema answer is left as-is.
     const cur = ans({ index: 1, think_ms: 5000, time_excluded: false })
     expect(normalizeAnswer(cur).time_excluded).toBe(false)

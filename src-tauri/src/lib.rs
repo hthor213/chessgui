@@ -50,6 +50,7 @@ pub fn run() {
             maia::maia_status,
             maia::maia_policy,
             coach::coach_feedback,
+            coach::coach_followup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -112,6 +112,12 @@ export type CalibrationAnswer = {
   /** AI coach's critique of the written reasoning, attached async after the
    *  reveal; null until it arrives (or if the coach was off / unavailable). */
   coach: CoachFeedback | null
+  /** The user's reply to the coach's note ("I saw that move but…"), or null.
+   *  First-class data: it separates "didn't see it" from "saw it and rejected
+   *  it for a reason" — a different error class the note alone can't reach. */
+  rebuttal: string | null
+  /** The coach's one follow-up reply to the rebuttal, or null. */
+  coach_reply: string | null
   skipped: boolean
 }
 
@@ -254,6 +260,8 @@ export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
     revision_note: a.revision_note ?? null,
     revised_at: a.revised_at ?? null,
     coach: a.coach ?? null,
+    rebuttal: a.rebuttal ?? null,
+    coach_reply: a.coach_reply ?? null,
   }
 }
 
@@ -335,4 +343,16 @@ export function coachFeedback(input: CoachInput): Promise<CoachFeedback> {
     return import("./calibration-mock").then((m) => m.mockCoachFeedback(input))
   }
   return invoke<CoachFeedback>("coach_feedback", { input })
+}
+
+/**
+ * One follow-up round: send the user's rebuttal to the coach's note and get a
+ * single grounded reply. Same degrade-to-hint contract as coachFeedback.
+ * Outside Tauri a mock returns a canned reply.
+ */
+export function coachFollowup(input: CoachInput, note: string, rebuttal: string): Promise<string> {
+  if (!isTauri()) {
+    return import("./calibration-mock").then((m) => m.mockCoachFollowup(rebuttal))
+  }
+  return invoke<string>("coach_followup", { input, note, rebuttal })
 }

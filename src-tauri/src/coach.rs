@@ -47,6 +47,8 @@ king safety, get the plan priority wrong, or get the eval direction right but th
 (scale miscalibration)?\n\
 - If the student's reasoning was sound and only their number was off, SAY SO explicitly — separate \
 a calibration error (right idea, wrong size) from a perception error (missed something on the board).\n\
+- If the student wrote nothing, that is normal (the text is optional): critique their MOVE CHOICE \
+and eval against the engine data, and invite them to reply with why they chose it.\n\
 - Compare evals by ABSOLUTE difference in pawns, never by ratio (\"you were 0.7 high\", not \
 \"a threefold overstatement\" — ratios explode near zero and mislead). The student answers on a \
 coarse quick-select grid (0.5-pawn steps below 1, whole pawns above), so treat a miss of half a \
@@ -236,6 +238,58 @@ fn parse_response(v: &serde_json::Value) -> Result<CoachFeedback, String> {
         .map_err(|e| format!("Malformed coach_feedback payload: {e}"))
 }
 
+/// System prompt for the follow-up round: the student pushes back on the
+/// coach's note with their own reasoning, and the coach answers ONCE, still
+/// grounded only in the provided engine data.
+const FOLLOWUP_SYSTEM: &str = "You are a chess reasoning coach. You already gave a student a short \
+critique of their analysis; the student has now REPLIED with their own reasoning — why they \
+rejected the engine's move or judged the position as they did. Answer their reply directly.\n\n\
+HARD RULES:\n\
+- Base every claim ONLY on the engine data provided. NEVER invent moves, variations, or \
+evaluations. If their objection turns on a concrete line you were not given (e.g. \"doesn't that \
+lose material?\", \"isn't there a check?\"), say plainly that the data you have cannot settle it \
+and that their question is the right one to check on the board.\n\
+- Take their stated reason seriously as a window into HOW they decide: castling rights, pin \
+aversion, king safety fears, simplification urges. If the reason reflects a sound practical \
+instinct, say so even when the engine disagrees with the conclusion. If it reflects a bias \
+(overpricing castling, avoiding all pins on principle), name the bias kindly and concretely.\n\
+- Compare evals by absolute difference in pawns, never by ratio.\n\
+- Write 2 to 4 sentences, direct and warm, addressing the student as \"you\". No labels, no \
+lists — just the reply.";
+
+/// Build the follow-up request: prior context + coach note + student reply,
+/// plain text response (no tool call — this is conversational).
+fn build_followup_request(input: &CoachInput, note: &str, rebuttal: &str) -> serde_json::Value {
+    let mut text = user_text(input);
+    text.push_str(&format!(
+        "\n\nYOUR EARLIER COACHING NOTE\n{note}\n\nTHE STUDENT'S REPLY\n{rebuttal}\n\nAnswer the student's reply."
+    ));
+    json!({
+        "model": MODEL,
+        "max_tokens": 512,
+        "system": FOLLOWUP_SYSTEM,
+        "messages": [{ "role": "user", "content": text }]
+    })
+}
+
+/// Extract the plain-text reply from a followup response body.
+fn parse_followup_response(v: &serde_json::Value) -> Result<String, String> {
+    if v["stop_reason"] == "refusal" {
+        return Err("The model declined to reply".to_string());
+    }
+    let blocks = v["content"].as_array().ok_or("No content in model response")?;
+    let text = blocks
+        .iter()
+        .find(|b| b["type"] == "text")
+        .and_then(|b| b["text"].as_str())
+        .ok_or("No text in model response")?;
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("Empty reply from model".to_string());
+    }
+    Ok(text.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Tauri command
 // ---------------------------------------------------------------------------
@@ -271,6 +325,36 @@ pub async fn coach_feedback(input: CoachInput) -> Result<CoachFeedback, String> 
     parse_response(&v)
 }
 
+/// One follow-up round: the student's rebuttal to the coach's note gets a
+/// single grounded reply. Same degrade-to-hint error contract as the note.
+#[tauri::command]
+pub async fn coach_followup(input: CoachInput, note: String, rebuttal: String) -> Result<String, String> {
+    let key = anthropic_api_key()?;
+    let body = build_followup_request(&input, &note, &rebuttal);
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Anthropic request failed: {e}"))?;
+
+    let status = resp.status();
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Bad response from Anthropic API: {e}"))?;
+    if !status.is_success() {
+        let msg = v["error"]["message"].as_str().unwrap_or("unknown error");
+        return Err(format!("Anthropic API {status}: {msg}"));
+    }
+    parse_followup_response(&v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,6 +379,28 @@ mod tests {
             white_elo: Some(2100),
             black_elo: Some(2080),
         }
+    }
+
+    #[test]
+    fn followup_request_carries_note_and_rebuttal_as_plain_text() {
+        let req = build_followup_request(&sample_input(), "You missed Nxe2.", "I saw it but didn't want to lose castling.");
+        assert_eq!(req["model"], "claude-opus-4-8");
+        assert!(req.get("tools").is_none(), "followup is conversational, no tool call");
+        let text = req["messages"][0]["content"].as_str().unwrap();
+        assert!(text.contains("YOUR EARLIER COACHING NOTE"));
+        assert!(text.contains("You missed Nxe2."));
+        assert!(text.contains("lose castling"));
+        assert!(text.contains("ENGINE EVIDENCE"), "position context still present");
+    }
+
+    #[test]
+    fn followup_parse_takes_text_and_rejects_empty() {
+        let ok = json!({ "stop_reason": "end_turn", "content": [{ "type": "text", "text": " A fair concern. " }] });
+        assert_eq!(parse_followup_response(&ok).unwrap(), "A fair concern.");
+        let empty = json!({ "stop_reason": "end_turn", "content": [{ "type": "text", "text": "  " }] });
+        assert!(parse_followup_response(&empty).is_err());
+        let refusal = json!({ "stop_reason": "refusal", "content": [] });
+        assert!(parse_followup_response(&refusal).is_err());
     }
 
     /// The wire shape the frontend sends for a v1 calibration session (no v2

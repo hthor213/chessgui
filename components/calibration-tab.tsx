@@ -22,6 +22,7 @@ import {
   sampleSession,
   saveResults,
   coachFeedback,
+  coachFollowup,
   coachInputFor,
   normalizeAnswer,
   RESULTS_VERSION,
@@ -137,6 +138,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   // The just-locked answer under the optional "second look" step (between commit
   // and reveal — self-correction before any engine feedback), or null.
   const [secondLook, setSecondLook] = useState<Reveal | null>(null)
+  // Bumped on take-back to force a Board rebuild (resets the dragged piece).
+  const [boardNonce, setBoardNonce] = useState(0)
   // The just-locked answer being revealed, or null when answering.
   const [revealed, setRevealed] = useState<Reveal | null>(null)
   // Position-shown time (elapsed clock) and first-interaction time (think clock).
@@ -312,6 +315,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         revision_note: null,
         revised_at: null,
         coach: null,
+        rebuttal: null,
+        coach_reply: null,
         skipped,
       }
       const nextAnswers = [...answers.filter((a) => a.index !== index), answer].sort(
@@ -321,9 +326,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       // Persist immediately at the locked index so a crash mid-step never loses
       // the answer (resume lands on the next position).
       persist(session, nextAnswers, index + 1, showReveal, showCoach)
-      // Answered positions get the optional second look; a skip goes straight on.
-      if (skipped) proceedToReveal(answer, current, nextAnswers)
-      else setSecondLook({ answer, position: current })
+      // Straight to the reveal. (The second-look step was retired 2026-07-14:
+      // under the X/✓ commit model everything is editable until commit, so a
+      // post-commit "revise" prompt added friction without adding data. Old
+      // answers keep their revised_* fields.)
+      proceedToReveal(answer, current, nextAnswers)
     },
     [session, current, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, proceedToReveal],
   )
@@ -366,6 +373,19 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     [session, index, persist, showReveal, showCoach],
   )
 
+  // Store the user's rebuttal + the coach's follow-up reply on its answer.
+  // Additive only, like onCoachResult — the committed answer never changes.
+  const onRebuttal = useCallback(
+    (answerIndex: number, rebuttal: string, reply: string | null) => {
+      setAnswers((prev) => {
+        const next = prev.map((a) => (a.index === answerIndex ? { ...a, rebuttal, coach_reply: reply } : a))
+        if (session) persist(session, next, index + 1, showReveal, showCoach)
+        return next
+      })
+    },
+    [session, index, persist, showReveal, showCoach],
+  )
+
   // Input setters that also stop the think clock on first use.
   const onEvalChange = useCallback(
     (v: string) => {
@@ -382,7 +402,10 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     [markInteraction],
   )
 
-  const canSubmit = evalInput.trim() !== "" && !Number.isNaN(parseFloat(evalInput))
+  // Committing requires a move AND an eval (2026-07-14). The written "why" is
+  // bonus — the coach evaluates the move alone and the dialogue can fill in
+  // the reasoning afterwards.
+  const canSubmit = evalInput.trim() !== "" && !Number.isNaN(parseFloat(evalInput)) && moveUci !== null
 
   const legalMoves = useMemo(() => (current ? legalDests(current.fen) : new Map<Key, Key[]>()), [current])
   const arrow = (uci: string, brush: string): DrawShape => ({
@@ -463,7 +486,14 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           moveShapes={moveShapes}
           moveUci={moveUci}
           onBoardMove={onBoardMove}
-          onClearMove={() => setMoveUci(null)}
+          onClearMove={() => {
+            // Take-back: clear the stored move AND force a board rebuild so
+            // the visually-moved piece snaps home (chessground keeps its own
+            // state; the fen prop alone doesn't change here).
+            setMoveUci(null)
+            setBoardNonce((n) => n + 1)
+          }}
+          boardNonce={boardNonce}
           evalInput={evalInput}
           setEvalInput={onEvalChange}
           why={why}
@@ -478,6 +508,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           onContinueReveal={onContinueReveal}
           showCoach={showCoach}
           onCoachResult={onCoachResult}
+          onRebuttal={onRebuttal}
           onNext={() => submit(false)}
           onSkip={() => submit(true)}
         />
@@ -685,6 +716,7 @@ function AnsweringScreen({
   moveUci,
   onBoardMove,
   onClearMove,
+  boardNonce,
   evalInput,
   setEvalInput,
   why,
@@ -699,6 +731,7 @@ function AnsweringScreen({
   onContinueReveal,
   showCoach,
   onCoachResult,
+  onRebuttal,
   onNext,
   onSkip,
 }: {
@@ -712,6 +745,7 @@ function AnsweringScreen({
   moveUci: string | null
   onBoardMove: (from: Key, to: Key) => void
   onClearMove: () => void
+  boardNonce: number
   evalInput: string
   setEvalInput: (s: string) => void
   why: string
@@ -726,6 +760,7 @@ function AnsweringScreen({
   onContinueReveal: () => void
   showCoach: boolean
   onCoachResult: (index: number, coach: CoachFeedback) => void
+  onRebuttal: (index: number, rebuttal: string, reply: string | null) => void
   onNext: () => void
   onSkip: () => void
 }) {
@@ -749,6 +784,7 @@ function AnsweringScreen({
             Eval signs stay absolute (+ = White) regardless of orientation. */}
         <div className="flex-1 min-w-0 flex items-center justify-center" data-testid="calib-board">
           <Board
+            key={boardNonce}
             fen={position.fen}
             orientation={whiteToMove ? "white" : "black"}
             movableColor={whiteToMove ? "white" : "black"}
@@ -779,6 +815,7 @@ function AnsweringScreen({
               onContinue={onContinueReveal}
               showCoach={showCoach}
               onCoachResult={onCoachResult}
+              onRebuttal={onRebuttal}
             />
           ) : (
           <>
@@ -802,7 +839,7 @@ function AnsweringScreen({
                 <button
                   key={v}
                   onClick={() => setEvalInput(String(v))}
-                  className="px-2 py-1 text-xs rounded border border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5 tabular-nums"
+                  className="px-2.5 py-1.5 text-sm rounded border border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5 tabular-nums"
                 >
                   {v > 0 ? `+${v}` : v}
                 </button>
@@ -822,18 +859,23 @@ function AnsweringScreen({
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium">Your move</label>
+            <label className="text-base font-medium">Your move</label>
             {moveUci ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 text-base text-muted-foreground">
                 <span className="font-mono text-foreground">{moveUci}</span>
-                <button className="text-xs hover:text-foreground underline" onClick={onClearMove}>
-                  clear
+                <button
+                  className="px-2 py-0.5 rounded border border-red-400/30 text-red-300/90 hover:bg-red-500/10 text-sm"
+                  onClick={onClearMove}
+                  title="Take back — try a different move"
+                  data-testid="calib-takeback"
+                >
+                  ✕ take back
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-sm text-amber-200/90">
+              <div className="flex items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-base text-amber-200/90">
                 <span aria-hidden>↳</span>
-                <span>Click the move you&apos;d play — optional, but valuable data.</span>
+                <span>Click the move you&apos;d play — required.</span>
               </div>
             )}
           </div>
@@ -850,8 +892,14 @@ function AnsweringScreen({
               Don&apos;t count my time on this one (distracted / stepped away)
             </label>
             <div className="flex gap-2">
-              <Button onClick={onNext} disabled={!canSubmit} className="flex-1" data-testid="calib-next">
-                Next
+              <Button
+                onClick={onNext}
+                disabled={!canSubmit}
+                className="flex-1 text-base bg-emerald-600 hover:bg-emerald-500 text-white"
+                title={canSubmit ? "Commit this answer" : "A move and an eval are required to commit"}
+                data-testid="calib-next"
+              >
+                ✓ Commit
               </Button>
               <Button variant="outline" onClick={onSkip} data-testid="calib-skip">
                 Skip
@@ -935,11 +983,13 @@ function RevealCard({
   onContinue,
   showCoach,
   onCoachResult,
+  onRebuttal,
 }: {
   reveal: Reveal
   onContinue: () => void
   showCoach: boolean
   onCoachResult: (index: number, coach: CoachFeedback) => void
+  onRebuttal: (index: number, rebuttal: string, reply: string | null) => void
 }) {
   const { answer, position } = reveal
   const sf = sfEvalPawns(position)
@@ -950,7 +1000,30 @@ function RevealCard({
   const [coach, setCoach] = useState<CoachFeedback | null>(answer.coach)
   const [coachError, setCoachError] = useState<string | null>(null)
   const [coachLoading, setCoachLoading] = useState(false)
+  // Rebuttal round: the user's reply to the note + the coach's reply to that.
+  const [rebuttalText, setRebuttalText] = useState("")
+  const [sentRebuttal, setSentRebuttal] = useState<string | null>(answer.rebuttal)
+  const [coachReply, setCoachReply] = useState<string | null>(answer.coach_reply)
+  const [replyLoading, setReplyLoading] = useState(false)
   const wantCoach = showCoach && !answer.skipped
+
+  const sendRebuttal = useCallback(() => {
+    const text = rebuttalText.trim()
+    if (!text || !coach) return
+    setSentRebuttal(text)
+    setReplyLoading(true)
+    coachFollowup(coachInputFor(answer, position), coach.note, text)
+      .then((reply) => {
+        setCoachReply(reply)
+        onRebuttal(answer.index, text, reply)
+      })
+      .catch(() => {
+        // Reply failed: keep the rebuttal (it's data), degrade the reply.
+        setCoachReply(null)
+        onRebuttal(answer.index, text, null)
+      })
+      .finally(() => setReplyLoading(false))
+  }, [rebuttalText, coach, answer, position, onRebuttal])
   useEffect(() => {
     if (!wantCoach || answer.coach) {
       setCoach(answer.coach)
@@ -976,18 +1049,18 @@ function RevealCard({
   return (
     <div className="flex flex-col gap-3" data-testid="calib-reveal">
       <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2.5">
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between text-base">
           <span className="text-muted-foreground">Your eval</span>
           <span className="font-mono tabular-nums">
             {answer.skipped || answer.eval == null ? "skipped" : formatPawns(answer.eval)}
           </span>
         </div>
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between text-base">
           <span className="text-muted-foreground">Stockfish</span>
           <span className="font-mono tabular-nums text-foreground">{formatPawns(sf)}</span>
         </div>
         {!answer.skipped && answer.eval != null && (
-          <div className="flex items-center justify-between text-sm border-t border-white/10 pt-2">
+          <div className="flex items-center justify-between text-base border-t border-white/10 pt-2">
             <span className="text-muted-foreground">Off by</span>
             <span className="font-mono tabular-nums text-amber-300">
               {Math.abs(answer.eval - sf).toFixed(1)}
@@ -996,7 +1069,7 @@ function RevealCard({
         )}
       </div>
 
-      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5 text-sm">
+      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5 text-base">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Best move</span>
           <span className="font-mono text-blue-300">{position.sf_best_san ?? position.sf_best_uci}</span>
@@ -1030,6 +1103,35 @@ function RevealCard({
                       {t.replace(/_/g, " ")}
                     </span>
                   ))}
+                </div>
+              )}
+              {sentRebuttal == null ? (
+                <div className="space-y-1.5 pt-1" data-testid="calib-rebuttal-form">
+                  <Textarea
+                    value={rebuttalText}
+                    onChange={(e) => setRebuttalText(e.target.value)}
+                    placeholder="Respond to the coach (optional) — e.g. “I saw that move, but…”"
+                    className="min-h-[60px] text-sm"
+                    data-testid="calib-rebuttal-input"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={rebuttalText.trim() === ""}
+                    onClick={sendRebuttal}
+                    data-testid="calib-rebuttal-send"
+                  >
+                    Send
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-1.5 pt-1 border-t border-sky-500/15" data-testid="calib-rebuttal-thread">
+                  <p className="text-sm text-foreground/80 italic">You: {sentRebuttal}</p>
+                  {replyLoading && <p className="text-sm text-muted-foreground">Coach is considering…</p>}
+                  {coachReply && <p className="text-sm text-foreground/90">{coachReply}</p>}
+                  {!replyLoading && !coachReply && (
+                    <p className="text-xs text-muted-foreground">Reply unavailable — your response is saved.</p>
+                  )}
                 </div>
               )}
             </>

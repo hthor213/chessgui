@@ -172,6 +172,13 @@ export async function buildMockSession(
 
 /** Canned coach critique for headless/browser runs (no API call). Echoes a
  *  couple of the input's own details so the UI wiring is visibly exercised. */
+/** Canned follow-up reply for headless/browser runs (no API call). */
+export async function mockCoachFollowup(rebuttal: string): Promise<string> {
+  await new Promise((r) => setTimeout(r, 150))
+  const gist = rebuttal.trim().slice(0, 40)
+  return `That's a fair pushback ("${gist}…") — your stated reason is a real practical consideration, and the data I have can't fully settle it. Take it to the board and check the line yourself; that instinct to interrogate the engine is exactly right.`
+}
+
 export async function mockCoachFeedback(input: CoachInput): Promise<CoachFeedback> {
   await new Promise((r) => setTimeout(r, 150))
   const dir = (input.user_eval ?? 0) >= 0 ? "White" : "Black"

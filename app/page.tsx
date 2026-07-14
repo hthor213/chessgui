@@ -441,7 +441,7 @@ export default function Home() {
           </div>
           <nav className="flex items-center gap-1">
             <button
-              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
                 view === "board" && (tournamentRunning || isPlayMode) ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               }`}
               onClick={() => {
@@ -455,7 +455,7 @@ export default function Home() {
               {tournamentRunning ? "View" : "Play"}
             </button>
             <button
-              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
                 view === "board" && engine.state.isRunning && !isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               }`}
               onClick={() => {
@@ -467,7 +467,7 @@ export default function Home() {
               Analyze
             </button>
             <button
-              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
                 view === "tournament" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               }`}
               onClick={() => setView("tournament")}
@@ -476,7 +476,7 @@ export default function Home() {
               Tournament
             </button>
             <button
-              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
                 view === "database" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               }`}
               onClick={() => setView("database")}
@@ -485,12 +485,12 @@ export default function Home() {
               Database
             </button>
             {view === "thinking" && (
-              <button className="px-3 py-1.5 text-sm rounded-md text-foreground font-medium bg-white/5" title="Thinking mode — board and eval bar only">
+              <button className="px-3 py-1.5 text-base rounded-md text-foreground font-medium bg-white/5" title="Thinking mode — board and eval bar only">
                 Thinking
               </button>
             )}
             <button
-              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
                 view === "learn" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
               }`}
               onClick={() => setView("learn")}
@@ -786,7 +786,7 @@ export default function Home() {
             {/* Control bar */}
             <div className="flex items-center gap-2">
               <button
-                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
                 onClick={() => {
                   if (isPlayMode) {
                     // Take-back: cancel any in-flight engine search, reset the
@@ -803,35 +803,35 @@ export default function Home() {
                 Undo
               </button>
               <button
-                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
                 onClick={() => game.flipBoard()}
                 title="Flip board (F)"
               >
                 Flip
               </button>
               <button
-                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
                 onClick={() => game.newGame()}
                 title="New game"
               >
                 New
               </button>
               <button
-                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
                 onClick={() => { setPgnInitialText(""); setPgnDialogOpen(true) }}
                 title="Import PGN or FEN (⌘V)"
               >
                 Import
               </button>
               <button
-                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
                 onClick={handleExport}
                 title="Export game as PGN"
               >
                 Export
               </button>
               <button
-                className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
                 onClick={() => setEditorOpen(true)}
                 title="Set up position (⌘E)"
               >
@@ -840,7 +840,7 @@ export default function Home() {
               {!isPlayMode && (
                 <button
                   data-testid="play-this-out"
-                  className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                  className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
                   onClick={() => {
                     setTournamentPresetNonce((n) => n + 1)
                     setView("tournament")
