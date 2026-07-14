@@ -12,6 +12,8 @@ import { PromotionDialog } from "@/components/promotion-dialog"
 import { PgnImportDialog } from "@/components/pgn-import-dialog"
 import { PositionEditorDialog } from "@/components/position-editor-dialog"
 import { ErrorBoundary } from "@/components/error-boundary"
+import { CapturedPieces } from "@/components/captured-pieces"
+import { computeMaterial } from "@/lib/material"
 import { TournamentTab } from "@/components/tournament-tab"
 import { DatabaseTab } from "@/components/database-tab"
 import { parsePgnToTrees } from "@/lib/pgn"
@@ -59,6 +61,14 @@ export default function Home() {
     [game.loadTree, engine.setPlayMode],
   )
   const turn = game.fen.includes(" w ") ? ("white" as const) : ("black" as const)
+
+  // Captured pieces + point balance, derived from the current node's FEN so it
+  // tracks tree navigation, and diffed against startFen so custom start
+  // positions (position editor) count correctly. Rows follow the board
+  // orientation: the bottom tray belongs to the player at the bottom.
+  const material = useMemo(() => computeMaterial(game.startFen, game.fen), [game.startFen, game.fen])
+  const bottomColor = game.orientation
+  const topColor = bottomColor === "white" ? ("black" as const) : ("white" as const)
   const isPlayMode = engine.state.mode === "play"
   const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
@@ -597,6 +607,13 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Pieces the top player has captured (+x when ahead on points) */}
+            <CapturedPieces
+              testId="captured-top"
+              captured={topColor === "white" ? material.capturedByWhite : material.capturedByBlack}
+              points={material.advantage === topColor ? material.points : 0}
+            />
+
             {/* Game info */}
             {game.headers["White"] && (
               <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-3">
@@ -635,8 +652,19 @@ export default function Home() {
               </div>
             )}
 
+            {/* Pieces the bottom player has captured. mt-auto keeps this row
+                pinned directly above the bottom clock (the status banner's own
+                mt-auto still floats it in the space above). */}
+            <div className="mt-auto">
+              <CapturedPieces
+                testId="captured-bottom"
+                captured={bottomColor === "white" ? material.capturedByWhite : material.capturedByBlack}
+                points={material.advantage === bottomColor ? material.points : 0}
+              />
+            </div>
+
             {/* Player card (bottom of board) */}
-            <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-4 mt-auto">
+            <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
                   <span className="text-sm font-medium">
