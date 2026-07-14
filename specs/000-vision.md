@@ -25,11 +25,11 @@ Take the best of three existing chess tools and combine them:
 
 ## Philosophy
 
-Think of this as a **modern ChessBase with most of the features, twice the polish, and much simpler**. ChessBase has 20 ways to do the same thing due to legacy and a complicated UX that accreted over decades. We aim for 80% of the total feature surface but 99% of what serious players actually use day-to-day. Every feature earns its place; nothing ships just because a competitor has it.
+Think of this as a **modern ChessBase with most of the features, twice the polish, and much simpler**. ChessBase has 20 ways to do the same thing. ChessBase has become a bloat, outdated UX, and a complicated UX that accreted over decades. We aim for 80% of the total feature surface but 99% of what serious players actually use day-to-day. Every feature earns its place; nothing ships just because a competitor has it.
 
 ## Feature Map
 
-The app is organized around **seven core modules**. Together they cover the workflows that matter: prepare, analyze, study, and compete.
+The app is organized around **nine core modules**. Together they cover the workflows that matter: prepare, analyze, study, compete — and improve. (Modules 8–9 were added 2026-07-14 after forum/coach/GM research, `docs/research/chessbase-usage-research.md`: the improver consensus is that tactics volume and disciplined own-game review carry a player from ~1200 to ~1900, while deep database/explorer work pays off only from ~1800–1900 up. Rejected as modules for the same reason: opponent-prep dossiers (2200+ workflow), repertoire spaced-repetition, endgame-tablebase browsing.)
 
 ### 1. Interactive Board & Game Navigation
 The foundation. A polished Chessground board with legal move highlighting, drag-and-drop, arrow/circle annotations, premove, coordinate display, and full keyboard navigation (←/→ through moves, Home/End, up/down through variations). Board flip, piece themes, board themes.
@@ -92,6 +92,22 @@ Pit engines against each other — fun, useful for engine testing, and a feature
 - Real-time standings table (wins, draws, losses, ELO performance)
 - PGN export of all tournament games
 - Support for multiple concurrent games (parallel matches)
+
+### 8. Tactics Training
+The highest-value training surface below ~1900 (research: 50% of study time at that band).
+Not another puzzle site clone — decks built from OUR data:
+- Avoidance puzzles ("don't step on the rake") mined from the banded corpus — spec:211
+- Calibration decks stratified by training value (conversion, critical, endgame, level) — the Learn tab's sampler v3
+- Failed-puzzle respawn (spaced-repetition hook), streaks, per-deck stats
+- Difficulty from real band miss-rates once the mining data exists, not hand-tuned ratings
+
+### 9. Game Review & Mistake Analysis
+Own-game review is the other half of the improvement consensus — engine-assisted but engine-LAST:
+commit your own eval and reasoning first, then see the evidence. This is the Learn tab grown up.
+- Eval-calibration sessions with the AI coach (note → rebuttal → reply dialogue) — spec:213 Phase 0
+- Cause-tagged mistake taxonomy (the machine-labeled per-player error signature)
+- Import your own games (Lichess/chess.com) and review them under the same discipline
+- Per-phase/per-deck skill tracking over time; Elo-conditioned "visible from ~R" mistake labels — spec:212/213
 
 ## Principles
 
