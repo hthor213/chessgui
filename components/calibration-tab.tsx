@@ -126,6 +126,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   // Session-level: show the post-answer reveal card, or run blind (no feedback
   // between positions — methodologically distinct data).
   const [showReveal, setShowReveal] = useState(true)
+  // The just-locked answer under the optional "second look" step (between commit
+  // and reveal — self-correction before any engine feedback), or null.
+  const [secondLook, setSecondLook] = useState<Reveal | null>(null)
   // The just-locked answer being revealed, or null when answering.
   const [revealed, setRevealed] = useState<Reveal | null>(null)
   // Position-shown time (elapsed clock) and first-interaction time (think clock).
@@ -248,11 +251,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     [clearStorage, showReveal],
   )
 
-  // Advance to the next position (or finish). Shared by the no-reveal path and
-  // the reveal card's Continue button.
+  // Advance to the next position (or finish). Shared by every exit path.
   const advance = useCallback(
     (finalAnswers: CalibrationAnswer[]) => {
       if (!session) return
+      setSecondLook(null)
       setRevealed(null)
       const nextIndex = index + 1
       if (nextIndex >= session.positions.length) {
@@ -266,13 +269,23 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     [session, index, finish, resetInputs, persist, showReveal],
   )
 
+  // After the (optional) second look: show the reveal, or advance if blind.
+  const proceedToReveal = useCallback(
+    (answer: CalibrationAnswer, position: CalibrationPosition, finalAnswers: CalibrationAnswer[]) => {
+      setSecondLook(null)
+      if (showReveal) setRevealed({ answer, position })
+      else advance(finalAnswers)
+    },
+    [showReveal, advance],
+  )
+
   const submit = useCallback(
     (skipped: boolean) => {
       if (!session || !current) return
       const parsed = parseFloat(evalInput)
       const now = Date.now()
-      // answer_locked_at is stamped HERE, before any reveal renders — the
-      // reveal provably cannot influence the committed answer.
+      // answer_locked_at is stamped HERE, before any second look or reveal
+      // renders — neither can influence the committed answer.
       const answer: CalibrationAnswer = {
         index,
         eval: skipped || Number.isNaN(parsed) ? null : parsed,
@@ -285,24 +298,46 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
             : firstInteractionAt.current - startedAt.current,
         time_excluded: timeExcluded,
         answer_locked_at: now,
+        revised_eval: null,
+        revision_note: null,
+        revised_at: null,
         skipped,
       }
       const nextAnswers = [...answers.filter((a) => a.index !== index), answer].sort(
         (a, b) => a.index - b.index,
       )
       setAnswers(nextAnswers)
-      // Persist immediately at the locked index so a crash mid-reveal never
-      // loses the answer (resume lands on the next position).
-      const nextIndex = index + 1
-      persist(session, nextAnswers, nextIndex, showReveal)
-      if (showReveal) {
-        // Answer is locked; show feedback, then advance on Continue.
-        setRevealed({ answer, position: current })
-      } else {
-        advance(nextAnswers)
-      }
+      // Persist immediately at the locked index so a crash mid-step never loses
+      // the answer (resume lands on the next position).
+      persist(session, nextAnswers, index + 1, showReveal)
+      // Answered positions get the optional second look; a skip goes straight on.
+      if (skipped) proceedToReveal(answer, current, nextAnswers)
+      else setSecondLook({ answer, position: current })
     },
-    [session, current, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, advance],
+    [session, current, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, proceedToReveal],
+  )
+
+  // Second look done: apply an optional revision (original stays immutable), then
+  // proceed to the reveal.
+  const finishSecondLook = useCallback(
+    (revision: { revised_eval: number | null; revision_note: string } | null) => {
+      if (!secondLook || !session) return
+      let answer = secondLook.answer
+      let finalAnswers = answers
+      if (revision && (revision.revised_eval != null || revision.revision_note.trim() !== "")) {
+        answer = {
+          ...answer,
+          revised_eval: revision.revised_eval,
+          revision_note: revision.revision_note.trim() || null,
+          revised_at: Date.now(),
+        }
+        finalAnswers = answers.map((a) => (a.index === answer.index ? answer : a))
+        setAnswers(finalAnswers)
+        persist(session, finalAnswers, index + 1, showReveal)
+      }
+      proceedToReveal(answer, secondLook.position, finalAnswers)
+    },
+    [secondLook, session, answers, index, persist, showReveal, proceedToReveal],
   )
 
   const onContinueReveal = useCallback(() => advance(answers), [advance, answers])
@@ -331,8 +366,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     dest: uci.slice(2, 4) as Key,
     brush,
   })
-  // While answering: the user's own move (green). While revealing: their move
-  // (green) plus Stockfish's best (blue), for a side-by-side compare.
+  // While answering / second look: the user's own move (green). While revealing:
+  // their move (green) plus Stockfish's best (blue), for a side-by-side compare.
   const moveShapes = useMemo<DrawShape[]>(() => {
     if (revealed) {
       const shapes: DrawShape[] = []
@@ -341,8 +376,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       if (best && best.length >= 4) shapes.push(arrow(best, "blue"))
       return shapes
     }
+    if (secondLook) {
+      return secondLook.answer.move_uci ? [arrow(secondLook.answer.move_uci, "green")] : []
+    }
     return moveUci ? [arrow(moveUci, "green")] : []
-  }, [revealed, moveUci])
+  }, [revealed, secondLook, moveUci])
 
   const onBoardMove = useCallback(
     (from: Key, to: Key) => {
@@ -408,6 +446,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           canSubmit={canSubmit}
           timeExcluded={timeExcluded}
           onToggleTimeExcluded={() => setTimeExcluded((v) => !v)}
+          secondLook={secondLook}
+          onFinishSecondLook={finishSecondLook}
           reveal={revealed}
           onContinueReveal={onContinueReveal}
           onNext={() => submit(false)}
@@ -600,6 +640,8 @@ function AnsweringScreen({
   canSubmit,
   timeExcluded,
   onToggleTimeExcluded,
+  secondLook,
+  onFinishSecondLook,
   reveal,
   onContinueReveal,
   onNext,
@@ -623,6 +665,8 @@ function AnsweringScreen({
   canSubmit: boolean
   timeExcluded: boolean
   onToggleTimeExcluded: () => void
+  secondLook: Reveal | null
+  onFinishSecondLook: (r: { revised_eval: number | null; revision_note: string } | null) => void
   reveal: Reveal | null
   onContinueReveal: () => void
   onNext: () => void
@@ -653,7 +697,7 @@ function AnsweringScreen({
             onMove={onBoardMove}
             legalMoves={legalMoves}
             autoShapes={moveShapes}
-            viewOnly={!!reveal}
+            viewOnly={!!(reveal || secondLook)}
             onBoardSize={setBoardSize}
           />
         </div>
@@ -669,7 +713,9 @@ function AnsweringScreen({
             </span>
           </div>
 
-          {reveal ? (
+          {secondLook ? (
+            <SecondLookCard answer={secondLook.answer} onDone={onFinishSecondLook} />
+          ) : reveal ? (
             <RevealCard reveal={reveal} onContinue={onContinueReveal} />
           ) : (
           <>
@@ -713,19 +759,20 @@ function AnsweringScreen({
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium">Your move (optional)</label>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {moveUci ? (
-                <>
-                  <span className="font-mono text-foreground">{moveUci}</span>
-                  <button className="text-xs hover:text-foreground underline" onClick={onClearMove}>
-                    clear
-                  </button>
-                </>
-              ) : (
-                <span>Click a move on the board</span>
-              )}
-            </div>
+            <label className="text-sm font-medium">Your move</label>
+            {moveUci ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="font-mono text-foreground">{moveUci}</span>
+                <button className="text-xs hover:text-foreground underline" onClick={onClearMove}>
+                  clear
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-sm text-amber-200/90">
+                <span aria-hidden>↳</span>
+                <span>Click the move you&apos;d play — optional, but valuable data.</span>
+              </div>
+            )}
           </div>
 
           <div className="mt-auto pt-2 space-y-2">
@@ -751,6 +798,66 @@ function AnsweringScreen({
           </>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** Optional self-correction between commit and reveal — still no engine info, so
+ *  it measures the user's own second look, not a reaction to feedback. The
+ *  original answer is immutable; this only records a revision when given. */
+function SecondLookCard({
+  answer,
+  onDone,
+}: {
+  answer: CalibrationAnswer
+  onDone: (r: { revised_eval: number | null; revision_note: string } | null) => void
+}) {
+  const [revisedEval, setRevisedEval] = useState("")
+  const [note, setNote] = useState("")
+  const save = () => {
+    const parsed = parseFloat(revisedEval)
+    onDone({ revised_eval: Number.isNaN(parsed) ? null : parsed, revision_note: note })
+  }
+  const hasRevision = revisedEval.trim() !== "" || note.trim() !== ""
+  return (
+    <div className="flex flex-col gap-3" data-testid="calib-secondlook">
+      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+        <p className="text-sm font-medium text-foreground">Take a second look — see anything new?</p>
+        <p className="text-xs text-muted-foreground">
+          Your answer is locked{answer.eval != null ? ` at ${formatPawns(answer.eval)}` : ""}. If a
+          fresh glance changes your mind, note it — otherwise skip. (No engine info yet.)
+        </p>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">Revised eval (optional)</label>
+          <Input
+            type="number"
+            step={0.1}
+            inputMode="decimal"
+            value={revisedEval}
+            onChange={(e) => setRevisedEval(e.target.value)}
+            data-testid="calib-revised-eval"
+            placeholder={answer.eval != null ? formatPawns(answer.eval) : "e.g. +1.0"}
+            className="tabular-nums"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">What did you catch? (optional)</label>
+          <Input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            data-testid="calib-revision-note"
+            placeholder="e.g. missed the Qe1 defending"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button onClick={save} disabled={!hasRevision} className="flex-1" data-testid="calib-save-revision">
+          Save revision
+        </Button>
+        <Button variant="outline" onClick={() => onDone(null)} data-testid="calib-skip-secondlook">
+          Nothing new
+        </Button>
       </div>
     </div>
   )

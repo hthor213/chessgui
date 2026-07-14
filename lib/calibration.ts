@@ -100,6 +100,15 @@ export type CalibrationAnswer = {
    * answer. 0 for answers that predate this field.
    */
   answer_locked_at: number
+  // --- Second look: an optional revision the user makes AFTER locking but
+  //     BEFORE any engine feedback. The original eval/why above are immutable;
+  //     these record the self-correction (a per-band skill signature). ---
+  /** Revised eval in pawns, or null if they didn't revise. */
+  revised_eval: number | null
+  /** One-line note on what they caught (e.g. "missed the Qe1"), or null. */
+  revision_note: string | null
+  /** Unix-ms of the revision, or null. */
+  revised_at: number | null
   skipped: boolean
 }
 
@@ -203,6 +212,9 @@ export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
     think_ms: hasThink ? a.think_ms : null,
     time_excluded: hasThink ? a.time_excluded ?? false : true,
     answer_locked_at: a.answer_locked_at ?? 0,
+    revised_eval: a.revised_eval ?? null,
+    revision_note: a.revision_note ?? null,
+    revised_at: a.revised_at ?? null,
   }
 }
 

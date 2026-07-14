@@ -50,6 +50,9 @@ function ans(over: Partial<CalibrationAnswer>): CalibrationAnswer {
     think_ms: 3000,
     time_excluded: false,
     answer_locked_at: 1_000_000,
+    revised_eval: null,
+    revision_note: null,
+    revised_at: null,
     skipped: false,
     ...over,
   }
@@ -254,6 +257,10 @@ describe("normalizeAnswer — retroactive upgrade", () => {
     expect(up.time_excluded).toBe(true)
     // No lock timestamp on old answers → 0 (unknown), not undefined.
     expect(up.answer_locked_at).toBe(0)
+    // Second-look fields default to null when absent.
+    expect(up.revised_eval).toBeNull()
+    expect(up.revision_note).toBeNull()
+    expect(up.revised_at).toBeNull()
     // A current-schema answer is left as-is.
     const cur = ans({ index: 1, think_ms: 5000, time_excluded: false })
     expect(normalizeAnswer(cur).time_excluded).toBe(false)

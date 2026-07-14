@@ -108,8 +108,18 @@ One per position the user reached (in session order).
 | `elapsed_ms` | int            | Wall time from position-shown to submit (includes typing). |
 | `think_ms`   | int \| null    | Think time: position-shown → first interaction (first keystroke or board move). The meaningful metric — typing time is not thinking time. `null` if never interacted, or for answers that predate this field. |
 | `time_excluded` | bool        | The user asked not to count their time here (distracted), or the answer predates `think_ms`. The answer still counts for eval accuracy; only time analysis ignores it. |
-| `answer_locked_at` | int         | Unix-ms the answer was committed — stamped *before* any post-answer reveal renders, so the reveal provably could not have influenced the answer. `0` for answers predating this field. |
+| `answer_locked_at` | int         | Unix-ms the answer was committed — stamped *before* any second look or reveal renders, so neither could have influenced the answer. `0` for answers predating this field. |
+| `revised_eval` | float \| null | Second-look revised eval in pawns, or `null` if not revised. The original `eval`/`why` are never mutated. |
+| `revision_note` | string \| null | One-line note on what the second look caught (e.g. "missed the Qe1"), or `null`. |
+| `revised_at` | int \| null     | Unix-ms of the revision, or `null`. |
 | `skipped`    | bool           | True if the user skipped rather than answered. |
+
+The **second look** is an optional step between commit and reveal (still no
+engine info shown), so a revision measures the user's own fresh glance, not a
+reaction to feedback. Self-correction rate and magnitude (how often a second
+look catches a real miss, and by how much) is a per-band skill signature —
+`revised_eval − eval` against `sf_cp` tells you whether the correction moved
+toward or away from the engine.
 
 Answers are listed in **presentation order** and each carries its `index`, so
 learning / drift effects over a session are analysable.
