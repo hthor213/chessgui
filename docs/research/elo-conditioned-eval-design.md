@@ -136,6 +136,59 @@ confirmed the head is exposed (root Q ≈ −0.076 for the tested position). Tre
 free extra predictor to include in E1/E5 — if it calibrates well on the corpus, it becomes
 the instant-tier backbone; if not, we've spent nothing.
 
+### 1.5 Skill is a phase vector, not a scalar
+
+The user's framing, which generalizes: "I'm a 1200 — that just means that against
+another 1200 we score evenly. It says nothing about each stage of the game. I don't know
+openings, my middlegame might be 1350, and I mess up endgames — 'can I get piece X to
+place Y in time' and I move it to the wrong spot." A single Elo is the *integral* of
+skill over the game; the evaluator should condition on the profile, not just the
+integral.
+
+**General form.** The conditioning variable is a vector
+
+```
+R⃗ = (R_opening, R_middlegame, R_endgame)
+```
+
+and scalar R is the special case where the three are linked, R⃗ = (R, R, R). The UX
+follows: one slider by default, setting all three; an advanced "unlock phases" mode
+splits it into three.
+
+**Per-node conditioning.** The tree picks the Maia band by the phase of the position *at
+each node*, not at the root — and this matters, because a search tree crosses phase
+boundaries mid-line: a middlegame root whose critical line trades down has endgame
+leaves, and a player with weak endgames should evaluate exactly those leaves worse. When
+a line crosses the boundary, the conditioning switches with it. That makes "this
+middlegame is good for you *if* you can play the resulting endgame" a computable
+statement: the same position scores differently for a (1200, 1350, 1100) player than for
+a (1200, 1200, 1500) one. Phase heuristic: reuse the one already shipped in
+`calibration.rs` — non-pawn phase weight (24 at the start; ≤ 8 counts as endgame, above
+as middlegame), with opening = in-book / ply < 16 (the calibration sampler's `MIN_PLY`
+convention). One heuristic shared across calibration data, corpus tables, and the
+evaluator, so per-phase numbers stay comparable everywhere.
+
+**Estimating a player's vector.** The mining corpus's per-band × per-phase error tables
+(already planned in the 212/Phase-9 machinery) are the yardstick: measure a player's
+per-phase error rates and read off which band's norms they match — "plays middlegames
+like a 1350, endgames like an 1100." Two sources, in order of arrival:
+1. *Calibration sessions* (`calibration.rs`, live): sessions already stratify and record
+   phase per position, so the user's perceived-eval answers yield per-phase calibration
+   curves directly — the user-as-baseline datapoint is phase-resolved from day one.
+2. *Imported games* (later): the player's own games give a play-based vector through the
+   same per-phase error-rate machinery the corpus uses for bands.
+
+**Honest limitation — Maia's conditioning is scalar.** Maia bands are population Elo;
+per-phase conditioning is approximated by *choosing a different Maia-R per phase*. That
+assumes phase-skill independence in the population nets: Maia-1350's middlegame policy
+is the average middlegame of players whose *overall* rating is 1350 — not of players who
+are 1200 overall with a 1350 middlegame. If phase skills correlate in the population
+(they surely do, partially), the approximation is biased in a measurable direction. The
+corpus tests it directly — **E6** (§4): build per-player phase profiles, then check
+whose middlegame moves the "1200 overall, endgame-dragged" cohort actually matches,
+Maia-1200 or Maia-1350. The answer validates (or corrects) the phase-unlock feature and
+is a nice standalone result about how chess skill decomposes.
+
 ## 2. Assets and the inference path
 
 ### 2.1 Model inventory
@@ -284,17 +337,30 @@ d(R) ∈ {fixed 4, fixed 6, 4+R/400}; node caps. Selection metric: Brier from E1
 Output: frozen tier-1 defaults + a documented sensitivity table (if results are flat
 across p, say so — that's important honesty about how sharp the definition really is).
 
+### E6 — does phase-swapped Maia match phase-skilled players?
+Tests the phase-vector approximation of §1.5. Build per-player phase profiles from the
+corpus (per-phase error rates vs band norms, for players with enough games), then select
+the cohort whose overall rating is R but whose middlegame plays like R+Δ (e.g. 1200
+overall, 1350-middlegame — the "endgame-dragged" profile). Measure whose *middlegame*
+moves that cohort actually matches: Maia-1200 (conditioning on the integral) or Maia-1350
+(conditioning on the phase skill), by policy log-likelihood / top-1 match on their
+middlegame positions. Repeat per phase and per Δ. Outcome directly validates or corrects
+the "different Maia-R per phase" approximation — and is a standalone result about whether
+population nets factor by phase. Gates the phase-unlock UI: ship three sliders only after
+E6 says swapping bands by phase tracks reality better than the scalar.
+
 Two further experiments — **E-attention** and **E-history** — are defined in §5, because
 they measure the *mechanisms* the evaluator's coefficients come from rather than its
 end-to-end accuracy. Both run on the mining corpus using the Zobrist position machinery
 that already exists in `db.rs`.
 
-Priority order: **E1 → E-attention → E-history → E3 → E2 → E5 → E4.** E1 justifies the
-feature's existence; E-attention and E-history sit right behind it because they supply the
-coefficients that make tier-2 psychologically honest (§5) *and* are novel results in their
-own right regardless of how the evaluator fares; E3 validates the flagship visual; E2 ties
-it to the mining program; E5 tunes; E4 is the skeptic's check and can run last (it reuses
-E1's artifacts).
+Priority order: **E1 → E-attention → E-history → E3 → E2 → E5 → E4 → E6.** E1 justifies
+the feature's existence; E-attention and E-history sit right behind it because they supply
+the coefficients that make tier-2 psychologically honest (§5) *and* are novel results in
+their own right regardless of how the evaluator fares; E3 validates the flagship visual;
+E2 ties it to the mining program; E5 tunes; E4 is the skeptic's check and can run late (it
+reuses E1's artifacts); E6 is scheduled by product need — it must land before the
+phase-unlock UI ships, but blocks nothing else.
 
 ## 5. Perception psychology — the coefficients that make the tree honest
 
@@ -405,7 +471,33 @@ history, so Eval_R can carry the story-arch term; for a bare pasted FEN there is
 story, the evaluator falls back to h = neutral (position-only prior), and the UI must say
 which mode it is in rather than silently pretending the two are the same number.
 
-### 5.3 Status of the two pillars
+### 5.3 Counting — the endgame failure family
+
+The user's own endgame description names a third mechanism, distinct from the first two:
+"can I get piece X to place Y in time — and I move it to the wrong spot." That is a
+**counting / tempo-arithmetic failure**: racing calculation in *simplified* positions.
+Mechanistically it is not perceptual load (§5.1) — the board is nearly empty, there are
+no bystanders, branching is tiny — and not history dependence (§5.2). The position is
+easy to *see* and hard to *count*: king races, pawn breakthroughs, "does my rook get back
+in time," where the answer is an exact ply count and off-by-one loses.
+
+Two design consequences:
+1. **Taxonomy**: counting joins the mining taxonomy as its own cause family (alongside
+   the perceptual families like long-range piece / quiet move / backward move). Its
+   signature is measurable: errors concentrated in low-material positions whose
+   refutation is a forced line — so endgame difficulty for humans should correlate with
+   **required-count-depth** (length of the forced sequence that must be calculated
+   exactly), *not* with branching factor or Guid–Bratko instability, which is the
+   opposite of what middlegame difficulty looks like. That contrast is itself a testable
+   prediction for the mining program.
+2. **Evaluator**: in endgame-phase nodes (§1.5's phase heuristic), the candidate-set
+   breadth matters less than the *depth* the band can count exactly — the depth schedule
+   d(R⃗) should be phase-aware, with the endgame component calibrated against
+   counting-error rates per band rather than the middlegame's perceptual-load curves.
+   Tier-2+ refinement; recorded here so the endgame slider doesn't inherit a
+   middlegame-shaped model by default.
+
+### 5.4 Status of the pillars
 
 These are tier-2 coefficients gated on the mining corpus, not tier-1 blockers — tier 1
 ships with p0(R) flat and h neutral. But they are first-class design commitments, not
@@ -534,6 +626,7 @@ exists.
 |---|---|
 | Semantics | Tier-1: human-visible tree (minimax over top-p Maia-R candidates, Stockfish leaves). Tier-2 knob: expectimax temperature toward rollout semantics. Rollouts = validation ground truth, not runtime. |
 | Perspective | Both sides at R, one slider, White-POV display; asymmetric R deferred to tier 3. |
+| Skill profiles | General form is a phase vector R⃗ = (R_opening, R_middlegame, R_endgame); slider sets all three linked, advanced mode unlocks them. Conditioning switches per NODE at phase boundaries (calibration.rs heuristic: non-pawn weight ≤ 8 = endgame; ply < 16 = opening) — endgame-weak players evaluate trade-down lines worse. Player vectors estimated from per-phase error rates vs corpus band norms; calibration sessions are phase-resolved already. Phase-swapped Maia is an independence approximation — E6 tests it and gates the unlock UI. Endgame failures are a counting family (§5.3): difficulty tracks required-count-depth, not branching. |
 | Inference | lc0 subprocess + Maia-1 nets over UCI (`VerboseMoveStats`, `nodes=1`), warm per-band pool. Verified end-to-end on this machine: 13 ms warm/query. No Python/ONNX in the shipped app for tiers 0–1. |
 | Instant tier | Single-forward blend: weight SF eval by the Maia-R policy mass on SF's PV move; ~15 ms per slider stop. |
 | Psychology coefficients | Attention load (E-attention: matched-pair mining via action-zone local Zobrist, bystander dose-response) and story-arch state (E-history: same-position/different-history via the existing `db.rs` Zobrist index, post-blunder degradation curve) modulate candidate breadth and expectimax temperature per node — measured laws, not Maia interpolation. Tier-2, corpus-gated; history term needs game context and degrades to position-only on bare FENs. |
