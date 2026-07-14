@@ -74,8 +74,11 @@ profile match the human band it imitates?).
 - Human-game analysis (that's Phase 9 / spec:211's domain — this spec is the engine-lab lens).
 
 ## Checklist
-- [ ] Eval→win-prob curve derived from the run's own probability map (fallback: logistic fit)
-- [ ] Per-move win-prob swing labeling (config thresholds); unit tests on synthetic evals
+- [x] Eval→win-prob curve derived from the run's own probability map (fallback: logistic fit)
+      — `lib/win-prob.ts` (isotonic over ≥5-game bins, logistic tails/fallback)
+- [x] Per-move win-prob swing labeling (config thresholds); unit tests on synthetic evals
+      — `computeMoveSwings` @ 5/10/20pp; 21 tests. Gaps: `bestMoveGapCp` always null
+      (needs evaluator PV plumbing), per-move clocks not persisted by match_runner
 - [ ] Game list shows decisive moment + error counts per game; click → hop to position
 - [ ] Per-engine error profile table (label × phase × clock pressure) + delta view
 - [ ] Band trajectories (mean ± spread by starting bucket)

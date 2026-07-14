@@ -1,5 +1,57 @@
 # Last Session
 
+**Date:** 2026-07-14 (overnight autonomous /loop session, ~00:30–05:15)
+**Focus:** User's calibration position-9 sequence analysis; board-flip fix; then an
+agent-team sweep of every outstanding topic — explorer polish, CBH import UI, spec 212
+tier-1, librarian, and the full spec-211 corpus pipeline + server staging.
+
+## What changed (6 commits, all pushed; debug app installed to /Applications)
+- **Learn:** calibration board now shows side-to-move at the bottom (39fc580) — reverses
+  the old "always White so + = White" choice; eval signs stay absolute. Headless-verified
+  both directions.
+- **Database:** opening explorer auto-updates on position change (200ms debounce) and
+  explorer moves are click-to-play on the game tree (7591e08). In-app ChessBase import:
+  `db_import_cbh` command + native picker + progress bar (049a739) — compile/unit-verified;
+  the picker→progress→banner flow still needs one manual run against a real .cbh.
+- **Spec 211:** `scripts/mining/` corpus pipeline (ff30527) — streaming filter, band caps,
+  idempotent month loop, cap tuning; fixture-tested end-to-end.
+- **Spec 212 tier-1:** `lib/win-prob.ts` + 21 tests (b4b937d) — map-derived isotonic
+  win-prob curve, swing labeling. Checklist items 1–2 ticked; gaps noted in spec.
+- **Librarian:** 4 convention flags fixed (42602ad); 200-band gap flag left (likely reserve).
+- **Chess analysis delivered:** position 9 — user's +1.0 vs engine +0.91, but 18.Qe4
+  (played) → −0.13 vs 18.Ne4 +0.78; the miss was 18...dxe5! (opens d-file so Qd7 defends
+  d5, wins the tension) then 19...Qe6! gaining tempo on the queen. Lesson recorded:
+  knight-before-queen into shared strong squares; check opponent pawn-captures before
+  "forcing" queen moves. (User's screenshot never attached — reconstructed from the
+  session's localStorage.)
+
+## Homeserver state (staged, HOLDING — recon agent standing by)
+sf_18 BMI2 (`~/bin/stockfish`, bench-verified) + pgn-extract installed; repo pulled;
+2026-05 + 2026-06 dumps (~58 GB) in `~/chess-corpus/raw/`; tuning tables in
+`~/chess-corpus/tune_*.out`. **Four decisions needed before the month-loop build**
+(full tables + rationale in spec:211 "Mining corpus status"):
+1. TC scope: strict 4-TC (~526k games/mo, caps useless, ~19 mo to 10M) vs broadened
+   8-TC rapid+classical (~1.58M/mo, 100k cap flattens 1400–2000). Broadened recommended.
+2. Cap N under broadened: 100k (≈12 mo) vs 200k (≈7 mo).
+3. Per-month vs corpus-cumulative caps.
+4. Games vs GB target: 10M games ≈ 33 GB at real 3.3 KB/game — "50–60 GB and ~10M games"
+   can't both hold.
+
+## Next session should start with
+1. User answers the four corpus decisions above → ping/redispatch the homeserver agent to
+   run the month loop (raws already staged; `scripts/mining/README.md` has invocation),
+   then the reference slice (elo≥2000 subset).
+2. User manually tests CBH import in the installed app (Database tab → Import… →
+   "ChessBase (.cbh)…", e.g. Testsets/nunn.cbh) and eyeballs the flipped Learn board +
+   explorer click-to-play on real data (only mock-verified).
+3. User continues calibration (position 10+) and actually invokes the AI coach (tonight's
+   9 answers all have coach:null) so its verbatim quality can be reviewed.
+4. Also open: cancel button for CBH import, evaluator PV plumbing for bestMoveGapCp +
+   per-move clock persistence in match_runner (spec 212 gaps), spec 212 UI (checklist
+   item 3), missing-image follow-up if the user wanted more than position 9 discussed.
+
+---
+
 **Date:** 2026-07-13/14 (one marathon session)
 **Focus:** The ChessBase-replacement roadmap — researched, planned, and Phases 0–3 largely
 built; plus the spec-213 Elo-conditioned evaluator (design + tier-0) and the Learn-tab
