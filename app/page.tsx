@@ -21,7 +21,8 @@ import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 import { readClipboardImage, readClipboardText, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
 import { uciToArrow } from "@/lib/uci-parser"
-import type { LiveGame } from "@/lib/tournament"
+import type { LiveGame, ViewerControls } from "@/lib/tournament"
+import { MOVE_DELAY_OPTIONS } from "@/lib/tournament"
 import type { Key } from "@lichess-org/chessground/types"
 import type { DrawShape } from "@lichess-org/chessground/draw"
 
@@ -81,6 +82,9 @@ export default function Home() {
   // Whether to show the eval bar beside the live tournament board (driven by the
   // Tournament tab's "show evaluation bar" option).
   const [liveEvalBar, setLiveEvalBar] = useState(false)
+  // Live-viewer control surface (Stop / Pause / auto-start / delay), published by
+  // the Tournament tab while a run is live.
+  const [viewerControls, setViewerControls] = useState<ViewerControls | null>(null)
   // Bumped by "Play this out": tells the Tournament tab to preset itself to
   // Current-position mode (engines fight over the board's position).
   const [tournamentPresetNonce, setTournamentPresetNonce] = useState(0)
@@ -314,6 +318,10 @@ export default function Home() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey
 
+      // While watching a live tournament game, the live viewer owns the arrow
+      // keys (ply nav); don't also drive the hidden analyze board.
+      if (liveViewing && !meta) return
+
       if (meta && e.key === "v") {
         const tag = (e.target as HTMLElement)?.tagName
         if (tag !== "INPUT" && tag !== "TEXTAREA") {
@@ -387,7 +395,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing])
 
   return (
     <ErrorBoundary>
@@ -482,6 +490,7 @@ export default function Home() {
             onRunningChange={setTournamentRunning}
             onLiveUpdate={setLiveGame}
             onEvalBarChange={setLiveEvalBar}
+            onViewerControls={setViewerControls}
             onOpenGame={handleLoadFromDatabase}
             currentFen={game.fen}
             bottomColor={game.orientation}
@@ -500,7 +509,7 @@ export default function Home() {
         {/* Live tournament game viewer */}
         {liveViewing && (
           <main className="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 p-4">
-            <LiveGameView live={liveGame} showEvalBar={liveEvalBar} />
+            <LiveGameView live={liveGame} showEvalBar={liveEvalBar} controls={viewerControls} />
           </main>
         )}
 
@@ -875,14 +884,89 @@ function LivePlayer({ label, side, ms }: { label: string; side: string; ms: numb
   )
 }
 
-/** Read-only board that watches the currently-featured live tournament game. */
+/** A control-bar button. */
+function ViewerBtn({
+  label,
+  title,
+  onClick,
+  disabled,
+  active,
+}: {
+  label: string
+  title: string
+  onClick: () => void
+  disabled?: boolean
+  active?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      className={`px-2.5 py-1 text-sm rounded-md border transition-colors disabled:opacity-40 ${
+        active
+          ? "bg-primary text-primary-foreground border-primary"
+          : "bg-background text-muted-foreground border-input hover:text-foreground hover:bg-white/5"
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+/**
+ * Read-only board that watches the currently-featured live tournament game,
+ * with a control bar (Stop / Pause / auto-start / delay) and back-forward ply
+ * navigation. Stepping back off the live tip stops following; the eval bar and
+ * board track the viewed ply. Resuming or a new game snaps back to the tip.
+ */
 function LiveGameView({
   live,
   showEvalBar,
+  controls,
 }: {
   live: LiveGame | null
   showEvalBar?: boolean
+  controls?: ViewerControls | null
 }) {
+  // null = follow the live tip; a number = reviewing that frame index.
+  const [viewIdx, setViewIdx] = useState<number | null>(null)
+  const gameId = live?.gameId
+  useEffect(() => {
+    setViewIdx(null) // snap to the tip whenever the featured game changes
+  }, [gameId])
+
+  const frames = live?.frames ?? []
+  const tipIdx = frames.length - 1
+  const following = viewIdx === null
+  const idx = following ? tipIdx : Math.min(viewIdx, tipIdx)
+
+  const back = useCallback(() => {
+    setViewIdx((v) => {
+      const cur = v === null ? tipIdx : Math.min(v, tipIdx)
+      return Math.max(0, cur - 1)
+    })
+  }, [tipIdx])
+  const forward = useCallback(() => {
+    setViewIdx((v) => {
+      const cur = v === null ? tipIdx : Math.min(v, tipIdx)
+      const next = cur + 1
+      return next >= tipIdx ? null : next // reaching the tip resumes following
+    })
+  }, [tipIdx])
+
+  // Arrow keys step through the current game while the viewer is on screen.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
+      if (e.key === "ArrowLeft") { e.preventDefault(); back() }
+      else if (e.key === "ArrowRight") { e.preventDefault(); forward() }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [back, forward])
+
   if (!live) {
     return (
       <div className="text-sm text-muted-foreground">
@@ -890,34 +974,111 @@ function LiveGameView({
       </div>
     )
   }
-  const moveNo = Math.floor((live.ply + 1) / 2)
-  // The neutral evaluator's latest score is already White-POV, so the bar reads
-  // it as White's perspective (turn="white").
-  const evalScore = live.eval
-    ? live.eval.mate != null
-      ? ({ type: "mate", value: live.eval.mate } as const)
-      : ({ type: "cp", value: live.eval.cp ?? 0 } as const)
+
+  // The displayed frame: the reviewed one, or the live tip's fields as fallback.
+  const frame = frames.length ? frames[idx] : null
+  const fen = frame?.fen ?? live.fen
+  const lastMove = frame?.lastMove ?? live.lastMove
+  const wMs = frame?.whiteTimeMs ?? live.whiteTimeMs
+  const bMs = frame?.blackTimeMs ?? live.blackTimeMs
+  const ev = frame ? frame.eval : live.eval
+  const ply = frame?.ply ?? live.ply
+  const atTip = following || idx >= tipIdx
+  const moveNo = Math.floor((ply + 1) / 2)
+
+  // The neutral evaluator's score is already White-POV (turn="white").
+  const evalScore = ev
+    ? ev.mate != null
+      ? ({ type: "mate", value: ev.mate } as const)
+      : ({ type: "cp", value: ev.cp ?? 0 } as const)
     : null
+
   return (
     <div className="flex flex-col items-center gap-2 w-full h-full min-h-0 py-2">
-      <LivePlayer label={live.blackLabel} side="black" ms={live.blackTimeMs} />
+      <LivePlayer label={live.blackLabel} side="black" ms={bMs} />
       <div className="flex-1 flex items-center justify-center w-full overflow-hidden gap-2">
         {showEvalBar && evalScore && (
           <EvalBar score={evalScore} turn="white" width={20} />
         )}
         <Board
-          fen={live.fen}
+          fen={fen}
           orientation="white"
           viewOnly
           legalMoves={EMPTY_DESTS}
           onMove={noop}
-          lastMove={live.lastMove as [Key, Key] | undefined}
+          lastMove={lastMove as [Key, Key] | undefined}
         />
       </div>
-      <LivePlayer label={live.whiteLabel} side="white" ms={live.whiteTimeMs} />
-      <div className="text-xs text-muted-foreground font-mono">
-        game #{live.gameId} &middot; move {moveNo}
+      <LivePlayer label={live.whiteLabel} side="white" ms={wMs} />
+
+      {/* Ply navigation + live/reviewing indicator */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+        <ViewerBtn label="◀" title="Step back (←)" onClick={back} disabled={tipIdx < 1} />
+        <span className="tabular-nums">
+          game #{live.gameId} · move {moveNo}
+        </span>
+        <ViewerBtn label="▶" title="Step forward (→)" onClick={forward} disabled={atTip} />
+        {atTip ? (
+          <span className="text-green-400">● live</span>
+        ) : (
+          <button
+            className="text-primary hover:underline"
+            onClick={() => setViewIdx(null)}
+            title="Jump back to the live position"
+          >
+            reviewing — go live
+          </button>
+        )}
       </div>
+
+      {/* Batch control bar */}
+      {controls && (
+        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+          <ViewerBtn
+            label="Stop"
+            title="Stop the tournament (in-flight games are aborted, finished games kept)"
+            onClick={controls.onStop}
+          />
+          <ViewerBtn
+            label={controls.paused ? "Resume" : "Pause"}
+            title={controls.paused ? "Resume play" : "Pause between moves (clocks freeze)"}
+            active={controls.paused}
+            onClick={() => {
+              const wasPaused = controls.paused
+              controls.onTogglePause()
+              if (wasPaused) setViewIdx(null) // resuming snaps back to the tip
+            }}
+          />
+          <ViewerBtn
+            label="Start next game"
+            title="Advance to the next game"
+            disabled={!controls.waitingForNext}
+            onClick={() => {
+              controls.onStartNext()
+              setViewIdx(null)
+            }}
+          />
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="accent-green-600"
+              checked={controls.autoStartNext}
+              onChange={controls.onToggleAutoStart}
+            />
+            auto-start next
+          </label>
+          <select
+            className="bg-background border border-input rounded-md px-2 py-1 text-xs text-foreground"
+            value={controls.delayMs}
+            onChange={(e) => controls.onSetDelay(Number(e.target.value))}
+            title="Minimum time each move stays on the board"
+          >
+            {MOVE_DELAY_OPTIONS.map((o) => (
+              <option key={o.ms} value={o.ms}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   )
 }

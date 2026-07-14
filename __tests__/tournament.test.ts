@@ -126,6 +126,16 @@ describe("summarizeErrors — surfacing per-game failure reasons", () => {
   it("returns an empty list when no games errored", () => {
     expect(summarizeErrors([ok(0), ok(1)])).toEqual([])
   })
+
+  it("excludes aborted (stopped) games from the failure list", () => {
+    const aborted: GameOutcome = {
+      id: 5,
+      flipped: false,
+      result: { Err: "cancelled" },
+      aborted: true,
+    }
+    expect(summarizeErrors([ok(0), aborted])).toEqual([])
+  })
 })
 
 describe("plyEvalPawns — White-POV pawn value", () => {
@@ -180,6 +190,17 @@ describe("averageEvalByPly — engine-A-POV normalization", () => {
     ])
     const avg = averageEvalByPly([a])
     expect(avg.map((p) => p.ply)).toEqual([0])
+  })
+
+  it("excludes aborted games (their evals are partial)", () => {
+    const live = gameWithEvals(false, [{ ply: 1, cp: 300, mate: null }])
+    const aborted: GameOutcome = {
+      ...gameWithEvals(false, [{ ply: 1, cp: -900, mate: null }]),
+      aborted: true,
+    }
+    const avg = averageEvalByPly([live, aborted])
+    // Only the live game contributes: mean = +3.0, n = 1.
+    expect(avg).toEqual([{ ply: 1, mean: 3.0, n: 1 }])
   })
 })
 

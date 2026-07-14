@@ -204,3 +204,45 @@ the Tauri app to exercise end-to-end (the batch runs over Tauri IPC; a plain
 browser can't invoke `play_batch`, and the Chrome extension for headless UI
 driving was not connected on this machine) — that check is still pending.
 Results remain in-memory (persistence is a separate backlog item).
+
+### Phase 8 — Live-viewer controls: stop / pause / auto-start / nav / throttle (2026-07-14)
+
+A coherent control bar in the live viewer — `[Stop] [Pause/Resume] [auto-start ✓]
+[Start next game] [◀ ▶ ply nav] [delay]` — plus the matching runner mechanics.
+The shared, live-tunable `BatchControls` (managed Tauri state, replacing the
+old cancel-only flag) is reset per run and steered by the `cancel_batch` /
+`pause_batch` / `set_auto_start` / `start_next_game` / `set_move_delay` commands.
+
+- [x] **Stop (graceful abort).** Reachable from both the tournament tab and the
+  live viewer. In-flight games abort at their next move boundary and are flagged
+  `aborted` on the `GameOutcome` — **excluded from every stat** (summary, Elo,
+  prob-map, curves, eval-average, error list), never counted as errors. Games
+  finished before the stop keep their results. Rust + TS unit-tested.
+- [x] **Pause / Resume mid-game.** The runner's move loop parks between moves
+  while paused; both clocks freeze (no search runs, and clocks are only ever
+  debited by measured search time — verified there's no time leak), engines sit
+  idle, Resume continues from exactly where it stood. Takes effect after the
+  in-flight move completes (a running search isn't interrupted — documented).
+  Real-engine test asserts a paused game doesn't complete until resumed.
+- [x] **Auto-start next game (default ON).** Off makes the runner wait on an
+  `advance` gate between games and forces concurrency to 1 (so "between games" is
+  a single well-defined gap — with >1 in flight the semantics are ambiguous, so
+  sequential-only; documented). The viewer's "Start next game" button lights up
+  when the runner is waiting; clicking it (or re-enabling auto-start) advances.
+- [x] **Back/forward ply nav.** The featured game's full per-ply frame history
+  (fen + clocks + the evaluator's eval at each ply) streams to the viewer;
+  ◀ ▶ / arrow keys step through it with the board AND eval bar tracking the
+  viewed ply. Stepping off the tip stops following; resuming, "go live", or the
+  next game snaps back to the live tip.
+- [x] **Min move-display delay.** off / 0.5s / 1s / 2s, persisted with the
+  tournament config, applied as a between-moves throttle in the runner (doesn't
+  touch the clocks). Default 0 keeps headless batches fast; the user opts in.
+  Real-engine test asserts a throttled game's wall time is floored by the delay.
+
+**Verification (2026-07-14):** `cargo test` (26 pass incl. real-engine
+stop-marks-aborted, pause-holds-until-resumed, and throttle tests), `pnpm test`
+(141 pass incl. aborted-exclusion in stats and eval-average), `pnpm tsc
+--noEmit` clean, `cargo build` (bin, new commands registered) + `pnpm build`
+succeed. As before, the end-to-end live behavior (a real paused/throttled run,
+the viewer control bar, ply-nav) needs the Tauri app — the Chrome extension for
+headless UI driving was not connected on this machine, so that check is pending.

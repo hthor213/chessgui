@@ -65,6 +65,12 @@ export type GameOutcome = {
   flipped: boolean
   result: { Ok: GameResult } | { Err: string }
   evals?: PlyEval[]
+  /**
+   * True when the game was cut short by a Stop request rather than finishing or
+   * erroring. Aborted games are excluded from every result stat (they are not a
+   * real outcome), and never shown in the completed-games browser.
+   */
+  aborted?: boolean
 }
 
 /** Progress event emitted as each game completes. Mirrors Rust `BatchProgress`. */
@@ -87,6 +93,19 @@ export type MoveEvent = {
   btime_ms: number
 }
 
+/** One recorded position of the featured live game, for back/forward nav. */
+export type LiveFrame = {
+  /** 1-based half-move index; 0 would be the start (not emitted as a frame). */
+  ply: number
+  fen: string
+  /** [from, to] squares of the move that reached this position. */
+  lastMove?: [string, string]
+  whiteTimeMs: number
+  blackTimeMs: number
+  /** Neutral-evaluator score at THIS ply (White-POV), patched in as it arrives. */
+  eval?: { cp: number | null; mate: number | null } | null
+}
+
 /** The currently-featured live game, surfaced for the board viewer. */
 export type LiveGame = {
   gameId: number
@@ -105,7 +124,39 @@ export type LiveGame = {
    * eval bar; lags the board by roughly one ply, which is fine for a bar.
    */
   eval?: { cp: number | null; mate: number | null } | null
+  /**
+   * Full per-ply history of the featured game (since it became featured), so the
+   * viewer can step back/forward and read the evaluator's eval at each ply. The
+   * last frame is the live tip.
+   */
+  frames?: LiveFrame[]
 }
+
+/**
+ * Live-viewer control surface, wired to the batch-control Tauri commands. Owned
+ * by the Tournament tab (which knows the run state) and handed to the viewer so
+ * Stop / Pause / auto-start / delay are reachable from the board window itself.
+ */
+export type ViewerControls = {
+  paused: boolean
+  autoStartNext: boolean
+  /** A game just finished and the runner is waiting to start the next one. */
+  waitingForNext: boolean
+  delayMs: number
+  onStop: () => void
+  onTogglePause: () => void
+  onToggleAutoStart: () => void
+  onStartNext: () => void
+  onSetDelay: (ms: number) => void
+}
+
+/** Move-display delay presets (ms) for the "too fast to follow" throttle. */
+export const MOVE_DELAY_OPTIONS: { label: string; ms: number }[] = [
+  { label: "No delay", ms: 0 },
+  { label: "0.5s / move", ms: 500 },
+  { label: "1s / move", ms: 1000 },
+  { label: "2s / move", ms: 2000 },
+]
 
 /** A sudden-death + increment time control (per side). */
 export type TimeControl = { id: string; label: string; baseMs: number; incMs: number }
@@ -228,6 +279,7 @@ export function summarizeErrors(
 ): { message: string; count: number }[] {
   const counts = new Map<string, number>()
   for (const o of outcomes) {
+    if (o.aborted) continue // a Stop is not a failure
     const e = gameError(o)
     if (e === null) continue
     counts.set(e, (counts.get(e) ?? 0) + 1)
@@ -778,6 +830,7 @@ export function averageEvalByPly(
   const sum: number[] = []
   const cnt: number[] = []
   for (const o of outcomes) {
+    if (o.aborted) continue // stopped mid-play: partial, excluded from the mean
     for (const pe of o.evals ?? []) {
       let v = plyEvalPawns(pe)
       if (v === null) continue

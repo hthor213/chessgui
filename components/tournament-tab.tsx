@@ -21,6 +21,7 @@ import {
   gameEvalSeries,
   evalBarDefaultForBaseMs,
   TIME_CONTROLS,
+  MOVE_DELAY_OPTIONS,
   type BatchProgress,
   type BatchReport,
   type GameOutcome,
@@ -34,6 +35,8 @@ import {
   type StartMode,
   type TaggedPosition,
   type EvalPoint,
+  type LiveFrame,
+  type ViewerControls,
 } from "@/lib/tournament"
 import { replayFens, movesToPgn } from "@/lib/game-replay"
 import type { Key } from "@lichess-org/chessground/types"
@@ -56,6 +59,7 @@ type RunningTally = {
   engineB: number
   draw: number
   errors: number
+  aborted: number
 }
 
 // Format a millisecond duration as h:mm:ss / m:ss.
@@ -88,6 +92,7 @@ export function TournamentTab({
   onRunningChange,
   onLiveUpdate,
   onEvalBarChange,
+  onViewerControls,
   onOpenGame,
   currentFen,
   bottomColor = "white",
@@ -99,6 +104,8 @@ export function TournamentTab({
   onLiveUpdate?: (live: LiveGame | null) => void
   /** Reports whether the live eval bar should be shown alongside the live board. */
   onEvalBarChange?: (show: boolean) => void
+  /** Hands the live-viewer control surface to the parent (null when not running). */
+  onViewerControls?: (controls: ViewerControls | null) => void
   /** Load a completed game (as PGN) onto the main Analyze board. */
   onOpenGame?: (pgn: string) => void
   /** The FEN currently on the analysis board (for "Current position" mode). */
@@ -138,6 +145,15 @@ export function TournamentTab({
   // which their choice sticks across TC changes.
   const [showEvalBar, setShowEvalBar] = useState(false)
   const evalBarTouched = useRef(false)
+  // Live-viewer batch controls (also settable pre-run). `autoStartNext` off makes
+  // the runner pause between games; `moveDelayMs` throttles the on-board display.
+  const [autoStartNext, setAutoStartNext] = useState(true)
+  const [moveDelayMs, setMoveDelayMs] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const [waitingForNext, setWaitingForNext] = useState(false)
+  // Refs so the live stream callbacks (created once per run) read current values.
+  const autoStartRef = useRef(true)
+  useEffect(() => { autoStartRef.current = autoStartNext }, [autoStartNext])
   // "Current position" mode: which color engine A takes in the odd games
   // (pairs always flip). Defaults to the side at the bottom of the user's
   // board — "Stockfish plays my side" — and stays editable before launch.
@@ -189,6 +205,8 @@ export function TournamentTab({
         if (typeof c.adjudicateTb === "boolean") setAdjudicateTb(c.adjudicateTb)
         if (typeof c.useEvaluator === "boolean") setUseEvaluator(c.useEvaluator)
         if (c.evaluatorPath) setEvaluatorPath(healPath(c.evaluatorPath) as string)
+        if (typeof c.autoStartNext === "boolean") setAutoStartNext(c.autoStartNext)
+        if (c.moveDelayMs != null) setMoveDelayMs(Number(c.moveDelayMs) || 0)
         // Restore the eval-bar choice only if the user had explicitly set it;
         // otherwise leave it to auto-derive from the time control below.
         if (typeof c.evalBarTouched === "boolean" && c.evalBarTouched) {
@@ -201,9 +219,9 @@ export function TournamentTab({
   }, [])
   useEffect(() => {
     if (!restored.current) return // don't clobber saved config before restore runs
-    const c = { engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current }
+    const c = { engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current, autoStartNext, moveDelayMs }
     try { localStorage.setItem("chessgui-tournament-config", JSON.stringify(c)) } catch { /* ignore */ }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, autoStartNext, moveDelayMs])
 
   // Base clock (ms) implied by the current time-control selection, used to
   // derive the eval-bar default and (in run) the actual game clock.
@@ -328,7 +346,7 @@ export function TournamentTab({
       evalByIdRef.current = evalById
 
       const total = specs.length
-      setTally({ completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0 })
+      setTally({ completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0, aborted: 0 })
 
       // --- Live game tracking (for the board viewer) ---
       const labelA = engineLabel(engineA)
@@ -340,45 +358,78 @@ export function TournamentTab({
           blackLabel: s.flipped ? labelA : labelB,
         })
       }
-      const liveById = new Map<number, LiveGame>()
+      // Latest frame per game (for jumping to another in-flight game), the
+      // featured game's full frame history (for back/forward nav), and per-game
+      // latest eval (for the bar).
+      const liveById = new Map<number, LiveFrame>()
       const completed = new Set<number>()
-      // Latest neutral-evaluator score per game (White-POV), for the live bar.
       const latestEval = new Map<number, { cp: number | null; mate: number | null }>()
       let featuredId: number | null = null
+      let featuredFrames: LiveFrame[] = []
+
+      // Emit the featured game's current view (tip + full history) to the viewer.
+      const emitFeatured = () => {
+        if (featuredId === null) return
+        const meta = specMeta.get(featuredId)
+        const last = featuredFrames[featuredFrames.length - 1]
+        if (!meta || !last) return
+        onLiveUpdate?.({
+          gameId: featuredId,
+          ply: last.ply,
+          fen: last.fen,
+          lastMove: last.lastMove,
+          whiteLabel: meta.whiteLabel,
+          blackLabel: meta.blackLabel,
+          whiteTimeMs: last.whiteTimeMs,
+          blackTimeMs: last.blackTimeMs,
+          eval: last.eval ?? null,
+          frames: featuredFrames.slice(),
+        })
+      }
 
       // Move stream: one event per move per game. We "feature" a single game at
-      // a time and only switch once it finishes.
+      // a time, accumulating its frames, and only switch once it finishes.
       const moveChannel = new Channel<MoveEvent>()
       moveChannel.onmessage = (m: MoveEvent) => {
         const meta = specMeta.get(m.game_id)
         if (!meta) return
-        const g: LiveGame = {
-          gameId: m.game_id,
+        const frame: LiveFrame = {
           ply: m.ply,
           fen: m.fen,
           lastMove: uciSquares(m.uci),
-          whiteLabel: meta.whiteLabel,
-          blackLabel: meta.blackLabel,
           whiteTimeMs: m.wtime_ms,
           blackTimeMs: m.btime_ms,
           eval: latestEval.get(m.game_id) ?? null,
         }
-        liveById.set(m.game_id, g)
-        if (featuredId === null || completed.has(featuredId)) featuredId = m.game_id
-        if (m.game_id === featuredId) onLiveUpdate?.(g)
+        liveById.set(m.game_id, frame)
+        // A move means a game is actively playing — clear any between-games wait.
+        setWaitingForNext(false)
+        // Feature this game if nothing is featured or the featured one finished.
+        if (featuredId === null || completed.has(featuredId)) {
+          if (featuredId !== m.game_id) {
+            featuredId = m.game_id
+            featuredFrames = []
+          }
+        }
+        if (m.game_id === featuredId) {
+          featuredFrames.push(frame)
+          emitFeatured()
+        }
       }
 
       // Eval stream: one event per evaluated position. Track each game's latest
-      // score and refresh the featured game's live payload so the bar keeps up
-      // even between moves.
+      // score, patch the matching featured frame (so per-ply nav shows the right
+      // eval), and refresh the viewer so the bar keeps up between moves.
       const evalChannel = new Channel<EvalEvent>()
       evalChannel.onmessage = (ev: EvalEvent) => {
         const e = { cp: ev.cp, mate: ev.mate }
         latestEval.set(ev.game_id, e)
-        const g = liveById.get(ev.game_id)
-        if (g) {
-          g.eval = e
-          if (ev.game_id === featuredId) onLiveUpdate?.({ ...g })
+        const lf = liveById.get(ev.game_id)
+        if (lf && lf.ply === ev.ply) lf.eval = e
+        if (ev.game_id === featuredId) {
+          const fr = featuredFrames.find((f) => f.ply === ev.ply)
+          if (fr) fr.eval = e
+          emitFeatured()
         }
       }
 
@@ -386,21 +437,29 @@ export function TournamentTab({
       const channel = new Channel<BatchProgress>()
       channel.onmessage = (p: BatchProgress) => {
         completed.add(p.last.id)
+        // If auto-start is off and games remain, the runner is now waiting.
+        if (!autoStartRef.current && p.completed < p.total) {
+          setWaitingForNext(true)
+        }
         // If the featured game just finished, jump to another in-flight game.
         if (featuredId !== null && completed.has(featuredId)) {
           const next = [...liveById.keys()].reverse().find((id) => !completed.has(id))
           if (next !== undefined) {
             featuredId = next
-            const g = liveById.get(next)
-            if (g) onLiveUpdate?.(g)
+            const f = liveById.get(next)
+            featuredFrames = f ? [f] : []
+            emitFeatured()
           }
         }
         setTally((prev) => {
           const base =
-            prev ?? { completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0 }
+            prev ?? { completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0, aborted: 0 }
           const r = (p.last.result as { Ok?: { result: string } }).Ok
-          let { engineA: aWins, engineB: bWins, draw, errors } = base
-          if (!r) {
+          let { engineA: aWins, engineB: bWins, draw, errors, aborted } = base
+          if (p.last.aborted) {
+            // Stopped mid-play: not a result and not an error.
+            aborted += 1
+          } else if (!r) {
             errors += 1
           } else if (r.result === "1/2-1/2") {
             draw += 1
@@ -419,12 +478,12 @@ export function TournamentTab({
             engineB: bWins,
             draw,
             errors,
+            aborted,
           }
         })
       }
 
-      // Param names MUST match the Rust command (camelCased): specs, concurrency,
-      // onProgress, onMove, onEval, evalPath, evalMovetimeMs.
+      // Param names MUST match the Rust command (camelCased).
       const result = await invoke<BatchReport>("play_batch", {
         specs: specs as GameSpec[],
         concurrency: concurrencyNum,
@@ -433,6 +492,8 @@ export function TournamentTab({
         onEval: evalChannel,
         evalPath: useEvaluator ? evaluatorPath : null,
         evalMovetimeMs: 100,
+        autoStart: autoStartNext,
+        moveDelayMs,
       })
 
       setReport(result)
@@ -461,7 +522,7 @@ export function TournamentTab({
       setNowTs(Date.now()) // freeze elapsed at the final value
       setRunning(false)
     }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, concurrency, adjudicateTb, useEvaluator, evaluatorPath, currentFen, engineASide, onLiveUpdate])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, concurrency, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, onLiveUpdate])
 
   const cancel = useCallback(async () => {
     try {
@@ -470,6 +531,57 @@ export function TournamentTab({
       setError(String(e))
     }
   }, [])
+
+  // --- Live batch controls (reachable from the viewer during a run) ---
+  const togglePause = useCallback(async () => {
+    const next = !paused
+    setPaused(next)
+    try { await invoke("pause_batch", { paused: next }) } catch (e) { setError(String(e)) }
+  }, [paused])
+
+  const toggleAutoStart = useCallback(async () => {
+    const next = !autoStartNext
+    setAutoStartNext(next)
+    if (next) setWaitingForNext(false) // re-enabling releases the between-games gate
+    try { await invoke("set_auto_start", { autoStart: next }) } catch (e) { setError(String(e)) }
+  }, [autoStartNext])
+
+  const startNext = useCallback(async () => {
+    setWaitingForNext(false)
+    try { await invoke("start_next_game") } catch (e) { setError(String(e)) }
+  }, [])
+
+  const setDelay = useCallback(async (ms: number) => {
+    setMoveDelayMs(ms)
+    try { await invoke("set_move_delay", { delayMs: ms }) } catch (e) { setError(String(e)) }
+  }, [])
+
+  // Publish the viewer control surface while a run is live (null otherwise).
+  useEffect(() => {
+    if (!running) {
+      onViewerControls?.(null)
+      return
+    }
+    onViewerControls?.({
+      paused,
+      autoStartNext,
+      waitingForNext,
+      delayMs: moveDelayMs,
+      onStop: cancel,
+      onTogglePause: togglePause,
+      onToggleAutoStart: toggleAutoStart,
+      onStartNext: startNext,
+      onSetDelay: setDelay,
+    })
+  }, [running, paused, autoStartNext, waitingForNext, moveDelayMs, cancel, togglePause, toggleAutoStart, startNext, setDelay, onViewerControls])
+
+  // Reset transient live-control state whenever a run stops.
+  useEffect(() => {
+    if (!running) {
+      setPaused(false)
+      setWaitingForNext(false)
+    }
+  }, [running])
 
   const pct = tally && tally.total > 0 ? (tally.completed / tally.total) * 100 : 0
   // Elapsed wall-clock and a linear ETA from completed/total.
@@ -778,6 +890,41 @@ export function TournamentTab({
             </span>
           </label>
 
+          {/* Watch pacing: auto-start next game + min per-move display time */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                data-testid="tournament-auto-start"
+                className="mt-0.5 accent-green-600"
+                checked={autoStartNext}
+                onChange={(e) => setAutoStartNext(e.target.checked)}
+                disabled={running}
+              />
+              <span className="flex flex-col">
+                <span className="text-sm text-foreground">Auto-start next game</span>
+                <span className="text-xs text-muted-foreground">
+                  Off pauses between games (runs one at a time) so you can study
+                  the final position before advancing.
+                </span>
+              </span>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Min move display</span>
+              <select
+                data-testid="tournament-move-delay"
+                className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+                value={moveDelayMs}
+                onChange={(e) => setMoveDelayMs(Number(e.target.value))}
+                disabled={running}
+              >
+                {MOVE_DELAY_OPTIONS.map((o) => (
+                  <option key={o.ms} value={o.ms}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           <div className="flex items-center gap-3">
             <Button onClick={run} disabled={running}>
               {running ? "Running…" : "Run Tournament"}
@@ -819,6 +966,9 @@ export function TournamentTab({
               <span className="text-sky-400">{engineLabel(engineB)} wins: {tally.engineB}</span>
               {tally.errors > 0 && (
                 <span className="text-amber-400">Errors: {tally.errors}</span>
+              )}
+              {tally.aborted > 0 && (
+                <span className="text-muted-foreground">Aborted: {tally.aborted}</span>
               )}
             </div>
           </section>
@@ -908,9 +1058,10 @@ function SummaryCard({
 }) {
   // Recompute per-ENGINE results (engines swap colors each game), since the
   // backend summary only knows white/black.
-  let games = 0, aWins = 0, bWins = 0, draws = 0, errors = 0
+  let games = 0, aWins = 0, bWins = 0, draws = 0, errors = 0, aborted = 0
   const terms: Record<string, number> = {}
   for (const o of outcomes) {
+    if (o.aborted) { aborted += 1; continue } // stopped mid-play: not a result
     games += 1
     const r = gameResult(o)
     if (!r) { errors += 1; continue }
@@ -932,6 +1083,8 @@ function SummaryCard({
     ["Draws", draws, "text-muted-foreground"],
     ["Errors", errors, "text-amber-400"],
   ]
+  // Only surface aborted as a stat when a stop actually happened.
+  if (aborted > 0) items.push(["Aborted", aborted, "text-muted-foreground"])
 
   // Elo of engine A relative to engine B, with a 95% confidence interval.
   const elo = eloDelta(aWins, draws, bWins)
