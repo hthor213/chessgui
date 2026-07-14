@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import { invoke, Channel } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -13,8 +14,12 @@ import {
   buildEngineWDL,
   eloDelta,
   gameResult,
+  isOk,
   summarizeErrors,
   uciSquares,
+  averageEvalByPly,
+  gameEvalSeries,
+  evalBarDefaultForBaseMs,
   TIME_CONTROLS,
   type BatchProgress,
   type BatchReport,
@@ -22,12 +27,21 @@ import {
   type GameSpec,
   type LiveGame,
   type MoveEvent,
+  type EvalEvent,
   type EvalMap,
   type ProbBin,
   type EngineCurveBin,
   type StartMode,
   type TaggedPosition,
+  type EvalPoint,
 } from "@/lib/tournament"
+import { replayFens, movesToPgn } from "@/lib/game-replay"
+import type { Key } from "@lichess-org/chessground/types"
+
+const Board = dynamic(
+  () => import("@/components/board").then((m) => ({ default: m.Board })),
+  { ssr: false },
+)
 
 const STOCKFISH_DEFAULT = "/opt/homebrew/bin/stockfish"
 const RECKLESS_DEFAULT =
@@ -73,6 +87,8 @@ async function loadPositions(): Promise<TaggedPosition[]> {
 export function TournamentTab({
   onRunningChange,
   onLiveUpdate,
+  onEvalBarChange,
+  onOpenGame,
   currentFen,
   bottomColor = "white",
   presetNonce = 0,
@@ -81,6 +97,10 @@ export function TournamentTab({
   onRunningChange?: (running: boolean) => void
   /** Streams the currently-featured live game to the board viewer (null = none). */
   onLiveUpdate?: (live: LiveGame | null) => void
+  /** Reports whether the live eval bar should be shown alongside the live board. */
+  onEvalBarChange?: (show: boolean) => void
+  /** Load a completed game (as PGN) onto the main Analyze board. */
+  onOpenGame?: (pgn: string) => void
   /** The FEN currently on the analysis board (for "Current position" mode). */
   currentFen?: string
   /** Which color is at the bottom of the user's board (board orientation). */
@@ -109,6 +129,15 @@ export function TournamentTab({
   // Adjudicate <=7-man positions via the tablebase (perfect play) — fair, since
   // any engine can bolt on a 7-man tablebase for free.
   const [adjudicateTb, setAdjudicateTb] = useState(true)
+  // Neutral evaluator: a third engine that scores every position off the live
+  // stream (never on a player's clock), driving the eval bar + progress graphs.
+  const [useEvaluator, setUseEvaluator] = useState(true)
+  const [evaluatorPath, setEvaluatorPath] = useState(STOCKFISH_DEFAULT)
+  // "Show evaluation bar" beside the live board. Auto-derived from the time
+  // control (on for base >= 60s) until the user explicitly toggles it, after
+  // which their choice sticks across TC changes.
+  const [showEvalBar, setShowEvalBar] = useState(false)
+  const evalBarTouched = useRef(false)
   // "Current position" mode: which color engine A takes in the odd games
   // (pairs always flip). Defaults to the side at the bottom of the user's
   // board — "Stockfish plays my side" — and stays editable before launch.
@@ -158,15 +187,44 @@ export function TournamentTab({
         if (c.customBaseS != null) setCustomBaseS(String(c.customBaseS))
         if (c.customIncS != null) setCustomIncS(String(c.customIncS))
         if (typeof c.adjudicateTb === "boolean") setAdjudicateTb(c.adjudicateTb)
+        if (typeof c.useEvaluator === "boolean") setUseEvaluator(c.useEvaluator)
+        if (c.evaluatorPath) setEvaluatorPath(healPath(c.evaluatorPath) as string)
+        // Restore the eval-bar choice only if the user had explicitly set it;
+        // otherwise leave it to auto-derive from the time control below.
+        if (typeof c.evalBarTouched === "boolean" && c.evalBarTouched) {
+          evalBarTouched.current = true
+          if (typeof c.showEvalBar === "boolean") setShowEvalBar(c.showEvalBar)
+        }
       }
     } catch { /* ignore corrupt config */ }
     restored.current = true
   }, [])
   useEffect(() => {
     if (!restored.current) return // don't clobber saved config before restore runs
-    const c = { engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb }
+    const c = { engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current }
     try { localStorage.setItem("chessgui-tournament-config", JSON.stringify(c)) } catch { /* ignore */ }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar])
+
+  // Base clock (ms) implied by the current time-control selection, used to
+  // derive the eval-bar default and (in run) the actual game clock.
+  const baseMsConfig = useMemo(() => {
+    const preset = TIME_CONTROLS.find((t) => t.id === tcId)
+    return preset
+      ? preset.baseMs
+      : Math.max(100, Math.round((Number(customBaseS) || 60) * 1000))
+  }, [tcId, customBaseS])
+
+  // Auto-check "show eval bar" for TCs at 60s+ (where per-move eval reads are
+  // meaningful and there's time to watch), until the user touches the checkbox.
+  useEffect(() => {
+    if (evalBarTouched.current) return
+    setShowEvalBar(evalBarDefaultForBaseMs(baseMsConfig))
+  }, [baseMsConfig])
+
+  // Keep the parent's live-view eval bar visibility in sync.
+  useEffect(() => {
+    onEvalBarChange?.(showEvalBar)
+  }, [showEvalBar, onEvalBarChange])
 
   // Resolve each engine's UCI version (e.g. "Stockfish 18") for display.
   useEffect(() => {
@@ -284,6 +342,8 @@ export function TournamentTab({
       }
       const liveById = new Map<number, LiveGame>()
       const completed = new Set<number>()
+      // Latest neutral-evaluator score per game (White-POV), for the live bar.
+      const latestEval = new Map<number, { cp: number | null; mate: number | null }>()
       let featuredId: number | null = null
 
       // Move stream: one event per move per game. We "feature" a single game at
@@ -301,10 +361,25 @@ export function TournamentTab({
           blackLabel: meta.blackLabel,
           whiteTimeMs: m.wtime_ms,
           blackTimeMs: m.btime_ms,
+          eval: latestEval.get(m.game_id) ?? null,
         }
         liveById.set(m.game_id, g)
         if (featuredId === null || completed.has(featuredId)) featuredId = m.game_id
         if (m.game_id === featuredId) onLiveUpdate?.(g)
+      }
+
+      // Eval stream: one event per evaluated position. Track each game's latest
+      // score and refresh the featured game's live payload so the bar keeps up
+      // even between moves.
+      const evalChannel = new Channel<EvalEvent>()
+      evalChannel.onmessage = (ev: EvalEvent) => {
+        const e = { cp: ev.cp, mate: ev.mate }
+        latestEval.set(ev.game_id, e)
+        const g = liveById.get(ev.game_id)
+        if (g) {
+          g.eval = e
+          if (ev.game_id === featuredId) onLiveUpdate?.({ ...g })
+        }
       }
 
       // Live progress channel. The backend sends one BatchProgress per game.
@@ -348,12 +423,16 @@ export function TournamentTab({
         })
       }
 
-      // Param names MUST match the Rust command: specs, concurrency, onProgress, onMove.
+      // Param names MUST match the Rust command (camelCased): specs, concurrency,
+      // onProgress, onMove, onEval, evalPath, evalMovetimeMs.
       const result = await invoke<BatchReport>("play_batch", {
         specs: specs as GameSpec[],
         concurrency: concurrencyNum,
         onProgress: channel,
         onMove: moveChannel,
+        onEval: evalChannel,
+        evalPath: useEvaluator ? evaluatorPath : null,
+        evalMovetimeMs: 100,
       })
 
       setReport(result)
@@ -382,7 +461,7 @@ export function TournamentTab({
       setNowTs(Date.now()) // freeze elapsed at the final value
       setRunning(false)
     }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, concurrency, adjudicateTb, currentFen, engineASide, onLiveUpdate])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, concurrency, adjudicateTb, useEvaluator, evaluatorPath, currentFen, engineASide, onLiveUpdate])
 
   const cancel = useCallback(async () => {
     try {
@@ -642,6 +721,63 @@ export function TournamentTab({
             </span>
           </label>
 
+          {/* Neutral evaluator (third engine) */}
+          <label className="flex items-start gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              data-testid="tournament-use-evaluator"
+              className="mt-0.5 accent-green-600"
+              checked={useEvaluator}
+              onChange={(e) => setUseEvaluator(e.target.checked)}
+              disabled={running}
+            />
+            <span className="flex flex-col gap-1 flex-1">
+              <span className="text-sm text-foreground">
+                Neutral evaluator (third engine, scores every position)
+              </span>
+              <span className="text-xs text-muted-foreground">
+                A background engine evaluates each position at ~100ms off the live
+                stream — never on a player&apos;s clock — to drive the eval bar and
+                the per-move eval graphs. Default Stockfish.
+              </span>
+              {useEvaluator && (
+                <input
+                  className="mt-1 bg-background border border-input rounded-md px-2 py-1 text-xs text-foreground font-mono w-full max-w-md"
+                  value={evaluatorPath}
+                  onChange={(e) => setEvaluatorPath(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  disabled={running}
+                  spellCheck={false}
+                  aria-label="Evaluator engine path"
+                />
+              )}
+            </span>
+          </label>
+
+          {/* Show evaluation bar beside the live board */}
+          <label className="flex items-start gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              data-testid="tournament-show-eval-bar"
+              className="mt-0.5 accent-green-600"
+              checked={showEvalBar}
+              onChange={(e) => {
+                evalBarTouched.current = true
+                setShowEvalBar(e.target.checked)
+              }}
+              disabled={running || !useEvaluator}
+            />
+            <span className="flex flex-col">
+              <span className="text-sm text-foreground">
+                Show evaluation bar beside the live board
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Auto-on for time controls of 60s+ (until you set it yourself).
+                {!useEvaluator && " Requires the neutral evaluator."}
+              </span>
+            </span>
+          </label>
+
           <div className="flex items-center gap-3">
             <Button onClick={run} disabled={running}>
               {running ? "Running…" : "Run Tournament"}
@@ -694,6 +830,25 @@ export function TournamentTab({
             outcomes={report.outcomes}
             labelA={engineLabel(engineA)}
             labelB={engineLabel(engineB)}
+          />
+        )}
+
+        {/* Average eval progress across completed games (neutral evaluator) */}
+        {report && (
+          <AverageEvalGraph
+            outcomes={report.outcomes}
+            labelA={engineLabel(engineA)}
+            labelB={engineLabel(engineB)}
+          />
+        )}
+
+        {/* Per-game browser: select a game, hop to any position, open in Analyze */}
+        {report && (
+          <ResultsExplorer
+            outcomes={report.outcomes}
+            labelA={engineLabel(engineA)}
+            labelB={engineLabel(engineB)}
+            onOpenGame={onOpenGame}
           />
         )}
 
@@ -1010,5 +1165,376 @@ function ProbabilityMap({
         })}
       </div>
     </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Eval-by-ply charts (neutral evaluator) + per-game browser
+// ---------------------------------------------------------------------------
+
+const EMPTY_DESTS = new Map<Key, Key[]>()
+const noop = () => {}
+
+// Chart inks, matched to the eval-graph (spec 202) so the tab reads as one system.
+const CHART_BG = "#12100e"
+const CHART_MID = "rgba(255,255,255,0.18)"
+const CHART_PAD_X = 6
+const CHART_PAD_Y = 6
+
+/** A White-POV (or A-POV) eval curve, plotted by ply. Pure inline SVG. */
+function EvalByPlyChart({
+  points,
+  maxAbs,
+  height = 96,
+  currentPly = null,
+  onPick,
+  fill = "rgba(123,179,58,0.22)",
+  stroke = "#8a8783",
+}: {
+  points: EvalPoint[]
+  maxAbs: number
+  height?: number
+  currentPly?: number | null
+  onPick?: (ply: number) => void
+  fill?: string
+  stroke?: string
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(240)
+  const [hoverPly, setHoverPly] = useState<number | null>(null)
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const update = () => setWidth(Math.max(80, el.getBoundingClientRect().width))
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const maxPly = points.length ? points[points.length - 1].ply : 0
+  const minPly = points.length ? points[0].ply : 0
+  const span = Math.max(1, maxPly - minPly)
+  const dom = Math.max(0.5, maxAbs)
+  const xFor = (ply: number) =>
+    CHART_PAD_X + ((ply - minPly) / span) * (width - 2 * CHART_PAD_X)
+  const yFor = (v: number) => {
+    const c = Math.max(-dom, Math.min(dom, v))
+    return CHART_PAD_Y + ((dom - c) / (2 * dom)) * (height - 2 * CHART_PAD_Y)
+  }
+  const yZero = yFor(0)
+
+  const known = points.filter(
+    (p): p is EvalPoint & { pawns: number } => p.pawns !== null,
+  )
+  const curve = known
+    .map((p, i) => `${i === 0 ? "M" : "L"}${xFor(p.ply).toFixed(1)},${yFor(p.pawns).toFixed(1)}`)
+    .join(" ")
+  const area =
+    known.length >= 2
+      ? `${curve} L${xFor(known[known.length - 1].ply).toFixed(1)},${yZero.toFixed(1)} ` +
+        `L${xFor(known[0].ply).toFixed(1)},${yZero.toFixed(1)} Z`
+      : ""
+
+  const plyFromMouse = (clientX: number): number | null => {
+    if (!points.length) return null
+    const rect = wrapRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    const t = (clientX - rect.left - CHART_PAD_X) / (width - 2 * CHART_PAD_X)
+    return Math.min(maxPly, Math.max(minPly, Math.round(minPly + t * span)))
+  }
+
+  const hover = hoverPly !== null ? points.find((p) => p.ply === hoverPly) ?? null : null
+  const fmt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}`
+
+  return (
+    <div
+      ref={wrapRef}
+      className="relative w-full select-none"
+      style={{ height, cursor: onPick ? "pointer" : "default" }}
+      onMouseMove={(e) => setHoverPly(plyFromMouse(e.clientX))}
+      onMouseLeave={() => setHoverPly(null)}
+      onClick={(e) => {
+        if (!onPick) return
+        const ply = plyFromMouse(e.clientX)
+        if (ply !== null) onPick(ply)
+      }}
+    >
+      <svg width={width} height={height} className="block rounded-sm">
+        <rect x={0} y={0} width={width} height={height} fill={CHART_BG} />
+        {area && <path d={area} fill={fill} />}
+        {curve && <path d={curve} fill="none" stroke={stroke} strokeWidth={1.25} />}
+        <line x1={0} x2={width} y1={yZero} y2={yZero} stroke={CHART_MID} strokeWidth={1} strokeDasharray="3,3" />
+        {currentPly !== null && (
+          <line
+            x1={xFor(currentPly)}
+            x2={xFor(currentPly)}
+            y1={0}
+            y2={height}
+            stroke="rgba(155,199,0,0.9)"
+            strokeWidth={1.5}
+          />
+        )}
+        {hover && hover.pawns !== null && (
+          <circle cx={xFor(hover.ply)} cy={yFor(hover.pawns)} r={3} fill="rgba(155,199,0,0.95)" stroke={CHART_BG} strokeWidth={1.5} />
+        )}
+      </svg>
+      {hover && hover.pawns !== null && (
+        <div
+          className="absolute -top-1 px-1.5 py-0.5 rounded-sm bg-[#2a2825] border border-[#3a3835] text-xs font-mono text-foreground whitespace-nowrap pointer-events-none z-10"
+          style={{
+            left: Math.min(Math.max(xFor(hover.ply), 32), width - 32),
+            transform: "translate(-50%, -100%)",
+          }}
+        >
+          ply {hover.ply} {fmt(hover.pawns)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Mean eval by ply across all completed games, normalized to engine A's
+ * perspective (so + always favors A). Games where A played Black are
+ * sign-flipped, otherwise color-flipped pairs would cancel to ~0.
+ */
+function AverageEvalGraph({
+  outcomes,
+  labelA,
+  labelB,
+}: {
+  outcomes: GameOutcome[]
+  labelA: string
+  labelB: string
+}) {
+  const avg = useMemo(() => averageEvalByPly(outcomes), [outcomes])
+  if (avg.length < 2) return null
+  const maxAbs = Math.max(0.5, ...avg.map((p) => Math.abs(p.mean)))
+  const points: EvalPoint[] = avg.map((p) => ({ ply: p.ply, pawns: p.mean }))
+  const finalMean = avg[avg.length - 1].mean
+
+  return (
+    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-foreground">Average eval by move</h2>
+        <span className="text-xs text-muted-foreground font-mono">
+          n={avg[0].n} games · final {finalMean >= 0 ? "+" : ""}{finalMean.toFixed(2)}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Mean neutral-evaluator eval at each ply, from{" "}
+        <span className="text-green-400">{labelA}</span>&apos;s perspective (+ ={" "}
+        {labelA} better, − = <span className="text-sky-400">{labelB}</span> better).
+        Games where {labelA} played Black are sign-flipped so colors don&apos;t cancel.
+      </p>
+      <EvalByPlyChart points={points} maxAbs={maxAbs} height={110} />
+    </section>
+  )
+}
+
+/** Result badge text/tint for a completed game, from engine A's point of view. */
+function resultBadge(result: "1-0" | "0-1" | "1/2-1/2", flipped: boolean) {
+  if (result === "1/2-1/2") return { text: "½–½", cls: "text-muted-foreground" }
+  const aWon = (result === "1-0") === !flipped
+  return aWon
+    ? { text: result, cls: "text-green-400" }
+    : { text: result, cls: "text-sky-400" }
+}
+
+/**
+ * Browse completed games: pick one from the list, step through it on a board
+ * (arrow keys / click the eval graph), and optionally open it in Analyze.
+ */
+function ResultsExplorer({
+  outcomes,
+  labelA,
+  labelB,
+  onOpenGame,
+}: {
+  outcomes: GameOutcome[]
+  labelA: string
+  labelB: string
+  onOpenGame?: (pgn: string) => void
+}) {
+  const games = useMemo(() => outcomes.filter(isOk), [outcomes])
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [ply, setPly] = useState(0)
+
+  // Default to the first game once results arrive / change.
+  useEffect(() => {
+    setSelectedId(games.length ? games[0].id : null)
+  }, [games])
+
+  const selected = useMemo(
+    () => (selectedId === null ? null : games.find((g) => g.id === selectedId) ?? null),
+    [games, selectedId],
+  )
+  const gr = selected ? gameResult(selected) : null
+
+  // Positions for the selected game; the board hops among these by ply.
+  const fens = useMemo(
+    () => (gr ? replayFens(gr.start_fen, gr.moves) : []),
+    [gr],
+  )
+  const series = useMemo(
+    () => (selected ? gameEvalSeries(selected) : []),
+    [selected],
+  )
+  const maxAbs = useMemo(
+    () => Math.max(0.5, ...series.map((p) => (p.pawns === null ? 0 : Math.abs(p.pawns)))),
+    [series],
+  )
+
+  // Snap the cursor to the final position whenever the selected game changes.
+  useEffect(() => {
+    setPly(fens.length ? fens.length - 1 : 0)
+  }, [fens])
+
+  const maxPly = Math.max(0, fens.length - 1)
+  const step = useCallback(
+    (d: number) => setPly((p) => Math.min(maxPly, Math.max(0, p + d))),
+    [maxPly],
+  )
+
+  if (games.length === 0) return null
+
+  const whiteLabel = (o: GameOutcome) => (o.flipped ? labelB : labelA)
+  const blackLabel = (o: GameOutcome) => (o.flipped ? labelA : labelB)
+  const fen = fens[ply] ?? gr?.start_fen ?? ""
+  const lastMove =
+    gr && ply > 0 && gr.moves[ply - 1] ? uciSquares(gr.moves[ply - 1]) : undefined
+  const moveNo = Math.floor((ply + 1) / 2)
+
+  return (
+    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
+      <h2 className="text-sm font-semibold text-foreground">Games</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,240px)_1fr] gap-4">
+        {/* Game list */}
+        <div className="max-h-[420px] overflow-y-auto rounded-md border border-white/10 divide-y divide-white/5">
+          {games.map((o) => {
+            const g = gameResult(o)!
+            const badge = resultBadge(g.result, o.flipped)
+            return (
+              <button
+                key={o.id}
+                data-testid={`tournament-game-row-${o.id}`}
+                onClick={() => setSelectedId(o.id)}
+                className={`w-full text-left px-2.5 py-1.5 flex items-center gap-2 transition-colors ${
+                  o.id === selectedId ? "bg-primary/20" : "hover:bg-white/5"
+                }`}
+              >
+                <span className="text-[11px] text-muted-foreground font-mono w-8 shrink-0">
+                  #{o.id}
+                </span>
+                <span className="text-xs text-foreground truncate flex-1 min-w-0">
+                  {whiteLabel(o)} <span className="text-muted-foreground">vs</span> {blackLabel(o)}
+                </span>
+                <span className={`text-xs font-mono ${badge.cls}`}>{badge.text}</span>
+                <span className="text-[10px] text-muted-foreground font-mono w-8 text-right shrink-0">
+                  {g.plies}p
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Selected game viewer */}
+        {selected && gr && (
+          <div
+            className="flex flex-col gap-3 outline-none"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); step(-1) }
+              else if (e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); step(1) }
+              else if (e.key === "Home") { e.preventDefault(); e.stopPropagation(); setPly(0) }
+              else if (e.key === "End") { e.preventDefault(); e.stopPropagation(); setPly(maxPly) }
+            }}
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">
+                <span className="text-foreground">#{selected.id}</span>{" "}
+                {whiteLabel(selected)} vs {blackLabel(selected)} ·{" "}
+                {gr.termination.replace(/_/g, " ")}
+              </span>
+              {onOpenGame && (
+                <button
+                  data-testid="tournament-open-in-analyze"
+                  onClick={() =>
+                    onOpenGame(
+                      movesToPgn(gr.start_fen, gr.moves, gr.result, {
+                        event: "Engine tournament",
+                        white: whiteLabel(selected),
+                        black: blackLabel(selected),
+                      }),
+                    )
+                  }
+                  className="px-2.5 py-1 text-xs rounded-md border border-input text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                >
+                  Open in Analyze
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="w-[min(46vw,320px)] shrink-0">
+                <Board
+                  fen={fen}
+                  orientation="white"
+                  viewOnly
+                  legalMoves={EMPTY_DESTS}
+                  onMove={noop}
+                  lastMove={lastMove as [Key, Key] | undefined}
+                />
+              </div>
+            </div>
+
+            {/* Step controls */}
+            <div className="flex items-center gap-1">
+              <StepButton label="⏮" title="Start (Home)" onClick={() => setPly(0)} />
+              <StepButton label="◀" title="Back (←)" onClick={() => step(-1)} />
+              <span className="text-xs text-muted-foreground font-mono px-2 tabular-nums">
+                move {moveNo} · ply {ply}/{maxPly}
+              </span>
+              <StepButton label="▶" title="Forward (→)" onClick={() => step(1)} />
+              <StepButton label="⏭" title="End (End)" onClick={() => setPly(maxPly)} />
+            </div>
+
+            {/* Per-game eval curve (White-POV); click to hop the board */}
+            {series.length >= 2 ? (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">
+                  Neutral eval by move (White-POV) — click to jump
+                </span>
+                <EvalByPlyChart
+                  points={series}
+                  maxAbs={maxAbs}
+                  height={84}
+                  currentPly={ply}
+                  onPick={setPly}
+                />
+              </div>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                No per-move evals for this game (evaluator was off).
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function StepButton({ label, title, onClick }: { label: string; title: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="px-2 py-1 text-sm rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+    >
+      {label}
+    </button>
   )
 }

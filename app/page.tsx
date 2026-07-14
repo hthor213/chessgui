@@ -78,11 +78,20 @@ export default function Home() {
   const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
   const [tournamentRunning, setTournamentRunning] = useState(false)
   const [liveGame, setLiveGame] = useState<LiveGame | null>(null)
+  // Whether to show the eval bar beside the live tournament board (driven by the
+  // Tournament tab's "show evaluation bar" option).
+  const [liveEvalBar, setLiveEvalBar] = useState(false)
   // Bumped by "Play this out": tells the Tournament tab to preset itself to
   // Current-position mode (engines fight over the board's position).
   const [tournamentPresetNonce, setTournamentPresetNonce] = useState(0)
   // Watch a live engine-vs-engine game on the board while a tournament runs.
   const liveViewing = view === "board" && tournamentRunning
+  // Starting a run auto-switches to the board so the live game is on screen.
+  const prevRunning = useRef(false)
+  useEffect(() => {
+    if (tournamentRunning && !prevRunning.current) setView("board")
+    prevRunning.current = tournamentRunning
+  }, [tournamentRunning])
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
   const [pgnInitialText, setPgnInitialText] = useState("")
   const [editorOpen, setEditorOpen] = useState(false)
@@ -472,6 +481,8 @@ export default function Home() {
           <TournamentTab
             onRunningChange={setTournamentRunning}
             onLiveUpdate={setLiveGame}
+            onEvalBarChange={setLiveEvalBar}
+            onOpenGame={handleLoadFromDatabase}
             currentFen={game.fen}
             bottomColor={game.orientation}
             presetNonce={tournamentPresetNonce}
@@ -489,7 +500,7 @@ export default function Home() {
         {/* Live tournament game viewer */}
         {liveViewing && (
           <main className="flex-1 min-h-0 flex flex-col items-center justify-center gap-4 p-4">
-            <LiveGameView live={liveGame} />
+            <LiveGameView live={liveGame} showEvalBar={liveEvalBar} />
           </main>
         )}
 
@@ -865,7 +876,13 @@ function LivePlayer({ label, side, ms }: { label: string; side: string; ms: numb
 }
 
 /** Read-only board that watches the currently-featured live tournament game. */
-function LiveGameView({ live }: { live: LiveGame | null }) {
+function LiveGameView({
+  live,
+  showEvalBar,
+}: {
+  live: LiveGame | null
+  showEvalBar?: boolean
+}) {
   if (!live) {
     return (
       <div className="text-sm text-muted-foreground">
@@ -874,10 +891,20 @@ function LiveGameView({ live }: { live: LiveGame | null }) {
     )
   }
   const moveNo = Math.floor((live.ply + 1) / 2)
+  // The neutral evaluator's latest score is already White-POV, so the bar reads
+  // it as White's perspective (turn="white").
+  const evalScore = live.eval
+    ? live.eval.mate != null
+      ? ({ type: "mate", value: live.eval.mate } as const)
+      : ({ type: "cp", value: live.eval.cp ?? 0 } as const)
+    : null
   return (
     <div className="flex flex-col items-center gap-2 w-full h-full min-h-0 py-2">
       <LivePlayer label={live.blackLabel} side="black" ms={live.blackTimeMs} />
-      <div className="flex-1 flex items-center justify-center w-full overflow-hidden">
+      <div className="flex-1 flex items-center justify-center w-full overflow-hidden gap-2">
+        {showEvalBar && evalScore && (
+          <EvalBar score={evalScore} turn="white" width={20} />
+        )}
         <Board
           fen={live.fen}
           orientation="white"

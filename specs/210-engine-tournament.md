@@ -158,3 +158,49 @@ interface TournamentResult {
 - [ ] Tournament result persistence: save/load past tournament results to disk
 - [ ] Deeper UHO integration: filter by ECO code, opening family, or custom FEN lists
 - [ ] Concurrency settings exposed in UI (max parallel games, engine thread count per game)
+
+### Phase 7 — Neutral Evaluator & Game Browser (2026-07-13)
+
+A third "neutral evaluator" engine scores every position of every game while the
+match runs, plus a live viewer, per-move eval graphs, and a completed-game
+browser. Landed together this session.
+
+- [x] **Neutral evaluator (third engine).** `play_batch` takes `eval_path` +
+  `eval_movetime_ms` (default 100ms) and streams `EvalEvent`s over a new
+  `on_eval` channel. Each game spawns its own evaluator process in a decoupled
+  task that consumes the game's positions off an unbounded channel and scores
+  them at a fixed `go movetime` — so the players never wait on it and their
+  clocks are untouched. `movetime` (not fixed depth) is deliberate: it bounds
+  per-position wall cost so the evaluator keeps pace with the live stream.
+  Per-ply White-POV evals attach to each `GameOutcome.evals` (Serialize +
+  Deserialize, so later persistence is trivial). Evaluator path is pre-flighted
+  like the players; evaluator is optional (checkbox, default ON). Rust unit test
+  runs a real short game at 20ms/pos and asserts one eval per ply (+ ply 0) both
+  collected and streamed.
+- [x] **Auto-switch to live view on run start.** Starting a run flips the main
+  view to the board so the featured game is on screen (`page.tsx` watches
+  `tournamentRunning`).
+- [x] **Live eval bar.** "Show evaluation bar" option; auto-checks for base time
+  ≥ 60s (re-derived on TC change until the user touches it), pure helper
+  `evalBarDefaultForBaseMs` unit-tested against the TC presets. When on, the
+  existing `EvalBar` renders left of the live board, driven by the evaluator's
+  latest White-POV score for the featured game.
+- [x] **Average eval graph.** Mean eval by ply across completed games, normalized
+  to engine A's perspective (games where A played Black are sign-flipped so
+  color-flipped pairs don't cancel) — normalization stated in the UI label and
+  unit-tested (`averageEvalByPly`).
+- [x] **Per-game eval graph.** White-POV eval-by-ply for the selected game, same
+  inline-SVG style as the spec-202 eval graph (`gameEvalSeries`, no chart deps).
+- [x] **Game browser + board hop.** Completed-games list → select shows the game
+  on a viewer board; arrow keys / step buttons / clicking the eval graph hop to
+  any position (`replayFens`). "Open in Analyze" builds a PGN (`movesToPgn`) and
+  loads it onto the main board.
+
+**Verification (2026-07-13):** `cargo test` (22 pass incl. the real-engine
+evaluator test), `pnpm test` (141 pass incl. eval normalization/averaging,
+per-game series, eval-bar default), `pnpm tsc --noEmit` clean, `pnpm build`
+succeeds. The live evaluator run, live eval bar, and graph/board rendering need
+the Tauri app to exercise end-to-end (the batch runs over Tauri IPC; a plain
+browser can't invoke `play_batch`, and the Chrome extension for headless UI
+driving was not connected on this machine) — that check is still pending.
+Results remain in-memory (persistence is a separate backlog item).
