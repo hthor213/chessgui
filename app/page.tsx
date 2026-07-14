@@ -533,10 +533,15 @@ export default function Home() {
         </main>
 
         {/* Database view — game list, filters, position search. Mounted only
-            when active; it re-fetches on mount, which is cheap. */}
+            when active; it re-fetches on mount, which is cheap. The explorer
+            panel plays moves straight onto the board's current game. */}
         {view === "database" && (
           <main className="flex-1 min-h-0">
-            <DatabaseTab currentFen={game.fen} onLoadGame={handleLoadFromDatabase} />
+            <DatabaseTab
+              currentFen={game.fen}
+              onLoadGame={handleLoadFromDatabase}
+              onPlayMove={game.playUciMove}
+            />
           </main>
         )}
 

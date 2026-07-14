@@ -96,8 +96,8 @@ breakdown). A dedicated live explorer panel is a later slice.
 - [x] Panel shows all moves played from current position in the database — grouped by next move
 - [x] Each move shows game count and result percentages (stacked bar) — white/draw/black segments
 - [~] Moves sorted by frequency (configurable: by count, by performance) — sorted by count; **performance sort not implemented**
-- [ ] Clicking a move plays it on the board — moves are display-only this slice
-- [ ] Updates as user navigates through moves — currently a manual "Find current position" action, not auto-updating
+- [x] Clicking a move plays it on the board — click (or Enter/Space) on a move row calls `playUciMove`, staying on the Database tab so the tree can be walked move-by-move
+- [x] Updates as user navigates through moves — debounced auto-search on `currentFen` change; the "Find current position" button is now a manual "Refresh" (e.g. after an import) rather than the only trigger
 - [ ] Lichess API fallback when local database is empty — not implemented
 - [~] Average Elo and performance rating shown per move — **avg Elo shown**; performance rating not computed
 - [x] Tree computation is async — no UI freeze on large databases — all data access is async; Tauri runs the query off the UI thread

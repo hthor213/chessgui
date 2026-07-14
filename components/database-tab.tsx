@@ -38,16 +38,21 @@ import {
 const PAGE_SIZE = 50
 
 type DatabaseTabProps = {
-  /** Current board FEN, for the "find current position" search. */
+  /** Current board FEN — the explorer panel searches (and re-searches) this
+   *  position automatically as the user plays or navigates moves. */
   currentFen?: string
   /** Load a game's PGN onto the board (parent parses + switches to the board). */
   onLoadGame: (pgn: string) => void
+  /** Play a move (UCI) from the explorer panel onto the board's current game,
+   *  without leaving the Database tab — lets the user click through the
+   *  opening tree the way the position search panel is aggregated. */
+  onPlayMove?: (uci: string) => void
 }
 
 /** Empty draft for the filter bar. */
 const EMPTY_FILTER: GameFilter = {}
 
-export function DatabaseTab({ currentFen, onLoadGame }: DatabaseTabProps) {
+export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabProps) {
   const [draft, setDraft] = useState<GameFilter>(EMPTY_FILTER)
   const [applied, setApplied] = useState<GameFilter>(EMPTY_FILTER)
   const [sort, setSort] = useState<Sort | undefined>(undefined)
@@ -66,6 +71,9 @@ export function DatabaseTab({ currentFen, onLoadGame }: DatabaseTabProps) {
 
   // Ignore out-of-order responses when filters change rapidly.
   const reqId = useRef(0)
+  // Same pattern, scoped to the position-search panel (separate counter so a
+  // fast game-list refresh and a fast explorer re-search never race each other).
+  const posReqId = useRef(0)
 
   // Debounce filter drafts into the applied filter (live search).
   useEffect(() => {
@@ -145,16 +153,29 @@ export function DatabaseTab({ currentFen, onLoadGame }: DatabaseTabProps) {
     void refresh()
   }, [selected, refresh])
 
-  const findPosition = useCallback(async () => {
-    if (!currentFen) return
+  const findPosition = useCallback(async (fen: string) => {
+    const id = ++posReqId.current
     setSearching(true)
     try {
-      const found = await searchPosition(currentFen, 500)
-      setHits(found)
+      const found = await searchPosition(fen, 500)
+      if (id === posReqId.current) setHits(found)
     } finally {
-      setSearching(false)
+      if (id === posReqId.current) setSearching(false)
     }
-  }, [currentFen])
+  }, [])
+
+  // Auto-update the explorer panel as the user plays or navigates moves on
+  // the board — debounced so rapid navigation (holding an arrow key, or a
+  // string of explorer click-throughs) doesn't flood the backend with a
+  // search per intermediate position.
+  useEffect(() => {
+    if (!currentFen) {
+      setHits(null)
+      return
+    }
+    const t = setTimeout(() => void findPosition(currentFen), 200)
+    return () => clearTimeout(t)
+  }, [currentFen, findPosition])
 
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id))
   const toggleAll = useCallback(() => {
@@ -313,26 +334,28 @@ export function DatabaseTab({ currentFen, onLoadGame }: DatabaseTabProps) {
           </div>
         </div>
 
-        {/* Position search (opening-explorer seed) */}
+        {/* Position search (opening-explorer seed) — auto-updates as the
+            board's current position changes; click a move to play it. */}
         <div className="border border-border rounded-lg p-4 flex flex-col gap-3" data-testid="db-position-search">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-medium">Position search</h3>
               <p className="text-xs text-muted-foreground">
-                Find every game reaching the current board position, grouped by the next move.
+                Every game reaching the current board position, grouped by the next move. Updates
+                as you play or navigate; click a move to play it.
               </p>
             </div>
             <Button
               variant="secondary"
               size="sm"
-              onClick={findPosition}
+              onClick={() => currentFen && void findPosition(currentFen)}
               disabled={!currentFen || searching}
               data-testid="db-find-position"
             >
-              {searching ? "Searching…" : "Find current position"}
+              {searching ? "Searching…" : "Refresh"}
             </Button>
           </div>
-          {hits && <PositionResults hits={hits} />}
+          {hits && <PositionResults hits={hits} onPlayMove={onPlayMove} />}
         </div>
       </div>
 
@@ -477,7 +500,13 @@ function aggregate(hits: PositionHit[]): MoveGroup[] {
   return [...groups.values()].sort((a, b) => b.total - a.total)
 }
 
-function PositionResults({ hits }: { hits: PositionHit[] }) {
+function PositionResults({
+  hits,
+  onPlayMove,
+}: {
+  hits: PositionHit[]
+  onPlayMove?: (uci: string) => void
+}) {
   const groups = useMemo(() => aggregate(hits), [hits])
   if (hits.length === 0) {
     return (
@@ -492,20 +521,45 @@ function PositionResults({ hits }: { hits: PositionHit[] }) {
         {hits.length} game{hits.length === 1 ? "" : "s"} · {groups.length} move
         {groups.length === 1 ? "" : "s"}
       </p>
-      {groups.map((g) => (
-        <div key={g.san} className="flex items-center gap-3" data-testid={`db-move-${g.san}`}>
-          <span className="w-20 font-mono text-sm">{g.san}</span>
-          <span className="w-14 text-right tabular-nums text-sm text-muted-foreground">{g.total}</span>
-          <div className="flex-1 h-4 rounded overflow-hidden flex bg-secondary" title={`+${g.whiteWins} =${g.draws} -${g.blackWins}`}>
-            <div className="bg-neutral-100" style={{ width: `${(g.whiteWins / g.total) * 100}%` }} />
-            <div className="bg-neutral-400" style={{ width: `${(g.draws / g.total) * 100}%` }} />
-            <div className="bg-neutral-700" style={{ width: `${(g.blackWins / g.total) * 100}%` }} />
+      {groups.map((g) => {
+        // "(end of game)" groups (no next move) and a missing UCI (shouldn't
+        // happen for a real move, but the type allows it) aren't playable.
+        const playable = !!g.uci && !!onPlayMove
+        return (
+          <div
+            key={g.san}
+            className={`flex items-center gap-3 rounded px-1 -mx-1 py-0.5 ${
+              playable ? "cursor-pointer hover:bg-white/5" : ""
+            }`}
+            data-testid={`db-move-${g.san}`}
+            onClick={playable ? () => onPlayMove!(g.uci!) : undefined}
+            role={playable ? "button" : undefined}
+            tabIndex={playable ? 0 : undefined}
+            title={playable ? `Play ${g.san}` : undefined}
+            onKeyDown={
+              playable
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault()
+                      onPlayMove!(g.uci!)
+                    }
+                  }
+                : undefined
+            }
+          >
+            <span className="w-20 font-mono text-sm">{g.san}</span>
+            <span className="w-14 text-right tabular-nums text-sm text-muted-foreground">{g.total}</span>
+            <div className="flex-1 h-4 rounded overflow-hidden flex bg-secondary" title={`+${g.whiteWins} =${g.draws} -${g.blackWins}`}>
+              <div className="bg-neutral-100" style={{ width: `${(g.whiteWins / g.total) * 100}%` }} />
+              <div className="bg-neutral-400" style={{ width: `${(g.draws / g.total) * 100}%` }} />
+              <div className="bg-neutral-700" style={{ width: `${(g.blackWins / g.total) * 100}%` }} />
+            </div>
+            <span className="w-14 text-right tabular-nums text-xs text-muted-foreground">
+              {g.avgElo != null ? Math.round(g.avgElo) : ""}
+            </span>
           </div>
-          <span className="w-14 text-right tabular-nums text-xs text-muted-foreground">
-            {g.avgElo != null ? Math.round(g.avgElo) : ""}
-          </span>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
