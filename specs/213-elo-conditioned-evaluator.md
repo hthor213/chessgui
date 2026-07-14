@@ -183,6 +183,15 @@ optional move, and score them against Stockfish. Files are the research artifact
       long-range threats are the bottleneck") and the session budget spends itself on
       the scarcest data.
 
+- [ ] Single-labeler scope (2026-07-14): the user can only generate authentic perception
+      data at their own band — expertise can't be simulated in either direction. Division of
+      labor: the corpus is the multi-Elo labeler (moves + outcomes at every band); the user
+      supplies the inside of the error (stated evals, reasoning text, cause tags) at one
+      band — instrument calibration, not population sampling. Their unique asset is
+      longitudinal: if they climb 1300→1900 inside the system, which error classes dissolve
+      first (scale calibration vs template-blindness vs rake-stepping) is data no
+      cross-sectional corpus contains. Preserve session history accordingly; never discard
+      old sessions on schema upgrades.
 - [ ] Sampler v3 — stratify by training value, not engine-pawn bands (from calibration
       session 2026-07-14): for a 1300 aiming at 1900, +0.3 vs +0.9 in a middlegame is
       immaterial — the win-prob curve at that level is flat there (212's curve quantifies
