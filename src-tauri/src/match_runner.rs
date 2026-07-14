@@ -7,7 +7,7 @@
 //! synchronously, one move at a time.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -474,6 +474,8 @@ pub async fn play_game_core(
         0,
         |_| {},
         &AtomicBool::new(false),
+        &AtomicBool::new(false),
+        &AtomicU64::new(0),
     )
     .await
 }
@@ -486,6 +488,11 @@ pub async fn play_game_core(
 ///
 /// `game_id` tags every emitted [`MoveEvent`] so a caller running many games
 /// concurrently can correlate moves back to their game.
+///
+/// `paused` freezes the game between moves while set — no search runs, so both
+/// clocks hold. `move_delay_ms` throttles the on-board display so each move
+/// stays up at least that long (0 = no throttle). Neither affects the clocks,
+/// which are only ever debited by measured search time.
 pub async fn play_game_streamed(
     white_path: &str,
     black_path: &str,
@@ -497,6 +504,8 @@ pub async fn play_game_streamed(
     game_id: usize,
     on_move: impl Fn(MoveEvent) + Send + Sync,
     cancel: &AtomicBool,
+    paused: &AtomicBool,
+    move_delay_ms: &AtomicU64,
 ) -> Result<GameResult, String> {
     // Set up the starting position.
     let (mut pos, start_fen_str, is_standard_start): (Chess, String, bool) = match &start_fen {
@@ -576,11 +585,24 @@ pub async fn play_game_streamed(
         }
     }
 
+    // Wall-clock of the last move we emitted, for the display-time throttle.
+    let mut last_emit = tokio::time::Instant::now();
+
     loop {
         // Abort promptly if the batch was cancelled (engines die on drop). This
         // bounds an in-flight game's shutdown to roughly one move's think time.
         if cancel.load(Ordering::SeqCst) {
             return Err("cancelled".to_string());
+        }
+
+        // Pause gate: hold between moves while paused. No search runs here, so
+        // both clocks freeze (they are only ever debited by measured search
+        // time). Cancellation still wins so a paused game can be stopped.
+        while paused.load(Ordering::SeqCst) {
+            if cancel.load(Ordering::SeqCst) {
+                return Err("cancelled".to_string());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
         // Adjudicate at max plies.
@@ -674,6 +696,17 @@ pub async fn play_game_streamed(
         };
         moves.push(bestmove);
 
+        // Display throttle: keep each move on the board at least `move_delay_ms`.
+        // The time already spent computing THIS move counts, so we only sleep the
+        // remainder. Outside the clock accounting, so it never affects the clocks.
+        let delay = move_delay_ms.load(Ordering::SeqCst);
+        if delay > 0 {
+            let since = last_emit.elapsed().as_millis() as u64;
+            if since < delay {
+                tokio::time::sleep(Duration::from_millis(delay - since)).await;
+            }
+        }
+
         // Stream the move just applied. `ply` is 1-based; the FEN reflects the
         // position AFTER this move.
         let ply = moves.len();
@@ -687,6 +720,7 @@ pub async fn play_game_streamed(
             wtime_ms: wtime,
             btime_ms: btime,
         });
+        last_emit = tokio::time::Instant::now();
 
         // --- Termination checks after the move ---
 
@@ -832,6 +866,10 @@ pub struct GameOutcome {
     /// White-POV. Empty when the evaluator is disabled or failed to start.
     #[serde(default)]
     pub evals: Vec<PlyEval>,
+    /// True when the game was cut short by a stop request (not a real error).
+    /// Aborted games are excluded from all result stats.
+    #[serde(default)]
+    pub aborted: bool,
 }
 
 /// Progress event emitted as each game in a batch completes.
@@ -858,11 +896,13 @@ pub struct BatchSummary {
 /// Tally raw results across outcomes. White/Black wins are keyed on the literal
 /// game result string ("1-0" / "0-1"); everything else with a result is a draw.
 pub fn summarize(outcomes: &[GameOutcome]) -> BatchSummary {
-    let mut s = BatchSummary {
-        games: outcomes.len(),
-        ..Default::default()
-    };
+    let mut s = BatchSummary::default();
     for o in outcomes {
+        // Aborted games (stopped mid-play) are not real results — skip entirely.
+        if o.aborted {
+            continue;
+        }
+        s.games += 1;
         match &o.result {
             Ok(g) => match g.result.as_str() {
                 "1-0" => s.white_wins += 1,
@@ -895,6 +935,10 @@ pub async fn run_batch_core(
     on_move: Arc<dyn Fn(MoveEvent) + Send + Sync>,
     cancel: Arc<AtomicBool>,
 ) -> Vec<GameOutcome> {
+    let controls = BatchControls {
+        cancel,
+        ..Default::default()
+    };
     run_batch_core_evaluated(
         specs,
         concurrency,
@@ -902,7 +946,7 @@ pub async fn run_batch_core(
         on_move,
         Arc::new(|_| {}),
         None,
-        cancel,
+        controls,
     )
     .await
 }
@@ -923,8 +967,13 @@ pub async fn run_batch_core(
 ///   scores that game's positions in a separate task, so the players never wait
 ///   on it and their clocks are untouched. The collected per-ply evals are
 ///   attached to the game's [`GameOutcome`].
-/// * `cancel` — checked before launching each queued game; once set, no further
-///   games are launched (in-flight games are allowed to finish).
+/// * `controls` — live-tunable [`BatchControls`] (stop / pause / auto-start /
+///   throttle). `cancel` is checked before launching each queued game; once
+///   set, no further games launch and in-flight games abort. When `auto_start`
+///   is off the runner waits on `advance` between games (and forces concurrency
+///   to 1, so the pause-between-games semantics are unambiguous — with >1 games
+///   in flight "between games" has no single meaning). `paused` and
+///   `move_delay_ms` are threaded into each game.
 ///
 /// Engine processes are torn down cleanly: each game owns its own short-lived
 /// engine handles (spawned with `kill_on_drop`), and on cancellation we simply
@@ -936,10 +985,16 @@ pub async fn run_batch_core_evaluated(
     on_move: Arc<dyn Fn(MoveEvent) + Send + Sync>,
     on_eval: Arc<dyn Fn(EvalEvent) + Send + Sync>,
     eval: Option<EvalSetup>,
-    cancel: Arc<AtomicBool>,
+    controls: BatchControls,
 ) -> Vec<GameOutcome> {
+    let cancel = Arc::clone(&controls.cancel);
     let total = specs.len();
-    let limit = if concurrency == 0 {
+    // Manual "start next game" (auto_start off) means sequential play — force
+    // concurrency 1 so "between games" is a single, well-defined gap.
+    let manual = !controls.auto_start.load(Ordering::SeqCst);
+    let limit = if manual {
+        1
+    } else if concurrency == 0 {
         default_concurrency()
     } else {
         concurrency
@@ -951,7 +1006,7 @@ pub async fn run_batch_core_evaluated(
 
     let mut handles = Vec::with_capacity(total);
 
-    for spec in specs {
+    for (idx, spec) in specs.into_iter().enumerate() {
         // Stop launching new games once cancellation is requested.
         if cancel.load(Ordering::SeqCst) {
             break;
@@ -968,12 +1023,39 @@ pub async fn run_batch_core_evaluated(
             break;
         }
 
+        // Between-games gate: when auto-start is off, wait for the user to
+        // advance before starting any game after the first. With concurrency
+        // forced to 1, the permit above is only free once the previous game
+        // finished, so this gap sits cleanly between two games.
+        if idx > 0 && !controls.auto_start.load(Ordering::SeqCst) {
+            loop {
+                if cancel.load(Ordering::SeqCst) {
+                    break;
+                }
+                // Re-derive each pass: the user may re-enable auto-start instead
+                // of clicking "start next game".
+                if controls.auto_start.load(Ordering::SeqCst) {
+                    break;
+                }
+                tokio::select! {
+                    _ = controls.advance.notified() => break,
+                    _ = tokio::time::sleep(Duration::from_millis(150)) => {}
+                }
+            }
+            if cancel.load(Ordering::SeqCst) {
+                drop(permit);
+                break;
+            }
+        }
+
         let on_progress = Arc::clone(&on_progress);
         let on_move = Arc::clone(&on_move);
         let on_eval = Arc::clone(&on_eval);
         let eval = eval.clone();
         let completed = Arc::clone(&completed);
         let cancel_game = Arc::clone(&cancel);
+        let paused_game = Arc::clone(&controls.paused);
+        let delay_game = Arc::clone(&controls.move_delay_ms);
 
         let handle = tokio::spawn(async move {
             // Permit is held for the lifetime of this game, then released here.
@@ -1048,6 +1130,8 @@ pub async fn run_batch_core_evaluated(
                     on_move_inner(ev);
                 },
                 &cancel_game,
+                &paused_game,
+                &delay_game,
             )
             .await;
 
@@ -1059,11 +1143,15 @@ pub async fn run_batch_core_evaluated(
                 None => Vec::new(),
             };
 
+            // A game cut short by the stop request is aborted, not a real error —
+            // it is excluded from all stats.
+            let aborted = matches!(&result, Err(e) if e == "cancelled");
             let outcome = GameOutcome {
                 id: spec.id,
                 flipped: spec.flipped,
                 result,
                 evals,
+                aborted,
             };
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1138,10 +1226,41 @@ fn check_engine_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Shared cancellation flag, managed as Tauri state so a `cancel_batch` command
-/// can request that an in-flight [`play_batch`] stop launching new games.
+/// Shared, live-tunable controls for a running batch, held as Tauri state so the
+/// stop / pause / auto-start / throttle commands can steer an in-flight
+/// [`play_batch`]. Cloned Arcs are threaded into every game.
+#[derive(Clone)]
+pub struct BatchControls {
+    /// Set to stop the batch: no new games launch and in-flight games abort at
+    /// their next move boundary.
+    pub cancel: Arc<AtomicBool>,
+    /// While set, games freeze between moves (clocks don't tick, engines idle).
+    pub paused: Arc<AtomicBool>,
+    /// Minimum on-board display time per move (ms); 0 = no throttle.
+    pub move_delay_ms: Arc<AtomicU64>,
+    /// When false, the runner waits for [`Self::advance`] before starting each
+    /// game after the first (manual "start next game").
+    pub auto_start: Arc<AtomicBool>,
+    /// Notified to release the between-games gate (or to wake it on cancel).
+    pub advance: Arc<tokio::sync::Notify>,
+}
+
+impl Default for BatchControls {
+    fn default() -> Self {
+        Self {
+            cancel: Arc::new(AtomicBool::new(false)),
+            paused: Arc::new(AtomicBool::new(false)),
+            move_delay_ms: Arc::new(AtomicU64::new(0)),
+            // Auto-start defaults ON: games flow without manual advance.
+            auto_start: Arc::new(AtomicBool::new(true)),
+            advance: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+}
+
+/// Tauri-managed wrapper around the shared [`BatchControls`].
 #[derive(Default)]
-pub struct BatchCancel(pub Arc<AtomicBool>);
+pub struct BatchControl(pub BatchControls);
 
 /// Response from [`play_batch`]: every outcome plus the aggregate summary.
 #[derive(Serialize, Debug, Clone)]
@@ -1153,8 +1272,10 @@ pub struct BatchReport {
 /// Tauri command: run a batch of games, streaming per-game progress over an IPC
 /// channel, and return all outcomes plus the summary.
 ///
-/// Cancellation: the shared [`BatchCancel`] flag is reset at the start of each
-/// batch, then a `cancel_batch` command can set it to request a clean stop.
+/// Control: the shared [`BatchControls`] are reset at the start of each batch
+/// (cancel/pause cleared; `auto_start` and `move_delay_ms` seeded from the
+/// arguments), then the `cancel_batch` / `pause_batch` / `set_auto_start` /
+/// `set_move_delay` / `start_next_game` commands steer the run live.
 ///
 /// Neutral evaluator: when `eval_path` is set, a third engine scores every
 /// position of every game at `eval_movetime_ms` (default
@@ -1170,7 +1291,9 @@ pub async fn play_batch(
     on_eval: tauri::ipc::Channel<EvalEvent>,
     eval_path: Option<String>,
     eval_movetime_ms: Option<u64>,
-    cancel: tauri::State<'_, BatchCancel>,
+    auto_start: Option<bool>,
+    move_delay_ms: Option<u64>,
+    control: tauri::State<'_, BatchControl>,
 ) -> Result<BatchReport, String> {
     // Fail fast, once, if an engine binary is missing or non-executable —
     // otherwise every game spawn-fails identically and the UI shows only a
@@ -1190,9 +1313,18 @@ pub async fn play_batch(
         _ => None,
     };
 
-    // Fresh run: clear any leftover cancellation from a previous batch.
-    let flag = Arc::clone(&cancel.0);
-    flag.store(false, Ordering::SeqCst);
+    // Fresh run: clear any leftover cancel/pause and seed the tunable controls
+    // from the run's arguments. Reusing the same managed Arcs keeps the live
+    // commands pointing at this run.
+    let controls = control.0.clone();
+    controls.cancel.store(false, Ordering::SeqCst);
+    controls.paused.store(false, Ordering::SeqCst);
+    controls
+        .auto_start
+        .store(auto_start.unwrap_or(true), Ordering::SeqCst);
+    controls
+        .move_delay_ms
+        .store(move_delay_ms.unwrap_or(0), Ordering::SeqCst);
 
     let progress = on_progress.clone();
     let moves = on_move.clone();
@@ -1213,7 +1345,7 @@ pub async fn play_batch(
             let _ = evals.send(ev);
         }),
         eval,
-        Arc::clone(&flag),
+        controls,
     )
     .await;
 
@@ -1221,10 +1353,41 @@ pub async fn play_batch(
     Ok(BatchReport { outcomes, summary })
 }
 
-/// Tauri command: request cancellation of the currently running batch.
+/// Tauri command: request cancellation of the currently running batch. Also
+/// wakes the between-games gate so a paused-between-games run stops promptly.
 #[tauri::command]
-pub fn cancel_batch(cancel: tauri::State<'_, BatchCancel>) {
-    cancel.0.store(true, Ordering::SeqCst);
+pub fn cancel_batch(control: tauri::State<'_, BatchControl>) {
+    control.0.cancel.store(true, Ordering::SeqCst);
+    control.0.advance.notify_one();
+}
+
+/// Tauri command: pause/resume the running batch. While paused, games freeze
+/// between moves (both clocks hold, engines idle) until resumed.
+#[tauri::command]
+pub fn pause_batch(paused: bool, control: tauri::State<'_, BatchControl>) {
+    control.0.paused.store(paused, Ordering::SeqCst);
+}
+
+/// Tauri command: toggle auto-start of the next game. Turning it ON also
+/// releases any between-games gate the runner is currently sitting on.
+#[tauri::command]
+pub fn set_auto_start(auto_start: bool, control: tauri::State<'_, BatchControl>) {
+    control.0.auto_start.store(auto_start, Ordering::SeqCst);
+    if auto_start {
+        control.0.advance.notify_one();
+    }
+}
+
+/// Tauri command: advance past the between-games gate to start the next game.
+#[tauri::command]
+pub fn start_next_game(control: tauri::State<'_, BatchControl>) {
+    control.0.advance.notify_one();
+}
+
+/// Tauri command: set the minimum on-board display time per move (ms); 0 = off.
+#[tauri::command]
+pub fn set_move_delay(delay_ms: u64, control: tauri::State<'_, BatchControl>) {
+    control.0.move_delay_ms.store(delay_ms, Ordering::SeqCst);
 }
 
 /// Tauri command: return a UCI engine's `id name` (e.g. "Stockfish 18"), so the
@@ -1390,7 +1553,7 @@ mod tests {
             Arc::new(|_ev| {}),
             Arc::new(move |ev| sink.lock().unwrap().push(ev)),
             Some(EvalSetup { path: sf.clone(), movetime_ms: 20 }),
-            Arc::new(AtomicBool::new(false)),
+            BatchControls::default(),
         )
         .await;
 
@@ -1415,5 +1578,136 @@ mod tests {
         }
         // Every collected eval was also streamed live.
         assert_eq!(eval_events.lock().unwrap().len(), o.evals.len());
+    }
+
+    fn outcome(id: usize, result: Result<GameResult, String>, aborted: bool) -> GameOutcome {
+        GameOutcome { id, flipped: false, result, evals: Vec::new(), aborted }
+    }
+
+    fn win(res: &str) -> Result<GameResult, String> {
+        Ok(GameResult {
+            result: res.to_string(),
+            termination: "checkmate".to_string(),
+            plies: 10,
+            start_fen: STANDARD_START_FEN.to_string(),
+            moves: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn summarize_excludes_aborted_games() {
+        let outcomes = vec![
+            outcome(0, win("1-0"), false),
+            outcome(1, win("0-1"), false),
+            outcome(2, Err("cancelled".to_string()), true), // aborted mid-play
+            outcome(3, Err("boom".to_string()), false),     // a real error
+        ];
+        let s = summarize(&outcomes);
+        // The aborted game is counted nowhere — not in games, not in errors.
+        assert_eq!(s.games, 3);
+        assert_eq!(s.white_wins, 1);
+        assert_eq!(s.black_wins, 1);
+        assert_eq!(s.errors, 1);
+    }
+
+    // Stopping a running batch marks in-flight games aborted (not errors) and
+    // excludes them from the summary; games finished before the stop are kept.
+    #[tokio::test]
+    async fn stop_marks_inflight_games_aborted() {
+        let Some(sf) = find_stockfish() else {
+            eprintln!("skipping stop_marks_inflight_games_aborted: no stockfish");
+            return;
+        };
+        // Several longer games at concurrency 1 so a stop lands mid-play.
+        let specs: Vec<GameSpec> = (0..4)
+            .map(|i| GameSpec {
+                id: i,
+                white_path: sf.clone(),
+                black_path: sf.clone(),
+                start_fen: None,
+                base_ms: 2000,
+                inc_ms: 50,
+                max_plies: 200,
+                flipped: false,
+                adjudicate_tb: false,
+            })
+            .collect();
+        let controls = BatchControls::default();
+        let cancel = Arc::clone(&controls.cancel);
+        // Stop shortly after the batch starts.
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            cancel.store(true, Ordering::SeqCst);
+        });
+        let outcomes =
+            run_batch_core_evaluated(specs, 1, |_p| {}, Arc::new(|_| {}), Arc::new(|_| {}), None, controls).await;
+
+        // At least one game aborted; aborted games are Err but flagged aborted,
+        // and the summary excludes every aborted game.
+        let aborted = outcomes.iter().filter(|o| o.aborted).count();
+        assert!(aborted >= 1, "expected at least one aborted game on stop");
+        let s = summarize(&outcomes);
+        assert_eq!(
+            s.games,
+            outcomes.iter().filter(|o| !o.aborted).count(),
+            "summary must count only non-aborted games"
+        );
+        assert_eq!(s.errors, 0, "aborted games must not count as errors");
+    }
+
+    // The pause gate parks a game between moves until resumed; the clocks freeze
+    // because no search runs while parked, so the game still completes normally.
+    #[tokio::test]
+    async fn pause_gate_holds_game_until_resumed() {
+        let Some(sf) = find_stockfish() else {
+            eprintln!("skipping pause_gate_holds_game_until_resumed: no stockfish");
+            return;
+        };
+        let paused = Arc::new(AtomicBool::new(true));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let delay = Arc::new(AtomicU64::new(0));
+        let (p, c, d, sf2) = (Arc::clone(&paused), Arc::clone(&cancel), Arc::clone(&delay), sf.clone());
+        let handle = tokio::spawn(async move {
+            play_game_streamed(&sf2, &sf2, None, 1000, 100, 30, false, 0, |_| {}, &c, &p, &d).await
+        });
+        // Parked at the gate (spawn+init done, no moves played): must not finish.
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert!(!handle.is_finished(), "a paused game must not complete");
+        // Resume and it runs to a real result.
+        paused.store(false, Ordering::SeqCst);
+        let res = tokio::time::timeout(Duration::from_secs(30), handle)
+            .await
+            .expect("game should finish after resume")
+            .expect("join ok")
+            .expect("game ok");
+        assert!(res.plies > 0, "resumed game should have played moves");
+    }
+
+    // The display throttle keeps each move on the board at least `move_delay_ms`,
+    // so a fast game's wall time is dominated by the throttle, not the search.
+    #[tokio::test]
+    async fn move_delay_throttles_display() {
+        let Some(sf) = find_stockfish() else {
+            eprintln!("skipping move_delay_throttles_display: no stockfish");
+            return;
+        };
+        let delay_ms: u64 = 120;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let paused = Arc::new(AtomicBool::new(false));
+        let delay = Arc::new(AtomicU64::new(delay_ms));
+        // Tiny TC so search is fast and the throttle is the binding constraint.
+        let t0 = tokio::time::Instant::now();
+        let res = play_game_streamed(&sf, &sf, None, 60, 0, 16, false, 0, |_| {}, &cancel, &paused, &delay)
+            .await
+            .expect("game ok");
+        let elapsed = t0.elapsed().as_millis() as u64;
+        assert!(res.plies >= 2, "need a few moves to measure throttling");
+        // Each of the plies after the first was held >= delay_ms before the next.
+        let floor = (res.plies as u64 - 1) * delay_ms;
+        assert!(
+            elapsed >= floor,
+            "throttled game took {elapsed}ms, expected >= {floor}ms ({} plies @ {delay_ms}ms)",
+            res.plies
+        );
     }
 }

@@ -17,7 +17,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Mutex::new(uci::EngineState::default()))
-        .manage(match_runner::BatchCancel::default())
+        .manage(match_runner::BatchControl::default())
         .manage(db::DbManager::default())
         .invoke_handler(tauri::generate_handler![
             ping,
@@ -28,6 +28,10 @@ pub fn run() {
             match_runner::play_game,
             match_runner::play_batch,
             match_runner::cancel_batch,
+            match_runner::pause_batch,
+            match_runner::set_auto_start,
+            match_runner::start_next_game,
+            match_runner::set_move_delay,
             match_runner::engine_id,
             db::db_import_pgn,
             db::db_list_games,
