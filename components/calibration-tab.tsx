@@ -85,6 +85,19 @@ function parseSquareIndex(sq: string): number {
   return rank * 8 + file
 }
 
+/** Post-answer reveal of what a rated human actually played from this position,
+ *  e.g. "In the game (White 2210), 24. Rc1 was played". Null if no move was
+ *  captured (final position of the source game). */
+function playedReveal(pos: CalibrationPosition): string | null {
+  if (!pos.played_san) return null
+  const who = pos.to_move === "white" ? "White" : "Black"
+  const moverElo = pos.to_move === "white" ? pos.white_elo : pos.black_elo
+  const eloStr = moverElo != null ? ` ${moverElo}` : ""
+  const fullmove = Math.floor(pos.ply / 2) + 1
+  const dots = pos.to_move === "white" ? "." : "..."
+  return `In the game (${who}${eloStr}), ${fullmove}${dots} ${pos.played_san} was played`
+}
+
 export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const [phase, setPhase] = useState<Phase>("intro")
   const [size, setSize] = useState(100)
@@ -668,25 +681,32 @@ function ResultsScreen({
           <div className="space-y-2">
             <h2 className="text-sm font-semibold text-muted-foreground">Biggest misses</h2>
             <div className="rounded-lg border border-white/10 divide-y divide-white/5">
-              {summary.biggestMisses.map((m) => (
-                <button
-                  key={m.index}
-                  onClick={() => onLoadPosition(m.fen)}
-                  className="w-full flex items-center justify-between gap-4 px-4 py-2.5 text-left hover:bg-white/5 transition-colors"
-                  title="Open this position on the analyze board"
-                >
-                  <span className="text-xs font-mono text-muted-foreground truncate">{m.fen}</span>
-                  <span className="flex items-center gap-3 shrink-0 text-sm tabular-nums">
-                    <span>
-                      you <span className="text-foreground">{formatPawns(m.userEval)}</span>
+              {summary.biggestMisses.map((m) => {
+                const pos = session.positions[m.index]
+                const reveal = pos ? playedReveal(pos) : null
+                return (
+                  <button
+                    key={m.index}
+                    onClick={() => onLoadPosition(m.fen)}
+                    className="w-full flex items-center justify-between gap-4 px-4 py-2.5 text-left hover:bg-white/5 transition-colors"
+                    title="Open this position on the analyze board"
+                  >
+                    <span className="min-w-0 flex flex-col gap-0.5">
+                      <span className="text-xs font-mono text-muted-foreground truncate">{m.fen}</span>
+                      {reveal && <span className="text-xs text-emerald-300/80">{reveal}</span>}
                     </span>
-                    <span>
-                      SF <span className="text-foreground">{formatPawns(m.sfEval)}</span>
+                    <span className="flex items-center gap-3 shrink-0 text-sm tabular-nums">
+                      <span>
+                        you <span className="text-foreground">{formatPawns(m.userEval)}</span>
+                      </span>
+                      <span>
+                        SF <span className="text-foreground">{formatPawns(m.sfEval)}</span>
+                      </span>
+                      <span className="text-red-400">Δ{m.absError.toFixed(1)}</span>
                     </span>
-                    <span className="text-red-400">Δ{m.absError.toFixed(1)}</span>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}

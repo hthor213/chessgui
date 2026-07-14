@@ -27,6 +27,13 @@ function pos(over: Partial<CalibrationPosition>): CalibrationPosition {
     phase: "middlegame",
     game_id: 1,
     ply: 20,
+    white_elo: 1800,
+    black_elo: 1800,
+    elo_band: "1600-2000",
+    to_move: "white",
+    played_uci: "e2e4",
+    played_san: "e4",
+    continuation_san: [],
     ...over,
   }
 }

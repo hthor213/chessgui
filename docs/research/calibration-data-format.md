@@ -19,6 +19,11 @@ Stockfish in the spec-213 program (design doc §4/§5). Each `results-*.json` is
 All engine numbers are **White-POV** (`+` favours White), matching every eval in
 the app.
 
+**Schema version.** The `version` field on both files is `2` at time of writing.
+v2 added the known-Elo game context per position (`white_elo`, `black_elo`,
+`elo_band`, `to_move`, `played_uci`, `played_san`, `continuation_san`). v1 files
+stay readable — a reader should treat those fields as optional/absent for `version < 2`.
+
 ## `session-*.json` — `CalibrationSession`
 
 ```jsonc
@@ -46,12 +51,30 @@ the app.
 | `phase`          | string          | `"middlegame"` or `"endgame"` (non-pawn phase weight ≤ 8 → endgame). |
 | `game_id`        | int             | Source game id in the local database. |
 | `ply`            | int             | Half-move index of this position in that game (≥ 16, out of book). |
+| `white_elo`      | int \| null     | *(v2)* White's Elo in the source game. |
+| `black_elo`      | int \| null     | *(v2)* Black's Elo in the source game. |
+| `elo_band`       | string          | *(v2)* Average-Elo band: `"<1600"`, `"1600-2000"`, `"2000-2400"`, `"2400+"`. |
+| `to_move`        | string          | *(v2)* `"white"` or `"black"` — whose move `played_*` is (matches the FEN turn). |
+| `played_uci`     | string \| null  | *(v2)* The move actually played from this position in the source game, UCI. |
+| `played_san`     | string \| null  | *(v2)* Same move in SAN. |
+| `continuation_san` | string[]      | *(v2)* The next up-to-three moves after the played one, SAN. |
 
-**Sampling** (see `src-tauri/src/calibration.rs`): candidates are drawn from the
-game database's position index at `ply ≥ 16`, excluding positions where the side
-to move is in check or a capture landed within ±2 plies, deduplicated by Zobrist
-hash, and stratified roughly evenly across the four `|SF eval|` bands × two
-phases. Each candidate is scored by a local Stockfish at 500 ms, MultiPV 2.
+Each answered position is therefore **triple-labelled**: the Stockfish eval, the
+user's perceived eval + reasoning, and what a rated human actually played. The
+Elo context is stored but **never shown in the answering UI** (it would anchor
+the user's eval); the results screen reveals the played move only after answering.
+
+**Sampling** (see `src-tauri/src/calibration.rs`): v2 samples **only Elo-known
+games** (≈95% of the corpus), drawing an **equal candidate slice per Elo band**
+(so the artifact spans skill levels despite the corpus skewing strong — ~70% of
+games are 2400+). One position per game is taken at a random `ply ≥ 16` (which,
+unlike the ply-40 position index, reaches real endgames). Positions where the
+side to move is in check or a capture landed within ±2 plies are excluded, and
+positions are deduplicated by Zobrist hash. Candidates are stratified across the
+four `|SF eval|` bands × four Elo bands and scored by a local Stockfish at
+500 ms, MultiPV 2. (Phase — middlegame/endgame — is captured and reported but is
+no longer a hard stratum; Elo replaced it, since endgames are too sparse to
+bucket on but now at least appear.)
 
 ## `results-*.json` — `CalibrationResults`
 

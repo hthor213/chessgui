@@ -142,25 +142,49 @@ optional move, and score them against Stockfish. Files are the research artifact
       (~2.4 s/pos), fills the eval bands.
 - [x] Learn UI (`components/calibration-tab.tsx`): intro → per-position (White-bottom
       board, eval input, why, optional move) → results (user-vs-SF scatter, Pearson,
-      MAE, per-band table, best-move hit rate, biggest misses → analyze board);
-      incremental localStorage persistence + unfinished-session resume. Verified headless.
-- [ ] **Coverage gap (honest):** the position index caps at ply 40, so true endgames
-      and many `3+` positions aren't sampleable from it — sessions come out
-      middlegame-heavy. Widening needs a deeper index or an endgame-seeded pool.
+      MAE, per-band + per-phase tables, best-move hit rate, biggest misses → analyze
+      board); incremental localStorage persistence + unfinished-session resume. Verified
+      headless.
+- [x] **Sampler v2 — known-Elo game context:** samples only Elo-known games (95.4% of
+      the 955k corpus: 911,585 games have both Elos), one position per game (design-doc
+      §4 one-per-game), stratified across four Elo bands **and** four `|SF eval|` bands.
+      Each position carries `white_elo`/`black_elo`/`played_*`/`continuation_san`,
+      making every answer triple-labelled (SF eval · user eval · what a rated human
+      played). Schema versioned (v2; v1 stays readable). Real-DB n=20 smoke: Elo bands
+      balanced 5/5/5/5, eval bands span incl. `3+`, ~3.7 s/pos.
+- [x] **Endgame coverage** (was the honest gap): resolved by v2 sampling games directly
+      at a random ply instead of via the ply-40 position index — endgames now appear
+      (7/20 in the smoke). Deeper still (very long games) remains bounded by nothing but
+      game length.
 - [ ] Collect a real self-rated session (user is the ~1300/1650-puzzle datapoint) and
       fold it into the E1 corpus once the evaluator exists.
 
 ### Phase 1 — Inference plumbing
-- [ ] `maia.rs`: lc0 process management (spawn with `--weights`, warm pool with LRU over
-      bands), `VerboseMoveStats` policy parsing, `(fen, R) → Vec<(move, prob)>` API
-- [ ] Weight fetcher: download + checksum + cache Maia-1 nets on first use; graceful
-      "install lc0" hint when lc0 missing (brew formula exists)
-- [ ] Unit test: startpos policy sums to ~1.0, known top move per band
+- [x] `maia.rs`: lc0 process management (spawn with `--weights`, warm pool with LRU over
+      bands, cap 3, `kill_on_drop`), `VerboseMoveStats` policy parsing, `(fen, R) →
+      Vec<(move, prob)>` + value-head API. `maia_status`/`maia_policy` commands; typed
+      TS wrapper in `lib/maia.ts`. Version-sanity-checks the lc0 id-name at spawn.
+- [x] Weight fetcher: download + SHA-256 checksum (pinned from the CSSLab v1.0 release,
+      2026-07-14) + atomic cache of Maia-1 nets under `app_data_dir/maia` on first use;
+      graceful "brew install lc0" hint in the UI when lc0 is missing. Download is
+      injectable so tests never hit the network.
+- [x] Unit tests: policy parser (e2e4/d2d4 masses, value head); weight-manager
+      download/verify/cache/mismatch with an injected fetcher; **real-lc0** startpos at
+      band 1500 — 20 moves, sums to ~1.0, e2e4/d2d4 prominent (cold 90 ms / warm 2 ms).
 
 ### Phase 2 — Tier 0 + slider UI
-- [ ] Instant blend evaluator (single forward pass; formula in design doc §Performance)
-- [ ] Rating slider + Human@R line in the analysis panel; eval-bar tick marks
-- [ ] Slider stop changes re-query within one frame budget (target < 50 ms warm)
+- [x] Instant blend evaluator (single Maia forward pass; `w·SF + (1−w)·anchor`, formula
+      in design doc §6). Pure TS in `lib/human-eval.ts`, vitest-covered. Consumes the
+      existing Stockfish stream from `use-engine` (no second SF spawned). Mate scores
+      mapped to a bounded pawn-equivalent so the blend stays sane.
+- [x] Rating slider (Off · 1100 · 1300 · 1500 · 1700 · 1900 — the 200-Elo stops over
+      Maia-1's native bands) + Material / Human@R / Stockfish readout in the analysis
+      panel; honest "≈ fast" tier-0 badge and top-band ceiling note; slider state
+      persists (localStorage). Deferred: eval-bar tick marks (readout carries the
+      divergence for now); stops above 1900 (need the high-band model, a later tier).
+- [x] Slider stop changes re-query within one frame budget: warm Maia query ~13 ms,
+      session LRU cache keyed `(fen, band)` makes revisited stops instant; disabled
+      behind an install hint when lc0 is absent.
 
 ### Phase 3 — Tier 1 human-visible tree
 - [ ] Restricted expectimax/minimax search: top-p candidate sets, Stockfish leaf scoring,

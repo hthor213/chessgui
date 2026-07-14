@@ -24,6 +24,13 @@ const SAMPLES: CalibrationPosition[] = [
     phase: "middlegame",
     game_id: 1001,
     ply: 6,
+    white_elo: 1520,
+    black_elo: 1540,
+    elo_band: "<1600",
+    to_move: "black",
+    played_uci: "a7a6",
+    played_san: "a6",
+    continuation_san: ["Ba4", "Nf6"],
   },
   {
     // Italian, White slightly better development.
@@ -38,6 +45,13 @@ const SAMPLES: CalibrationPosition[] = [
     phase: "middlegame",
     game_id: 1002,
     ply: 6,
+    white_elo: 1850,
+    black_elo: 1820,
+    elo_band: "1600-2000",
+    to_move: "white",
+    played_uci: "e1g1",
+    played_san: "O-O",
+    continuation_san: ["Nf6", "d3"],
   },
   {
     // Middlegame, White up a clear pawn and pressing.
@@ -52,6 +66,13 @@ const SAMPLES: CalibrationPosition[] = [
     phase: "middlegame",
     game_id: 1003,
     ply: 18,
+    white_elo: 2210,
+    black_elo: 2180,
+    elo_band: "2000-2400",
+    to_move: "white",
+    played_uci: "d1d2",
+    played_san: "Qd2",
+    continuation_san: ["O-O-O", "Rd8"],
   },
   {
     // K+R vs K — winning endgame.
@@ -65,7 +86,14 @@ const SAMPLES: CalibrationPosition[] = [
     band: "3+",
     phase: "endgame",
     game_id: 1004,
-    ply: 40,
+    ply: 62,
+    white_elo: 2600,
+    black_elo: 2550,
+    elo_band: "2400+",
+    to_move: "white",
+    played_uci: "e4d4",
+    played_san: "Kd4",
+    continuation_san: ["Kf6", "Rd6+"],
   },
   {
     // Pawn endgame, near-equal.
@@ -79,7 +107,14 @@ const SAMPLES: CalibrationPosition[] = [
     band: "0-0.5",
     phase: "endgame",
     game_id: 1005,
-    ply: 38,
+    ply: 54,
+    white_elo: 1500,
+    black_elo: 1480,
+    elo_band: "<1600",
+    to_move: "white",
+    played_uci: "f4f5",
+    played_san: "f5",
+    continuation_san: ["gxf5+", "Kxf5"],
   },
   {
     // Sharp middlegame, Black clearly better.
@@ -94,6 +129,13 @@ const SAMPLES: CalibrationPosition[] = [
     phase: "middlegame",
     game_id: 1006,
     ply: 22,
+    white_elo: 2300,
+    black_elo: 2250,
+    elo_band: "2000-2400",
+    to_move: "black",
+    played_uci: "a5c7",
+    played_san: "Qc7",
+    continuation_san: ["e4", "e5"],
   },
 ]
 
@@ -114,7 +156,7 @@ export async function buildMockSession(
     }
   }
   return {
-    version: 1,
+    version: 2,
     n: positions.length,
     created_at: Date.now(),
     stockfish_path: "(mock)",

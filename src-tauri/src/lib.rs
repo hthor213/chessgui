@@ -1,6 +1,7 @@
 pub mod cbh;
 pub mod calibration;
 pub mod db;
+pub mod maia;
 mod uci;
 mod vision;
 pub mod match_runner;
@@ -20,6 +21,7 @@ pub fn run() {
         .manage(Mutex::new(uci::EngineState::default()))
         .manage(match_runner::BatchControl::default())
         .manage(db::DbManager::default())
+        .manage(maia::MaiaState::default())
         .invoke_handler(tauri::generate_handler![
             ping,
             vision::recognize_fen,
@@ -42,6 +44,8 @@ pub fn run() {
             db::db_stats,
             calibration::calibration_sample,
             calibration::calibration_save_results,
+            maia::maia_status,
+            maia::maia_policy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

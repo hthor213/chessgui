@@ -116,12 +116,15 @@ pub struct DbStats {
     pub positions: i64,
 }
 
-/// A candidate position drawn from the `positions` index for the Eval
-/// Calibration sampler (spec 213). The game's packed mainline is replayed to
-/// `ply` and the cheap, engine-free features the sampler stratifies and filters
-/// on are precomputed here. `fen` is the full FEN (with move counters). Only
-/// standard-start games are sampled — positions indexed from a `[FEN]` tag can't
-/// be replayed from the packed mainline alone and are skipped.
+/// A candidate position for the Eval Calibration sampler (spec 213), drawn by
+/// picking a random game and a random ply within it, then replaying the packed
+/// mainline to that ply. The cheap, engine-free features the sampler stratifies
+/// and filters on are precomputed here, along with the known-Elo game context
+/// (sampler v2) that makes each answered position triple-labelled: Stockfish
+/// eval, the user's perceived eval, and what a rated human actually played.
+/// `fen` is the full FEN (with move counters). Only standard-start games are
+/// sampled — a game with a `[FEN]` tag can't be replayed from the packed
+/// mainline alone and is skipped.
 #[derive(Debug, Clone, Serialize)]
 pub struct SampledPosition {
     pub game_id: i64,
@@ -139,6 +142,18 @@ pub struct SampledPosition {
     /// window the sampler avoids).
     pub near_capture: bool,
     pub zobrist: i64,
+    /// Elo of the players in the source game (both present — v2 samples only
+    /// Elo-known games).
+    pub white_elo: Option<i64>,
+    pub black_elo: Option<i64>,
+    /// True if White is to move in this position.
+    pub white_to_move: bool,
+    /// The move actually played from this position in the source game.
+    pub played_uci: Option<String>,
+    pub played_san: Option<String>,
+    /// The next few moves after the played one (SAN), up to 3 — light game
+    /// context for the post-answer reveal.
+    pub continuation_san: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -852,34 +867,45 @@ impl Db {
         Ok(DbStats { games, positions })
     }
 
-    /// Draw up to `limit` random positions with `ply >= min_ply` from the
-    /// position index, replaying each from its game's packed mainline and
-    /// precomputing the features the calibration sampler stratifies on. The
-    /// single `ORDER BY RANDOM()` scan is why this is called once for a whole
-    /// candidate pool rather than per accepted position. Non-replayable
-    /// (`[FEN]`-tag) games and any game whose stored mainline no longer applies
-    /// are silently skipped, so the returned count may be below `limit`.
-    pub fn sample_positions(
+    /// Draw up to `limit` random positions from Elo-known games whose average
+    /// player Elo falls in `[elo_min, elo_max)`, picking a random ply
+    /// (`>= min_ply`, with a move still to come) per game — one position per
+    /// game, which both avoids intra-game correlation (design doc §4) and lets
+    /// the sample reach real endgames the ply-40 position index never held.
+    /// Both the game and the ply are chosen in SQL (`ORDER BY RANDOM()` +
+    /// `abs(random())`); each row is then replayed to compute features and the
+    /// known-Elo context. Non-replayable (`[FEN]`-tag) games are skipped, so the
+    /// returned count may be below `limit`.
+    pub fn sample_positions_in_elo_band(
         &self,
+        elo_min: i64,
+        elo_max: i64,
         min_ply: i64,
         limit: i64,
     ) -> rusqlite::Result<Vec<SampledPosition>> {
         let mut stmt = self.conn.prepare(
-            "SELECT p.game_id, p.ply, g.moves \
-             FROM positions p JOIN games g ON g.id = p.game_id \
-             WHERE p.ply >= ?1 ORDER BY RANDOM() LIMIT ?2",
+            "SELECT id, white_elo, black_elo, \
+                    (?3 + abs(random()) % (ply_count - ?3)) AS chosen_ply, moves \
+             FROM games \
+             WHERE white_elo IS NOT NULL AND black_elo IS NOT NULL \
+               AND (white_elo + black_elo) / 2 >= ?1 \
+               AND (white_elo + black_elo) / 2 <  ?2 \
+               AND ply_count > ?3 \
+             ORDER BY RANDOM() LIMIT ?4",
         )?;
-        let raw = stmt.query_map(params![min_ply, limit], |r| {
+        let raw = stmt.query_map(params![elo_min, elo_max, min_ply, limit], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, Vec<u8>>(2)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, Vec<u8>>(4)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in raw {
-            let (game_id, ply, moves) = row?;
-            if let Some(sp) = replay_features(&moves, game_id, ply) {
+            let (game_id, white_elo, black_elo, ply, moves) = row?;
+            if let Some(sp) = replay_features(&moves, game_id, ply, white_elo, black_elo) {
                 out.push(sp);
             }
         }
@@ -887,11 +913,17 @@ impl Db {
     }
 }
 
-/// Replay `packed_moves` to `ply` and compute the calibration features there.
-/// Returns `None` if the mainline can't be applied that far (e.g. a game whose
-/// positions were indexed from a non-standard start), so such rows drop out of
-/// the sample rather than yielding a bogus position.
-fn replay_features(packed_moves: &[u8], game_id: i64, ply: i64) -> Option<SampledPosition> {
+/// Replay `packed_moves` to `ply` and compute the calibration features + the
+/// known-Elo game context there. Returns `None` if the mainline can't be applied
+/// that far (e.g. a `[FEN]`-tag game), so such rows drop out of the sample
+/// rather than yielding a bogus position.
+fn replay_features(
+    packed_moves: &[u8],
+    game_id: i64,
+    ply: i64,
+    white_elo: Option<i64>,
+    black_elo: Option<i64>,
+) -> Option<SampledPosition> {
     let moves: Vec<UciMove> = packed_moves
         .chunks_exact(PackedUciMove::BYTES)
         .map(|c| PackedUciMove::from_bytes([c[0], c[1]]).unpack())
@@ -913,19 +945,33 @@ fn replay_features(packed_moves: &[u8], game_id: i64, ply: i64) -> Option<Sample
 
     let fen = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
     let in_check = pos.is_check();
+    let white_to_move = pos.turn() == Color::White;
     let (material, phase) = material_and_phase(&pos);
     let zobrist = pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0 as i64;
 
-    // Captures on the plies leading out of this position (peek forward without
-    // disturbing the snapshot above).
-    let mut after_capture = false;
+    // Walk forward from this position: the played move (SAN + UCI), the next up
+    // to three moves (SAN, context for the post-answer reveal), and whether a
+    // capture lands within the ±2-ply noise window.
     let mut peek = pos.clone();
-    for uci in moves.iter().skip(ply_us).take(2) {
+    let mut played_uci = None;
+    let mut played_san = None;
+    let mut continuation_san = Vec::new();
+    let mut after_capture = false;
+    for (offset, uci) in moves.iter().skip(ply_us).take(4).enumerate() {
         let m = match uci.to_move(&peek) {
             Ok(m) => m,
             Err(_) => break,
         };
-        after_capture |= is_capture(&m);
+        let san = shakmaty::san::San::from_move(&peek, m).to_string();
+        if offset == 0 {
+            played_uci = Some(uci.to_string());
+            played_san = Some(san);
+        } else {
+            continuation_san.push(san);
+        }
+        if offset <= 1 {
+            after_capture |= is_capture(&m);
+        }
         peek.play_unchecked(m);
     }
 
@@ -938,6 +984,12 @@ fn replay_features(packed_moves: &[u8], game_id: i64, ply: i64) -> Option<Sample
         phase,
         near_capture: before_capture || after_capture,
         zobrist,
+        white_elo,
+        black_elo,
+        white_to_move,
+        played_uci,
+        played_san,
+        continuation_san,
     })
 }
 

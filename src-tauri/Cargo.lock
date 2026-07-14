@@ -364,11 +364,13 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 name = "chessgui"
 version = "0.3.0"
 dependencies = [
+ "hex",
  "pgn-reader",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "shakmaty",
  "tauri",
  "tauri-build",

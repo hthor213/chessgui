@@ -36,6 +36,19 @@ export type CalibrationPosition = {
   phase: string
   game_id: number
   ply: number
+  // --- v2: known-Elo game context. NEVER shown in the answering UI (would
+  //     anchor the user's eval); revealed only on the results screen. ---
+  white_elo: number | null
+  black_elo: number | null
+  /** Average-Elo band of the source game: "<1600" | "1600-2000" | "2000-2400" | "2400+". */
+  elo_band: string
+  /** Side to move: "white" | "black" — whose move `played_*` is. */
+  to_move: string
+  /** The move actually played from this position in the source game. */
+  played_uci: string | null
+  played_san: string | null
+  /** The next up-to-three moves after the played one, SAN. */
+  continuation_san: string[]
 }
 
 /** A calibration session. Mirrors Rust `CalibrationSession`. */
@@ -133,8 +146,8 @@ export type CalibrationResults = {
   summary: CalibrationSummary
 }
 
-/** On-disk schema version this build writes. */
-export const RESULTS_VERSION = 1
+/** On-disk schema version this build writes (v2 adds known-Elo game context). */
+export const RESULTS_VERSION = 2
 
 // ---------------------------------------------------------------------------
 // Provider seam

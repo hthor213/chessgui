@@ -29,8 +29,10 @@ use tokio::time::timeout;
 
 use crate::db::{self, Db, SampledPosition};
 
-/// On-disk schema version for session and result files.
-const SESSION_VERSION: u32 = 1;
+/// On-disk schema version for session and result files. v2 adds known-Elo game
+/// context per position (`white_elo`/`black_elo`/`played_*`/`continuation_san`/
+/// `elo_band`); v1 files stay readable (the added fields are simply absent).
+const SESSION_VERSION: u32 = 2;
 
 /// Default Stockfish binary (Homebrew, Apple Silicon). Overridable per call.
 pub const DEFAULT_STOCKFISH: &str = "/opt/homebrew/bin/stockfish";
@@ -45,8 +47,21 @@ const ENDGAME_PHASE_MAX: u32 = 8;
 /// Per-position Stockfish budget.
 const DEFAULT_MOVETIME_MS: u64 = 500;
 
-/// Number of strata: |SF eval| band (4) × phase (2).
-const N_BUCKETS: usize = 8;
+/// The four player-Elo bands the sample spans (average of the two players'
+/// Elos): each `(min, max_exclusive, label)`. The top band's max is open.
+const ELO_BANDS: [(i64, i64, &str); 4] = [
+    (0, 1600, "<1600"),
+    (1600, 2000, "1600-2000"),
+    (2000, 2400, "2000-2400"),
+    (2400, 100000, "2400+"),
+];
+
+/// Number of strata: |SF eval| band (4) × Elo band (4). Phase is captured and
+/// reported but not a hard stratum — endgames are too sparse in the corpus to
+/// bucket on (see the coverage note in spec 213); Elo, which has data across all
+/// bands, replaces it as the second stratification axis (user directive, v2).
+const N_EVAL_BANDS: usize = 4;
+const N_BUCKETS: usize = N_EVAL_BANDS * ELO_BANDS.len();
 
 // ---------------------------------------------------------------------------
 // Serde boundary types (mirrored in lib/calibration.ts)
@@ -77,6 +92,19 @@ pub struct CalibrationPosition {
     pub phase: String,
     pub game_id: i64,
     pub ply: i64,
+    // --- v2: known-Elo game context (never shown in the answering UI, to avoid
+    //     anchoring the user's eval; revealed only after they answer) ---
+    pub white_elo: Option<i64>,
+    pub black_elo: Option<i64>,
+    /// Average-Elo band of the source game: one of `ELO_BANDS`' labels.
+    pub elo_band: String,
+    /// Side to move: "white" | "black" — whose move `played_*` is.
+    pub to_move: String,
+    /// The move actually played from this position in the source game.
+    pub played_uci: Option<String>,
+    pub played_san: Option<String>,
+    /// The next up-to-three moves after the played one, SAN.
+    pub continuation_san: Vec<String>,
 }
 
 /// A whole calibration session, returned to the UI and written to disk.
@@ -131,6 +159,22 @@ fn phase_of(phase_weight: u32) -> (usize, &'static str) {
     } else {
         (0, "middlegame")
     }
+}
+
+/// Elo-band index and label for a candidate, from the average of the two
+/// players' Elos. Defaults to the top band if an Elo is somehow missing (v2
+/// samples only Elo-known games, so this is a belt-and-braces fallback).
+fn elo_band_of(white_elo: Option<i64>, black_elo: Option<i64>) -> (usize, &'static str) {
+    let avg = match (white_elo, black_elo) {
+        (Some(w), Some(b)) => (w + b) / 2,
+        _ => return (ELO_BANDS.len() - 1, ELO_BANDS[ELO_BANDS.len() - 1].2),
+    };
+    for (i, (lo, hi, label)) in ELO_BANDS.iter().enumerate() {
+        if avg >= *lo && avg < *hi {
+            return (i, label);
+        }
+    }
+    (ELO_BANDS.len() - 1, ELO_BANDS[ELO_BANDS.len() - 1].2)
 }
 
 // ---------------------------------------------------------------------------
@@ -320,13 +364,15 @@ fn san_for(fen: &str, uci: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Turn a sampled candidate + its Stockfish read into a finished position,
-/// converting the engine score to White-POV.
+/// converting the engine score to White-POV. The returned bucket index is over
+/// the |SF eval| band × Elo band strata.
 fn finish_position(cand: &SampledPosition, ev: RawEval) -> (CalibrationPosition, usize) {
     let flip = black_to_move(&cand.fen);
     let sf_cp = ev.cp.map(|v| if flip { -v } else { v });
     let sf_mate = ev.mate.map(|v| if flip { -v } else { v });
     let (band_i, band) = eval_band(sf_cp, sf_mate);
-    let (phase_i, phase) = phase_of(cand.phase);
+    let (_phase_i, phase) = phase_of(cand.phase);
+    let (elo_i, elo_band) = elo_band_of(cand.white_elo, cand.black_elo);
     let best = ev.best_uci.unwrap_or_default();
     let san = if best.is_empty() {
         None
@@ -345,18 +391,47 @@ fn finish_position(cand: &SampledPosition, ev: RawEval) -> (CalibrationPosition,
         phase: phase.to_string(),
         game_id: cand.game_id,
         ply: cand.ply,
+        white_elo: cand.white_elo,
+        black_elo: cand.black_elo,
+        elo_band: elo_band.to_string(),
+        to_move: if cand.white_to_move { "white" } else { "black" }.to_string(),
+        played_uci: cand.played_uci.clone(),
+        played_san: cand.played_san.clone(),
+        continuation_san: cand.continuation_san.clone(),
     };
-    (pos, band_i * 2 + phase_i)
+    (pos, band_i * ELO_BANDS.len() + elo_i)
+}
+
+/// Round-robin merge several candidate lists into one, so consuming the front of
+/// the result stays balanced across the source bands.
+fn interleave(mut bands: Vec<Vec<SampledPosition>>) -> Vec<SampledPosition> {
+    let total: usize = bands.iter().map(|b| b.len()).sum();
+    let mut out = Vec::with_capacity(total);
+    // Reverse each so we can pop from the cheap end while preserving order.
+    for b in &mut bands {
+        b.reverse();
+    }
+    let mut any = true;
+    while any {
+        any = false;
+        for b in &mut bands {
+            if let Some(x) = b.pop() {
+                out.push(x);
+                any = true;
+            }
+        }
+    }
+    out
 }
 
 /// Build a stratified session of `n` positions.
 ///
-/// One random candidate pool is drawn from the DB (a single `ORDER BY RANDOM()`
-/// scan), then Stockfish scores candidates that pass the cheap filters (not in
-/// check, not adjacent to a capture, not a duplicate position) until each of the
-/// 8 strata (|eval| band × phase) reaches its share of `n`. Stockfish work is
-/// bounded: scored-but-not-needed positions are kept and used to top up to `n`
-/// if some rare stratum can't fill, so no evaluation is wasted.
+/// An Elo-balanced candidate pool is drawn from the DB, then Stockfish scores
+/// candidates that pass the cheap filters (not in check, not adjacent to a
+/// capture, not a duplicate position) until each of the 16 strata (|SF eval|
+/// band × Elo band) reaches its share of `n`. Stockfish work is bounded:
+/// scored-but-not-needed positions are kept and used to top up to `n` if some
+/// stratum can't fill, so no evaluation is wasted.
 async fn build_session(
     db_path: String,
     n: usize,
@@ -364,20 +439,31 @@ async fn build_session(
     movetime_ms: u64,
     on_progress: Option<Channel<CalibrationProgress>>,
 ) -> Result<CalibrationSession, String> {
-    // Draw the candidate pool on a blocking thread (rusqlite + a full-index
-    // RANDOM scan must not block the async runtime).
-    let pool_limit = (n as i64 * 8).clamp(200, 6000);
+    // Draw an Elo-balanced candidate pool on a blocking thread (rusqlite + the
+    // RANDOM scans must not block the async runtime): an equal slice per Elo
+    // band, round-robin interleaved so acceptance stays balanced even if the
+    // evaluation budget cuts the loop short. Bands are drawn evenly precisely
+    // because the corpus is lopsided (70% of games are 2400+), so a plain random
+    // draw would starve the low bands the artifact most wants to span.
+    let per_band = ((n as i64 * 2) / ELO_BANDS.len() as i64).clamp(40, 2000);
     let pool: Vec<SampledPosition> = tokio::task::spawn_blocking(move || {
-        Db::open(&db_path)
-            .and_then(|db| db.sample_positions(MIN_PLY, pool_limit))
-            .map_err(|e| e.to_string())
+        let db = Db::open(&db_path).map_err(|e| e.to_string())?;
+        let mut bands: Vec<Vec<SampledPosition>> = Vec::with_capacity(ELO_BANDS.len());
+        for (lo, hi, _) in ELO_BANDS {
+            let got = db
+                .sample_positions_in_elo_band(lo, hi, MIN_PLY, per_band)
+                .map_err(|e| e.to_string())?;
+            bands.push(got);
+        }
+        Ok::<_, String>(interleave(bands))
     })
     .await
     .map_err(|e| format!("Sampling task failed: {}", e))??;
 
     if pool.is_empty() {
         return Err(
-            "No positions available to sample — is the game database empty or unbuilt?".to_string(),
+            "No Elo-known positions available to sample — is the game database empty or unbuilt?"
+                .to_string(),
         );
     }
 
@@ -588,6 +674,12 @@ mod tests {
             phase: 24,
             near_capture: false,
             zobrist: 42,
+            white_elo: Some(1500),
+            black_elo: Some(1500), // avg 1500 → Elo band 0 (<1600)
+            white_to_move: false,
+            played_uci: Some("e7e5".to_string()),
+            played_san: Some("e5".to_string()),
+            continuation_san: vec!["Nf3".to_string()],
         };
         let ev = RawEval {
             cp: Some(-120), // Black to move sees −1.2 → White is +1.2
@@ -600,8 +692,20 @@ mod tests {
         assert_eq!(pos.band, "0.5-1.5");
         assert_eq!(pos.phase, "middlegame");
         assert_eq!(pos.sf_best_san.as_deref(), Some("e5"));
-        // band 1 (0.5-1.5) × middlegame (0) → bucket 2.
-        assert_eq!(bucket, 2);
+        assert_eq!(pos.elo_band, "<1600");
+        assert_eq!(pos.to_move, "black");
+        assert_eq!(pos.played_san.as_deref(), Some("e5"));
+        // band 1 (0.5-1.5) × Elo band 0 (<1600) → bucket 1*4 + 0 = 4.
+        assert_eq!(bucket, 4);
+    }
+
+    #[test]
+    fn elo_band_boundaries() {
+        assert_eq!(elo_band_of(Some(1400), Some(1500)).1, "<1600"); // avg 1450
+        assert_eq!(elo_band_of(Some(1600), Some(1600)).1, "1600-2000");
+        assert_eq!(elo_band_of(Some(2100), Some(2300)).1, "2000-2400"); // avg 2200
+        assert_eq!(elo_band_of(Some(2500), Some(2700)).1, "2400+");
+        assert_eq!(elo_band_of(None, Some(2000)).1, "2400+"); // fallback
     }
 
     // -----------------------------------------------------------------------
@@ -656,8 +760,11 @@ mod tests {
                 white = !white;
                 pos.play_unchecked(m);
             }
+            // Spread Elos across all four bands so the v2 Elo-band sampler has
+            // candidates everywhere.
+            let elo = [1450, 1800, 2200, 2600][i % 4];
             out.push_str(&format!(
-                "[Event \"Synth\"]\n[White \"W{i}\"]\n[Black \"B{i}\"]\n[Result \"*\"]\n[ECO \"A00\"]\n\n{moves}*\n\n"
+                "[Event \"Synth\"]\n[White \"W{i}\"]\n[Black \"B{i}\"]\n[WhiteElo \"{elo}\"]\n[BlackElo \"{elo}\"]\n[Result \"*\"]\n[ECO \"A00\"]\n\n{moves}*\n\n"
             ));
         }
         out
@@ -708,6 +815,18 @@ mod tests {
             assert!(["middlegame", "endgame"].contains(&p.phase.as_str()));
             // A best move was read for a non-terminal position.
             assert!(!p.sf_best_uci.is_empty(), "best move present");
+            // v2 context: Elo-known, banded, with the played move captured.
+            assert!(p.white_elo.is_some() && p.black_elo.is_some(), "Elos present");
+            assert!(
+                ["<1600", "1600-2000", "2000-2400", "2400+"].contains(&p.elo_band.as_str()),
+                "valid Elo band: {}",
+                p.elo_band
+            );
+            assert!(["white", "black"].contains(&p.to_move.as_str()));
+            assert!(p.played_uci.is_some(), "played move captured");
+            // to_move must agree with the FEN's active colour.
+            let fen_white = p.fen.contains(" w ");
+            assert_eq!(fen_white, p.to_move == "white", "to_move matches FEN turn");
         }
 
         // Best-effort cleanup (WAL sidecars included).
@@ -741,9 +860,18 @@ mod tests {
             .expect("real-DB session builds");
         let secs = t0.elapsed().as_secs_f64();
 
-        let mut strata: BTreeMap<String, usize> = BTreeMap::new();
+        let mut by_elo: BTreeMap<String, usize> = BTreeMap::new();
+        let mut by_eval: BTreeMap<String, usize> = BTreeMap::new();
+        let mut by_phase: BTreeMap<String, usize> = BTreeMap::new();
+        let both_elo = session
+            .positions
+            .iter()
+            .filter(|p| p.white_elo.is_some() && p.black_elo.is_some())
+            .count();
         for p in &session.positions {
-            *strata.entry(format!("{} / {}", p.band, p.phase)).or_default() += 1;
+            *by_elo.entry(p.elo_band.clone()).or_default() += 1;
+            *by_eval.entry(p.band.clone()).or_default() += 1;
+            *by_phase.entry(p.phase.clone()).or_default() += 1;
         }
         println!(
             "\n=== calibration real_db_smoke: n={} built in {:.1}s ({:.1}s/pos) ===",
@@ -751,8 +879,25 @@ mod tests {
             secs,
             secs / session.positions.len().max(1) as f64
         );
-        for (k, v) in &strata {
-            println!("  {v:>2}  {k}");
+        println!(
+            "  both Elos known: {}/{} ({:.0}%)",
+            both_elo,
+            session.positions.len(),
+            100.0 * both_elo as f64 / session.positions.len().max(1) as f64
+        );
+        println!("  by Elo band:   {by_elo:?}");
+        println!("  by eval band:  {by_eval:?}");
+        println!("  by phase:      {by_phase:?}");
+        // Sample a played-move reveal to eyeball the game context.
+        if let Some(p) = session.positions.iter().find(|p| p.played_san.is_some()) {
+            println!(
+                "  e.g. game {} ply {} ({} {:?}): played {}",
+                p.game_id,
+                p.ply,
+                p.to_move,
+                if p.to_move == "white" { p.white_elo } else { p.black_elo },
+                p.played_san.as_deref().unwrap_or("?")
+            );
         }
         assert_eq!(session.positions.len(), n);
     }

@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Settings } from "lucide-react"
 import { formatScore, scoreToNumeric, type PvLine } from "@/lib/uci-parser"
 import { EvalBar } from "@/components/eval-bar"
+import { HumanEvalSection } from "@/components/human-eval"
 import { EngineSettingsDialog } from "@/components/engine-settings-dialog"
 import type { EngineSettings } from "@/lib/engine-settings"
 import type { EngineState, EngineMode, PlayerColor } from "@/hooks/use-engine"
@@ -266,6 +267,13 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
             </>
           )}
         </div>
+
+        <HumanEvalSection
+          analysisFen={state.analysisFen}
+          scoreTurn={scoreTurn}
+          lines={state.lines}
+          engineRunning={state.isRunning}
+        />
       </Card>
     </div>
   );
