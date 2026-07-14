@@ -36,14 +36,14 @@ export function CapturedPieces({
   return (
     <div
       data-testid={testId}
-      className="flex items-center gap-2 min-h-[1.5rem] px-1 leading-none select-none"
+      className="flex items-center gap-2 min-h-[2rem] px-1 leading-none select-none"
     >
       {groups.map((role) => (
         <span
           key={role}
           data-role={role}
           data-count={captured[role]}
-          className="text-lg text-muted-foreground tracking-tight"
+          className="text-2xl text-muted-foreground tracking-tight"
         >
           {ROLE_GLYPHS[role].repeat(captured[role]!)}
         </span>
@@ -51,7 +51,7 @@ export function CapturedPieces({
       {points > 0 && (
         <span
           data-testid={testId ? `${testId}-points` : undefined}
-          className="ml-auto px-1.5 py-0.5 rounded bg-white/10 text-xs font-semibold text-foreground tabular-nums"
+          className="ml-auto px-2 py-0.5 rounded bg-white/10 text-sm font-semibold text-foreground tabular-nums"
         >
           +{points}
         </span>

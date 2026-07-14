@@ -66,7 +66,7 @@ export default function Home() {
   // tracks tree navigation, and diffed against startFen so custom start
   // positions (position editor) count correctly. Rows follow the board
   // orientation: the bottom tray belongs to the player at the bottom.
-  const material = useMemo(() => computeMaterial(game.startFen, game.fen), [game.startFen, game.fen])
+  const material = useMemo(() => computeMaterial(game.fen), [game.fen])
   const bottomColor = game.orientation
   const topColor = bottomColor === "white" ? ("black" as const) : ("white" as const)
   const isPlayMode = engine.state.mode === "play"

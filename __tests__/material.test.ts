@@ -2,20 +2,23 @@ import { describe, it, expect } from "vitest";
 import { computeMaterial } from "@/lib/material";
 import { INITIAL_FEN } from "@/lib/game-tree";
 
+// New semantics (board-only): each tray is the opponent's pieces MISSING FROM A
+// FULL STANDARD SET (8P 2N 2B 2R 1Q), and the +x badge is the direct
+// material-point difference on the board. The start position is irrelevant.
+
 describe("computeMaterial — standard captures", () => {
   it("reports nothing captured at the start position", () => {
-    const m = computeMaterial(INITIAL_FEN, INITIAL_FEN);
+    const m = computeMaterial(INITIAL_FEN);
     expect(m.capturedByWhite).toEqual({});
     expect(m.capturedByBlack).toEqual({});
     expect(m.advantage).toBeNull();
     expect(m.points).toBe(0);
   });
 
-  it("after 1.e4 d5 2.exd5: White captured a pawn, +1", () => {
-    // Position after 1.e4 d5 2.exd5
+  it("after 1.e4 d5 2.exd5: White is up a pawn, +1", () => {
     const fen = "rnbqkbnr/ppp1pppp/8/3P4/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2";
-    const m = computeMaterial(INITIAL_FEN, fen);
-    expect(m.capturedByWhite).toEqual({ pawn: 1 });
+    const m = computeMaterial(fen);
+    expect(m.capturedByWhite).toEqual({ pawn: 1 }); // Black is short one pawn
     expect(m.capturedByBlack).toEqual({});
     expect(m.advantage).toBe("white");
     expect(m.points).toBe(1);
@@ -23,7 +26,7 @@ describe("computeMaterial — standard captures", () => {
 
   it("after 1.e4 d5 2.exd5 Qxd5: one pawn each way, tie shows no badge", () => {
     const fen = "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3";
-    const m = computeMaterial(INITIAL_FEN, fen);
+    const m = computeMaterial(fen);
     expect(m.capturedByWhite).toEqual({ pawn: 1 });
     expect(m.capturedByBlack).toEqual({ pawn: 1 });
     expect(m.advantage).toBeNull();
@@ -33,91 +36,77 @@ describe("computeMaterial — standard captures", () => {
   it("Black up a queen for a knight: advantage black, +6", () => {
     // White is missing its queen; Black is missing a knight.
     const fen = "r1bqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq - 0 5";
-    const m = computeMaterial(INITIAL_FEN, fen);
+    const m = computeMaterial(fen);
     expect(m.capturedByWhite).toEqual({ knight: 1 });
     expect(m.capturedByBlack).toEqual({ queen: 1 });
     expect(m.advantage).toBe("black");
     expect(m.points).toBe(6);
   });
 
-  it("groups multiple captures of the same role", () => {
-    // White missing 3 pawns and a rook; Black missing 2 bishops.
+  it("groups multiple missing pieces of the same role", () => {
+    // White missing 3 pawns and a rook; Black missing both bishops.
     const fen = "rn1qk1nr/pppppppp/8/8/8/8/PPPP1P2/1NBQKBNR w Kkq - 0 9";
-    const m = computeMaterial(INITIAL_FEN, fen);
+    const m = computeMaterial(fen);
     expect(m.capturedByWhite).toEqual({ bishop: 2 });
     expect(m.capturedByBlack).toEqual({ pawn: 3, rook: 1 });
     expect(m.advantage).toBe("black");
-    expect(m.points).toBe(2); // 8 - 6
+    expect(m.points).toBe(2); // white 31 vs black 33
   });
 });
 
-describe("computeMaterial — custom start positions", () => {
-  it("a pre-existing imbalance in the start position counts as zero", () => {
-    // Rook-odds start: White begins without the a1 rook. No moves played.
-    const start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBNR w Kkq - 0 1";
-    const m = computeMaterial(start, start);
+describe("computeMaterial — board-only counting (custom starts & imbalances)", () => {
+  it("shows a custom start's missing piece immediately (rook odds)", () => {
+    // White begins without the a1 rook. No moves played — but the board is
+    // already down a rook, so Black's tray shows it and Black is +5.
+    const fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBNR w Kkq - 0 1";
+    const m = computeMaterial(fen);
     expect(m.capturedByWhite).toEqual({});
-    expect(m.capturedByBlack).toEqual({});
-    expect(m.advantage).toBeNull();
-    expect(m.points).toBe(0);
-  });
-
-  it("diffs against the custom start, not the standard one", () => {
-    // Endgame study start: K+R+P vs K+N+P. Then White wins the knight.
-    const start = "8/4k3/2n5/6p1/8/2R3P1/4K3/8 w - - 0 1";
-    const after = "8/4k3/8/6p1/8/2R3P1/4K3/8 b - - 0 2";
-    const m = computeMaterial(start, after);
-    expect(m.capturedByWhite).toEqual({ knight: 1 });
-    expect(m.capturedByBlack).toEqual({});
-    expect(m.advantage).toBe("white");
-    expect(m.points).toBe(3);
-  });
-});
-
-describe("computeMaterial — promotion edge cases", () => {
-  it("white promotes without capturing: no phantom pawn credit, White +8", () => {
-    // White's a-pawn ran to a8 and became a queen (nothing was captured).
-    // Board diff: white pawns 8→7, white queens 1→2.
-    const fen = "Qnbqkbnr/1ppppppp/8/8/8/8/1PPPPPPP/RNBQKBNR b KQk - 0 9";
-    const start = "1nbqkbnr/1ppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQk - 0 1";
-    const m = computeMaterial(start, fen);
-    // The multiset diff can't distinguish "promoted away" from "captured";
-    // the clamped per-role view stays sane (one pawn, never negative counts).
-    expect(m.capturedByBlack).toEqual({ pawn: 1 });
-    expect(m.capturedByWhite).toEqual({});
-    // Points come from board totals, so promotion is +8 for White (9 - 1),
-    // not a -1 credit for Black.
-    expect(m.advantage).toBe("white");
-    expect(m.points).toBe(8);
-  });
-
-  it("black promotes symmetrically: Black +8", () => {
-    const start = "rnbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBN1 w Qq - 0 1";
-    const fen = "rnbqkbn1/1ppppppp/8/8/8/8/PPPPPPPP/RNBQKBNq w Qq - 0 9";
-    const m = computeMaterial(start, fen);
-    expect(m.capturedByWhite).toEqual({ pawn: 1 });
-    expect(m.capturedByBlack).toEqual({});
+    expect(m.capturedByBlack).toEqual({ rook: 1 });
     expect(m.advantage).toBe("black");
-    expect(m.points).toBe(8);
+    expect(m.points).toBe(5);
   });
 
-  it("promotion with capture: extra appearing queen never goes negative", () => {
-    // White played bxa8=Q (captured Black's rook while promoting).
-    // White: pawns 8→7, queens 1→2. Black: rooks 2→1.
-    const fen = "Qnbqkbnr/2pppppp/8/8/8/8/P1PPPPPP/RNBQKBNR b KQk - 0 5";
-    const start = "rnbqkbnr/2pppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    const m = computeMaterial(start, fen);
-    expect(m.capturedByWhite).toEqual({ rook: 1 });
+  it("the user's scenario: custom start with 7 white pawns, then White captures a black pawn", () => {
+    // Before: White has 7 pawns (one short), Black 8. The board is down a white
+    // pawn from move one → Black's tray shows it, Black +1. White's tray empty.
+    const before = "rnbqkbnr/pppppppp/8/8/8/8/1PPPPPPP/RNBQKBNR w KQkq - 0 1";
+    const mBefore = computeMaterial(before);
+    expect(mBefore.capturedByWhite).toEqual({});
+    expect(mBefore.capturedByBlack).toEqual({ pawn: 1 });
+    expect(mBefore.advantage).toBe("black");
+    expect(mBefore.points).toBe(1);
+
+    // After White's knight takes a black pawn: 7 pawns each. Both trays show one
+    // enemy pawn, and the material is dead even → NO badge.
+    const after = "rnbqkbnr/1ppppppp/8/8/8/8/1PPPPPPP/RNBQKBNR b KQkq - 0 1";
+    const mAfter = computeMaterial(after);
+    expect(mAfter.capturedByWhite).toEqual({ pawn: 1 });
+    expect(mAfter.capturedByBlack).toEqual({ pawn: 1 });
+    expect(mAfter.advantage).toBeNull();
+    expect(mAfter.points).toBe(0);
+  });
+});
+
+describe("computeMaterial — promotion clamping", () => {
+  it("a second queen never shows a negative capture; points stay a board sum", () => {
+    // White promoted a pawn to a second queen (extra Q on a6, one fewer pawn).
+    // White: 7P 2N 2B 2R 2Q; Black: full army.
+    const fen = "rnbqkbnr/pppppppp/Q7/8/8/8/1PPPPPPP/RNBQKBNR b KQkq - 0 9";
+    const m = computeMaterial(fen);
+    // Black lost nothing; White is only "missing" the pawn it promoted — the
+    // extra queen is clamped out (no negative queen entry).
+    expect(m.capturedByWhite).toEqual({});
     expect(m.capturedByBlack).toEqual({ pawn: 1 });
-    // Board totals: White +8 (promotion), Black -5 (lost rook) → White +13.
+    expect(m.capturedByBlack.queen).toBeUndefined();
+    // Board totals: White 47 vs Black 39 → White +8.
     expect(m.advantage).toBe("white");
-    expect(m.points).toBe(13);
+    expect(m.points).toBe(8);
   });
 });
 
 describe("computeMaterial — malformed input", () => {
   it("returns an empty summary for garbage FENs instead of throwing", () => {
-    const m = computeMaterial("not a fen", "");
+    const m = computeMaterial("not a fen");
     expect(m.capturedByWhite).toEqual({});
     expect(m.capturedByBlack).toEqual({});
     expect(m.advantage).toBeNull();
