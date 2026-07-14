@@ -329,6 +329,23 @@ export default function Home() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey
 
+      // Never intercept typing: if focus is in any editable element, every
+      // key (including Space, f, arrows, Cmd+Z) belongs to that element.
+      const el = e.target as HTMLElement | null
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable)
+      ) {
+        return
+      }
+
+      // The Learn view (calibration) owns its own keys; the analyze-board
+      // shortcuts must not act on the hidden board behind it.
+      if (view === "learn") return
+
       // While watching a live tournament game, the live viewer owns the arrow
       // keys (ply nav); don't also drive the hidden analyze board.
       if (liveViewing && !meta) return
@@ -406,7 +423,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view])
 
   return (
     <ErrorBoundary>
