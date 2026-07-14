@@ -46,7 +46,7 @@ lab's question ("how reliable is this edge?").
 current position* and *future error rates*. A trivially winning but long position can
 score 0.75 not because R-players don't see they're winning but because they'll blunder
 later. It also regresses toward the mean in quiet positions (both sides err, evals
-compress), and it is by far the most expensive to compute honestly (§6).
+compress), and it is by far the most expensive to compute honestly (§7).
 
 **(ii) Human-visible-tree semantics.** A minimax search over a *restricted* tree: at each
 node, the candidate set is the smallest set of moves covering the top-p probability mass
@@ -64,13 +64,13 @@ set and the eval jumps — this *directly* produces the user's +1.2 → +3.1 beh
 specific and reportable rating threshold.
 
 *For:* matches the product vision exactly; output is in Stockfish-comparable pawns
-natively (no calibration needed just to display); cheap enough for interactivity (§6);
+natively (no calibration needed just to display); cheap enough for interactivity (§7);
 the jump rating ("visible from ~2500") is a first-class, explainable artifact.
 
 *Against:* minimax backup assumes the R-player *plays the best visible line perfectly* —
 it models bounded perception but perfect execution, so it overestimates conversion. It is
 not directly outcome-calibrated by construction (we must calibrate it empirically, §4).
-And top-p of the *play* distribution is a proxy for the *consideration* set (§7.2).
+And top-p of the *play* distribution is a proxy for the *consideration* set (§8.2).
 
 **(iii) Hybrids.**
 - *Depth-scheduled visible tree:* tree depth d(R) grows with rating (a 1500 calculates
@@ -96,7 +96,7 @@ Reasoning:
    (i) produces a win-prob that must be inverted through a band-specific sigmoid before it
    can sit on the eval bar, and the compressed-toward-0.5 behavior would make the slider
    feel mushy (everything drifts toward equality as R drops, even clearly won positions).
-3. **Cost.** Measured on this machine (§6): (ii) fits an interactive budget; honest (i)
+3. **Cost.** Measured on this machine (§7): (ii) fits an interactive budget; honest (i)
    is minutes per position over the UCI path and needs a batched-inference build-out or a
    value-model shortcut before it's usable live.
 4. **Science is still served.** (i) remains the ground truth for validation: experiment
@@ -216,7 +216,7 @@ All verified by actually running them, not from docs:
   legal move (32/32 in the test position), plus the root Q (value head). No source
   patching, no ONNX, no Python.
 - **Warm per-position latency: 13 ms** (84 ms for the first query after load). This is
-  the number the whole performance budget (§6) is built on.
+  the number the whole performance budget (§7) is built on.
 - One caveat found: lc0 exits on stdin EOF mid-search, so the driver must hold the pipe
   open — exactly how `uci.rs` already manages engines, so this is free.
 
@@ -251,7 +251,7 @@ All verified by actually running them, not from docs:
   zero benefit at 13 ms/query for nine 1.2 MB nets.
 - *candle + Maia-3 safetensors:* plausible tier-3 path for 2100–2700 (Apache-2.0 helps if
   licensing posture ever changes); 79M params ≈ tens of ms per forward on Metal — fine —
-  but blocked on verifying Maia-3's rating-conditioning range first (§7.1).
+  but blocked on verifying Maia-3's rating-conditioning range first (§8.1).
 
 ### 2.4 Other assets in play
 
@@ -505,7 +505,91 @@ future footnotes: the experiments are specified now, they run on infrastructure 
 already exists, each is a novel measurable result on its own, and the evaluator's claim
 to be *psychological* rather than an engine blend rests on them landing.
 
-## 6. Performance budget
+## 6. Adaptive elicitation — the battery asks what it needs to know
+
+The calibration battery (spec 213 Phase 0) currently shows a fixed stratified set. The
+user's direction: make it work like the modern, adaptive SAT — but adapting on
+**information gain over the person's profile**, not on difficulty. Their framing: "not
+more and more difficult, but rather *'what information do you need based on prior
+answers'*." After thirty answers the system should already know where it is still
+guessing about you, and spend position thirty-one there.
+
+### 6.1 Formal framing: CAT over a profile, not a scalar
+
+This is computerized adaptive testing (CAT) on an item-response-theory (IRT) skeleton.
+The person parameters are the profile this document has been assembling all along:
+
+```
+θ = ( R⃗ phase vector              (§1.5)
+      perceptual-load sensitivity  (§5.1)
+      counting-depth limit         (§5.3)
+      eval bias and variance       (systematic optimism/pessimism + noise,
+                                    straight from perceived-vs-SF answers)
+      motif-family blind spots     (211 taxonomy families) )
+```
+
+The battery maintains a posterior over θ. Each position is an *item*; item selection
+maximizes expected information gain about θ — equivalently, uncertainty sampling: show
+the position where the currently-plausible profile hypotheses **disagree most about what
+this person will answer**. Classic unidimensional CAT collapses to difficulty-matching
+(Fisher information peaks where p(correct) ≈ 0.5 — hence the SAT's "it gets harder as
+you do well"). With a multidimensional θ that equivalence breaks, which is exactly the
+user's point: the most informative next item is often not a harder one — if the endgame
+dimension is still wide, the right next position is an *easy endgame count*, because
+nothing shown so far has measured it.
+
+### 6.2 The convergence: the corpus is the item bank
+
+Make this explicit, because it is the economic heart of the program: **the mining
+corpus's per-band miss rates per position are pre-calibrated IRT item parameters.**
+P(band-R player gets this right), measured from millions of real games, is an empirical
+item characteristic curve — no parametric 2PL fit required (fitting one is just
+compression). And these are the *same numbers* that set spec 211's puzzle difficulty.
+One measurement infrastructure, three consumers:
+
+1. **211 avoidance puzzles** — per-band miss rates target puzzle difficulty.
+2. **Adaptive calibration** — miss rates + motif/phase/complexity tags make every corpus
+   position a calibrated item the selector can reason about.
+3. **Evaluator validation** — the same tables are E1–E6's yardsticks.
+
+Whatever the corpus pipeline computes per position, it is simultaneously building the
+item bank; nothing here commissions new data work.
+
+### 6.3 Tiering
+
+**Tier 1 — uncertainty-driven stratum sampling (no corpus needed).** A heuristic CAT
+that runs on what `calibration.rs` already has: maintain running per-cell confidence
+intervals over the profile dimensions (phase × sharpness × motif-presence × |eval|
+band); draw the next position from the widest-CI cell. On-demand selection is feasible
+at the measured ~2.4–3.7 s/position (Phase 0 smokes: v1 sampler 20 positions in 48 s,
+v2 Elo-labeled sampler ~3.7 s/pos, both including Stockfish scoring) — prefetch a few
+candidates while the user is thinking and the latency disappears entirely.
+
+**Tier 2 — Bayesian IRT with corpus item parameters.** Posterior over θ, items drawn
+from the corpus bank with empirical ICCs, next item = argmax expected information gain.
+This is where "the battery recognizes a 1350-middlegame answer pattern" comes from.
+
+**The pretest.** Fixed-battery sessions — the current stratified set — become the
+*bootstrap*: they initialize the posterior with broad coverage, then the adaptive
+selector takes over. They stay in the product; they just stop being the whole product.
+
+### 6.4 Stopping rule and an honest caveat
+
+A session *completes* when the profile's per-dimension CIs reach a target width — or
+when the user stops, whichever comes first. The "100" becomes a **budget, not a
+requirement**: a consistent answerer might pin their profile in 40 positions; a noisy
+one might exhaust the budget with the endgame dimension still wide, and the report says
+so. The results screen reports per-dimension intervals ("middlegame eval bias:
++0.3 ± 0.2; endgame counting: insufficient data") instead of a single completion state.
+
+Caveat to record now, standard in CAT and easy to forget later: **adaptive selection
+biases naive averages.** Once items are chosen based on previous answers, raw per-cell
+means no longer estimate what they did under the fixed battery — aggregate statistics in
+the report must come from the model/posterior, not from raw means over an
+adaptively-selected sample. Phase 0's scatter/MAE views stay valid as-is only for the
+fixed-battery pretest portion.
+
+## 7. Performance budget
 
 Grounded in the measured 13 ms warm policy query (§2.2). Costs are per (position, R).
 
@@ -550,9 +634,9 @@ inference (ONNX/candle, thousands of forwards/s batched on Metal) or the value-h
 shortcut (1 forward). This cost asymmetry is a large part of why (ii) is tier-1. Offline
 (E5) rollouts in Python on the corpus are fine.
 
-## 7. Risks and honest limitations
+## 8. Risks and honest limitations
 
-### 7.1 The 2000–2700 gap (biggest product risk)
+### 8.1 The 2000–2700 gap (biggest product risk)
 Maia-1 tops out at **1900**. The user's headline story ends at 2650. Options, in order of
 preference:
 1. **Verify Maia-2/Maia-3 conditioning ranges** (Maia-2's skill-aware attention and
@@ -571,7 +655,7 @@ the validated ceiling render with an "experimental" treatment; the perception cu
 out that region. Do not fake precision at 2650 — the feature's credibility rests on the
 validated middle of the slider.
 
-### 7.2 "Moves a human PLAYS" vs "resources a human SEES"
+### 8.2 "Moves a human PLAYS" vs "resources a human SEES"
 Maia's training target is the *played* move; our object is the *consideration set*. A
 2200 may see a sacrifice, calculate it, and reject it — it was visible but never played;
 conversely a move can be played on general principles without its point being seen. The
@@ -591,7 +675,7 @@ design bridges the gap three ways:
 The residual gap is stated in the UI docs: Eval_R models *practically available* moves,
 which is slightly narrower than *perceptible* ideas.
 
-### 7.3 Blitz bias
+### 8.3 Blitz bias
 Maia-1 was trained on Lichess games whose time controls skew fast (the exact filter needs
 verification from the KDD paper before we write it in user-facing docs). Implication:
 Eval_R models perception under *quick-game* conditions and will underrate what the same
@@ -599,7 +683,7 @@ player finds with 30 minutes on the clock. Mitigations: the depth schedule d(R) 
 a deliberation knob (E5 measures it); long term, corpus filtering by time control lets us
 fit a "classical correction". Stated limitation until then.
 
-### 7.4 GPL and shipping
+### 8.4 GPL and shipping
 chessgui is GPL-3.0, so GPL-3.0 Maia-1 weights and GPL lc0 are compatible outright.
 Shipping posture: **fetch-on-first-use** for weights (CSSLab release URLs, checksummed,
 cached) and detect-or-`brew install` for lc0 — nothing GPL-encumbered is added to the
@@ -607,7 +691,7 @@ cached) and detect-or-`brew install` for lc0 — nothing GPL-encumbered is added
 About panel. If the app's licensing posture ever needs to change, the Maia-3/Apache path
 exists.
 
-### 7.5 Assorted
+### 8.5 Assorted
 - **lc0 version drift**: old-format SE-ResNet nets have loaded for years, but pin/probe
   the lc0 version at spawn and fail loudly (verified working: 0.31.2; formula stable:
   0.32.1).
@@ -620,7 +704,7 @@ exists.
 - **Validation contamination** (§4): enforce the post-2019 game filter in every
   experiment; it's the kind of leak that silently manufactures a positive E1.
 
-## 8. Summary of recommendations
+## 9. Summary of recommendations
 
 | Question | Recommendation |
 |---|---|
@@ -631,4 +715,5 @@ exists.
 | Instant tier | Single-forward blend: weight SF eval by the Maia-R policy mass on SF's PV move; ~15 ms per slider stop. |
 | Psychology coefficients | Attention load (E-attention: matched-pair mining via action-zone local Zobrist, bystander dose-response) and story-arch state (E-history: same-position/different-history via the existing `db.rs` Zobrist index, post-blunder degradation curve) modulate candidate breadth and expectimax temperature per node — measured laws, not Maia interpolation. Tier-2, corpus-gated; history term needs game context and degrades to position-only on bare FENs. |
 | Validation | E1 outcome-prediction head-to-head (Brier, per band, complexity-stratified) is the killer experiment; E-attention and E-history follow immediately (they supply the tier-2 coefficients and are novel results standalone); E3 jump audit validates the perception curve; E2 ties divergence to real human error. Player-disjoint, post-2019 splits. |
+| Adaptive elicitation | The calibration battery is CAT over the profile θ (phase vector, load sensitivity, counting depth, eval bias, motif blind spots), selecting items by expected information gain — not difficulty. Tier 1: widest-CI stratum sampling on existing calibration.rs machinery (~2.4 s/position, prefetch hides it); tier 2: Bayesian IRT where corpus per-band miss rates ARE the item parameters (same numbers as 211 puzzle difficulty — one infrastructure, three consumers). Fixed battery = pretest bootstrap; session completes at target CI width, "100" is a budget. Report aggregates must be model-based once selection is adaptive. |
 | Biggest risk | Rating coverage above 1900. Verify Maia-2/3 ranges; label high stops experimental; never fake the 2650 number. |

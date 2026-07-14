@@ -158,6 +158,15 @@ optional move, and score them against Stockfish. Files are the research artifact
       game length.
 - [ ] Collect a real self-rated session (user is the ~1300/1650-puzzle datapoint) and
       fold it into the E1 corpus once the evaluator exists.
+- [ ] **Adaptive elicitation** (design doc §6): item selection by information gain over
+      the person's profile, not difficulty — like the adaptive SAT, but "what do I still
+      not know based on prior answers." Tier 1: draw the next position from the
+      widest-CI profile cell (phase × sharpness × motif × |eval| band; on-demand
+      sampling ~2.4–3.7 s/pos measured, prefetch while the user thinks). Tier 2:
+      Bayesian IRT using corpus per-band miss rates as item parameters (the same numbers
+      that set 211 puzzle difficulty). Session completes at target CI width — the 100
+      becomes a budget, not a requirement; the fixed stratified battery remains as the
+      posterior-initializing pretest.
 
 ### Phase 1 — Inference plumbing
 - [x] `maia.rs`: lc0 process management (spawn with `--weights`, warm pool with LRU over
@@ -174,7 +183,7 @@ optional move, and score them against Stockfish. Files are the research artifact
 
 ### Phase 2 — Tier 0 + slider UI
 - [x] Instant blend evaluator (single Maia forward pass; `w·SF + (1−w)·anchor`, formula
-      in design doc §6). Pure TS in `lib/human-eval.ts`, vitest-covered. Consumes the
+      in design doc §7). Pure TS in `lib/human-eval.ts`, vitest-covered. Consumes the
       existing Stockfish stream from `use-engine` (no second SF spawned). Mate scores
       mapped to a bounded pawn-equivalent so the blend stays sane.
 - [x] Rating slider (Off · 1100 · 1300 · 1500 · 1700 · 1900 — the 200-Elo stops over
