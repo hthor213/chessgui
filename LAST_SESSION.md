@@ -1,40 +1,59 @@
 # Last Session
 
-**Date:** 2026-06-14
-**Focus:** Engine Tournament & Win-Probability Lab (spec 210) — built end to end; plus app icon, engine-path fix, Analyze button + game-status banner.
+**Date:** 2026-07-13/14 (one marathon session)
+**Focus:** The ChessBase-replacement roadmap — researched, planned, and Phases 0–3 largely
+built; plus the spec-213 Elo-conditioned evaluator (design + tier-0) and the Learn-tab
+calibration system with the user as ground-truth labeler.
 
 ## What the system does now
-ChessGUI is a Tauri 2 + Next.js chess app. New this session: a **Tournament** tab that runs headless engine-vs-engine matches and analyzes them. It samples eval-qualified starting positions (color-flipped), plays them in parallel under an engine-managed game clock, adjudicates ≤7-man endgames via the Lichess tablebase, and reports Elo±CI plus per-engine and conversion curves by starting eval. You can watch live games (board + per-side clocks + coordinates).
+ChessGUI is a chess workbench: **Play/Analyze** (variation tree, annotations + eval graph,
+PGN round-trip, engine settings/arrows, take-back, captured trays, tier-0 **Elo eval slider**
+1100–1900 via Maia-over-lc0); **Tournament** (neutral third-engine evaluator, live viewer
+with eval bar + stop/pause/auto-start-gate/ply-nav/move-delay controls, per-game + averaged
+eval graphs, game browser, play-current-position-out); **Database** (955,819 games — user's
+Mega via new clean-room CBH importer + Lumbra OTB + TWIC — SQLite, Zobrist position search,
+dedup proven cross-source); **Learn** (eval-calibration sessions: stratified known-Elo
+positions, eval+why+move elicitation, think-time with honesty button, second-look revision,
+post-answer reveal with **Opus AI-coach** reading the user's reasoning + cause tags,
+per-phase results, resume-across-days). Version 0.3.0; `scripts/install-app.sh` keeps
+/Applications current on every build.
 
-## What changed this session
-- **App icon**: indigo knight + faint chessboard; regenerated full macOS icon set.
-- **Engine path fix**: `DEFAULT_ENGINE_PATH` → `/opt/homebrew/bin/stockfish` (old source build was deleted → `os error 2`); self-heals stale localStorage paths.
-- **Analyze nav button** wired (was dead); **game-status banner** (checkmate/stalemate/draw/check).
-- **Engine Tournament (spec 210)**, native-Rust runner in `src-tauri/src/match_runner.rs`:
-  - Headless 2-engine game loop (shakmaty); parallel batch runner (tokio) with progress + **cancel that aborts in-flight games**.
-  - **Game clock + increment** (engine-managed), TC presets — default **Standard 60s+0.6s**; flag-fall = time_forfeit.
-  - **7-man tablebase adjudication** (Lichess API, cached, graceful fallback) — toggle, default on.
-  - **Live move streaming** → board viewer with per-side clocks + coordinates.
-  - Frontend (`lib/tournament.ts`, `components/tournament-tab.tsx`): eval-qualified sampling (default ±1.5), per-engine performance curve, conversion probability map, Elo±CI, termination breakdown, live Elapsed/ETA timer.
-- **Reckless 0.9.0** engine downloaded to `engines/` (gitignored).
-- **scripts/curate_positions.py**: explorer-validated position curation (Stockfish eval + Lichess Masters lookup). Pool stays at the 360-position set for now.
+## What changed this session (highlights; ~30 commits, all pushed)
+- Roadmap researched by agent fleet (community/features/formats/legal) → full plan at
+  `~/.claude/plans/then-we-are-going-witty-kazoo.md`; data strategy v3 (3 corpora, recipes
+  CALIBRATED against real Lichess dumps; Caïssabase dead → Lumbra; mining corpus = elo≥1400
+  rapid+classical evals-on band-capped 50–60GB; reference pack = its elo≥2000 slice).
+- Specs 016 (game tree) IMPLEMENTED, 011 closed, 013 + 202 implemented, 200 backend+UI+data
+  pipeline, 210 evaluator/viewer/controls; NEW specs 211 (avoidance puzzles), 212 (tournament
+  game analysis), 213 (Elo-conditioned evaluator + deep design doc incl. perception
+  psychology, phase vectors, model-driven adaptive elicitation).
+- CBH importer (`src-tauri/src/cbh.rs`, clean-room): 99.9995% of the user's 606k-game
+  ChessBase DB converts; Mega imported into the app DB.
+- Research: mistake-mining prior-art survey (`docs/research/`) — our cause-labeled method
+  appears unpublished; Maia licenses compatible; never noise-weaken engines (Turing-test
+  evidence).
+- User's calibration: 8/100 positions answered; emerging signature = sound move selection,
+  inflated eval scale, branch-selection optimism (pos-8 minimax error, engine-verified).
+- Tests: 23 → 172 JS + 38 Rust. Every UI feature headless-verified (Playwright); build
+  gotchas documented (dist/dev corruption, cargo-clean rlib fix, key-handler input guards).
 
 ## Known issues / open
-1. **Chart bars fix just committed but NOT visually verified** — the report charts were rendering empty (`items-end` collapsed the bar columns; fixed to `items-stretch`). Needs a rebuild + a fresh tournament run to confirm bars show.
-2. **±1.5 range gives no signal**: a 100-game Stockfish-vs-Reckless run was a dead heat (Elo −17, CI [−63,+27]). At wide imbalance the starting advantage dominates; **narrow to ~±0.6 + run 300–500 games** to actually resolve strength.
-3. **Curated pool not done**: the full `curate_positions.py` run over-scoped (12k-candidate cap, ran >75 min) and was killed. Explorer cache is warmed at `data/openings/explorer_cache.json`. Re-run bounded.
-4. The standalone `ChessGUI.app` bundle goes stale on every frontend change — use `pnpm tauri dev` while iterating, or `pnpm tauri build --debug` to refresh the clickable app.
-
-## Dev commands
-```bash
-source "$HOME/.cargo/env" && pnpm tauri dev      # hot-reload (preferred while iterating)
-source "$HOME/.cargo/env" && pnpm tauri build --debug   # refresh clickable bundle
-cd src-tauri && cargo run --example batch_smoke  # headless runner smoke test
-pnpm tsc --noEmit                                # (rm -rf .next first if dup-file TS6200 errors)
-```
+1. **Homeserver unreachable** (VPN down, laptop on 192.168.0.x) — blocks: capacity recon,
+   corpus builds (mining + reference), canonical-DB deploy. First unblock when VPN returns.
+2. Band-cap N needs a tuning run on 2–3 recent full months before the corpus build.
+3. Live-engine eyeballs pending (user): tournament evaluator end-to-end, pause/clock-freeze
+   feel, Elo-slider divergence on real positions, AI-coach note quality on position 9+.
+4. Calibration endgame coverage thin pre-v2 sessions; sampler v2 fixed it for NEW sessions.
+5. Librarian: 5 flags pending (new specs + duplicate legacy numbering) — run /librarian.
+6. .2cbh format has no open reader (watch); Lumbra fetch = personal-use license (never
+   redistribute; commercial use needs a license).
 
 ## Next session should start with
-**Rebuild (`pnpm tauri build --debug`) and run one eval-qualified tournament to verify the chart bars now render** (the empty-graphs fix is unverified). Then pick one:
-- **Past-competitions selector** (BACKLOG) — persist each run's config+outcomes+summary and add a UI picker to reload past results without re-running. Touch points: `components/tournament-tab.tsx` (persist report to localStorage + a selector), `lib/tournament.ts` (a saved-run type).
-- **Narrow-range run** — set range ±0.6 and N=300–500 to get a statistically significant Stockfish>Reckless result; watch where the per-engine curves separate.
-- **Bounded curated pool** — re-run `scripts/curate_positions.py` with a small cap (reuses the warm explorer cache), then copy to `public/` and rebuild.
+1. If VPN is up: homeserver recon (re-dispatch the homeserver agent) → corpus build plan
+   (band-cap tuning → mining-corpus month loop → reference slice) — this unblocks spec 211
+   Tier-1 generation, 213 validation experiments E1/E-attention/E-history, and Phase 9.
+2. User continues calibration (position 9+, now with AI coach); review the coach's verbatim
+   quality on their answers — tune the prompt if it freelances beyond the engine lines.
+3. Smaller: in-app CBH import UI (`db_import_cbh` command + picker), opening-explorer
+   auto-update/click-to-play polish, /librarian sweep, spec 212 tier-1 (win-prob labeling —
+   evaluator data is already flowing).
