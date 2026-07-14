@@ -71,7 +71,7 @@ profile match the human band it imitates?).
   evals so it's trivial later).
 - Deep multi-PV re-analysis passes (the evaluator's quick pass is tier-1; a "deep verify
   decisive moments" pass can come later).
-- Human-game analysis (that's Phase 9 / spec 211's domain — this spec is the engine-lab lens).
+- Human-game analysis (that's Phase 9 / spec:211's domain — this spec is the engine-lab lens).
 
 ## Checklist
 - [ ] Eval→win-prob curve derived from the run's own probability map (fallback: logistic fit)

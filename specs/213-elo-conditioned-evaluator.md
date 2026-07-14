@@ -90,7 +90,7 @@ visible*, readable at a glance. This is the one image that explains the feature 
 screenshot. Non-monotonic jumps are the product, not a bug.
 
 ### Tournament lab integration
-The tournament's neutral evaluator (spec 210 Phase 7 — a third engine scoring every
+The tournament's neutral evaluator (spec:210 Phase 7 — a third engine scoring every
 position off the live stream without touching player clocks) is the natural host: an
 optional "human evaluator" pass runs Eval_R alongside the Stockfish pass. Spec 212's error
 report then labels decisive mistakes with **"visible from ~2100"** — the rating at which
@@ -119,7 +119,7 @@ the refutation enters human sight — a strictly stronger statement than "blunde
 
 ## Non-goals (this spec)
 
-- A human-like *playing* bot (that's the Phase 9 / spec 211 territory; this is an
+- A human-like *playing* bot (that's the Phase 9 / spec:211 territory; this is an
   *evaluator*).
 - Personalized eval ("what does *this* player see") — Maia4All path, later.
 - Move recommendations or training advice derived from Eval_R.

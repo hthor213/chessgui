@@ -163,7 +163,7 @@ This is a recursive rendering problem. Each variation is indented and rendered i
 - [x] `deleteVariation` removes a subtree
 - [x] Navigation: forward, backward, enter/exit variation, go to start/end
 - [x] MoveList renders variations (indented + inline, parenthesized)
-- [x] PGN import preserves variations from the PGN — done in spec 013 (`lib/pgn.ts` `parsePgnToTrees`)
-- [x] PGN export includes variations — done in spec 013 (`lib/pgn.ts` `treeToPgn`)
+- [x] PGN import preserves variations from the PGN — done in spec:013 (`lib/pgn.ts` `parsePgnToTrees`)
+- [x] PGN export includes variations — done in spec:013 (`lib/pgn.ts` `treeToPgn`)
 - [x] Existing flat-move workflows (play, analyze) still work unchanged
 - [x] Per-node comment and NAG storage (display can come in spec:202)

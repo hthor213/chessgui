@@ -90,14 +90,14 @@ Red dots where eval drops significantly:
 
 ### Annotations (from spec:202)
 - [x] Engine eval auto-saved per move during analysis (stored in `node.eval`,
-      white-perspective; writing it out as `[%eval]` belongs to PGN export, spec 013)
+      white-perspective; writing it out as `[%eval]` belongs to PGN export, spec:013)
 - [x] User can add/edit text comments on any move (annotation bar; `[%…]` tags preserved through edits) — not yet verified in-app
 - [x] NAG symbols (!, ?, !!, ??, !?, ?!) via keyboard (`!`/`?` combos, `=` for equality) and toolbar buttons — not yet verified in-app
 - [x] Annotations visible in move list (comment text + NAG glyphs; per-move eval badges deferred — evals live in the graph tooltip)
 - [x] Arrow annotations drawn on board (right-click drag), persisted per node — not yet verified in-app
 - [x] Square annotations highlighted on board (right-click), persisted as dest-less arrows — not yet verified in-app
-- [ ] Annotated PGN export includes comments, evals, NAGs, arrows, squares (spec 013 task)
-- [ ] PGN import preserves all annotation types (spec 013 task)
+- [ ] Annotated PGN export includes comments, evals, NAGs, arrows, squares (spec:013 task)
+- [ ] PGN import preserves all annotation types (spec:013 task)
 - [ ] Annotations persist in database (spec:200) — they do persist in the localStorage save today
 
 ### Eval Graph (from spec:203)
