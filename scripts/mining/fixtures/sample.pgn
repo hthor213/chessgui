@@ -1,0 +1,134 @@
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/aaaa0001"]
+[Date "2026.05.01"]
+[White "alice"]
+[Black "bob"]
+[Result "1-0"]
+[UTCDate "2026.05.01"]
+[UTCTime "12:00:00"]
+[WhiteElo "1650"]
+[BlackElo "1642"]
+[TimeControl "600+5"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] [%clk 0:10:00] } 1... e5 { [%eval 0.25] [%clk 0:10:00] } 2. Nf3 { [%eval 0.3] } 2... Nc6 { [%eval 0.2] } 3. Bb5 { [%eval 0.35] } 1-0
+
+[Event "Rated Blitz game"]
+[Site "https://lichess.org/aaaa0002"]
+[Date "2026.05.01"]
+[White "carol"]
+[Black "dave"]
+[Result "0-1"]
+[UTCDate "2026.05.01"]
+[UTCTime "12:05:00"]
+[WhiteElo "2200"]
+[BlackElo "2150"]
+[TimeControl "300+0"]
+[Termination "Normal"]
+
+1. d4 { [%eval 0.1] } 1... Nf6 { [%eval 0.1] } 2. c4 { [%eval 0.15] } 0-1
+
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/aaaa0003"]
+[Date "2026.05.02"]
+[White "erin"]
+[Black "frank"]
+[Result "1/2-1/2"]
+[UTCDate "2026.05.02"]
+[UTCTime "09:00:00"]
+[WhiteElo "1380"]
+[BlackElo "1900"]
+[TimeControl "600+5"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] } 1... c5 { [%eval 0.3] } 2. Nf3 { [%eval 0.25] } 1/2-1/2
+
+[Event "Rated Classical game"]
+[Site "https://lichess.org/aaaa0004"]
+[Date "2026.05.03"]
+[White "grace"]
+[Black "heidi"]
+[Result "1-0"]
+[UTCDate "2026.05.03"]
+[UTCTime "18:30:00"]
+[WhiteElo "2100"]
+[BlackElo "2205"]
+[TimeControl "1800+0"]
+[Termination "Normal"]
+
+1. c4 { [%eval 0.1] } 1... e5 { [%eval 0.1] } 2. Nc3 { [%eval 0.05] } 2... Nf6 { [%eval 0.1] } 1-0
+
+[Event "Casual Rapid game"]
+[Site "https://lichess.org/aaaa0005"]
+[Date "2026.05.03"]
+[White "ivan"]
+[Black "judy"]
+[Result "0-1"]
+[UTCDate "2026.05.03"]
+[UTCTime "19:00:00"]
+[WhiteElo "1700"]
+[BlackElo "1710"]
+[TimeControl "600+5"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] } 1... e6 { [%eval 0.2] } 0-1
+
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/aaaa0006"]
+[Date "2026.05.04"]
+[White "kim"]
+[Black "leo"]
+[Result "1-0"]
+[UTCDate "2026.05.04"]
+[UTCTime "10:00:00"]
+[WhiteElo "1500"]
+[BlackElo "1512"]
+[TimeControl "600+5"]
+[Termination "Normal"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. b4 Bxb4 5. c3 Ba5 1-0
+
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/aaaa0007"]
+[Date "2026.05.04"]
+[White "mallory"]
+[Black "nick"]
+[Result "0-1"]
+[UTCDate "2026.05.04"]
+[UTCTime "11:00:00"]
+[WhiteElo "1620"]
+[BlackElo "1688"]
+[TimeControl "900+10"]
+[Termination "Time forfeit"]
+
+1. d4 { [%eval 0.1] } 1... d5 { [%eval 0.15] } 2. c4 { [%eval 0.2] } 2... e6 { [%eval 0.1] } 0-1
+
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/aaaa0008"]
+[Date "2026.05.05"]
+[White "oscar"]
+[Black "peggy"]
+[Result "1-0"]
+[UTCDate "2026.05.05"]
+[UTCTime "12:00:00"]
+[WhiteElo "?"]
+[BlackElo "1600"]
+[TimeControl "600+5"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] } 1... e5 { [%eval 0.2] } 1-0
+
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/aaaa0009"]
+[Date "2026.05.05"]
+[White "quinn"]
+[Black "rex"]
+[Result "0-1"]
+[UTCDate "2026.05.05"]
+[UTCTime "13:00:00"]
+[WhiteElo "abcd"]
+[BlackElo "1600"]
+[TimeControl "600+5"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] } 1... c5 { [%eval 0.3] } 0-1
