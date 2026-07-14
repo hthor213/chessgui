@@ -127,8 +127,11 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
     <div className="flex flex-nowrap items-stretch gap-0">
       {topLine && <EvalBar score={topLine.score} turn={scoreTurn} />}
       <Card className="bg-[#1e1c19] border-[#2a2825] p-3 flex-1 min-w-0">
-        <div className="flex justify-between mb-1.5">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-between gap-1 mb-1.5">
+          {/* Informational text — clips at its box edge (overflow-hidden) so
+              the action buttons always stay on screen, even in a narrow
+              column. The buttons reserve their width via shrink-0 below. */}
+          <div className="flex items-baseline gap-1.5 min-w-0 overflow-hidden whitespace-nowrap">
             <span className="text-xs font-semibold text-[#bababa]">
               {state.engineName}
             </span>
@@ -137,13 +140,15 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
                 depth {state.depth}
               </span>
             )}
-          </div>
-          <div className="flex items-center gap-1">
             {(state.isAnalyzing || state.isThinking) && state.nps > 0 && (
               <span className="text-xs text-muted-foreground">
                 {formatNodes(state.nps)}/s
               </span>
             )}
+          </div>
+          {/* Action buttons — arrows toggle, settings, pause/resume, stop.
+              shrink-0 keeps the whole cluster from being clipped. */}
+          <div className="flex items-center gap-1 shrink-0">
             {state.mode !== "play" && (
               <Tooltip>
                 <TooltipTrigger asChild>

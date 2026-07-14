@@ -153,9 +153,13 @@ export function EvalGraph({ tree, currentId, onGoToNode, version }: EvalGraphPro
             <circle cx={xFor(hover.index)} cy={yFor(hover.unit)} r={3} fill={CURRENT} stroke={PLOT_BG} strokeWidth={1.5} />
           )}
         </svg>
-        {n === 0 || known.length === 0 ? (
-          <span className="absolute inset-0 flex items-center justify-center text-xs text-[#6a6763] pointer-events-none">
-            {n === 0 ? "Play or load a game" : "Evals fill in as the engine analyzes"}
+        {/* A single point plots as an invisible sliver, so show the hint until
+            there are at least two evals to actually draw a curve between. */}
+        {known.length < 2 ? (
+          <span className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs text-[#6a6763] pointer-events-none">
+            {n === 0
+              ? "Play or load a game"
+              : "Evals appear as you step through moves during analysis, or import a game with evals"}
           </span>
         ) : null}
         {hover && (

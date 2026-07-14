@@ -25,6 +25,9 @@ import type { DrawShape } from "@lichess-org/chessground/draw"
 
 // Best-move arrow brushes by MultiPV rank: #1 solid blue, #2/#3 fainter.
 const PV_ARROW_BRUSHES = ["blue", "paleBlue", "paleGrey"]
+// Slim arrows (Chessground's default lineWidth is ~10, which reads as fat on
+// our board). #1 a touch bolder than the alternatives.
+const PV_ARROW_WIDTHS = [6, 5, 4]
 
 const Board = dynamic(
   () => import("@/components/board").then((m) => ({ default: m.Board })),
@@ -103,6 +106,7 @@ export default function Home() {
           orig: arrow.orig as Key,
           dest: arrow.dest as Key,
           brush: PV_ARROW_BRUSHES[line.multipv - 1],
+          modifiers: { lineWidth: PV_ARROW_WIDTHS[line.multipv - 1] },
         })
       }
     }
@@ -134,13 +138,14 @@ export default function Home() {
   // Auto-save the engine's best-line eval onto the node it analyzed (spec 202)
   // so the eval graph fills in as you step through. analysisFen gates out
   // stale lines from the previous position; scoreTurn normalizes the UCI
-  // side-to-move score to White's perspective. Depth < 8 is noise — skip it;
-  // the tree also refuses to overwrite a deeper stored eval.
+  // side-to-move score to White's perspective. Accept depth >= 6 so a fresh
+  // eval lands quickly while stepping; deeper reads overwrite it as the search
+  // grows (setEval refuses to downgrade a deeper stored eval).
   useEffect(() => {
     if (isPlayMode || !engine.state.isAnalyzing) return
     if (engine.state.analysisFen !== game.fen) return
     const best = engine.state.lines.find((l) => l.multipv === 1)
-    if (!best || best.depth < 8) return
+    if (!best || best.depth < 6) return
     const flip = engine.state.scoreTurn === "white" ? 1 : -1
     game.setEval(
       game.currentNodeId,

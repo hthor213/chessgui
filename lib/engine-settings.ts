@@ -12,6 +12,11 @@ export interface EngineSettings {
 }
 
 const STORAGE_KEY = "engine-settings";
+// Bumped when a default changes in a way existing users should adopt once.
+// v2: best-move arrows now default OFF. A stored blob without this version
+// (or an older one) gets showArrows reset to the new default on load; the
+// value only becomes authoritative again once the user explicitly saves.
+const SETTINGS_VERSION = 2;
 
 export const HASH_MIN = 16;
 export const HASH_MAX = 8192;
@@ -27,7 +32,7 @@ export function defaultEngineSettings(): EngineSettings {
     hash: 256,
     threads: Math.min(4, maxThreads()),
     multiPv: 3,
-    showArrows: true,
+    showArrows: false,
   };
 }
 
@@ -43,12 +48,21 @@ export function loadEngineSettings(): EngineSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaults;
-    const saved = JSON.parse(raw) as Partial<EngineSettings>;
+    const saved = JSON.parse(raw) as Partial<EngineSettings> & { version?: number };
+    // One-time migration: a blob from before SETTINGS_VERSION never explicitly
+    // chose the new showArrows default, so ignore its stored value and reset to
+    // default. Hash/Threads/Lines are preserved. Once the user saves anything,
+    // the version is stamped and their showArrows choice sticks.
+    const migrated = saved.version !== SETTINGS_VERSION;
     return {
       hash: clampInt(saved.hash, HASH_MIN, HASH_MAX, defaults.hash),
       threads: clampInt(saved.threads, 1, maxThreads(), defaults.threads),
       multiPv: clampInt(saved.multiPv, MULTI_PV_MIN, MULTI_PV_MAX, defaults.multiPv),
-      showArrows: typeof saved.showArrows === "boolean" ? saved.showArrows : defaults.showArrows,
+      showArrows: migrated
+        ? defaults.showArrows
+        : typeof saved.showArrows === "boolean"
+          ? saved.showArrows
+          : defaults.showArrows,
     };
   } catch {
     return defaults;
@@ -57,7 +71,7 @@ export function loadEngineSettings(): EngineSettings {
 
 export function saveEngineSettings(settings: EngineSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, version: SETTINGS_VERSION }));
   } catch {
     // localStorage unavailable — settings just won't persist
   }
