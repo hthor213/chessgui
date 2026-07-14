@@ -7,8 +7,14 @@ import {
   buildSpecs,
   seedsForGames,
   summarizeErrors,
+  plyEvalPawns,
+  gameEvalSeries,
+  averageEvalByPly,
+  evalBarDefaultForBaseMs,
+  MATE_EVAL_PAWNS,
   TIME_CONTROLS,
   type GameOutcome,
+  type PlyEval,
   type Seed,
 } from "@/lib/tournament"
 
@@ -119,5 +125,101 @@ describe("summarizeErrors — surfacing per-game failure reasons", () => {
 
   it("returns an empty list when no games errored", () => {
     expect(summarizeErrors([ok(0), ok(1)])).toEqual([])
+  })
+})
+
+describe("plyEvalPawns — White-POV pawn value", () => {
+  it("scales centipawns by 1/100", () => {
+    expect(plyEvalPawns({ ply: 1, cp: 34, mate: null })).toBeCloseTo(0.34)
+    expect(plyEvalPawns({ ply: 2, cp: -150, mate: null })).toBeCloseTo(-1.5)
+  })
+
+  it("maps a mate to +/-MATE_EVAL_PAWNS by sign", () => {
+    expect(plyEvalPawns({ ply: 5, cp: null, mate: 3 })).toBe(MATE_EVAL_PAWNS)
+    expect(plyEvalPawns({ ply: 6, cp: null, mate: -2 })).toBe(-MATE_EVAL_PAWNS)
+  })
+
+  it("is null when the ply has no score", () => {
+    expect(plyEvalPawns({ ply: 0, cp: null, mate: null })).toBeNull()
+  })
+})
+
+describe("averageEvalByPly — engine-A-POV normalization", () => {
+  // Helper: a completed game carrying only per-ply evals (the rest is unused here).
+  const gameWithEvals = (flipped: boolean, evals: PlyEval[]): GameOutcome => ({
+    id: 0,
+    flipped,
+    result: { Ok: { result: "1/2-1/2", termination: "draw", plies: evals.length, start_fen: "", moves: [] } },
+    evals,
+  })
+
+  it("folds color-flipped pairs onto A's perspective instead of cancelling", () => {
+    // Same ply, mirror-image White-POV evals: A as White is +2, A as Black
+    // faces a White eval of -2 (i.e. A is +2 from its own side). The raw
+    // White-POV mean would be 0; the A-POV mean must be +2.
+    const a = gameWithEvals(false, [{ ply: 1, cp: 200, mate: null }])
+    const b = gameWithEvals(true, [{ ply: 1, cp: -200, mate: null }])
+    const avg = averageEvalByPly([a, b])
+    expect(avg).toHaveLength(1)
+    expect(avg[0]).toMatchObject({ ply: 1, n: 2 })
+    expect(avg[0].mean).toBeCloseTo(2.0)
+  })
+
+  it("clamps each contribution so one blowout can't dominate the mean", () => {
+    const a = gameWithEvals(false, [{ ply: 1, cp: 5000, mate: null }]) // +50 pawns
+    const b = gameWithEvals(false, [{ ply: 1, cp: 0, mate: null }])
+    const avg = averageEvalByPly([a, b])
+    // +50 clamps to +MATE_EVAL_PAWNS, so the mean is (10 + 0) / 2 = 5, not 25.
+    expect(avg[0].mean).toBeCloseTo(MATE_EVAL_PAWNS / 2)
+  })
+
+  it("skips unscored plies and omits plies with no games", () => {
+    const a = gameWithEvals(false, [
+      { ply: 0, cp: 0, mate: null },
+      { ply: 1, cp: null, mate: null }, // no score → skipped
+    ])
+    const avg = averageEvalByPly([a])
+    expect(avg.map((p) => p.ply)).toEqual([0])
+  })
+})
+
+describe("gameEvalSeries — per-game White-POV curve", () => {
+  it("maps every recorded ply, preserving null gaps", () => {
+    const o: GameOutcome = {
+      id: 3,
+      flipped: true, // per-game graph is White-POV: flipped must NOT affect it
+      result: { Ok: { result: "0-1", termination: "checkmate", plies: 2, start_fen: "", moves: [] } },
+      evals: [
+        { ply: 0, cp: 0, mate: null },
+        { ply: 1, cp: null, mate: null },
+        { ply: 2, cp: -80, mate: null },
+      ],
+    }
+    expect(gameEvalSeries(o)).toEqual([
+      { ply: 0, pawns: 0 },
+      { ply: 1, pawns: null },
+      { ply: 2, pawns: -0.8 },
+    ])
+  })
+
+  it("is empty for an outcome with no evals", () => {
+    const o: GameOutcome = { id: 1, flipped: false, result: { Err: "boom" } }
+    expect(gameEvalSeries(o)).toEqual([])
+  })
+})
+
+describe("evalBarDefaultForBaseMs — auto-check the eval bar for slow TCs", () => {
+  it("is on at exactly 60s and above, off below", () => {
+    expect(evalBarDefaultForBaseMs(59_999)).toBe(false)
+    expect(evalBarDefaultForBaseMs(60_000)).toBe(true)
+    expect(evalBarDefaultForBaseMs(300_000)).toBe(true)
+  })
+
+  it("matches the intent across the built-in TC presets", () => {
+    const byId = Object.fromEntries(TIME_CONTROLS.map((t) => [t.id, t.baseMs]))
+    expect(evalBarDefaultForBaseMs(byId.fast)).toBe(false) // 10s
+    expect(evalBarDefaultForBaseMs(byId.standard)).toBe(true) // 60s
+    expect(evalBarDefaultForBaseMs(byId.long)).toBe(true) // 300s
+    expect(evalBarDefaultForBaseMs(byId.rapid)).toBe(true) // 600s
   })
 })

@@ -35,14 +35,36 @@ export type GameResult = {
 }
 
 /**
+ * One neutral-evaluator score at a single ply. Mirrors Rust `PlyEval`. `ply` 0
+ * is the start position; `ply` N is the position after the Nth half-move.
+ * White-POV: + favors White. Exactly one of `cp`/`mate` is set (both null when
+ * the evaluator produced no score).
+ */
+export type PlyEval = {
+  ply: number
+  cp: number | null
+  mate: number | null
+}
+
+/** A neutral-evaluator score streamed live as a game plays. Mirrors Rust `EvalEvent`. */
+export type EvalEvent = {
+  game_id: number
+  ply: number
+  cp: number | null
+  mate: number | null
+}
+
+/**
  * Outcome of attempting one `GameSpec`. serde serializes the Rust `Result` as
  * `{ Ok: GameResult }` or `{ Err: string }`, so the result is one of those
- * shapes.
+ * shapes. `evals` carries the neutral evaluator's per-ply White-POV scores
+ * (empty when the evaluator was off or failed to start).
  */
 export type GameOutcome = {
   id: number
   flipped: boolean
   result: { Ok: GameResult } | { Err: string }
+  evals?: PlyEval[]
 }
 
 /** Progress event emitted as each game completes. Mirrors Rust `BatchProgress`. */
@@ -77,10 +99,29 @@ export type LiveGame = {
   /** Remaining clocks (ms) for each side. */
   whiteTimeMs: number
   blackTimeMs: number
+  /**
+   * Latest neutral-evaluator score for this game (White-POV), or null/undefined
+   * when the evaluator is off or hasn't scored a position yet. Drives the live
+   * eval bar; lags the board by roughly one ply, which is fine for a bar.
+   */
+  eval?: { cp: number | null; mate: number | null } | null
 }
 
 /** A sudden-death + increment time control (per side). */
 export type TimeControl = { id: string; label: string; baseMs: number; incMs: number }
+
+/**
+ * Base-time threshold (ms) at/above which the live eval bar defaults ON. At
+ * 60s+ per side there's time to watch a game and the per-move eval reads are
+ * meaningful; below it the games blitz by. This is only the DEFAULT — the user
+ * can always override it.
+ */
+export const EVAL_BAR_BASE_MS_THRESHOLD = 60_000
+
+/** Whether the eval bar should default ON for a given base clock (ms). */
+export function evalBarDefaultForBaseMs(baseMs: number): boolean {
+  return baseMs >= EVAL_BAR_BASE_MS_THRESHOLD
+}
 
 /**
  * Time-control presets. "Standard" (LTC, 60s+0.6s) is the established point
@@ -676,6 +717,83 @@ export function buildEngineCurves(
   }
   bins.sort((a, b) => a.center - b.center)
   return bins
+}
+
+// ---------------------------------------------------------------------------
+// Neutral-evaluator eval series (per-game graph + normalized average graph)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pawn value a mate score maps to for charting. A mate is "off the scale", so
+ * it pins to the same visual bound the graphs clamp cp evals to — a single mate
+ * never dwarfs the rest of the curve.
+ */
+export const MATE_EVAL_PAWNS = 10
+
+/**
+ * A [`PlyEval`] as a White-POV pawn value, or null when the ply has no score.
+ * cp is /100; a mate maps to +/-[`MATE_EVAL_PAWNS`] by its sign (after the Rust
+ * side already converted the score to White's POV).
+ */
+export function plyEvalPawns(e: PlyEval): number | null {
+  if (e.mate != null) return (e.mate >= 0 ? 1 : -1) * MATE_EVAL_PAWNS
+  if (e.cp != null) return e.cp / 100
+  return null
+}
+
+/** A White-POV eval curve point for one game. */
+export type EvalPoint = { ply: number; pawns: number | null }
+
+/**
+ * A single game's White-POV eval curve (the evaluator's numbers), one point per
+ * recorded ply including the start position. Gaps (unscored plies) surface as
+ * `pawns: null` so a chart can bridge them.
+ */
+export function gameEvalSeries(outcome: GameOutcome): EvalPoint[] {
+  return (outcome.evals ?? []).map((pe) => ({ ply: pe.ply, pawns: plyEvalPawns(pe) }))
+}
+
+/** One point on the average eval curve: the mean over `n` games at that ply. */
+export type AvgEvalPoint = { ply: number; mean: number; n: number }
+
+/**
+ * Mean eval by ply across completed games, normalized to ENGINE A's
+ * perspective so + always means engine A is better.
+ *
+ * This normalization is the whole point: the evaluator scores White-POV, and
+ * every opening is played from both colors, so engine A is White in half the
+ * games and Black in the other half. Averaging the raw White-POV numbers would
+ * make color-flipped pairs cancel to ~0. Flipping the sign for games where A
+ * played Black (`flipped`) folds both colors onto A's perspective, so a real A
+ * advantage accumulates instead of cancelling.
+ *
+ * Each contribution is clamped to +/-`clampPawns` (default [`MATE_EVAL_PAWNS`])
+ * so one blowout or mate can't dominate the mean. Plies with no scored games
+ * are omitted. Returned sorted ascending by ply.
+ */
+export function averageEvalByPly(
+  outcomes: GameOutcome[],
+  clampPawns = MATE_EVAL_PAWNS,
+): AvgEvalPoint[] {
+  const sum: number[] = []
+  const cnt: number[] = []
+  for (const o of outcomes) {
+    for (const pe of o.evals ?? []) {
+      let v = plyEvalPawns(pe)
+      if (v === null) continue
+      // Fold onto engine A's perspective (A is White unless the game is flipped).
+      if (o.flipped) v = -v
+      v = Math.max(-clampPawns, Math.min(clampPawns, v))
+      sum[pe.ply] = (sum[pe.ply] ?? 0) + v
+      cnt[pe.ply] = (cnt[pe.ply] ?? 0) + 1
+    }
+  }
+  const out: AvgEvalPoint[] = []
+  for (let ply = 0; ply < sum.length; ply++) {
+    if (!cnt[ply]) continue
+    out.push({ ply, mean: sum[ply] / cnt[ply], n: cnt[ply] })
+  }
+  return out
 }
 
 export { STANDARD_START_FEN }

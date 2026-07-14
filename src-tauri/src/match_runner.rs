@@ -289,6 +289,46 @@ impl EngineHandle {
         Ok((mv.to_string(), elapsed))
     }
 
+    /// Evaluate a position (given by FEN) at a fixed movetime, returning the
+    /// last-seen score converted to White's POV: `(cp, mate)` with at most one
+    /// side populated. Used by the neutral evaluator; never touches a player's
+    /// clock. `read_wait` bounds the wait for `bestmove`.
+    async fn eval_at(
+        &mut self,
+        fen: &str,
+        movetime_ms: u64,
+        read_wait: Duration,
+    ) -> Result<(Option<i64>, Option<i64>), String> {
+        self.send(&format!("position fen {}", fen)).await?;
+        let mut cp: Option<i64> = None;
+        let mut mate: Option<i64> = None;
+        self.send(&format!("go movetime {}", movetime_ms)).await?;
+        // Read info lines until bestmove, keeping the most recent score. A mate
+        // score supersedes a cp score and vice-versa (only one is meaningful).
+        self.read_until(read_wait, |line| {
+            if line.starts_with("info ") {
+                if let Some((c, m)) = parse_info_score(line) {
+                    if c.is_some() {
+                        cp = c;
+                        mate = None;
+                    }
+                    if m.is_some() {
+                        mate = m;
+                        cp = None;
+                    }
+                }
+            }
+            line.starts_with("bestmove")
+        })
+        .await?;
+        // The engine reports from the side-to-move's POV; flip to White-POV.
+        if fen_black_to_move(fen) {
+            cp = cp.map(|v| -v);
+            mate = mate.map(|v| -v);
+        }
+        Ok((cp, mate))
+    }
+
     async fn quit(mut self) {
         let _ = self.send("quit").await;
         // Give it a brief moment to exit cleanly; kill_on_drop handles the rest.
@@ -332,6 +372,79 @@ pub struct MoveEvent {
     pub wtime_ms: i64,
     /// Black's remaining clock (ms) after this move.
     pub btime_ms: i64,
+}
+
+// ============================================================================
+// Neutral evaluator — a third engine that scores each position off the
+// live-move stream (never on a player's clock).
+// ============================================================================
+//
+// While the two players fight a game, an optional third UCI engine (the neutral
+// evaluator, default Stockfish) scores every position at a fixed, small budget
+// (`go movetime`). It runs in its OWN async task consuming the game's positions
+// off a channel, so the players never wait for it and their clocks are never
+// affected. `movetime` (not fixed depth) is deliberate: it bounds the per-
+// position wall cost so the evaluator keeps pace with the live stream instead of
+// stalling on a sharp position the way a fixed depth would.
+
+/// One neutral-evaluator score at a single ply of a game. `ply` 0 is the start
+/// position; `ply` N is the position after the Nth half-move (matching
+/// [`MoveEvent::ply`]). Exactly one of `cp`/`mate` is set (both `None` if the
+/// evaluator produced no score). White-POV: + favors White. Serialize +
+/// Deserialize so a run's evals round-trip trivially when persistence lands.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PlyEval {
+    pub ply: usize,
+    pub cp: Option<i64>,
+    pub mate: Option<i64>,
+}
+
+/// A neutral-evaluator score streamed live as a game plays, tagged with its
+/// game id so a concurrent batch can route it to the right game. White-POV.
+#[derive(Serialize, Debug, Clone)]
+pub struct EvalEvent {
+    pub game_id: usize,
+    pub ply: usize,
+    pub cp: Option<i64>,
+    pub mate: Option<i64>,
+}
+
+/// Configuration for the neutral evaluator. Absent = evaluation disabled.
+#[derive(Clone, Debug)]
+pub struct EvalSetup {
+    /// Path to the evaluator engine binary.
+    pub path: String,
+    /// Per-position search budget (`go movetime <ms>`).
+    pub movetime_ms: u64,
+}
+
+/// Default neutral-evaluator budget (100ms): reaches ~depth 12-16 mid-game on
+/// modern hardware — enough for a stable White-POV signal for the bar and the
+/// shape of the eval graph — while staying cheap enough that the evaluators
+/// don't materially starve the players even at high game concurrency.
+pub const DEFAULT_EVAL_MOVETIME_MS: u64 = 100;
+
+/// Parse `score cp N` / `score mate N` from a UCI `info` line. The score is from
+/// the side-to-move's perspective (caller converts to White-POV). Returns
+/// `(cp, mate)` with exactly one side populated, or `None` if the line carries
+/// no score token.
+fn parse_info_score(line: &str) -> Option<(Option<i64>, Option<i64>)> {
+    let mut it = line.split_whitespace();
+    while let Some(tok) = it.next() {
+        if tok == "score" {
+            return match it.next() {
+                Some("cp") => it.next()?.parse::<i64>().ok().map(|v| (Some(v), None)),
+                Some("mate") => it.next()?.parse::<i64>().ok().map(|v| (None, Some(v))),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+/// Whether it is Black to move in `fen` (active-color is the 2nd FEN field).
+fn fen_black_to_move(fen: &str) -> bool {
+    fen.split_whitespace().nth(1) == Some("b")
 }
 
 /// Play one full headless game between two engines.
@@ -715,6 +828,10 @@ pub struct GameOutcome {
     pub flipped: bool,
     /// `Ok` game result, or `Err` message if the game could not be played.
     pub result: Result<GameResult, String>,
+    /// Neutral-evaluator score at each ply (start position + after every move),
+    /// White-POV. Empty when the evaluator is disabled or failed to start.
+    #[serde(default)]
+    pub evals: Vec<PlyEval>,
 }
 
 /// Progress event emitted as each game in a batch completes.
@@ -769,23 +886,56 @@ fn default_concurrency() -> usize {
 
 /// Run a batch of games concurrently with a bounded concurrency limit.
 ///
-/// Pure core: no Tauri dependencies.
-/// * `concurrency` — max games in flight at once; `0` selects a sensible default.
-/// * `on_progress` — invoked once per completed game with a [`BatchProgress`].
-/// * `cancel` — checked before launching each queued game; once set, no further
-///   games are launched (in-flight games are allowed to finish). Whatever has
-///   completed is returned.
-///
-/// Engine processes are torn down cleanly: each game owns its own short-lived
-/// engine handles (spawned with `kill_on_drop`), and on cancellation we simply
-/// stop scheduling new ones, so nothing leaks.
-/// * `on_move` — invoked once per move played across all games, tagged with the
-///   originating game's [`GameSpec::id`]. Shared across all concurrent games.
+/// Thin wrapper over [`run_batch_core_evaluated`] with no neutral evaluator; its
+/// signature and behavior are unchanged (evals come back empty).
 pub async fn run_batch_core(
     specs: Vec<GameSpec>,
     concurrency: usize,
     on_progress: impl Fn(BatchProgress) + Send + Sync + 'static,
     on_move: Arc<dyn Fn(MoveEvent) + Send + Sync>,
+    cancel: Arc<AtomicBool>,
+) -> Vec<GameOutcome> {
+    run_batch_core_evaluated(
+        specs,
+        concurrency,
+        on_progress,
+        on_move,
+        Arc::new(|_| {}),
+        None,
+        cancel,
+    )
+    .await
+}
+
+/// Run a batch of games concurrently, with an optional neutral evaluator scoring
+/// every position of every game off the live-move stream.
+///
+/// Pure core: no Tauri dependencies.
+/// * `concurrency` — max games in flight at once; `0` selects a sensible default.
+/// * `on_progress` — invoked once per completed game with a [`BatchProgress`].
+/// * `on_move` — invoked once per move played across all games, tagged with the
+///   originating game's [`GameSpec::id`]. Shared across all concurrent games.
+/// * `on_eval` — invoked once per evaluated position with an [`EvalEvent`]
+///   (White-POV). Shared across all games. A no-op closure disables live eval
+///   streaming without disabling collection.
+/// * `eval` — the neutral evaluator config; `None` disables evaluation entirely.
+///   When set, each game spawns its own evaluator engine (a third process) that
+///   scores that game's positions in a separate task, so the players never wait
+///   on it and their clocks are untouched. The collected per-ply evals are
+///   attached to the game's [`GameOutcome`].
+/// * `cancel` — checked before launching each queued game; once set, no further
+///   games are launched (in-flight games are allowed to finish).
+///
+/// Engine processes are torn down cleanly: each game owns its own short-lived
+/// engine handles (spawned with `kill_on_drop`), and on cancellation we simply
+/// stop scheduling new ones, so nothing leaks.
+pub async fn run_batch_core_evaluated(
+    specs: Vec<GameSpec>,
+    concurrency: usize,
+    on_progress: impl Fn(BatchProgress) + Send + Sync + 'static,
+    on_move: Arc<dyn Fn(MoveEvent) + Send + Sync>,
+    on_eval: Arc<dyn Fn(EvalEvent) + Send + Sync>,
+    eval: Option<EvalSetup>,
     cancel: Arc<AtomicBool>,
 ) -> Vec<GameOutcome> {
     let total = specs.len();
@@ -820,6 +970,8 @@ pub async fn run_batch_core(
 
         let on_progress = Arc::clone(&on_progress);
         let on_move = Arc::clone(&on_move);
+        let on_eval = Arc::clone(&on_eval);
+        let eval = eval.clone();
         let completed = Arc::clone(&completed);
         let cancel_game = Arc::clone(&cancel);
 
@@ -827,6 +979,57 @@ pub async fn run_batch_core(
             // Permit is held for the lifetime of this game, then released here.
             let _permit = permit;
 
+            // Spin up the neutral evaluator for this game (if enabled): a task
+            // that owns a third engine and scores positions fed over a channel,
+            // fully decoupled from the play loop so the players never wait on it.
+            let mut eval_tx: Option<tokio::sync::mpsc::UnboundedSender<(usize, String)>> = None;
+            let mut eval_join: Option<tokio::task::JoinHandle<Vec<PlyEval>>> = None;
+            if let Some(setup) = eval {
+                let (tx, mut rx) =
+                    tokio::sync::mpsc::unbounded_channel::<(usize, String)>();
+                let game_id = spec.id;
+                let on_eval = Arc::clone(&on_eval);
+                let join = tokio::spawn(async move {
+                    let mut evals: Vec<PlyEval> = Vec::new();
+                    // Best-effort: if the evaluator can't start, drain the queue
+                    // so senders don't block, and return no evals.
+                    let mut engine = match EngineHandle::spawn(&setup.path).await {
+                        Ok(e) => e,
+                        Err(_) => {
+                            while rx.recv().await.is_some() {}
+                            return evals;
+                        }
+                    };
+                    if engine.init().await.is_err() {
+                        while rx.recv().await.is_some() {}
+                        return evals;
+                    }
+                    let read_wait =
+                        Duration::from_millis(setup.movetime_ms.saturating_add(5000).max(5000));
+                    while let Some((ply, fen)) = rx.recv().await {
+                        if let Ok((cp, mate)) =
+                            engine.eval_at(&fen, setup.movetime_ms, read_wait).await
+                        {
+                            on_eval(EvalEvent { game_id, ply, cp, mate });
+                            evals.push(PlyEval { ply, cp, mate });
+                        }
+                    }
+                    engine.quit().await;
+                    evals
+                });
+                // Seed ply 0 (the start position) so the graph/bar have an
+                // opening data point before the first move is played.
+                let start_fen = spec
+                    .start_fen
+                    .clone()
+                    .unwrap_or_else(|| STANDARD_START_FEN.to_string());
+                let _ = tx.send((0, start_fen));
+                eval_tx = Some(tx);
+                eval_join = Some(join);
+            }
+
+            let on_move_inner = Arc::clone(&on_move);
+            let eval_tx_move = eval_tx.clone();
             let result = play_game_streamed(
                 &spec.white_path,
                 &spec.black_path,
@@ -836,15 +1039,31 @@ pub async fn run_batch_core(
                 spec.max_plies,
                 spec.adjudicate_tb,
                 spec.id,
-                move |ev| on_move(ev),
+                move |ev| {
+                    // Feed the evaluator this position (post-move FEN) before
+                    // forwarding the move on. Unbounded send never blocks play.
+                    if let Some(tx) = &eval_tx_move {
+                        let _ = tx.send((ev.ply, ev.fen.clone()));
+                    }
+                    on_move_inner(ev);
+                },
                 &cancel_game,
             )
             .await;
+
+            // Close the eval channel (both sender clones) and collect the evals.
+            // The evaluator lags by at most one position, so this waits briefly.
+            drop(eval_tx);
+            let evals = match eval_join {
+                Some(join) => join.await.unwrap_or_default(),
+                None => Vec::new(),
+            };
 
             let outcome = GameOutcome {
                 id: spec.id,
                 flipped: spec.flipped,
                 result,
+                evals,
             };
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -890,22 +1109,30 @@ fn check_engine_paths(specs: &[GameSpec]) -> Result<(), String> {
             if !seen.insert(path) {
                 continue;
             }
-            // Bare command name (no path separator): defer to PATH resolution.
-            if !path.contains('/') && !path.contains('\\') {
-                continue;
-            }
-            let meta = std::fs::metadata(path)
-                .map_err(|e| format!("Engine not found: '{}' ({})", path, e))?;
-            if !meta.is_file() {
-                return Err(format!("Engine path is not a file: '{}'", path));
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if meta.permissions().mode() & 0o111 == 0 {
-                    return Err(format!("Engine is not executable: '{}'", path));
-                }
-            }
+            check_engine_path(path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Pre-flight one engine binary: must exist, be a file, and (on Unix) carry an
+/// executable bit. A bare command name (no path separator) is skipped so PATH
+/// resolution keeps working. Shared by the batch preflight and the evaluator.
+fn check_engine_path(path: &str) -> Result<(), String> {
+    // Bare command name (no path separator): defer to PATH resolution.
+    if !path.contains('/') && !path.contains('\\') {
+        return Ok(());
+    }
+    let meta = std::fs::metadata(path)
+        .map_err(|e| format!("Engine not found: '{}' ({})", path, e))?;
+    if !meta.is_file() {
+        return Err(format!("Engine path is not a file: '{}'", path));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o111 == 0 {
+            return Err(format!("Engine is not executable: '{}'", path));
         }
     }
     Ok(())
@@ -928,12 +1155,21 @@ pub struct BatchReport {
 ///
 /// Cancellation: the shared [`BatchCancel`] flag is reset at the start of each
 /// batch, then a `cancel_batch` command can set it to request a clean stop.
+///
+/// Neutral evaluator: when `eval_path` is set, a third engine scores every
+/// position of every game at `eval_movetime_ms` (default
+/// [`DEFAULT_EVAL_MOVETIME_MS`]) off the live-move stream — never on a player's
+/// clock — streaming [`EvalEvent`]s over `on_eval` and attaching per-ply evals
+/// to each [`GameOutcome`]. `eval_path` is pre-flighted like the players.
 #[tauri::command]
 pub async fn play_batch(
     specs: Vec<GameSpec>,
     concurrency: usize,
     on_progress: tauri::ipc::Channel<BatchProgress>,
     on_move: tauri::ipc::Channel<MoveEvent>,
+    on_eval: tauri::ipc::Channel<EvalEvent>,
+    eval_path: Option<String>,
+    eval_movetime_ms: Option<u64>,
     cancel: tauri::State<'_, BatchCancel>,
 ) -> Result<BatchReport, String> {
     // Fail fast, once, if an engine binary is missing or non-executable —
@@ -941,13 +1177,27 @@ pub async fn play_batch(
     // count. A bare command (PATH-resolved) is not checked here.
     check_engine_paths(&specs)?;
 
+    // Pre-flight the evaluator path too so a bad path fails up front, not
+    // silently as empty evals on every game.
+    let eval = match eval_path {
+        Some(p) if !p.trim().is_empty() => {
+            check_engine_path(&p)?;
+            Some(EvalSetup {
+                path: p,
+                movetime_ms: eval_movetime_ms.unwrap_or(DEFAULT_EVAL_MOVETIME_MS).max(1),
+            })
+        }
+        _ => None,
+    };
+
     // Fresh run: clear any leftover cancellation from a previous batch.
     let flag = Arc::clone(&cancel.0);
     flag.store(false, Ordering::SeqCst);
 
     let progress = on_progress.clone();
     let moves = on_move.clone();
-    let outcomes = run_batch_core(
+    let evals = on_eval.clone();
+    let outcomes = run_batch_core_evaluated(
         specs,
         concurrency,
         move |p| {
@@ -958,6 +1208,11 @@ pub async fn play_batch(
             // Best-effort, same as progress: a closed channel must not abort.
             let _ = moves.send(ev);
         }),
+        Arc::new(move |ev| {
+            // Best-effort, same as the others.
+            let _ = evals.send(ev);
+        }),
+        eval,
         Arc::clone(&flag),
     )
     .await;
@@ -1079,5 +1334,86 @@ mod tests {
         // (no separator) is a PATH-resolved command we intentionally skip.
         let specs = vec![spec(0, "/bin/sh", "stockfish", None)];
         assert!(check_engine_paths(&specs).is_ok());
+    }
+
+    #[test]
+    fn parse_info_score_reads_cp_and_mate() {
+        let cp = parse_info_score("info depth 12 seldepth 18 score cp -34 nodes 1000 pv e2e4");
+        assert_eq!(cp, Some((Some(-34), None)));
+        let mate = parse_info_score("info depth 20 score mate 3 pv h5f7");
+        assert_eq!(mate, Some((None, Some(3))));
+        // A lowerbound-flagged score still parses to its numeric value.
+        let lb = parse_info_score("info depth 5 score cp 128 lowerbound pv d2d4");
+        assert_eq!(lb, Some((Some(128), None)));
+        // No score token → None (e.g. a currmove line).
+        assert_eq!(parse_info_score("info depth 1 currmove e2e4 currmovenumber 1"), None);
+    }
+
+    #[test]
+    fn fen_black_to_move_reads_active_color() {
+        assert!(!fen_black_to_move(STANDARD_START_FEN));
+        assert!(fen_black_to_move(
+            "rnbqkbnr/pppppppp/8/8/4P3/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
+        ));
+    }
+
+    /// Resolve a usable Stockfish path for the live-engine tests, or `None` so
+    /// they skip cleanly on a box without it.
+    fn find_stockfish() -> Option<String> {
+        for p in ["/opt/homebrew/bin/stockfish", "/usr/local/bin/stockfish", "/usr/bin/stockfish"] {
+            if std::path::Path::new(p).exists() {
+                return Some(p.to_string());
+            }
+        }
+        None
+    }
+
+    // End-to-end evaluator plumbing against a real engine at a tiny movetime:
+    // a short game is played and the neutral evaluator must attach one White-POV
+    // eval per streamed ply (including ply 0 for the start position) and stream
+    // the same count of EvalEvents. Skips if no Stockfish is installed.
+    #[tokio::test]
+    async fn evaluator_attaches_and_streams_per_ply_evals() {
+        let Some(sf) = find_stockfish() else {
+            eprintln!("skipping evaluator_attaches_and_streams_per_ply_evals: no stockfish");
+            return;
+        };
+
+        let specs = vec![spec(0, &sf, &sf, None)];
+        let eval_events = Arc::new(Mutex::new(Vec::<EvalEvent>::new()));
+        let sink = Arc::clone(&eval_events);
+
+        let outcomes = run_batch_core_evaluated(
+            specs,
+            1,
+            |_p| {},
+            Arc::new(|_ev| {}),
+            Arc::new(move |ev| sink.lock().unwrap().push(ev)),
+            Some(EvalSetup { path: sf.clone(), movetime_ms: 20 }),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert_eq!(outcomes.len(), 1);
+        let o = &outcomes[0];
+        let g = o.result.as_ref().expect("game should complete");
+        // One eval per ply plus the start position (ply 0).
+        assert_eq!(
+            o.evals.len(),
+            g.plies + 1,
+            "expected {} evals (plies + start), got {}",
+            g.plies + 1,
+            o.evals.len()
+        );
+        // ply indices are 0..=plies and each carries a score.
+        for (i, pe) in o.evals.iter().enumerate() {
+            assert_eq!(pe.ply, i, "evals must be ordered by ply");
+            assert!(
+                pe.cp.is_some() || pe.mate.is_some(),
+                "each ply should have a cp or mate score"
+            );
+        }
+        // Every collected eval was also streamed live.
+        assert_eq!(eval_events.lock().unwrap().len(), o.evals.len());
     }
 }
