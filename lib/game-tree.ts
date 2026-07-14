@@ -417,6 +417,27 @@ export class GameTree {
     return true;
   }
 
+  /**
+   * Play-mode take-back: from the current node, delete back to the most recent
+   * position where it's `playerColor`'s turn — removing the taken-back moves
+   * from the tree — and leave the cursor there. This takes back the user's last
+   * move plus the engine's reply (if it has already answered), or just the
+   * user's move if it hasn't. Returns false when there is nothing to take back
+   * (already at such a position, e.g. the game start).
+   */
+  takeBack(playerColor: "white" | "black"): boolean {
+    const path = this.pathToNode(this.currentId); // [root, …, current]
+    for (let i = path.length - 2; i >= 0; i--) {
+      const turn = path[i].fen.split(" ")[1] === "b" ? "black" : "white";
+      if (turn === playerColor) {
+        // Delete the child leading toward current; deleteVariation removes the
+        // whole subtree and retreats the cursor onto path[i].
+        return this.deleteVariation(path[i + 1].id);
+      }
+    }
+    return false;
+  }
+
   // ---- annotations (storage only; UI lands in spec 202) ----
 
   setComment(id: string, comment: string): void {

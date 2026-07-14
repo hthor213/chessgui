@@ -319,11 +319,17 @@ export default function Home() {
 
       if (e.key === "ArrowLeft" || (meta && e.key === "z" && !e.shiftKey)) {
         e.preventDefault()
-        // In play mode, Cmd+Z undoes a full move (2 plies: your move + engine's response).
-        // Arrow left still steps 1 ply for reviewing.
-        const step = (meta && e.key === "z" && isPlayMode) ? 2 : 1
-        if (isPlayMode) engine.cancelThinking()
-        game.goToMove(game.currentMoveIndex - step)
+        const isUndo = meta && e.key === "z" // Cmd+Z = take-back; ArrowLeft = review
+        if (isPlayMode && isUndo) {
+          // Take-back: revert to the user's turn, deleting the taken-back moves.
+          engine.cancelThinking()
+          engine.turnStartTimeRef.current = Date.now()
+          game.takeBack(playerColor)
+        } else {
+          // Arrow-left review (both modes) steps back one ply, non-destructive.
+          if (isPlayMode) engine.cancelThinking()
+          game.goToMove(game.currentMoveIndex - 1)
+        }
       } else if (
         e.key === "ArrowRight" ||
         (meta && e.key === "z" && e.shiftKey)
@@ -362,7 +368,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, handlePaste, pgnDialogOpen, editorOpen])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen])
 
   return (
     <ErrorBoundary>
@@ -688,8 +694,15 @@ export default function Home() {
               <button
                 className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
                 onClick={() => {
-                  if (isPlayMode) engine.cancelThinking()
-                  game.goToMove(game.currentMoveIndex - (isPlayMode ? 2 : 1))
+                  if (isPlayMode) {
+                    // Take-back: cancel any in-flight engine search, reset the
+                    // player's clock, and truncate back to the user's turn.
+                    engine.cancelThinking()
+                    engine.turnStartTimeRef.current = Date.now()
+                    game.takeBack(playerColor)
+                  } else {
+                    game.goToMove(game.currentMoveIndex - 1)
+                  }
                 }}
                 title="Undo"
               >

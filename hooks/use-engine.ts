@@ -39,6 +39,24 @@ function turnFromFen(fen: string): "white" | "black" {
   return fen.split(" ")[1] === "b" ? "black" : "white";
 }
 
+/**
+ * Whether the engine should play a move for the current position. True only in
+ * play mode when it's the engine's turn AND the board is at the live tip. So
+ * reviewing history, or taking a move back (which lands on the user's turn),
+ * never makes the engine re-play its move. Pure + exported for testing.
+ */
+export function shouldEngineMove(s: {
+  mode: EngineMode;
+  isRunning: boolean;
+  turn: "white" | "black";
+  playerColor: PlayerColor;
+  atLatestMove: boolean;
+}): boolean {
+  if (!s.isRunning || s.mode !== "play") return false;
+  const engineColor: "white" | "black" = s.playerColor === "white" ? "black" : "white";
+  return s.turn === engineColor && s.atLatestMove;
+}
+
 const initialState: EngineState = {
   isRunning: false,
   engineName: null,
@@ -189,9 +207,14 @@ export function useEngine(
       if (bookMove) {
         console.log("[engine] Playing book move!", bookMove);
         thinkingRef.current = false;
-        
-        // Slight delay so the UI feels somewhat realistic
+
+        // Slight delay so the UI feels somewhat realistic. Guard at fire time:
+        // if the user took the move back (or navigated / left play mode) during
+        // the delay, the board has moved off `position` — don't play a stale
+        // reply onto it. (The engine-search path is already guarded by
+        // thinkingRef in the bestmove listener.)
         setTimeout(() => {
+          if (modeRef.current !== "play" || fenRef.current !== position) return;
           setState((s) => ({ ...s, isThinking: false }));
           if (onBestMoveRef.current) {
             onBestMoveRef.current(bookMove);
@@ -510,16 +533,25 @@ export function useEngine(
     if (!fenChanged || !state.isRunning) return;
 
     if (modeRef.current === "play") {
-      // In play mode: if it's the engine's turn AND we're at the latest move, ask engine to move.
-      // Don't auto-play when the user is navigating history (undo / arrow keys).
-      const engineColor = playerColorRef.current === "white" ? "b" : "w";
-      if (fen.includes(` ${engineColor} `) && atLatestMoveRef.current) {
+      // The engine plays only when it's its turn AND we're at the live tip.
+      // After a take-back (truncates to the user's turn) or while the user
+      // reviews history, shouldEngineMove is false, so the engine waits for the
+      // user's move instead of re-thinking/replaying its own.
+      const engineTurn = shouldEngineMove({
+        mode: "play",
+        isRunning: true,
+        turn: turnFromFen(fen),
+        playerColor: playerColorRef.current,
+        atLatestMove: atLatestMoveRef.current,
+      });
+      if (engineTurn) {
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => {
           requestMove(fen);
         }, 100);
       } else {
-        // Human's turn — run continuous analysis so eval updates in real-time
+        // Human's turn (or reviewing) — run continuous analysis so the eval
+        // stays live. Never makes a move.
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => {
           startAnalysis(fen);

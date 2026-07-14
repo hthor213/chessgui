@@ -205,6 +205,22 @@ export function useChessGame() {
     [bump],
   );
 
+  // Play-mode take-back: truncate the user's last move (and the engine's
+  // reply, if it has already answered) and land on the most recent position
+  // where it's the user's turn. Unlike goToMove navigation, this deletes the
+  // moves from the tree — a game in progress isn't a variation to branch off.
+  // Returns false when there's nothing to take back (already at a user turn).
+  const takeBack = useCallback(
+    (playerColor: "white" | "black"): boolean => {
+      if (treeRef.current.takeBack(playerColor)) {
+        bump();
+        return true;
+      }
+      return false;
+    },
+    [bump],
+  );
+
   // Jump straight to any node in the tree (used by the variation-aware list).
   const goToNode = useCallback(
     (id: string) => {
@@ -380,6 +396,7 @@ export function useChessGame() {
     startFen: view.startFen,
     currentMoveIndex: view.currentMoveIndex,
     goToMove,
+    takeBack,
     headers: view.headers,
     loadGame,
     loadTree,
