@@ -251,6 +251,17 @@ optional move, and score them against Stockfish. Files are the research artifact
       position to be worth; the corpus measures what R actually *converts*. Eval_R targets
       conversion; perception data calibrates the coach — and the perception−conversion gap
       per player is itself a signal (intuition outrunning judgment or vice versa).
+- [ ] E-template (false pattern match, from calibration session 2026-07-14): human eval is
+      partly case-based — retrieved from the nearest experienced position, not computed —
+      so a one-pawn difference that changes later conversion options inherits the wrong
+      template eval. Reuses E-attention's action-zone local-Zobrist matched-pair mining:
+      find sibling positions (same local pattern, ≥1 pawn/detail apart) with a large SF
+      eval gap; measure per band how often players choose the same plan in both siblings
+      (template-driven) and the loss taken in the exception sibling → template-blindness
+      rate per band. Prediction: errors on near-template exceptions are biased toward the
+      template's eval, not merely noisier. Future coach cause-tag candidate
+      ("false_template" — evaluated the remembered position, not the board); do NOT add to
+      the tag vocabulary until the taxonomy doc + coach.rs CAUSE_TAGS move together.
 - [ ] E6 (design doc §1.5/§4): per-player phase profiles from the corpus; does the
       endgame-dragged cohort's middlegame match Maia of its overall rating or of its
       phase rating — gates the "unlock phases" UI
