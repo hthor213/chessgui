@@ -508,48 +508,67 @@ to be *psychological* rather than an engine blend rests on them landing.
 ## 6. Adaptive elicitation — the battery asks what it needs to know
 
 The calibration battery (spec 213 Phase 0) currently shows a fixed stratified set. The
-user's direction: make it work like the modern, adaptive SAT — but adapting on
-**information gain over the person's profile**, not on difficulty. Their framing: "not
-more and more difficult, but rather *'what information do you need based on prior
-answers'*." After thirty answers the system should already know where it is still
-guessing about you, and spend position thirty-one there.
+user's direction came in two steps. First: make it adaptive like the modern SAT, but on
+**information gain**, not difficulty — "not more and more difficult, but rather *'what
+information do you need based on prior answers'*." Then the refinement that inverts the
+objective: "we don't need to lock me down in Elo (although fun to know)… it's more that
+we use the human to make human mistakes — it's more about *what data do you need more
+of*."
 
-### 6.1 Formal framing: CAT over a profile, not a scalar
+So the battery is **active learning for the model, with the person as the labeler** —
+not a measurement of the person. Formally: optimal experimental design / uncertainty
+sampling over the *model's* parameters. The person-measurement version (CAT/IRT over a
+person profile θ) survives as a brief opening phase and a fun by-product, not as the
+objective.
 
-This is computerized adaptive testing (CAT) on an item-response-theory (IRT) skeleton.
-The person parameters are the profile this document has been assembling all along:
+### 6.1 Two-phase design
 
-```
-θ = ( R⃗ phase vector              (§1.5)
-      perceptual-load sensitivity  (§5.1)
-      counting-depth limit         (§5.3)
-      eval bias and variance       (systematic optimism/pessimism + noise,
-                                    straight from perceived-vs-SF answers)
-      motif-family blind spots     (211 taxonomy families) )
-```
+**Phase A — brief profile lock-in (~10–20 positions).** A label is only usable if we
+know who produced it: "a ~1300 with a 1500-ish endgame perceived this as +1.2" is data;
+an anonymous "+1.2" is not. So a session opens with a short CAT-style burst that pins
+the labeler's rough profile — phase vector (§1.5), eval bias/variance — just tightly
+enough for their answers to be interpretable as *a known-level human's perception*.
+Classic CAT machinery applies, with the multidimensional twist worth keeping: the most
+informative next item may be an easy endgame count rather than a harder middlegame
+(Fisher-information difficulty-matching, the SAT's "it gets harder", only falls out in
+the unidimensional case). Previously collected fixed-battery sessions serve as this
+phase's prior, so returning users skip most of it.
 
-The battery maintains a posterior over θ. Each position is an *item*; item selection
-maximizes expected information gain about θ — equivalently, uncertainty sampling: show
-the position where the currently-plausible profile hypotheses **disagree most about what
-this person will answer**. Classic unidimensional CAT collapses to difficulty-matching
-(Fisher information peaks where p(correct) ≈ 0.5 — hence the SAT's "it gets harder as
-you do well"). With a multidimensional θ that equivalence breaks, which is exactly the
-user's point: the most informative next item is often not a harder one — if the endgame
-dimension is still wide, the right next position is an *easy endgame count*, because
-nothing shown so far has measured it.
+**Phase B — model-driven selection, forever after.** Every subsequent position is
+chosen by what the *evaluator program* needs — three uncertainty streams, blended:
+
+1. **Variant disagreement.** Positions where evaluator variants (band settings,
+   psychology-coefficient values, top-p/depth/temperature choices) disagree most about
+   what a human at the labeler's level would answer. One label here prunes model space;
+   a position where every variant agrees teaches nothing, however uncertain we still
+   are about the person.
+2. **Coverage sparsity.** Positions from cells where the corpus is thin — rare motif ×
+   load × phase × |eval| combinations, composed-position territory, unusual material
+   balances. The human labeler is most valuable exactly where the millions of games are
+   silent.
+3. **Coefficient starvation.** Positions targeted at whichever §5 curve currently has
+   the widest error bars: bystander dose-response points (§5.1), counting-depth rungs
+   (§5.3), story-arch states (§5.2 — reachable in-battery by presenting a position
+   *with* its game context). The selector works down the most data-starved region of
+   the curve.
+
+The person's why-text (already elicited in Phase 0) is the label's provenance — "didn't
+see the knight was loose" attached to a high-load cell is exactly the cause evidence the
+§5 coefficients and the 211 taxonomy need.
 
 ### 6.2 The convergence: the corpus is the item bank
 
 Make this explicit, because it is the economic heart of the program: **the mining
-corpus's per-band miss rates per position are pre-calibrated IRT item parameters.**
+corpus's per-band miss rates per position are pre-calibrated item parameters.**
 P(band-R player gets this right), measured from millions of real games, is an empirical
-item characteristic curve — no parametric 2PL fit required (fitting one is just
+item characteristic curve — no parametric fit required (fitting one is just
 compression). And these are the *same numbers* that set spec 211's puzzle difficulty.
 One measurement infrastructure, three consumers:
 
 1. **211 avoidance puzzles** — per-band miss rates target puzzle difficulty.
-2. **Adaptive calibration** — miss rates + motif/phase/complexity tags make every corpus
-   position a calibrated item the selector can reason about.
+2. **Adaptive elicitation** — miss rates + motif/phase/complexity tags tell the selector
+   both what a position measures and where the corpus is already saturated (stream 2
+   above is literally "cells with low counts in these tables").
 3. **Evaluator validation** — the same tables are E1–E6's yardsticks.
 
 Whatever the corpus pipeline computes per position, it is simultaneously building the
@@ -557,37 +576,39 @@ item bank; nothing here commissions new data work.
 
 ### 6.3 Tiering
 
-**Tier 1 — uncertainty-driven stratum sampling (no corpus needed).** A heuristic CAT
-that runs on what `calibration.rs` already has: maintain running per-cell confidence
-intervals over the profile dimensions (phase × sharpness × motif-presence × |eval|
-band); draw the next position from the widest-CI cell. On-demand selection is feasible
-at the measured ~2.4–3.7 s/position (Phase 0 smokes: v1 sampler 20 positions in 48 s,
-v2 Elo-labeled sampler ~3.7 s/pos, both including Stockfish scoring) — prefetch a few
-candidates while the user is thinking and the latency disappears entirely.
+**Tier 1 — heuristic, no corpus needed.** Phase A = widest-CI stratum sampling over the
+profile cells (phase × sharpness × motif-presence × |eval| band) on what
+`calibration.rs` already has. Phase B's stream 1 is computable *today*: run the
+tier-0/tier-1 evaluator at a few band/coefficient settings over candidate positions and
+rank by spread — the selection machinery is the evaluator itself. On-demand selection
+fits the measured ~2.4–3.7 s/position sampling cost (Phase 0 smokes: v1 sampler 20
+positions in 48 s; v2 Elo-labeled sampler ~3.7 s/pos, both including Stockfish
+scoring) — prefetch a few candidates while the user is thinking and the latency
+disappears entirely.
 
-**Tier 2 — Bayesian IRT with corpus item parameters.** Posterior over θ, items drawn
-from the corpus bank with empirical ICCs, next item = argmax expected information gain.
-This is where "the battery recognizes a 1350-middlegame answer pattern" comes from.
+**Tier 2 — corpus-backed.** Streams 2 and 3 come online with the mining tables:
+per-cell coverage counts and per-coefficient error bars turn "what data do you need
+more of" from a heuristic into a computed quantity — expected information gain per
+label, maximized across the three streams.
 
-**The pretest.** Fixed-battery sessions — the current stratified set — become the
-*bootstrap*: they initialize the posterior with broad coverage, then the adaptive
-selector takes over. They stay in the product; they just stop being the whole product.
+### 6.4 No stopping rule — a diminishing-returns readout
 
-### 6.4 Stopping rule and an honest caveat
+Profile estimation completes; data collection doesn't. There is no "session complete."
+Instead: a per-dimension **diminishing-returns readout** — "counting-depth data is
+saturated at your level; long-range-threat positions are the current bottleneck" — and
+the session budget spends itself on the scarcest data for as long as the user keeps
+answering. The "100" is a budget, and the selector's job is to make every position in
+it the most valuable one available. The profile display stays on the results screen —
+the user enjoys it, and Phase A keeps it honest — but it is explicitly a **by-product**:
+its CIs stop driving selection the moment they are tight enough for label
+interpretability.
 
-A session *completes* when the profile's per-dimension CIs reach a target width — or
-when the user stops, whichever comes first. The "100" becomes a **budget, not a
-requirement**: a consistent answerer might pin their profile in 40 positions; a noisy
-one might exhaust the budget with the endgame dimension still wide, and the report says
-so. The results screen reports per-dimension intervals ("middlegame eval bias:
-+0.3 ± 0.2; endgame counting: insufficient data") instead of a single completion state.
-
-Caveat to record now, standard in CAT and easy to forget later: **adaptive selection
-biases naive averages.** Once items are chosen based on previous answers, raw per-cell
-means no longer estimate what they did under the fixed battery — aggregate statistics in
-the report must come from the model/posterior, not from raw means over an
-adaptively-selected sample. Phase 0's scatter/MAE views stay valid as-is only for the
-fixed-battery pretest portion.
+Caveat to record now, standard in adaptive designs and easy to forget later: **adaptive
+selection biases naive averages.** Once items are chosen based on previous answers (or
+on model needs), raw per-cell means no longer estimate what they did under the fixed
+battery — aggregate statistics in the report must come from the model/posterior, not
+from raw means over an adaptively-selected sample. Phase 0's scatter/MAE views stay
+valid as-is only for the fixed-battery portion.
 
 ## 7. Performance budget
 
@@ -715,5 +736,5 @@ exists.
 | Instant tier | Single-forward blend: weight SF eval by the Maia-R policy mass on SF's PV move; ~15 ms per slider stop. |
 | Psychology coefficients | Attention load (E-attention: matched-pair mining via action-zone local Zobrist, bystander dose-response) and story-arch state (E-history: same-position/different-history via the existing `db.rs` Zobrist index, post-blunder degradation curve) modulate candidate breadth and expectimax temperature per node — measured laws, not Maia interpolation. Tier-2, corpus-gated; history term needs game context and degrades to position-only on bare FENs. |
 | Validation | E1 outcome-prediction head-to-head (Brier, per band, complexity-stratified) is the killer experiment; E-attention and E-history follow immediately (they supply the tier-2 coefficients and are novel results standalone); E3 jump audit validates the perception curve; E2 ties divergence to real human error. Player-disjoint, post-2019 splits. |
-| Adaptive elicitation | The calibration battery is CAT over the profile θ (phase vector, load sensitivity, counting depth, eval bias, motif blind spots), selecting items by expected information gain — not difficulty. Tier 1: widest-CI stratum sampling on existing calibration.rs machinery (~2.4 s/position, prefetch hides it); tier 2: Bayesian IRT where corpus per-band miss rates ARE the item parameters (same numbers as 211 puzzle difficulty — one infrastructure, three consumers). Fixed battery = pretest bootstrap; session completes at target CI width, "100" is a budget. Report aggregates must be model-based once selection is adaptive. |
+| Adaptive elicitation | The battery is active learning FOR THE MODEL — the person is the labeler, not the measurand. Phase A: brief CAT-style profile lock-in (~10–20 positions) so labels are interpretable as a known-level human's perception; the profile display is a fun by-product. Phase B: items chosen by model need — evaluator-variant disagreement (computable today), corpus-coverage sparsity, §5-coefficient starvation. Corpus per-band miss rates ARE the item parameters (same numbers as 211 puzzle difficulty — one infrastructure, three consumers). No completion state: a diminishing-returns readout per dimension; the budget spends itself on the scarcest data. Report aggregates must be model-based once selection is adaptive. |
 | Biggest risk | Rating coverage above 1900. Verify Maia-2/3 ranges; label high stops experimental; never fake the 2650 number. |

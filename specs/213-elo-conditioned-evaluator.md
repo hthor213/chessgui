@@ -158,15 +158,17 @@ optional move, and score them against Stockfish. Files are the research artifact
       game length.
 - [ ] Collect a real self-rated session (user is the ~1300/1650-puzzle datapoint) and
       fold it into the E1 corpus once the evaluator exists.
-- [ ] **Adaptive elicitation** (design doc §6): item selection by information gain over
-      the person's profile, not difficulty — like the adaptive SAT, but "what do I still
-      not know based on prior answers." Tier 1: draw the next position from the
-      widest-CI profile cell (phase × sharpness × motif × |eval| band; on-demand
-      sampling ~2.4–3.7 s/pos measured, prefetch while the user thinks). Tier 2:
-      Bayesian IRT using corpus per-band miss rates as item parameters (the same numbers
-      that set 211 puzzle difficulty). Session completes at target CI width — the 100
-      becomes a budget, not a requirement; the fixed stratified battery remains as the
-      posterior-initializing pretest.
+- [ ] **Adaptive elicitation** (design doc §6): active learning FOR THE MODEL — "we use
+      the human to make human mistakes; what data do you need more of." Phase A: brief
+      profile lock-in (~10–20 positions) so labels read as a known-level human's
+      perception — the profile display stays as a fun by-product. Phase B: every next
+      position chosen by model need — evaluator-variant disagreement (computable today
+      by running the evaluator at multiple settings and ranking spread), corpus-coverage
+      sparsity, §5-coefficient starvation; the why-text is the label's provenance.
+      On-demand sampling ~2.4–3.7 s/pos measured, prefetch while the user thinks. No
+      completion state: a diminishing-returns readout ("counting data saturated;
+      long-range threats are the bottleneck") and the session budget spends itself on
+      the scarcest data.
 
 ### Phase 1 — Inference plumbing
 - [x] `maia.rs`: lc0 process management (spawn with `--weights`, warm pool with LRU over
