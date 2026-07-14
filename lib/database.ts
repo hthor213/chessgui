@@ -10,7 +10,7 @@
 // route to an in-memory mock so the whole Database tab is drivable headless. The
 // mock is loaded via dynamic import, so it stays out of the Tauri bundle.
 
-import { invoke } from "@tauri-apps/api/core"
+import { Channel, invoke } from "@tauri-apps/api/core"
 
 // ---------------------------------------------------------------------------
 // Types mirroring the Rust structs
@@ -21,6 +21,32 @@ export type ImportReport = {
   imported: number
   dups_skipped: number
   errors: number
+}
+
+/**
+ * Progress snapshot streamed during a CBH import: once up front (carrying
+ * `total`) and then after every imported batch. Mirrors Rust `CbhImportProgress`.
+ */
+export type CbhImportProgress = {
+  processed: number
+  total: number
+  imported: number
+  dups_skipped: number
+}
+
+/**
+ * Outcome of a full CBH import. `convert_errors` are records the CBH decoder
+ * could not turn into PGN; `db_errors` are converted games the PGN importer
+ * then rejected. Mirrors Rust `CbhImportReport`.
+ */
+export type CbhImportReport = {
+  records: number
+  imported: number
+  dups_skipped: number
+  convert_errors: number
+  db_errors: number
+  dropped_variations: number
+  mainlines_truncated: number
 }
 
 /** One row of the game list. Mirrors Rust `GameHeader`. */
@@ -159,6 +185,29 @@ export function importPgn(args: {
     text: args.text ?? null,
     filePath: args.filePath ?? null,
     dbPath: args.dbPath ?? null,
+  })
+}
+
+/**
+ * Import a ChessBase .cbh database into the game database. `cbhPath` must be a
+ * real filesystem path — the Rust decoder reads the sibling .cbg/.cba/… files
+ * next to it — so callers obtain it from the native file dialog, not an HTML
+ * file input. Native-only: the decoder lives in Rust, so this is not part of
+ * {@link DatabaseApi} and has no browser mock; gate on {@link isTauri}.
+ * `onProgress` receives a snapshot up front and after every imported batch.
+ */
+export function importCbh(args: {
+  cbhPath: string
+  dbPath?: string
+  onProgress?: (p: CbhImportProgress) => void
+}): Promise<CbhImportReport> {
+  if (!isTauri()) return Promise.reject(new Error("CBH import requires the desktop app"))
+  const channel = new Channel<CbhImportProgress>()
+  if (args.onProgress) channel.onmessage = args.onProgress
+  return invoke<CbhImportReport>("db_import_cbh", {
+    cbhPath: args.cbhPath,
+    dbPath: args.dbPath ?? null,
+    onProgress: channel,
   })
 }
 

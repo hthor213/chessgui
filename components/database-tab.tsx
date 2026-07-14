@@ -23,10 +23,13 @@ import {
 import {
   deleteGames,
   getGame,
+  importCbh,
   importPgn,
+  isTauri,
   listGames,
   searchPosition,
   stats as dbStats,
+  type CbhImportProgress,
   type GameFilter,
   type GameHeader,
   type ImportReport,
@@ -210,7 +213,7 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
               </Button>
             )}
             <Button size="sm" onClick={() => setImportOpen(true)} data-testid="db-import-open">
-              Import PGN
+              Import…
             </Button>
           </div>
         </div>
@@ -565,7 +568,7 @@ function PositionResults({
 }
 
 // ---------------------------------------------------------------------------
-// Import dialog — paste or pick a .pgn file
+// Import dialog — paste PGN, pick a .pgn file, or import a ChessBase .cbh
 // ---------------------------------------------------------------------------
 
 function ImportDialog({
@@ -580,7 +583,14 @@ function ImportDialog({
   const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cbhProgress, setCbhProgress] = useState<CbhImportProgress | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // CBH import needs a real filesystem path (native dialog + Rust decoder), so
+  // the button only exists inside Tauri. Set via effect to keep SSR/browser
+  // hydration consistent.
+  const [tauri, setTauri] = useState(false)
+  useEffect(() => setTauri(isTauri()), [])
 
   const runImport = useCallback(
     async (pgn: string, source: string) => {
@@ -614,13 +624,41 @@ function ImportDialog({
     [runImport],
   )
 
+  const handleCbh = useCallback(async () => {
+    setError(null)
+    // Native picker (not the hidden <input>): the Rust decoder needs a real
+    // filesystem path so it can read the sibling .cbg/.cba/… files.
+    const { open: openFileDialog } = await import("@tauri-apps/plugin-dialog")
+    const picked = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "ChessBase database", extensions: ["cbh"] }],
+    })
+    if (typeof picked !== "string") return // cancelled
+    setBusy(true)
+    try {
+      const report = await importCbh({ cbhPath: picked, onProgress: setCbhProgress })
+      // Fold into the PGN-shaped report the parent banner expects.
+      onImported({
+        imported: report.imported,
+        dups_skipped: report.dups_skipped,
+        errors: report.convert_errors + report.db_errors,
+      })
+    } catch (e) {
+      setError(typeof e === "string" ? e : e instanceof Error ? e.message : "CBH import failed.")
+    } finally {
+      setBusy(false)
+      setCbhProgress(null)
+    }
+  }, [onImported])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="db-import-dialog">
         <DialogHeader>
-          <DialogTitle>Import PGN</DialogTitle>
+          <DialogTitle>Import games</DialogTitle>
           <DialogDescription>
-            Paste PGN text or choose a .pgn file. Exact duplicates are skipped automatically.
+            Paste PGN text, choose a .pgn file{tauri ? ", or import a ChessBase .cbh database" : ""}.
+            Exact duplicates are skipped automatically.
           </DialogDescription>
         </DialogHeader>
         <Textarea
@@ -631,6 +669,23 @@ function ImportDialog({
           data-testid="db-import-text"
         />
         {error && <p className="text-sm text-destructive">{error}</p>}
+        {cbhProgress && (
+          <div className="text-sm text-muted-foreground" data-testid="db-import-cbh-progress">
+            <span>
+              Importing… {cbhProgress.processed.toLocaleString()} /{" "}
+              {cbhProgress.total.toLocaleString()} games ({cbhProgress.imported.toLocaleString()}{" "}
+              added, {cbhProgress.dups_skipped.toLocaleString()} duplicates)
+            </span>
+            <div className="mt-1 h-1.5 rounded bg-secondary overflow-hidden">
+              <div
+                className="h-full bg-primary transition-[width]"
+                style={{
+                  width: `${(cbhProgress.processed / Math.max(1, cbhProgress.total)) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -640,6 +695,16 @@ function ImportDialog({
           data-testid="db-import-file"
         />
         <DialogFooter>
+          {tauri && (
+            <Button
+              variant="outline"
+              onClick={handleCbh}
+              disabled={busy}
+              data-testid="db-import-cbh-button"
+            >
+              ChessBase (.cbh)…
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => fileInputRef.current?.click()}

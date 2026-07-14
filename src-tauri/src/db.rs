@@ -1234,6 +1234,118 @@ pub fn db_import_pgn(
     })
 }
 
+/// Progress snapshot streamed over the `on_progress` channel during a CBH
+/// import: once up front (so the UI learns `total` immediately) and then after
+/// every flushed batch.
+#[derive(Serialize, Debug, Clone)]
+pub struct CbhImportProgress {
+    /// CBH records processed so far (converted or failed).
+    pub processed: u32,
+    /// Total records in the .cbh file.
+    pub total: u32,
+    pub imported: u64,
+    pub dups_skipped: u64,
+}
+
+/// Outcome of a full CBH import. `convert_errors` counts records the CBH
+/// decoder could not turn into PGN; `db_errors` counts converted games the PGN
+/// importer then rejected (re-parse/replay failures).
+#[derive(Serialize, Debug, Clone, Default)]
+pub struct CbhImportReport {
+    pub records: u32,
+    pub imported: u64,
+    pub dups_skipped: u64,
+    pub convert_errors: u64,
+    pub db_errors: u64,
+    pub dropped_variations: u64,
+    pub mainlines_truncated: u64,
+}
+
+/// Games per `import_pgn_str` flush during a CBH import. Small enough that the
+/// DbManager mutex is released regularly (other db commands can interleave),
+/// large enough to amortize per-transaction overhead.
+const CBH_FLUSH_EVERY: u32 = 1000;
+
+/// Import a ChessBase .cbh database into the game database. The decoder reads
+/// the sibling .cbg/.cba/.cbp/.cbt files next to `cbh_path` (see src/cbh.rs),
+/// converts each game to PGN, and pushes batches through the same
+/// `import_pgn_str` path as PGN import — so dedup and position indexing apply.
+///
+/// A large base takes minutes, so the whole loop runs on a blocking thread and
+/// streams progress over `on_progress`.
+#[tauri::command]
+pub async fn db_import_cbh(
+    app: tauri::AppHandle,
+    cbh_path: String,
+    db_path: Option<String>,
+    on_progress: tauri::ipc::Channel<CbhImportProgress>,
+) -> Result<CbhImportReport, String> {
+    let path = resolve_db_path(&app, db_path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<DbManager>();
+
+        let cbh = crate::cbh::CbhDb::open(&cbh_path)
+            .map_err(|e| format!("open {cbh_path}: {e}"))?;
+        let basename = Path::new(&cbh_path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "unknown".to_string());
+        let source = format!("cbh:{basename}");
+
+        let total = cbh.game_count();
+        let mut rep = CbhImportReport {
+            records: total,
+            ..Default::default()
+        };
+        // A send failure just means the webview went away; the import keeps going.
+        let emit = |rep: &CbhImportReport, processed: u32| {
+            let _ = on_progress.send(CbhImportProgress {
+                processed,
+                total,
+                imported: rep.imported,
+                dups_skipped: rep.dups_skipped,
+            });
+        };
+        emit(&rep, 0);
+
+        let mut buf = String::new();
+        let flush = |rep: &mut CbhImportReport,
+                     buf: &mut String,
+                     processed: u32|
+         -> Result<(), String> {
+            if !buf.is_empty() {
+                let r = state.with(&path, |db| db.import_pgn_str(buf, &source))?;
+                buf.clear();
+                rep.imported += r.imported;
+                rep.dups_skipped += r.dups_skipped;
+                rep.db_errors += r.errors;
+            }
+            emit(rep, processed);
+            Ok(())
+        };
+
+        for id in 1..=total {
+            match cbh.convert_game(id) {
+                Ok(g) => {
+                    rep.dropped_variations += g.dropped_variations as u64;
+                    rep.mainlines_truncated += g.mainline_truncated as u64;
+                    buf.push_str(&g.pgn);
+                    buf.push('\n');
+                }
+                Err(_) => rep.convert_errors += 1,
+            }
+            if id % CBH_FLUSH_EVERY == 0 {
+                flush(&mut rep, &mut buf, id)?;
+            }
+        }
+        flush(&mut rep, &mut buf, total)?;
+        Ok(rep)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn db_list_games(
     app: tauri::AppHandle,

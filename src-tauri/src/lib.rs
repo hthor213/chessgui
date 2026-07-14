@@ -19,6 +19,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(uci::EngineState::default()))
         .manage(match_runner::BatchControl::default())
         .manage(db::DbManager::default())
@@ -38,6 +39,7 @@ pub fn run() {
             match_runner::set_move_delay,
             match_runner::engine_id,
             db::db_import_pgn,
+            db::db_import_cbh,
             db::db_list_games,
             db::db_search_position,
             db::db_get_game,
