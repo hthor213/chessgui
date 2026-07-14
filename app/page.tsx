@@ -607,6 +607,22 @@ export default function Home() {
               </div>
             )}
 
+            {/* Game status (check / checkmate / draw). Lives in the left
+                column between the two clocks so it never resizes the board
+                when it appears/disappears. mt-auto pins it above the bottom
+                clock, in the flexible space below the top clock. */}
+            {game.status.label && (
+              <div
+                className={`mt-auto shrink-0 px-3 py-2 rounded-lg text-sm font-semibold text-center ${
+                  game.status.over
+                    ? "bg-red-900/60 text-red-100 border border-red-700/50"
+                    : "bg-amber-900/40 text-amber-200 border border-amber-700/40"
+                }`}
+              >
+                {game.status.label}
+              </div>
+            )}
+
             {/* Player card (bottom of board) */}
             <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-4 mt-auto">
               <div className="flex items-center gap-3">
@@ -634,17 +650,6 @@ export default function Home() {
 
           {/* Center column: Board */}
           <div className="flex flex-col items-center gap-4 min-h-0 overflow-hidden">
-            {game.status.label && (
-              <div
-                className={`shrink-0 px-4 py-1.5 rounded-md text-sm font-semibold ${
-                  game.status.over
-                    ? "bg-red-900/60 text-red-100 border border-red-700/50"
-                    : "bg-amber-900/40 text-amber-200 border border-amber-700/40"
-                }`}
-              >
-                {game.status.label}
-              </div>
-            )}
             <div className="flex-1 flex items-center justify-center w-full overflow-hidden">
               <Board
                 fen={game.fen}
