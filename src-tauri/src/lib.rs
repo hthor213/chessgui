@@ -1,3 +1,4 @@
+pub mod cbh;
 pub mod db;
 mod uci;
 mod vision;
