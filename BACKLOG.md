@@ -37,10 +37,13 @@ machinery: import/enter games vs one named rival → explorer filtered to them
 → anti-lines: per rival opening, one sound low-theory deviation that exits their
 prep by move ~6 → rake decks mined from THEIR games → play-vs-engine sparring at
 their strength from their pet positions. User's explicit sub-goal: beat his dad
-(peak ~1850, now ~1750, ~10 deep openings, strong endgames). Allocation guidance
-from research stands: anti-lines are one cheap evening each; the transferable
-hours go to endgame conversion ("play it out"), which is also where the rival
-currently wins.
+(peak ~1850 OTB; online he's a correspondence + Chess960 player with a SHALLOW
+standard book — the dossier busted the "his opening depth costs me -1/-2" story:
+head-to-head losses are 1 opening / 7 middlegame / 5 endgame, and dad's
+simplified-endgame record is 12-4-2). Allocation confirmed by data: one evening
+of Rossolimo/Italian anti-lines as insurance; the hours go to middlegame rake
+avoidance and endgame conversion ("play it out"), which is where the games are
+actually decided.
 
 ## Ideas — See spec:900
 Play vs engine (advanced), full-game analysis, multi-engine, opening repertoire, Lichess/Chess.com import, themes, FEN editor, engine tournament, tablebases, cloud sync, move sounds.
