@@ -201,6 +201,14 @@ optional move, and score them against Stockfish. Files are the research artifact
       actually diverge — material-imbalance conversion, endgames, rake-avoidance (spec 211),
       sign-confusion positions. Two purposes, two samplers; make the session type explicit
       in the UI so the data streams stay separable.
+- [ ] PV plumbing for the coach (2026-07-14, the ...b5 Benoni case): CoachInput carries only
+      best-move + margin, so when the engine's move needs a tactical justification the coach
+      cannot give it — and it invented a positional story ("gains space") for a move that is
+      justified only by ...Nxe4/...Qa5+ regaining the pawn. Sampler v3 must store a short PV
+      (≈6 plies, SAN, and ideally PV2) per position at sampling time; pass it in CoachInput
+      so the coach can explain the tactic from data; optionally render it in the reveal. A
+      prompt guard (coach.rs) now forbids positional stories for material-hanging moves in
+      the meantime.
 - [ ] Range elicitation (from calibration session 2026-07-14): replace point-value quick
       buttons with log-spaced RANGES (+0.1–0.3, 0.3–0.6, 0.6–1.0, 1–2, 2–4, 4+ and mirrored),
       matching Weber-Fechner discrimination — nobody distinguishes 1.6 from 1.8, and forcing
