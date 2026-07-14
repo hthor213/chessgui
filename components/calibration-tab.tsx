@@ -744,11 +744,12 @@ function AnsweringScreen({
         </div>
       </div>
       <div className="flex-1 min-h-0 flex gap-8 p-6">
-        {/* Board — always White at the bottom so "+ = White" is unambiguous. */}
+        {/* Board — side to move at the bottom, like playing the game yourself.
+            Eval signs stay absolute (+ = White) regardless of orientation. */}
         <div className="flex-1 min-w-0 flex items-center justify-center" data-testid="calib-board">
           <Board
             fen={position.fen}
-            orientation="white"
+            orientation={whiteToMove ? "white" : "black"}
             movableColor={whiteToMove ? "white" : "black"}
             onMove={onBoardMove}
             legalMoves={legalMoves}
