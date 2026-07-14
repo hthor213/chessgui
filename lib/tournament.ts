@@ -90,6 +90,7 @@ export const TIME_CONTROLS: TimeControl[] = [
   { id: "fast", label: "Fast — 10s + 0.1s", baseMs: 10_000, incMs: 100 },
   { id: "standard", label: "Standard — 60s + 0.6s", baseMs: 60_000, incMs: 600 },
   { id: "long", label: "Long — 300s + 3s", baseMs: 300_000, incMs: 3_000 },
+  { id: "rapid", label: "Rapid — 10m + 5s", baseMs: 600_000, incMs: 5_000 },
 ]
 
 /** Split a UCI move ("e2e4", "e7e8q") into [from, to] squares. */
@@ -157,7 +158,7 @@ export type Seed = {
   eval: number
 }
 
-export type StartMode = "normal" | "book" | "eval"
+export type StartMode = "normal" | "book" | "eval" | "current"
 
 // ---------------------------------------------------------------------------
 // Outcome helpers (handle the {Ok}/{Err} serde shape)
@@ -196,6 +197,8 @@ function shuffle<T>(arr: T[]): T[] {
  * - "eval": eval-qualified spread. Bucket positions into ~0.25-pawn bins across
  *   [minEval, maxEval] and round-robin across the (shuffled) bins so the result
  *   has variance across the whole range. Empty bins are skipped.
+ * - "current": every seed is `currentFen` — "play this position through". Each
+ *   seed still becomes a color-flipped pair, so N games = N/2 identical pairs.
  */
 export function buildSeeds(
   mode: StartMode,
@@ -203,11 +206,18 @@ export function buildSeeds(
   positions: TaggedPosition[],
   minEval = -2,
   maxEval = 2,
+  currentFen: string | null = null,
 ): Seed[] {
   if (count <= 0) return []
 
   if (mode === "normal") {
     return Array.from({ length: count }, () => ({ fen: null as string | null, eval: 0 }))
+  }
+
+  if (mode === "current") {
+    // No eval tag for an arbitrary user position; charts degenerate to one bin,
+    // which is fine — the Summary card is the point of this mode.
+    return Array.from({ length: count }, () => ({ fen: currentFen, eval: 0 }))
   }
 
   if (mode === "book") {
@@ -301,6 +311,11 @@ export type BuiltBatch = {
  *   game B: white=engineB, black=engineA, flipped=true
  * So "N games" requires ceil(N/2) seeds. ids are assigned sequentially. The
  * id -> eval map is returned separately since `GameSpec` carries no eval field.
+ *
+ * `flipFirst` reverses each pair's order (engine B takes White in the odd
+ * games) — used by "current position" mode so engine A can start on the side
+ * at the bottom of the user's board even when that side is Black. `flipped`
+ * always means "engine A is Black", so downstream tallies are unaffected.
  */
 export function buildSpecs(
   seeds: Seed[],
@@ -310,38 +325,27 @@ export function buildSpecs(
   incMs: number,
   maxPlies: number,
   adjudicateTb: boolean,
+  flipFirst = false,
 ): BuiltBatch {
   const specs: GameSpec[] = []
   const evalById: EvalMap = new Map()
   let id = 0
   for (const seed of seeds) {
-    const a: GameSpec = {
-      id: id++,
-      white_path: engineA,
-      black_path: engineB,
-      start_fen: seed.fen,
-      base_ms: baseMs,
-      inc_ms: incMs,
-      max_plies: maxPlies,
-      flipped: false,
-      adjudicate_tb: adjudicateTb,
+    for (const flipped of flipFirst ? [true, false] : [false, true]) {
+      const spec: GameSpec = {
+        id: id++,
+        white_path: flipped ? engineB : engineA,
+        black_path: flipped ? engineA : engineB,
+        start_fen: seed.fen,
+        base_ms: baseMs,
+        inc_ms: incMs,
+        max_plies: maxPlies,
+        flipped,
+        adjudicate_tb: adjudicateTb,
+      }
+      evalById.set(spec.id, { eval: seed.eval })
+      specs.push(spec)
     }
-    evalById.set(a.id, { eval: seed.eval })
-    specs.push(a)
-
-    const b: GameSpec = {
-      id: id++,
-      white_path: engineB,
-      black_path: engineA,
-      start_fen: seed.fen,
-      base_ms: baseMs,
-      inc_ms: incMs,
-      max_plies: maxPlies,
-      flipped: true,
-      adjudicate_tb: adjudicateTb,
-    }
-    evalById.set(b.id, { eval: seed.eval })
-    specs.push(b)
   }
   return { specs, evalById }
 }

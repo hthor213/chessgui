@@ -32,11 +32,12 @@ Architecture must allow adding more engines and running round-robin brackets (po
 
 ### Starting Positions — UHO-Style with Eval Tagging
 
-Three **start modes** (user-selectable):
+Four **start modes** (user-selectable):
 
 1. **Start Normal** — standard starting position (games differentiated only by opening play within the game)
 2. **Use Opening Book** — play fixed opening moves before handing off to engines
-3. **Eval-Qualified Positions** — the key mode for the probability map:
+3. **Current Position** — "play this out": seed every pair from the FEN currently on the analyze board. Defaults: engine A (Stockfish) takes the side at the bottom of the user's board, 10m+5s, 2 games (colors flip each second game); all editable before launch. Entered either from the tab's mode selector or via the board view's "Play this out" button, which jumps to the tab pre-configured. The analyze-mode game is never mutated.
+4. **Eval-Qualified Positions** — the key mode for the probability map:
    - Load a UHO-style (Unbalanced Human Openings) position set from a file
    - Re-evaluate each position with Stockfish to get its current eval (not just the file's label)
    - Sample across the −2..+2 range with controlled **variance** — not all games near the same eval; intentionally spread across buckets
@@ -130,6 +131,7 @@ interface TournamentResult {
 - [ ] Sampling step: given target range and target N, sample positions so buckets are evenly represented (not all positions clustered near 0)
 - [ ] Color-flip pairing: each sampled position generates two games (A plays white, then B plays white)
 - [ ] Start-mode selector: Normal / Opening Book / Eval-Qualified exposed in config struct
+- [x] Current-position mode: seeds from the analyze-board FEN; `flipFirst` pairing lets engine A start on the Black side (the board-bottom side); 10m+5s "rapid" TC preset; 2-game default; "Play this out" entry point in the board view. Unit-tested (`__tests__/tournament.test.ts`) and config UI verified headless (2026-07-13). An actual engine run in this mode still needs a live-app check in Tauri.
 
 ### Phase 4 — Tournament Tab UI
 - [ ] "Tournament" tab added to the main navigation

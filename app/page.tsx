@@ -65,6 +65,9 @@ export default function Home() {
   const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
   const [tournamentRunning, setTournamentRunning] = useState(false)
   const [liveGame, setLiveGame] = useState<LiveGame | null>(null)
+  // Bumped by "Play this out": tells the Tournament tab to preset itself to
+  // Current-position mode (engines fight over the board's position).
+  const [tournamentPresetNonce, setTournamentPresetNonce] = useState(0)
   // Watch a live engine-vs-engine game on the board while a tournament runs.
   const liveViewing = view === "board" && tournamentRunning
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
@@ -448,6 +451,9 @@ export default function Home() {
           <TournamentTab
             onRunningChange={setTournamentRunning}
             onLiveUpdate={setLiveGame}
+            currentFen={game.fen}
+            bottomColor={game.orientation}
+            presetNonce={tournamentPresetNonce}
           />
         </main>
 
@@ -714,6 +720,19 @@ export default function Home() {
               >
                 Set up
               </button>
+              {!isPlayMode && (
+                <button
+                  data-testid="play-this-out"
+                  className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                  onClick={() => {
+                    setTournamentPresetNonce((n) => n + 1)
+                    setView("tournament")
+                  }}
+                  title="Let the tournament engines play this position out (Stockfish takes your side)"
+                >
+                  Play this out
+                </button>
+              )}
             </div>
           </div>
 
