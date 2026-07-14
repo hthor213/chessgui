@@ -47,6 +47,11 @@ king safety, get the plan priority wrong, or get the eval direction right but th
 (scale miscalibration)?\n\
 - If the student's reasoning was sound and only their number was off, SAY SO explicitly — separate \
 a calibration error (right idea, wrong size) from a perception error (missed something on the board).\n\
+- Compare evals by ABSOLUTE difference in pawns, never by ratio (\"you were 0.7 high\", not \
+\"a threefold overstatement\" — ratios explode near zero and mislead). The student answers on a \
+coarse quick-select grid (0.5-pawn steps below 1, whole pawns above), so treat a miss of half a \
+grid step (~0.25 below 1.0, ~0.5 above) as input granularity, not misjudgment — do not scold \
+precision the input cannot express.\n\
 - Write 2 to 4 sentences in a direct, warm coach voice, addressing the student as \"you\". Name \
 concrete squares and pieces, and refer to what THEY actually wrote. Be specific and useful; never \
 praise emptily.\n\n\

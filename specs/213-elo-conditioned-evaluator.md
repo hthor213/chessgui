@@ -183,6 +183,15 @@ optional move, and score them against Stockfish. Files are the research artifact
       long-range threats are the bottleneck") and the session budget spends itself on
       the scarcest data.
 
+- [ ] Range elicitation (from calibration session 2026-07-14): replace point-value quick
+      buttons with log-spaced RANGES (+0.1–0.3, 0.3–0.6, 0.6–1.0, 1–2, 2–4, 4+ and mirrored),
+      matching Weber-Fechner discrimination — nobody distinguishes 1.6 from 1.8, and forcing
+      a point answer (0.5-vs-1.0 grid) adds pure input noise to MAE. Answers become ranges in
+      the schema (keep point back-compat for v1/v2 answers); scoring goes range-aware (error =
+      distance from range edge, 0 inside). Coach input carries the range so it critiques what
+      the student actually asserted. New-session boundary only — never mid-session (mixing
+      point and range answers muddies the per-player curve).
+
 ### Phase 1 — Inference plumbing
 - [x] `maia.rs`: lc0 process management (spawn with `--weights`, warm pool with LRU over
       bands, cap 3, `kill_on_drop`), `VerboseMoveStats` policy parsing, `(fen, R) →
