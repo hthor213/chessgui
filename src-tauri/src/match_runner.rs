@@ -873,6 +873,44 @@ pub async fn run_batch_core(
     outcomes
 }
 
+/// Pre-flight the engine binaries referenced by a batch: every distinct
+/// white/black path is checked for existence and (on Unix) an executable bit
+/// BEFORE any game is launched. A misconfigured path is by far the most common
+/// reason a whole batch fails instantly, so we surface it once, up front, with
+/// the offending path — instead of letting every game spawn-fail with the same
+/// opaque error.
+///
+/// A path with no separator (a bare command resolved via `PATH`) is skipped:
+/// we can't cheaply verify it here, and letting the spawn resolve it keeps the
+/// existing PATH-based behavior working. Returns the first problem found.
+fn check_engine_paths(specs: &[GameSpec]) -> Result<(), String> {
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for spec in specs {
+        for path in [spec.white_path.as_str(), spec.black_path.as_str()] {
+            if !seen.insert(path) {
+                continue;
+            }
+            // Bare command name (no path separator): defer to PATH resolution.
+            if !path.contains('/') && !path.contains('\\') {
+                continue;
+            }
+            let meta = std::fs::metadata(path)
+                .map_err(|e| format!("Engine not found: '{}' ({})", path, e))?;
+            if !meta.is_file() {
+                return Err(format!("Engine path is not a file: '{}'", path));
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if meta.permissions().mode() & 0o111 == 0 {
+                    return Err(format!("Engine is not executable: '{}'", path));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Shared cancellation flag, managed as Tauri state so a `cancel_batch` command
 /// can request that an in-flight [`play_batch`] stop launching new games.
 #[derive(Default)]
@@ -898,6 +936,11 @@ pub async fn play_batch(
     on_move: tauri::ipc::Channel<MoveEvent>,
     cancel: tauri::State<'_, BatchCancel>,
 ) -> Result<BatchReport, String> {
+    // Fail fast, once, if an engine binary is missing or non-executable —
+    // otherwise every game spawn-fails identically and the UI shows only a
+    // count. A bare command (PATH-resolved) is not checked here.
+    check_engine_paths(&specs)?;
+
     // Fresh run: clear any leftover cancellation from a previous batch.
     let flag = Arc::clone(&cancel.0);
     flag.store(false, Ordering::SeqCst);
@@ -967,4 +1010,74 @@ pub async fn engine_id(path: String) -> Result<String, String> {
         .flatten();
     let _ = child.wait().await;
     name.ok_or_else(|| "no id name in UCI output".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec(id: usize, white: &str, black: &str, fen: Option<&str>) -> GameSpec {
+        GameSpec {
+            id,
+            white_path: white.to_string(),
+            black_path: black.to_string(),
+            start_fen: fen.map(|s| s.to_string()),
+            base_ms: 1000,
+            inc_ms: 100,
+            max_plies: 40,
+            flipped: false,
+            // Off so tests never touch the network.
+            adjudicate_tb: false,
+        }
+    }
+
+    // An illegal start FEN must be rejected BEFORE any engine is spawned, so the
+    // game errors instantly with a descriptive message — the failure class the
+    // "current position" mode could feed in from a hand-edited/vision position.
+    #[tokio::test]
+    async fn illegal_start_fen_errors_without_spawning() {
+        // Castling rights present but the king has moved off e1: shakmaty's
+        // strict validation rejects this. Engine paths are deliberately bogus;
+        // the FEN is parsed first, so they are never spawned.
+        let bad_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQ1KNR w KQkq - 0 1";
+        let specs = vec![spec(0, "/no/such/engine", "/no/such/engine", Some(bad_fen))];
+
+        let outcomes = run_batch_core(
+            specs,
+            1,
+            |_p| {},
+            Arc::new(|_ev| {}),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert_eq!(outcomes.len(), 1);
+        match &outcomes[0].result {
+            Err(e) => assert!(
+                e.contains("Illegal start position"),
+                "expected an illegal-position error, got: {e}"
+            ),
+            Ok(g) => panic!("expected an error, got a completed game: {:?}", g),
+        }
+        let summary = summarize(&outcomes);
+        assert_eq!(summary.errors, 1);
+    }
+
+    #[test]
+    fn preflight_flags_missing_engine_with_path() {
+        let specs = vec![spec(0, "/opt/does-not-exist/stockfish", "/bin/sh", None)];
+        let err = check_engine_paths(&specs).expect_err("missing engine should fail preflight");
+        assert!(
+            err.contains("/opt/does-not-exist/stockfish"),
+            "error should name the offending path, got: {err}"
+        );
+    }
+
+    #[test]
+    fn preflight_accepts_existing_executable_and_skips_bare_commands() {
+        // /bin/sh exists and is executable on every unix CI box; "stockfish"
+        // (no separator) is a PATH-resolved command we intentionally skip.
+        let specs = vec![spec(0, "/bin/sh", "stockfish", None)];
+        assert!(check_engine_paths(&specs).is_ok());
+    }
 }

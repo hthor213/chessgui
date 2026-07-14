@@ -13,6 +13,7 @@ import {
   buildEngineWDL,
   eloDelta,
   gameResult,
+  summarizeErrors,
   uciSquares,
   TIME_CONTROLS,
   type BatchProgress,
@@ -758,6 +759,10 @@ function SummaryCard({
     else bWins += 1
   }
   const termList = Object.entries(terms).sort((a, b) => b[1] - a[1])
+  // Distinct failure reasons (deduped, most frequent first) so an errored batch
+  // shows WHY it failed — e.g. a bad engine path or an unreadable position —
+  // instead of an opaque "Errors: N".
+  const errorGroups = summarizeErrors(outcomes)
   const items: [string, number, string][] = [
     ["Games", games, "text-foreground"],
     [`${labelA} wins`, aWins, "text-green-400"],
@@ -810,6 +815,24 @@ function SummaryCard({
             <span key={name} className="font-mono">
               {name.replace(/_/g, " ")} {count}
             </span>
+          ))}
+        </div>
+      )}
+      {errorGroups.length > 0 && (
+        <div className="flex flex-col gap-1 border-t border-amber-500/20 pt-3">
+          <span className="text-xs font-semibold text-amber-400">
+            Failures
+          </span>
+          {errorGroups.map(({ message, count }) => (
+            <div
+              key={message}
+              className="flex items-baseline gap-2 text-xs text-amber-200/90"
+            >
+              <span className="font-mono shrink-0 text-amber-400">
+                {count}×
+              </span>
+              <span className="font-mono break-all">{message}</span>
+            </div>
           ))}
         </div>
       )}

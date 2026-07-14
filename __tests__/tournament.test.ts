@@ -6,7 +6,9 @@ import {
   buildSeeds,
   buildSpecs,
   seedsForGames,
+  summarizeErrors,
   TIME_CONTROLS,
+  type GameOutcome,
   type Seed,
 } from "@/lib/tournament"
 
@@ -85,5 +87,37 @@ describe("current-position mode defaults", () => {
   it("has a 10m+5s rapid preset for the default time control", () => {
     const rapid = TIME_CONTROLS.find((t) => t.id === "rapid")
     expect(rapid).toMatchObject({ baseMs: 600_000, incMs: 5_000 })
+  })
+})
+
+describe("summarizeErrors — surfacing per-game failure reasons", () => {
+  const ok = (id: number): GameOutcome => ({
+    id,
+    flipped: false,
+    result: { Ok: { result: "1-0", termination: "checkmate", plies: 30, start_fen: "", moves: [] } },
+  })
+  const err = (id: number, message: string): GameOutcome => ({
+    id,
+    flipped: false,
+    result: { Err: message },
+  })
+
+  it("dedups identical error strings and counts them, most frequent first", () => {
+    const spawn = "Failed to start engine '/opt/reckless': No such file or directory (os error 2)"
+    const fen = "Illegal start position: invalid castling rights"
+    const groups = summarizeErrors([
+      err(0, spawn),
+      err(1, spawn),
+      err(2, fen),
+      ok(3),
+    ])
+    expect(groups).toEqual([
+      { message: spawn, count: 2 },
+      { message: fen, count: 1 },
+    ])
+  })
+
+  it("returns an empty list when no games errored", () => {
+    expect(summarizeErrors([ok(0), ok(1)])).toEqual([])
   })
 })

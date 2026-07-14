@@ -172,6 +172,30 @@ export function gameResult(o: GameOutcome): GameResult | null {
   return isOk(o) ? (o.result as { Ok: GameResult }).Ok : null
 }
 
+/** The error string of a failed outcome, or null if the game completed. */
+export function gameError(o: GameOutcome): string | null {
+  return isOk(o) ? null : (o.result as { Err: string }).Err
+}
+
+/**
+ * Group failed outcomes by their (verbatim) error string, most frequent first.
+ * Lets the UI render "2× Failed to start engine '…': …" instead of a bare
+ * "Errors: 2", so a batch that fails is never opaque about WHY.
+ */
+export function summarizeErrors(
+  outcomes: GameOutcome[],
+): { message: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const o of outcomes) {
+    const e = gameError(o)
+    if (e === null) continue
+    counts.set(e, (counts.get(e) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([message, count]) => ({ message, count }))
+    .sort((a, b) => b.count - a.count || a.message.localeCompare(b.message))
+}
+
 // ---------------------------------------------------------------------------
 // Sampling for the three start modes
 // ---------------------------------------------------------------------------
