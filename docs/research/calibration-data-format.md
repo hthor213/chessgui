@@ -83,6 +83,7 @@ bucket on but now at least appear.)
   "version": 2,
   "finished_at": 1736808600000,    // unix ms
   "show_reveal": true,             // was the post-answer reveal shown (vs a blind run)?
+  "show_coach": true,              // was AI coach feedback enabled (else no API calls)?
   "session": CalibrationSession,   // the full session (embedded)
   "answers": [ CalibrationAnswer, ... ],
   "summary": CalibrationSummary
@@ -112,7 +113,28 @@ One per position the user reached (in session order).
 | `revised_eval` | float \| null | Second-look revised eval in pawns, or `null` if not revised. The original `eval`/`why` are never mutated. |
 | `revision_note` | string \| null | One-line note on what the second look caught (e.g. "missed the Qe1"), or `null`. |
 | `revised_at` | int \| null     | Unix-ms of the revision, or `null`. |
+| `coach`      | `CoachFeedback` \| null | The AI coach's critique of the written reasoning (added async after the reveal), or `null` if the coach was off / unavailable. |
 | `skipped`    | bool           | True if the user skipped rather than answered. |
+
+### `CoachFeedback`
+
+Claude reads the user's *reasoning* (not just their number) on the reveal and
+diagnoses where it diverged from the engine evidence — grounded only in the
+Stockfish line and game continuation passed to it (it never invents variations).
+Model: `claude-opus-4-8`. Structured via a forced, strict tool call.
+
+| field               | type     | meaning |
+|---------------------|----------|---------|
+| `note`              | string   | 2-4 sentence coach note addressed to the user. |
+| `cause_tags`        | string[] | Cause labels from the fixed vocabulary below. |
+| `reasoning_quality` | string   | `"sound"` \| `"partial"` \| `"flawed"`. |
+| `scale_error`       | bool     | Direction right, magnitude off (calibration vs perception). |
+
+**Cause-tag vocabulary** (fixed; the first machine labeler for the mistake
+taxonomy — keep in sync with `src-tauri/src/coach.rs`): `missed_piece`,
+`miscounted_exchange`, `overlooked_defender`, `overlooked_attacker`,
+`missed_tactic`, `wrong_plan_priority`, `king_safety_misjudged`,
+`endgame_technique`, `scale_miscalibration`, `sound_reasoning`.
 
 The **second look** is an optional step between commit and reveal (still no
 engine info shown), so a revision measures the user's own fresh glance, not a

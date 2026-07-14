@@ -4,7 +4,13 @@
 // this instead of the Rust `calibration_sample` command. Dynamically imported,
 // so it never ships in the Tauri bundle.
 
-import type { CalibrationPosition, CalibrationProgress, CalibrationSession } from "./calibration"
+import type {
+  CalibrationPosition,
+  CalibrationProgress,
+  CalibrationSession,
+  CoachFeedback,
+  CoachInput,
+} from "./calibration"
 
 // A handful of real, legal positions with plausible (fabricated) Stockfish
 // ground truth — one per (band × phase) corner plus spares. The board only
@@ -161,5 +167,20 @@ export async function buildMockSession(
     created_at: Date.now(),
     stockfish_path: "(mock)",
     positions,
+  }
+}
+
+/** Canned coach critique for headless/browser runs (no API call). Echoes a
+ *  couple of the input's own details so the UI wiring is visibly exercised. */
+export async function mockCoachFeedback(input: CoachInput): Promise<CoachFeedback> {
+  await new Promise((r) => setTimeout(r, 150))
+  const dir = (input.user_eval ?? 0) >= 0 ? "White" : "Black"
+  return {
+    note: `You leaned ${dir} here, and the engine agrees on direction — but ${
+      input.sf_best_san ? `${input.sf_best_san} is the move` : "the best line"
+    } and the margin is smaller than you gave. Your read is sound; the number is what drifted.`,
+    cause_tags: ["scale_miscalibration"],
+    reasoning_quality: "partial",
+    scale_error: true,
   }
 }

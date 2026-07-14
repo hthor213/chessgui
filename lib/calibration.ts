@@ -109,7 +109,43 @@ export type CalibrationAnswer = {
   revision_note: string | null
   /** Unix-ms of the revision, or null. */
   revised_at: number | null
+  /** AI coach's critique of the written reasoning, attached async after the
+   *  reveal; null until it arrives (or if the coach was off / unavailable). */
+  coach: CoachFeedback | null
   skipped: boolean
+}
+
+/** The AI coach's critique of one answer. Mirrors Rust `CoachFeedback`. */
+export type CoachFeedback = {
+  /** 2-4 sentence coach note addressed to the user. */
+  note: string
+  /** Cause labels from the fixed taxonomy (see docs/research/calibration-data-format.md). */
+  cause_tags: string[]
+  /** "sound" | "partial" | "flawed". */
+  reasoning_quality: string
+  /** Direction right, magnitude off. */
+  scale_error: boolean
+}
+
+/** Everything the coach needs about one answered position. Mirrors Rust `CoachInput`. */
+export type CoachInput = {
+  fen: string
+  to_move: string
+  sf_cp: number | null
+  sf_mate: number | null
+  sf_best_san: string | null
+  sf_best_uci: string | null
+  multipv_gap_cp: number | null
+  material: number | null
+  user_eval: number | null
+  user_why: string
+  user_move_uci: string | null
+  revised_eval: number | null
+  revision_note: string | null
+  played_san: string | null
+  continuation_san: string[] | null
+  white_elo: number | null
+  black_elo: number | null
 }
 
 /** Per-band accuracy row. */
@@ -180,6 +216,8 @@ export type CalibrationResults = {
    * positions — so the mode is recorded with the artifact.
    */
   show_reveal: boolean
+  /** Whether AI coach feedback was enabled (off = no API calls were made). */
+  show_coach: boolean
   session: CalibrationSession
   /** Answers in presentation order (each carries its `index`), so learning /
    *  drift effects over the session are analysable. */
@@ -215,6 +253,7 @@ export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
     revised_eval: a.revised_eval ?? null,
     revision_note: a.revision_note ?? null,
     revised_at: a.revised_at ?? null,
+    coach: a.coach ?? null,
   }
 }
 
@@ -253,4 +292,17 @@ export function sampleSession(
 export function saveResults(results: CalibrationResults): Promise<string> {
   if (!isTauri()) return Promise.resolve("")
   return invoke<string>("calibration_save_results", { results })
+}
+
+/**
+ * Ask Claude to critique the user's written reasoning for one position. Rejects
+ * (with an error message the UI shows as a one-line hint) when there's no API
+ * key or the request fails, so it never blocks the reveal. Outside Tauri a mock
+ * returns a canned critique.
+ */
+export function coachFeedback(input: CoachInput): Promise<CoachFeedback> {
+  if (!isTauri()) {
+    return import("./calibration-mock").then((m) => m.mockCoachFeedback(input))
+  }
+  return invoke<CoachFeedback>("coach_feedback", { input })
 }

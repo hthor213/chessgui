@@ -1,5 +1,6 @@
 pub mod cbh;
 pub mod calibration;
+pub mod coach;
 pub mod db;
 pub mod maia;
 mod uci;
@@ -46,6 +47,7 @@ pub fn run() {
             calibration::calibration_save_results,
             maia::maia_status,
             maia::maia_policy,
+            coach::coach_feedback,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

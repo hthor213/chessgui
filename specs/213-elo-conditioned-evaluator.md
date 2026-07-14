@@ -156,6 +156,19 @@ optional move, and score them against Stockfish. Files are the research artifact
       at a random ply instead of via the ply-40 position index — endgames now appear
       (7/20 in the smoke). Deeper still (very long games) remains bounded by nothing but
       game length.
+- [x] **Elicitation UX:** post-answer reveal (SF eval/best/margin + played move; answer
+      structurally locked first — `answer_locked_at`) with a blind-mode option; optional
+      **second look** revision before feedback (self-correction = a per-band skill
+      signature); **think_ms** (shown→first-interaction) + a "don't count my time" toggle,
+      median reported. All recorded per the data-format doc.
+- [x] **AI coach (opus) — reasoning critic + cause-tag labeler** (`coach.rs`): reads the
+      user's *written* reasoning on the reveal and diagnoses the gap vs the engine
+      evidence (grounded only in the provided SF line + game continuation, never invents
+      variations); returns a coach note + structured `{cause_tags, reasoning_quality,
+      scale_error}` from a fixed 10-tag vocabulary — the taxonomy's first machine labeler.
+      Async (never blocks), graceful without a key, `show_coach` setting recorded. Live
+      smoke on the e7-exchange miscount correctly tagged `miscounted_exchange` +
+      `overlooked_defender` + `scale_miscalibration`.
 - [ ] Collect a real self-rated session (user is the ~1300/1650-puzzle datapoint) and
       fold it into the E1 corpus once the evaluator exists.
 - [ ] **Adaptive elicitation** (design doc §6): active learning FOR THE MODEL — "we use

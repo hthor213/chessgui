@@ -8,7 +8,7 @@ use serde_json::json;
 
 /// Resolve the Anthropic API key: environment first, then the ai-dev-framework
 /// .env on this machine. The key is read at call time and never stored.
-fn anthropic_api_key() -> Result<String, String> {
+pub(crate) fn anthropic_api_key() -> Result<String, String> {
     if let Ok(k) = std::env::var("ANTHROPIC_API_KEY") {
         let k = k.trim().to_string();
         if !k.is_empty() {

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import {
   sampleSession,
   saveResults,
+  coachFeedback,
   normalizeAnswer,
   RESULTS_VERSION,
   MIN_PHASE_N,
@@ -28,6 +29,8 @@ import {
   type CalibrationPosition,
   type CalibrationProgress,
   type CalibrationSession,
+  type CoachFeedback,
+  type CoachInput,
   type PhaseStat,
 } from "@/lib/calibration"
 import { summarize, scoredAnswers, sfEvalPawns, formatPawns, type Scored } from "@/lib/calibration-stats"
@@ -48,6 +51,8 @@ interface Saved {
   index: number
   /** Session-level reveal setting; older saves omit it (default shown). */
   showReveal?: boolean
+  /** Session-level AI-coach setting; older saves omit it (default on). */
+  showCoach?: boolean
 }
 
 /** A locked answer paired with its position, for the post-answer reveal card. */
@@ -126,6 +131,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   // Session-level: show the post-answer reveal card, or run blind (no feedback
   // between positions — methodologically distinct data).
   const [showReveal, setShowReveal] = useState(true)
+  // Session-level: AI coach feedback on the reveal (off = no API calls).
+  const [showCoach, setShowCoach] = useState(true)
   // The just-locked answer under the optional "second look" step (between commit
   // and reveal — self-correction before any engine feedback), or null.
   const [secondLook, setSecondLook] = useState<Reveal | null>(null)
@@ -160,11 +167,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   }, [])
 
   const persist = useCallback(
-    (s: CalibrationSession, a: CalibrationAnswer[], i: number, sr: boolean) => {
+    (s: CalibrationSession, a: CalibrationAnswer[], i: number, sr: boolean, sc: boolean) => {
       try {
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ session: s, answers: a, index: i, showReveal: sr }),
+          JSON.stringify({ session: s, answers: a, index: i, showReveal: sr, showCoach: sc }),
         )
       } catch {
         /* storage full / unavailable — the session still runs in memory */
@@ -205,12 +212,12 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       setRevealed(null)
       resetInputs()
       setPhase("answering")
-      persist(s, [], 0, showReveal)
+      persist(s, [], 0, showReveal, showCoach)
     } catch (e) {
       setError(String(e))
       setPhase("intro")
     }
-  }, [size, persist, resetInputs, showReveal])
+  }, [size, persist, resetInputs, showReveal, showCoach])
 
   const continueSaved = useCallback(() => {
     if (!resume) return
@@ -218,6 +225,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     setAnswers(resume.answers)
     setIndex(resume.index)
     setShowReveal(resume.showReveal ?? true)
+    setShowCoach(resume.showCoach ?? true)
     setRevealed(null)
     resetInputs()
     setPhase("answering")
@@ -239,6 +247,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           version: RESULTS_VERSION,
           finished_at: Date.now(),
           show_reveal: showReveal,
+          show_coach: showCoach,
           session: s,
           answers: finalAnswers,
           summary,
@@ -248,7 +257,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         setError(String(e))
       }
     },
-    [clearStorage, showReveal],
+    [clearStorage, showReveal, showCoach],
   )
 
   // Advance to the next position (or finish). Shared by every exit path.
@@ -264,9 +273,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       }
       setIndex(nextIndex)
       resetInputs()
-      persist(session, finalAnswers, nextIndex, showReveal)
+      persist(session, finalAnswers, nextIndex, showReveal, showCoach)
     },
-    [session, index, finish, resetInputs, persist, showReveal],
+    [session, index, finish, resetInputs, persist, showReveal, showCoach],
   )
 
   // After the (optional) second look: show the reveal, or advance if blind.
@@ -301,6 +310,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         revised_eval: null,
         revision_note: null,
         revised_at: null,
+        coach: null,
         skipped,
       }
       const nextAnswers = [...answers.filter((a) => a.index !== index), answer].sort(
@@ -309,7 +319,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       setAnswers(nextAnswers)
       // Persist immediately at the locked index so a crash mid-step never loses
       // the answer (resume lands on the next position).
-      persist(session, nextAnswers, index + 1, showReveal)
+      persist(session, nextAnswers, index + 1, showReveal, showCoach)
       // Answered positions get the optional second look; a skip goes straight on.
       if (skipped) proceedToReveal(answer, current, nextAnswers)
       else setSecondLook({ answer, position: current })
@@ -333,7 +343,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         }
         finalAnswers = answers.map((a) => (a.index === answer.index ? answer : a))
         setAnswers(finalAnswers)
-        persist(session, finalAnswers, index + 1, showReveal)
+        persist(session, finalAnswers, index + 1, showReveal, showCoach)
       }
       proceedToReveal(answer, secondLook.position, finalAnswers)
     },
@@ -341,6 +351,19 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   )
 
   const onContinueReveal = useCallback(() => advance(answers), [advance, answers])
+
+  // Store the coach's critique on its answer when it arrives (async, after the
+  // reveal). Doesn't touch the committed eval/why — additive only.
+  const onCoachResult = useCallback(
+    (answerIndex: number, coach: CoachFeedback) => {
+      setAnswers((prev) => {
+        const next = prev.map((a) => (a.index === answerIndex ? { ...a, coach } : a))
+        if (session) persist(session, next, index + 1, showReveal, showCoach)
+        return next
+      })
+    },
+    [session, index, persist, showReveal, showCoach],
+  )
 
   // Input setters that also stop the think clock on first use.
   const onEvalChange = useCallback(
@@ -411,6 +434,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           setSize={setSize}
           showReveal={showReveal}
           setShowReveal={setShowReveal}
+          showCoach={showCoach}
+          setShowCoach={setShowCoach}
           onStart={start}
           error={error}
         />
@@ -450,6 +475,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           onFinishSecondLook={finishSecondLook}
           reveal={revealed}
           onContinueReveal={onContinueReveal}
+          showCoach={showCoach}
+          onCoachResult={onCoachResult}
           onNext={() => submit(false)}
           onSkip={() => submit(true)}
         />
@@ -483,6 +510,8 @@ function IntroScreen({
   setSize,
   showReveal,
   setShowReveal,
+  showCoach,
+  setShowCoach,
   onStart,
   error,
 }: {
@@ -490,6 +519,8 @@ function IntroScreen({
   setSize: (n: number) => void
   showReveal: boolean
   setShowReveal: (b: boolean) => void
+  showCoach: boolean
+  setShowCoach: (b: boolean) => void
   onStart: () => void
   error: string | null
 }) {
@@ -551,6 +582,27 @@ function IntroScreen({
             <span className="text-muted-foreground">
               {" "}— see Stockfish&apos;s eval, best move, and what the game player did once
               you&apos;ve committed. Turn off for a blind run.
+            </span>
+          </span>
+        </label>
+        <label
+          className={`flex items-start gap-2 text-sm select-none ${
+            showReveal ? "cursor-pointer" : "opacity-50 cursor-not-allowed"
+          }`}
+        >
+          <input
+            type="checkbox"
+            checked={showCoach && showReveal}
+            disabled={!showReveal}
+            onChange={(e) => setShowCoach(e.target.checked)}
+            data-testid="calib-show-coach"
+            className="mt-0.5 accent-emerald-500"
+          />
+          <span>
+            <span className="text-foreground">AI coach feedback</span>
+            <span className="text-muted-foreground">
+              {" "}— after each reveal, Claude reads your written reasoning and points out where it
+              diverged from the engine. Needs an API key; off means no API calls.
             </span>
           </span>
         </label>
@@ -644,6 +696,8 @@ function AnsweringScreen({
   onFinishSecondLook,
   reveal,
   onContinueReveal,
+  showCoach,
+  onCoachResult,
   onNext,
   onSkip,
 }: {
@@ -669,6 +723,8 @@ function AnsweringScreen({
   onFinishSecondLook: (r: { revised_eval: number | null; revision_note: string } | null) => void
   reveal: Reveal | null
   onContinueReveal: () => void
+  showCoach: boolean
+  onCoachResult: (index: number, coach: CoachFeedback) => void
   onNext: () => void
   onSkip: () => void
 }) {
@@ -716,7 +772,12 @@ function AnsweringScreen({
           {secondLook ? (
             <SecondLookCard answer={secondLook.answer} onDone={onFinishSecondLook} />
           ) : reveal ? (
-            <RevealCard reveal={reveal} onContinue={onContinueReveal} />
+            <RevealCard
+              reveal={reveal}
+              onContinue={onContinueReveal}
+              showCoach={showCoach}
+              onCoachResult={onCoachResult}
+            />
           ) : (
           <>
 
@@ -863,14 +924,76 @@ function SecondLookCard({
   )
 }
 
+/** Build the coach's input from a locked answer + its position. */
+function coachInputFor(answer: CalibrationAnswer, position: CalibrationPosition): CoachInput {
+  return {
+    fen: position.fen,
+    to_move: position.to_move,
+    sf_cp: position.sf_cp,
+    sf_mate: position.sf_mate,
+    sf_best_san: position.sf_best_san,
+    sf_best_uci: position.sf_best_uci,
+    multipv_gap_cp: position.multipv_gap_cp,
+    material: position.material,
+    user_eval: answer.eval,
+    user_why: answer.why,
+    user_move_uci: answer.move_uci,
+    revised_eval: answer.revised_eval,
+    revision_note: answer.revision_note,
+    played_san: position.played_san,
+    continuation_san: position.continuation_san,
+    white_elo: position.white_elo,
+    black_elo: position.black_elo,
+  }
+}
+
 /** Post-answer feedback: shown only after the answer is locked (so it can't
  *  anchor the eval). Compares the user's eval to Stockfish, names the best move
- *  and its margin, and — for v2 sessions — what the rated human actually played. */
-function RevealCard({ reveal, onContinue }: { reveal: Reveal; onContinue: () => void }) {
+ *  and its margin, what the rated human actually played, and — when the coach is
+ *  on — Claude's read of where their written reasoning diverged. */
+function RevealCard({
+  reveal,
+  onContinue,
+  showCoach,
+  onCoachResult,
+}: {
+  reveal: Reveal
+  onContinue: () => void
+  showCoach: boolean
+  onCoachResult: (index: number, coach: CoachFeedback) => void
+}) {
   const { answer, position } = reveal
   const sf = sfEvalPawns(position)
   const played = playedReveal(position)
   const gapPawns = position.multipv_gap_cp == null ? null : position.multipv_gap_cp / 100
+
+  // Coach: fire once per reveal. Never blocks Continue; degrades to a hint.
+  const [coach, setCoach] = useState<CoachFeedback | null>(answer.coach)
+  const [coachError, setCoachError] = useState<string | null>(null)
+  const [coachLoading, setCoachLoading] = useState(false)
+  const wantCoach = showCoach && !answer.skipped
+  useEffect(() => {
+    if (!wantCoach || answer.coach) {
+      setCoach(answer.coach)
+      return
+    }
+    let live = true
+    setCoachLoading(true)
+    setCoachError(null)
+    coachFeedback(coachInputFor(answer, position))
+      .then((fb) => {
+        if (!live) return
+        setCoach(fb)
+        onCoachResult(answer.index, fb)
+      })
+      .catch((e) => live && setCoachError(String(e)))
+      .finally(() => live && setCoachLoading(false))
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answer.index])
+
   return (
     <div className="flex flex-col gap-3" data-testid="calib-reveal">
       <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2.5">
@@ -910,6 +1033,35 @@ function RevealCard({ reveal, onContinue }: { reveal: Reveal; onContinue: () => 
       </div>
 
       {played && <p className="text-sm text-emerald-300/90">{played}</p>}
+
+      {wantCoach && (
+        <div className="rounded-lg border border-sky-500/20 bg-sky-500/[0.06] p-3 space-y-2" data-testid="calib-coach">
+          <span className="text-xs font-semibold text-sky-300/90">Coach</span>
+          {coachLoading && <p className="text-sm text-muted-foreground">Reading your reasoning…</p>}
+          {coach && (
+            <>
+              <p className="text-sm text-foreground/90">{coach.note}</p>
+              {coach.cause_tags.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {coach.cause_tags.map((t) => (
+                    <span
+                      key={t}
+                      className="px-1.5 py-0.5 rounded text-[11px] bg-sky-500/15 text-sky-200/90"
+                    >
+                      {t.replace(/_/g, " ")}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {coachError && !coach && (
+            <p className="text-xs text-muted-foreground">
+              Coach unavailable ({coachError.includes("ANTHROPIC_API_KEY") || coachError.includes("not found") ? "add an ANTHROPIC_API_KEY" : "request failed"}).
+            </p>
+          )}
+        </div>
+      )}
 
       <Button onClick={onContinue} className="w-full mt-1" data-testid="calib-continue">
         Continue
