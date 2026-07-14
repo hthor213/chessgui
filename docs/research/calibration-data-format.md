@@ -98,8 +98,15 @@ One per position the user reached (in session order).
 | `eval`       | float \| null  | Perceived eval in pawns (`+` = White); `null` if skipped or left blank. |
 | `why`        | string         | The user's stated reasoning (may be empty). |
 | `move_uci`   | string \| null | The move they'd play, UCI; `null` if none chosen. |
-| `elapsed_ms` | int            | Wall time spent on the position. |
+| `elapsed_ms` | int            | Wall time from position-shown to submit (includes typing). |
+| `think_ms`   | int \| null    | Think time: position-shown → first interaction (first keystroke or board move). The meaningful metric — typing time is not thinking time. `null` if never interacted, or for answers that predate this field. |
+| `time_excluded` | bool        | The user asked not to count their time here (distracted), or the answer predates `think_ms`. The answer still counts for eval accuracy; only time analysis ignores it. |
 | `skipped`    | bool           | True if the user skipped rather than answered. |
+
+Answers written before `think_ms` existed are upgraded on load: `think_ms` → `null`,
+`time_excluded` → `true` (a distracted early session must not pollute the timing
+stats). Sessions are held in `localStorage` and resume across app restarts — the
+expected usage is 100 positions over several evenings.
 
 ### `CalibrationSummary`
 
@@ -115,5 +122,7 @@ Derived scoring (recomputable from `session` + `answers` via
 | `pearson`         | float \| null     | Correlation of user vs Stockfish eval (`null` if < 2 points). |
 | `mae`             | float \| null     | Mean absolute error in pawns. |
 | `bestMoveHitRate` | float \| null     | Fraction of move-answers matching Stockfish's best move. |
+| `medianThinkMs`   | float \| null     | Median think time (ms) over time-included, interacted answers. |
+| `timeExcludedCount` | int             | Answers whose time was excluded (user-marked or upgraded). |
 | `perBand`         | `BandStat[]`      | `{ band, count, mae }` for each of the four bands. |
 | `biggestMisses`   | `Miss[]`          | Up to 10 `{ index, fen, band, userEval, sfEval, absError }`, worst first. |

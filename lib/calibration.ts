@@ -78,8 +78,22 @@ export type CalibrationAnswer = {
   why: string
   /** UCI of the move they'd play, or null if they didn't pick one. */
   move_uci: string | null
-  /** Wall time spent on this position, milliseconds. */
+  /** Wall time from position-shown to submit, milliseconds (includes typing). */
   elapsed_ms: number
+  /**
+   * Think time: position-shown → first input interaction (first keystroke in the
+   * eval or why field, or first board move — whichever comes first). This is the
+   * meaningful metric — "I've formed a view when I start typing", so typing time
+   * is not thinking time. Null if the user never interacted before advancing, or
+   * for pre-think_ms (upgraded) answers.
+   */
+  think_ms: number | null
+  /**
+   * The user asked not to count their time on this position (e.g. distracted).
+   * The answer still counts for eval accuracy; only time analysis ignores it.
+   * Set automatically on old answers that predate think_ms.
+   */
+  time_excluded: boolean
   skipped: boolean
 }
 
@@ -126,6 +140,10 @@ export type CalibrationSummary = {
   mae: number | null
   /** Fraction of move-answers matching Stockfish's best move; null if none. */
   bestMoveHitRate: number | null
+  /** Median think time (ms) over time-included, interacted answers; null if none. */
+  medianThinkMs: number | null
+  /** Answers whose time the user excluded (or that predate think_ms). */
+  timeExcludedCount: number
   perBand: BandStat[]
   perPhase: PhaseStat[]
   biggestMisses: Miss[]
@@ -156,6 +174,21 @@ export const RESULTS_VERSION = 2
 /** True inside the Tauri webview (its IPC globals are injected before load). */
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+/**
+ * Bring a stored answer up to the current schema. Answers written before think_ms
+ * existed carry no reliable think time and had their elapsed clock polluted by
+ * distraction, so they are marked `time_excluded` on upgrade — the datapoint
+ * still counts for eval accuracy, just not for time analysis.
+ */
+export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
+  const hasThink = "think_ms" in (a as object)
+  return {
+    ...a,
+    think_ms: hasThink ? a.think_ms : null,
+    time_excluded: hasThink ? a.time_excluded ?? false : true,
+  }
 }
 
 // ---------------------------------------------------------------------------

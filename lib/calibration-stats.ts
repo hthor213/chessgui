@@ -36,6 +36,14 @@ function mean(xs: number[]): number {
   return xs.reduce((a, b) => a + b, 0) / xs.length
 }
 
+/** Median of a list, or null if empty. */
+export function median(xs: number[]): number | null {
+  if (xs.length === 0) return null
+  const s = [...xs].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
+
 /**
  * Pearson correlation of two equal-length series. Returns null when there are
  * fewer than two points or either series is constant (correlation undefined).
@@ -143,6 +151,15 @@ export function summarize(
     ...groupStats(scored.filter((s) => s.pos.phase === phase)),
   }))
 
+  // Think time: median over answers whose time counts and who actually
+  // interacted before advancing. Excluded/pre-upgrade answers still count for
+  // eval accuracy above; they're only omitted from time analysis here.
+  const timeExcludedCount = answers.filter((a) => a.time_excluded).length
+  const thinkTimes = answers
+    .filter((a) => !a.time_excluded && a.think_ms != null)
+    .map((a) => a.think_ms as number)
+  const medianThinkMs = median(thinkTimes)
+
   const biggestMisses: Miss[] = [...scored]
     .sort((a, b) => b.absError - a.absError)
     .slice(0, missCount)
@@ -162,6 +179,8 @@ export function summarize(
     pearson: overall.pearson,
     mae: overall.mae,
     bestMoveHitRate: overall.bestMoveHitRate,
+    medianThinkMs,
+    timeExcludedCount,
     perBand,
     perPhase,
     biggestMisses,

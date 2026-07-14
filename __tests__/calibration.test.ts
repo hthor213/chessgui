@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest"
 import {
   MATE_PAWNS,
   pearson,
+  median,
   sfEvalPawns,
   scoredAnswers,
   summarize,
   groupStats,
   formatPawns,
 } from "@/lib/calibration-stats"
+import { normalizeAnswer } from "@/lib/calibration"
 import type {
   CalibrationAnswer,
   CalibrationPosition,
@@ -45,6 +47,8 @@ function ans(over: Partial<CalibrationAnswer>): CalibrationAnswer {
     why: "",
     move_uci: null,
     elapsed_ms: 1000,
+    think_ms: 3000,
+    time_excluded: false,
     skipped: false,
     ...over,
   }
@@ -206,6 +210,51 @@ describe("summarize — per-phase breakdown", () => {
     expect(end.mae).toBeNull()
     expect(end.pearson).toBeNull()
     expect(end.bestMoveHitRate).toBeNull()
+  })
+})
+
+describe("median", () => {
+  it("handles odd, even, and empty", () => {
+    expect(median([3, 1, 2])).toBe(2)
+    expect(median([1, 2, 3, 4])).toBe(2.5)
+    expect(median([])).toBeNull()
+  })
+})
+
+describe("summarize — think time", () => {
+  it("medians only time-included, interacted answers; counts excluded", () => {
+    const s = session([pos({}), pos({}), pos({}), pos({})])
+    const sum = summarize(s, [
+      ans({ index: 0, eval: 0.5, think_ms: 2000 }),
+      ans({ index: 1, eval: 0.5, think_ms: 6000 }),
+      ans({ index: 2, eval: 0.5, think_ms: 900000, time_excluded: true }), // excluded from time
+      ans({ index: 3, eval: 0.5, think_ms: null }), // never interacted
+    ])
+    // Median over [2000, 6000] = 4000; the 900000 (excluded) and null are omitted.
+    expect(sum.medianThinkMs).toBe(4000)
+    expect(sum.timeExcludedCount).toBe(1)
+    // ...but the excluded answer still counts for eval accuracy.
+    expect(sum.answered).toBe(4)
+  })
+
+  it("median think is null when no answer has usable time", () => {
+    const s = session([pos({})])
+    const sum = summarize(s, [ans({ index: 0, eval: 1, think_ms: null })])
+    expect(sum.medianThinkMs).toBeNull()
+  })
+})
+
+describe("normalizeAnswer — retroactive upgrade", () => {
+  it("excludes the time of pre-think_ms answers", () => {
+    // Simulate an old-schema answer (no think_ms / time_excluded fields).
+    const old = { index: 0, eval: 1.2, why: "hi", move_uci: null, elapsed_ms: 339000, skipped: false }
+    const up = normalizeAnswer(old as unknown as CalibrationAnswer)
+    expect(up.think_ms).toBeNull()
+    expect(up.time_excluded).toBe(true)
+    // A current-schema answer is left as-is.
+    const cur = ans({ index: 1, think_ms: 5000, time_excluded: false })
+    expect(normalizeAnswer(cur).time_excluded).toBe(false)
+    expect(normalizeAnswer(cur).think_ms).toBe(5000)
   })
 })
 

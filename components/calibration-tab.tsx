@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import {
   sampleSession,
   saveResults,
+  normalizeAnswer,
   RESULTS_VERSION,
   MIN_PHASE_N,
   type CalibrationAnswer,
@@ -113,8 +114,17 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const [evalInput, setEvalInput] = useState("")
   const [why, setWhy] = useState("")
   const [moveUci, setMoveUci] = useState<string | null>(null)
+  const [timeExcluded, setTimeExcluded] = useState(false)
+  // Position-shown time (elapsed clock) and first-interaction time (think clock).
   const startedAt = useRef<number>(Date.now())
+  const firstInteractionAt = useRef<number | null>(null)
   const [boardSize, setBoardSize] = useState(480)
+
+  // The think clock stops at the first sign the user has formed a view — first
+  // keystroke or board move. Typing time is not thinking time.
+  const markInteraction = useCallback(() => {
+    if (firstInteractionAt.current === null) firstInteractionAt.current = Date.now()
+  }, [])
 
   // On mount, offer to resume an unfinished session.
   useEffect(() => {
@@ -123,7 +133,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       if (!raw) return
       const parsed = JSON.parse(raw) as Saved
       if (parsed?.session && parsed.index < parsed.session.positions.length) {
-        setResume(parsed)
+        // Upgrade older answers (no think_ms) — their time is excluded so a
+        // distracted early session doesn't pollute the think-time stats.
+        setResume({ ...parsed, answers: parsed.answers.map(normalizeAnswer) })
         setPhase("resume")
       }
     } catch {
@@ -154,7 +166,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     setEvalInput("")
     setWhy("")
     setMoveUci(null)
+    setTimeExcluded(false)
     startedAt.current = Date.now()
+    firstInteractionAt.current = null
   }, [])
 
   const start = useCallback(async () => {
@@ -215,12 +229,18 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     (skipped: boolean) => {
       if (!session || !current) return
       const parsed = parseFloat(evalInput)
+      const now = Date.now()
       const answer: CalibrationAnswer = {
         index,
         eval: skipped || Number.isNaN(parsed) ? null : parsed,
         why: why.trim(),
         move_uci: moveUci,
-        elapsed_ms: Date.now() - startedAt.current,
+        elapsed_ms: now - startedAt.current,
+        think_ms:
+          firstInteractionAt.current === null
+            ? null
+            : firstInteractionAt.current - startedAt.current,
+        time_excluded: timeExcluded,
         skipped,
       }
       const nextAnswers = [...answers.filter((a) => a.index !== index), answer].sort(
@@ -236,7 +256,23 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       resetInputs()
       persist(session, nextAnswers, nextIndex)
     },
-    [session, current, evalInput, why, moveUci, index, answers, finish, resetInputs, persist],
+    [session, current, evalInput, why, moveUci, timeExcluded, index, answers, finish, resetInputs, persist],
+  )
+
+  // Input setters that also stop the think clock on first use.
+  const onEvalChange = useCallback(
+    (v: string) => {
+      markInteraction()
+      setEvalInput(v)
+    },
+    [markInteraction],
+  )
+  const onWhyChange = useCallback(
+    (v: string) => {
+      markInteraction()
+      setWhy(v)
+    },
+    [markInteraction],
   )
 
   const canSubmit = evalInput.trim() !== "" && !Number.isNaN(parseFloat(evalInput))
@@ -250,9 +286,10 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const onBoardMove = useCallback(
     (from: Key, to: Key) => {
       if (!current) return
+      markInteraction()
       setMoveUci(moveToUci(current.fen, from, to))
     },
-    [current],
+    [current, markInteraction],
   )
 
   // Keyboard: Enter submits, S skips (when not typing in the textarea handled
@@ -301,11 +338,13 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           onBoardMove={onBoardMove}
           onClearMove={() => setMoveUci(null)}
           evalInput={evalInput}
-          setEvalInput={setEvalInput}
+          setEvalInput={onEvalChange}
           why={why}
-          setWhy={setWhy}
+          setWhy={onWhyChange}
           onEvalKeyDown={onEvalKeyDown}
           canSubmit={canSubmit}
+          timeExcluded={timeExcluded}
+          onToggleTimeExcluded={() => setTimeExcluded((v) => !v)}
           onNext={() => submit(false)}
           onSkip={() => submit(true)}
         />
@@ -474,6 +513,8 @@ function AnsweringScreen({
   setWhy,
   onEvalKeyDown,
   canSubmit,
+  timeExcluded,
+  onToggleTimeExcluded,
   onNext,
   onSkip,
 }: {
@@ -493,6 +534,8 @@ function AnsweringScreen({
   setWhy: (s: string) => void
   onEvalKeyDown: (e: React.KeyboardEvent) => void
   canSubmit: boolean
+  timeExcluded: boolean
+  onToggleTimeExcluded: () => void
   onNext: () => void
   onSkip: () => void
 }) {
@@ -590,13 +633,25 @@ function AnsweringScreen({
             </div>
           </div>
 
-          <div className="flex gap-2 mt-auto pt-2">
-            <Button onClick={onNext} disabled={!canSubmit} className="flex-1" data-testid="calib-next">
-              Next
-            </Button>
-            <Button variant="outline" onClick={onSkip} data-testid="calib-skip">
-              Skip
-            </Button>
+          <div className="mt-auto pt-2 space-y-2">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={timeExcluded}
+                onChange={onToggleTimeExcluded}
+                data-testid="calib-exclude-time"
+                className="accent-emerald-500"
+              />
+              Don&apos;t count my time on this one (distracted / stepped away)
+            </label>
+            <div className="flex gap-2">
+              <Button onClick={onNext} disabled={!canSubmit} className="flex-1" data-testid="calib-next">
+                Next
+              </Button>
+              <Button variant="outline" onClick={onSkip} data-testid="calib-skip">
+                Skip
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -630,7 +685,7 @@ function ResultsScreen({
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <Stat label="Correlation" value={summary.pearson == null ? "—" : summary.pearson.toFixed(2)} hint="vs Stockfish" />
           <Stat label="Mean error" value={summary.mae == null ? "—" : `${summary.mae.toFixed(2)}`} hint="pawns" />
           <Stat
@@ -641,6 +696,11 @@ function ResultsScreen({
                 : `${Math.round(summary.bestMoveHitRate * 100)}%`
             }
             hint={`${summary.moveAnswers} with a move`}
+          />
+          <Stat
+            label="Median think"
+            value={summary.medianThinkMs == null ? "—" : `${(summary.medianThinkMs / 1000).toFixed(1)}s`}
+            hint={summary.timeExcludedCount > 0 ? `${summary.timeExcludedCount} time-excluded` : "per position"}
           />
           <Stat label="Answered" value={`${summary.answered}`} hint={`${summary.skipped} skipped`} />
         </div>
