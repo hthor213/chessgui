@@ -46,7 +46,7 @@ lab's question ("how reliable is this edge?").
 current position* and *future error rates*. A trivially winning but long position can
 score 0.75 not because R-players don't see they're winning but because they'll blunder
 later. It also regresses toward the mean in quiet positions (both sides err, evals
-compress), and it is by far the most expensive to compute honestly (§5).
+compress), and it is by far the most expensive to compute honestly (§6).
 
 **(ii) Human-visible-tree semantics.** A minimax search over a *restricted* tree: at each
 node, the candidate set is the smallest set of moves covering the top-p probability mass
@@ -64,13 +64,13 @@ set and the eval jumps — this *directly* produces the user's +1.2 → +3.1 beh
 specific and reportable rating threshold.
 
 *For:* matches the product vision exactly; output is in Stockfish-comparable pawns
-natively (no calibration needed just to display); cheap enough for interactivity (§5);
+natively (no calibration needed just to display); cheap enough for interactivity (§6);
 the jump rating ("visible from ~2500") is a first-class, explainable artifact.
 
 *Against:* minimax backup assumes the R-player *plays the best visible line perfectly* —
 it models bounded perception but perfect execution, so it overestimates conversion. It is
 not directly outcome-calibrated by construction (we must calibrate it empirically, §4).
-And top-p of the *play* distribution is a proxy for the *consideration* set (§6.4).
+And top-p of the *play* distribution is a proxy for the *consideration* set (§7.2).
 
 **(iii) Hybrids.**
 - *Depth-scheduled visible tree:* tree depth d(R) grows with rating (a 1500 calculates
@@ -96,7 +96,7 @@ Reasoning:
    (i) produces a win-prob that must be inverted through a band-specific sigmoid before it
    can sit on the eval bar, and the compressed-toward-0.5 behavior would make the slider
    feel mushy (everything drifts toward equality as R drops, even clearly won positions).
-3. **Cost.** Measured on this machine (§5): (ii) fits an interactive budget; honest (i)
+3. **Cost.** Measured on this machine (§6): (ii) fits an interactive budget; honest (i)
    is minutes per position over the UCI path and needs a batched-inference build-out or a
    value-model shortcut before it's usable live.
 4. **Science is still served.** (i) remains the ground truth for validation: experiment
@@ -163,7 +163,7 @@ All verified by actually running them, not from docs:
   legal move (32/32 in the test position), plus the root Q (value head). No source
   patching, no ONNX, no Python.
 - **Warm per-position latency: 13 ms** (84 ms for the first query after load). This is
-  the number the whole performance budget (§5) is built on.
+  the number the whole performance budget (§6) is built on.
 - One caveat found: lc0 exits on stdin EOF mid-search, so the driver must hold the pipe
   open — exactly how `uci.rs` already manages engines, so this is free.
 
@@ -198,7 +198,7 @@ All verified by actually running them, not from docs:
   zero benefit at 13 ms/query for nine 1.2 MB nets.
 - *candle + Maia-3 safetensors:* plausible tier-3 path for 2100–2700 (Apache-2.0 helps if
   licensing posture ever changes); 79M params ≈ tens of ms per forward on Metal — fine —
-  but blocked on verifying Maia-3's rating-conditioning range first (§6.1).
+  but blocked on verifying Maia-3's rating-conditioning range first (§7.1).
 
 ### 2.4 Other assets in play
 
@@ -284,11 +284,136 @@ d(R) ∈ {fixed 4, fixed 6, 4+R/400}; node caps. Selection metric: Brier from E1
 Output: frozen tier-1 defaults + a documented sensitivity table (if results are flat
 across p, say so — that's important honesty about how sharp the definition really is).
 
-Priority order: **E1 → E3 → E2 → E5 → E4.** E1 justifies the feature's existence; E3
-validates the flagship visual; E2 ties it to the mining program; E5 tunes; E4 is the
-skeptic's check and can run last (it reuses E1's artifacts).
+Two further experiments — **E-attention** and **E-history** — are defined in §5, because
+they measure the *mechanisms* the evaluator's coefficients come from rather than its
+end-to-end accuracy. Both run on the mining corpus using the Zobrist position machinery
+that already exists in `db.rs`.
 
-## 5. Performance budget
+Priority order: **E1 → E-attention → E-history → E3 → E2 → E5 → E4.** E1 justifies the
+feature's existence; E-attention and E-history sit right behind it because they supply the
+coefficients that make tier-2 psychologically honest (§5) *and* are novel results in their
+own right regardless of how the evaluator fares; E3 validates the flagship visual; E2 ties
+it to the mining program; E5 tunes; E4 is the skeptic's check and can run last (it reuses
+E1's artifacts).
+
+## 5. Perception psychology — the coefficients that make the tree honest
+
+The restricted tree of §1 is the *tuning mechanism*: lc0/Maia decides which moves exist,
+Stockfish decides what they're worth. Left alone, that is an interpolation between two
+engines. What makes it a *human* eval is that the candidate-set breadth (top-p), the
+depth, and the expectimax temperature must be functions of measured human perception —
+and with 4.8×10^44 chess positions you cannot tabulate perception; you need perception
+**laws** that generalize from where we have data to where we don't. This section defines
+the two laws we will measure first, why Maia alone doesn't already give them to us, and
+how each enters the evaluator as an explicit coefficient. Both experiments run on the
+mining corpus with the Zobrist position index that already exists (`db.rs`: `positions`
+table, Zobrist64 over every mainline position, O(1) lookup).
+
+### 5.1 Attention load — the confusing knight
+
+The motivating example: ten pieces clustered on one battleground, and one objectively
+inert piece parked on the far side of the board. Stockfish calculates through it
+instantly — the bystander changes nothing and costs nothing. A human's move-finding
+measurably degrades: the bystander consumes attention merely by existing. Perception is a
+budget, and every piece on the board draws from it whether or not it participates.
+
+**(a) What Maia already captures — and what it can't.** Honesty first: Maia was trained
+on millions of humans who *were* confused in exactly such positions, so population-level
+confusion is already baked into its policy — the top-p candidate set will genuinely be
+noisier/flatter in cluttered positions *wherever training density exists*. What Maia
+cannot give us is the isolated, quantified **mechanism**: "adding one inert bystander at
+distance d costs band R x percentage points of top-move rate." A black-box policy
+interpolates; a measured law generalizes — to sparse regions of position space, to
+composed/edited positions the corpus never saw, and to the 2100+ bands where our data
+thins out. The law is also a publishable result independent of the evaluator (the
+prior-art survey found no controlled human test of this hypothesis — only coach
+folklore).
+
+**(b) Experiment E-attention: matched-pair mining.** Find corpus position pairs that are
+near-identical where the action is and differ only in inert distant material, then compare
+how real players at each band performed in them.
+
+- *Action zone*, operationally: the set of squares within Chebyshev distance k (default
+  k = 2, ablate) of any square involved in a capture, a check, or a piece contact (mutual
+  attack between enemy pieces) within the last m plies (default m = 4).
+- *Local-region Zobrist*: hash only the (piece, square) pairs inside the action zone plus
+  side to move — an extension of the existing `db.rs` hashing, keyed on the zone instead
+  of the whole board. Pairs (or clusters) matching on this local hash but differing
+  outside the zone are the raw material.
+- *Bystander*, operationally: a piece outside the action zone whose removal changes the
+  Stockfish eval by < 0.15 pawns (cheap per-candidate check at shallow movetime) — i.e.
+  objectively inert, so any human effect is perceptual, not positional.
+- *Measurement*: per band, compare top-move-match rate (vs Stockfish best and vs the
+  band's own Maia policy mode) and next-move error rate (win-prob drop ≥ 10 pp) across
+  matched pairs. **Dose-response** is the point: effect size by bystander count, by piece
+  type (knight vs bishop vs rook vs pawn — does the long-range-piece hypothesis show up
+  as line pieces radiating phantom threats?), and by distance from the zone. Control for
+  Guid–Bratko complexity of the zone itself.
+- *Scale*: matched pairs are rare per position but the corpus has ~10M games × ~40
+  positions each — this is precisely the "analyze millions of games" promise cashing out.
+
+**(c) How it enters the evaluator.** Perceptual-load features computed per node, cheap
+and engine-free: battleground spread (dispersion of the action zone), bystander count,
+x-ray/line paths crossing the zone, total mobile pieces. These modulate the candidate-set
+breadth per node per band:
+
+```
+p_eff(R, s) = p0(R) − f_R(load(s))
+```
+
+with f_R fitted from E-attention's dose-response curves (and plausibly also raising the
+expectimax temperature — load degrades execution, not just perception). Under load, the
+human-visible tree narrows *by measured law*, including in positions where Maia's training
+data is thin — that's the generalization the mechanism buys us over trusting the policy's
+implicit confusion.
+
+### 5.2 Story-arch — history dependence ("chess is a REST API, humans are not")
+
+For an engine, chess is stateless: identical position, identical best move, a pure
+function of the FEN. Humans carry the game's story into every move. The player who lost a
+piece one move ago is standing in the same position a REST call would see — but they are
+in "crap, I need to fix it" mode, and they demonstrably do not play it the same way.
+
+**(a) What Maia already sees — and what it can't.** Nuance required: lc0-format input
+planes include the last 8 plies, so *short* history is technically visible to Maia-1 and
+is part of what it learned. The longer arc is not: tilt accumulated across many moves,
+the eval trajectory (did they just throw away a won game?), the clock state (Maia's
+inputs carry no clock), and the risk-appetite shift that follows a windfall or a
+disaster. Those live outside the position encoding entirely.
+
+**(b) Experiment E-history: same position, different stories.** The `db.rs` Zobrist
+index makes "identical or transposed positions reached via different histories" a
+database query, not a research project — run it over the mining corpus and stratify by
+the mover's state:
+
+- *State strata*: recent eval trajectory (own blunder ≥ 10 pp win-prob within the last j
+  plies, by magnitude, vs stable trajectory; separately: opponent's recent blunder — the
+  windfall/relaxation case), and clock remaining/increment.
+- *Measurement*: per band, move-choice deltas (agreement with Stockfish best; KL from the
+  band's baseline Maia policy) and next-move error-rate deltas between strata, on the
+  *same* Zobrist-identical positions.
+- *Headline output*: the **post-own-blunder degradation curve** — extra error probability
+  (magnitude) × how many plies it persists (duration) × band. Folklore says weaker
+  players tilt harder and longer; nobody has the curve.
+
+**(c) How it enters the evaluator.** State features h = (recent own eval swing, plies
+since it, clock pressure) join the load features as modifiers of candidate breadth and
+expectimax temperature: the tree's coefficients become functions of (R, load(s), h).
+And one honest UX consequence: **a history-dependent eval needs the GAME, not just the
+position.** On our analyze board and in the tournament viewer the game tree supplies the
+history, so Eval_R can carry the story-arch term; for a bare pasted FEN there is no
+story, the evaluator falls back to h = neutral (position-only prior), and the UI must say
+which mode it is in rather than silently pretending the two are the same number.
+
+### 5.3 Status of the two pillars
+
+These are tier-2 coefficients gated on the mining corpus, not tier-1 blockers — tier 1
+ships with p0(R) flat and h neutral. But they are first-class design commitments, not
+future footnotes: the experiments are specified now, they run on infrastructure that
+already exists, each is a novel measurable result on its own, and the evaluator's claim
+to be *psychological* rather than an engine blend rests on them landing.
+
+## 6. Performance budget
 
 Grounded in the measured 13 ms warm policy query (§2.2). Costs are per (position, R).
 
@@ -333,9 +458,9 @@ inference (ONNX/candle, thousands of forwards/s batched on Metal) or the value-h
 shortcut (1 forward). This cost asymmetry is a large part of why (ii) is tier-1. Offline
 (E5) rollouts in Python on the corpus are fine.
 
-## 6. Risks and honest limitations
+## 7. Risks and honest limitations
 
-### 6.1 The 2000–2700 gap (biggest product risk)
+### 7.1 The 2000–2700 gap (biggest product risk)
 Maia-1 tops out at **1900**. The user's headline story ends at 2650. Options, in order of
 preference:
 1. **Verify Maia-2/Maia-3 conditioning ranges** (Maia-2's skill-aware attention and
@@ -354,7 +479,7 @@ the validated ceiling render with an "experimental" treatment; the perception cu
 out that region. Do not fake precision at 2650 — the feature's credibility rests on the
 validated middle of the slider.
 
-### 6.2 "Moves a human PLAYS" vs "resources a human SEES"
+### 7.2 "Moves a human PLAYS" vs "resources a human SEES"
 Maia's training target is the *played* move; our object is the *consideration set*. A
 2200 may see a sacrifice, calculate it, and reject it — it was visible but never played;
 conversely a move can be played on general principles without its point being seen. The
@@ -374,7 +499,7 @@ design bridges the gap three ways:
 The residual gap is stated in the UI docs: Eval_R models *practically available* moves,
 which is slightly narrower than *perceptible* ideas.
 
-### 6.3 Blitz bias
+### 7.3 Blitz bias
 Maia-1 was trained on Lichess games whose time controls skew fast (the exact filter needs
 verification from the KDD paper before we write it in user-facing docs). Implication:
 Eval_R models perception under *quick-game* conditions and will underrate what the same
@@ -382,7 +507,7 @@ player finds with 30 minutes on the clock. Mitigations: the depth schedule d(R) 
 a deliberation knob (E5 measures it); long term, corpus filtering by time control lets us
 fit a "classical correction". Stated limitation until then.
 
-### 6.4 GPL and shipping
+### 7.4 GPL and shipping
 chessgui is GPL-3.0, so GPL-3.0 Maia-1 weights and GPL lc0 are compatible outright.
 Shipping posture: **fetch-on-first-use** for weights (CSSLab release URLs, checksummed,
 cached) and detect-or-`brew install` for lc0 — nothing GPL-encumbered is added to the
@@ -390,7 +515,7 @@ cached) and detect-or-`brew install` for lc0 — nothing GPL-encumbered is added
 About panel. If the app's licensing posture ever needs to change, the Maia-3/Apache path
 exists.
 
-### 6.5 Assorted
+### 7.5 Assorted
 - **lc0 version drift**: old-format SE-ResNet nets have loaded for years, but pin/probe
   the lc0 version at spawn and fail loudly (verified working: 0.31.2; formula stable:
   0.32.1).
@@ -403,7 +528,7 @@ exists.
 - **Validation contamination** (§4): enforce the post-2019 game filter in every
   experiment; it's the kind of leak that silently manufactures a positive E1.
 
-## 7. Summary of recommendations
+## 8. Summary of recommendations
 
 | Question | Recommendation |
 |---|---|
@@ -411,5 +536,6 @@ exists.
 | Perspective | Both sides at R, one slider, White-POV display; asymmetric R deferred to tier 3. |
 | Inference | lc0 subprocess + Maia-1 nets over UCI (`VerboseMoveStats`, `nodes=1`), warm per-band pool. Verified end-to-end on this machine: 13 ms warm/query. No Python/ONNX in the shipped app for tiers 0–1. |
 | Instant tier | Single-forward blend: weight SF eval by the Maia-R policy mass on SF's PV move; ~15 ms per slider stop. |
-| Validation | E1 outcome-prediction head-to-head (Brier, per band, complexity-stratified) is the killer experiment; E3 jump audit validates the perception curve; E2 ties divergence to real human error. Player-disjoint, post-2019 splits. |
+| Psychology coefficients | Attention load (E-attention: matched-pair mining via action-zone local Zobrist, bystander dose-response) and story-arch state (E-history: same-position/different-history via the existing `db.rs` Zobrist index, post-blunder degradation curve) modulate candidate breadth and expectimax temperature per node — measured laws, not Maia interpolation. Tier-2, corpus-gated; history term needs game context and degrades to position-only on bare FENs. |
+| Validation | E1 outcome-prediction head-to-head (Brier, per band, complexity-stratified) is the killer experiment; E-attention and E-history follow immediately (they supply the tier-2 coefficients and are novel results standalone); E3 jump audit validates the perception curve; E2 ties divergence to real human error. Player-disjoint, post-2019 splits. |
 | Biggest risk | Rating coverage above 1900. Verify Maia-2/3 ranges; label high stops experimental; never fake the 2650 number. |

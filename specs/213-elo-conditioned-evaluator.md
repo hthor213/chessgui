@@ -27,6 +27,24 @@ which moves those are is Maia (per-band human move models, U. Toronto); the engi
 scores the resulting human-visible tree is Stockfish. Full definition candidates, the
 recommendation, and the validation program live in the design doc.
 
+Two psychological pillars make this a *human* eval rather than an engine blend (design
+doc §5 — measured on the mining corpus, they become the tree's tuning coefficients):
+
+1. **Attention — the confusing knight.** Ten pieces battle on one flank; one objectively
+   inert piece sits far away. Stockfish calculates through it instantly; a human's
+   move-finding degrades — the bystander consumes attention just by existing. With
+   4.8×10^44 positions you can't tabulate perception; you measure the *law*
+   (matched-pair mining: same local battleground ± distant inert material, dose-response
+   by bystander count/type/distance) and let it narrow the candidate set under
+   perceptual load.
+2. **Story-arch — chess is a REST API, humans are not.** Identical position, identical
+   best move — but the player who just lost a piece a move ago is in "crap, I need to
+   fix it" mode and plays it differently. Same-position-different-history pairs (a
+   query, thanks to the existing Zobrist position index) yield the post-blunder
+   degradation curve per band; recent eval swing and clock become state modifiers. One
+   consequence: the full Eval_R wants the *game*, not just the FEN — a bare pasted
+   position falls back to position-only mode, and the UI says which mode it's showing.
+
 ## What the User Sees
 
 ### Rating slider
@@ -66,7 +84,7 @@ the refutation enters human sight — a strictly stronger statement than "blunde
 |------|-----------|---------|------|
 | **0 — Instant blend** | Single Maia-R forward pass: how much policy mass does rating R put on Stockfish's line? Blend SF eval toward a no-resource baseline accordingly. Slider is fully live. | ~15 ms/stop | lc0 + Maia weights present |
 | **1 — Human-visible tree** | Restricted search: each node's candidates = top-p mass of the Maia-R policy, leaves scored by Stockfish. Produces the real +1.2 → +3.1 jump semantics. Progressive display (tier-0 instantly, tier-1 refines in). | 1–4 s/stop, background sweep for the curve | tier 0 |
-| **2 — Validated calibration** | Eval_R calibrated to win-prob on the mining corpus (killer experiment E1 in the design doc); perception curve annotated with confidence; tournament/212 integration. | — | mining corpus |
+| **2 — Validated calibration + psychology coefficients** | Eval_R calibrated to win-prob on the mining corpus (killer experiment E1 in the design doc); perceptual-load (E-attention) and history/state (E-history) coefficients modulate candidate breadth per node; perception curve annotated with confidence; tournament/212 integration. | — | mining corpus |
 | **3 — High bands + asymmetry** | Maia-2/Maia-3 path for 2100–2700; optional two sliders (R_white ≠ R_black). | — | tier 2 results |
 
 ## Runtime Dependencies
@@ -119,4 +137,11 @@ the refutation enters human sight — a strictly stronger statement than "blunde
 - [ ] Killer experiment E1 (outcome prediction vs Stockfish eval on held-out R-vs-R
       corpus games) run and written up; tier-1 hyperparameters (p, depth, caps) frozen
       from E5 ablations
+- [ ] E-attention (design doc §5.1): action-zone local-Zobrist matched-pair mining on
+      the corpus; bystander dose-response curves per band → perceptual-load
+      coefficients for candidate breadth
+- [ ] E-history (design doc §5.2): same-position/different-history query via the
+      Zobrist position index; post-own-blunder degradation curve (magnitude × duration
+      × band) → state modifiers; analyze board passes game history, bare-FEN mode
+      degrades to position-only with a UI indicator
 - [ ] Spec review with user after tier-1 + E1 results
