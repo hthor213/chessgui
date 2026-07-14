@@ -1,4 +1,5 @@
 pub mod cbh;
+pub mod calibration;
 pub mod db;
 mod uci;
 mod vision;
@@ -39,6 +40,8 @@ pub fn run() {
             db::db_get_game,
             db::db_delete_games,
             db::db_stats,
+            calibration::calibration_sample,
+            calibration::calibration_save_results,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

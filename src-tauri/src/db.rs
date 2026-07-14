@@ -29,7 +29,7 @@ use shakmaty::fen::Fen;
 use shakmaty::packed::PackedUciMove;
 use shakmaty::uci::UciMove;
 use shakmaty::zobrist::Zobrist64;
-use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Position};
+use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Move, Position, Role};
 use std::ops::ControlFlow;
 
 /// Default upper bound on how many mainline plies of each game get indexed into
@@ -114,6 +114,31 @@ pub struct PositionHit {
 pub struct DbStats {
     pub games: i64,
     pub positions: i64,
+}
+
+/// A candidate position drawn from the `positions` index for the Eval
+/// Calibration sampler (spec 213). The game's packed mainline is replayed to
+/// `ply` and the cheap, engine-free features the sampler stratifies and filters
+/// on are precomputed here. `fen` is the full FEN (with move counters). Only
+/// standard-start games are sampled — positions indexed from a `[FEN]` tag can't
+/// be replayed from the packed mainline alone and are skipped.
+#[derive(Debug, Clone, Serialize)]
+pub struct SampledPosition {
+    pub game_id: i64,
+    pub ply: i64,
+    pub fen: String,
+    /// Side to move is in check (excluded by the sampler — forced play, not a
+    /// clean evaluation exercise).
+    pub in_check: bool,
+    /// Material balance in points (P1 N3 B3 R5 Q9), White minus Black.
+    pub material: i32,
+    /// Non-pawn material phase weight (N/B=1, R=2, Q=4, both colours summed;
+    /// 24 at the start). Drives the middlegame/endgame split.
+    pub phase: u32,
+    /// A capture landed within ±2 plies of this position (a tactically noisy
+    /// window the sampler avoids).
+    pub near_capture: bool,
+    pub zobrist: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -826,6 +851,121 @@ impl Db {
             .query_row("SELECT COUNT(*) FROM positions", [], |r| r.get(0))?;
         Ok(DbStats { games, positions })
     }
+
+    /// Draw up to `limit` random positions with `ply >= min_ply` from the
+    /// position index, replaying each from its game's packed mainline and
+    /// precomputing the features the calibration sampler stratifies on. The
+    /// single `ORDER BY RANDOM()` scan is why this is called once for a whole
+    /// candidate pool rather than per accepted position. Non-replayable
+    /// (`[FEN]`-tag) games and any game whose stored mainline no longer applies
+    /// are silently skipped, so the returned count may be below `limit`.
+    pub fn sample_positions(
+        &self,
+        min_ply: i64,
+        limit: i64,
+    ) -> rusqlite::Result<Vec<SampledPosition>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT p.game_id, p.ply, g.moves \
+             FROM positions p JOIN games g ON g.id = p.game_id \
+             WHERE p.ply >= ?1 ORDER BY RANDOM() LIMIT ?2",
+        )?;
+        let raw = stmt.query_map(params![min_ply, limit], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, Vec<u8>>(2)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in raw {
+            let (game_id, ply, moves) = row?;
+            if let Some(sp) = replay_features(&moves, game_id, ply) {
+                out.push(sp);
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Replay `packed_moves` to `ply` and compute the calibration features there.
+/// Returns `None` if the mainline can't be applied that far (e.g. a game whose
+/// positions were indexed from a non-standard start), so such rows drop out of
+/// the sample rather than yielding a bogus position.
+fn replay_features(packed_moves: &[u8], game_id: i64, ply: i64) -> Option<SampledPosition> {
+    let moves: Vec<UciMove> = packed_moves
+        .chunks_exact(PackedUciMove::BYTES)
+        .map(|c| PackedUciMove::from_bytes([c[0], c[1]]).unpack())
+        .collect();
+    let ply_us = ply.max(0) as usize;
+    if ply_us > moves.len() {
+        return None;
+    }
+    let mut pos = Chess::default();
+    // Captures on the plies leading into this position.
+    let mut before_capture = false;
+    for (i, uci) in moves.iter().take(ply_us).enumerate() {
+        let m = uci.to_move(&pos).ok()?;
+        if i + 2 >= ply_us {
+            before_capture |= is_capture(&m);
+        }
+        pos.play_unchecked(m);
+    }
+
+    let fen = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
+    let in_check = pos.is_check();
+    let (material, phase) = material_and_phase(&pos);
+    let zobrist = pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0 as i64;
+
+    // Captures on the plies leading out of this position (peek forward without
+    // disturbing the snapshot above).
+    let mut after_capture = false;
+    let mut peek = pos.clone();
+    for uci in moves.iter().skip(ply_us).take(2) {
+        let m = match uci.to_move(&peek) {
+            Ok(m) => m,
+            Err(_) => break,
+        };
+        after_capture |= is_capture(&m);
+        peek.play_unchecked(m);
+    }
+
+    Some(SampledPosition {
+        game_id,
+        ply,
+        fen,
+        in_check,
+        material,
+        phase,
+        near_capture: before_capture || after_capture,
+        zobrist,
+    })
+}
+
+/// A move that removes an enemy piece (ordinary capture or en passant).
+fn is_capture(m: &Move) -> bool {
+    m.is_capture() || m.is_en_passant()
+}
+
+/// White-POV material balance in points and the non-pawn phase weight.
+fn material_and_phase(pos: &Chess) -> (i32, u32) {
+    let board = pos.board();
+    let count = |c: Color, r: Role| (board.by_color(c) & board.by_role(r)).count() as i32;
+    let points = |c: Color| {
+        count(c, Role::Pawn)
+            + 3 * count(c, Role::Knight)
+            + 3 * count(c, Role::Bishop)
+            + 5 * count(c, Role::Rook)
+            + 9 * count(c, Role::Queen)
+    };
+    let material = points(Color::White) - points(Color::Black);
+    let phase_side = |c: Color| {
+        (count(c, Role::Knight)
+            + count(c, Role::Bishop)
+            + 2 * count(c, Role::Rook)
+            + 4 * count(c, Role::Queen)) as u32
+    };
+    let phase = phase_side(Color::White) + phase_side(Color::Black);
+    (material, phase)
 }
 
 enum InsertOutcome {
@@ -1009,7 +1149,10 @@ impl DbManager {
     }
 }
 
-fn resolve_db_path(app: &tauri::AppHandle, db_path: Option<String>) -> Result<String, String> {
+pub(crate) fn resolve_db_path(
+    app: &tauri::AppHandle,
+    db_path: Option<String>,
+) -> Result<String, String> {
     use tauri::Manager;
     if let Some(p) = db_path.filter(|s| !s.is_empty()) {
         return Ok(p);

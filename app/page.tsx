@@ -16,6 +16,7 @@ import { CapturedPieces } from "@/components/captured-pieces"
 import { computeMaterial } from "@/lib/material"
 import { TournamentTab } from "@/components/tournament-tab"
 import { DatabaseTab } from "@/components/database-tab"
+import { CalibrationTab } from "@/components/calibration-tab"
 import { parsePgnToTrees } from "@/lib/pgn"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
@@ -61,6 +62,16 @@ export default function Home() {
     },
     [game.loadTree, engine.setPlayMode],
   )
+
+  // Load a bare position from the calibration results onto the analyze board.
+  const handleLoadCalibrationPosition = useCallback(
+    (fen: string) => {
+      game.loadFen(fen)
+      engine.setPlayMode(false)
+      setView("board")
+    },
+    [game.loadFen, engine.setPlayMode],
+  )
   const turn = game.fen.includes(" w ") ? ("white" as const) : ("black" as const)
 
   // Captured pieces + point balance, derived from the current node's FEN so it
@@ -73,7 +84,7 @@ export default function Home() {
   const isPlayMode = engine.state.mode === "play"
   const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
-  const [view, setView] = useState<"board" | "tournament" | "thinking" | "database">("board")
+  const [view, setView] = useState<"board" | "tournament" | "thinking" | "database" | "learn">("board")
   // Thinking mode has its own board instance; keep its size separate so the
   // hidden main board (kept mounted) can't clobber it.
   const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
@@ -461,7 +472,13 @@ export default function Home() {
                 Thinking
               </button>
             )}
-            <button className="px-3 py-1.5 text-sm text-muted-foreground/40 cursor-not-allowed rounded-md" disabled>
+            <button
+              className={`px-3 py-1.5 text-sm transition-colors rounded-md hover:bg-white/5 ${
+                view === "learn" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => setView("learn")}
+              title="Eval calibration — judge positions by eye and compare to Stockfish"
+            >
               Learn
             </button>
           </nav>
@@ -503,6 +520,13 @@ export default function Home() {
         {view === "database" && (
           <main className="flex-1 min-h-0">
             <DatabaseTab currentFen={game.fen} onLoadGame={handleLoadFromDatabase} />
+          </main>
+        )}
+
+        {/* Learn view — eval calibration. Mounted only when active. */}
+        {view === "learn" && (
+          <main className="flex-1 min-h-0">
+            <CalibrationTab onLoadPosition={handleLoadCalibrationPosition} />
           </main>
         )}
 

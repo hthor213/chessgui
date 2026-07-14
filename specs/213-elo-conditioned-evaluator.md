@@ -111,6 +111,27 @@ the refutation enters human sight — a strictly stronger statement than "blunde
 
 ## Checklist
 
+### Phase 0 — Human ground-truth collection (Eval Calibration)
+The design's validation program (§4/§5) needs real human evals at a known level to
+compare against Stockfish. The **Eval Calibration** feature (Learn view) collects them:
+show a stratified set of positions, elicit the user's perceived eval + reasoning +
+optional move, and score them against Stockfish. Files are the research artifact.
+- [x] `calibration.rs` sampler: stratified (|SF eval| band × phase) random positions
+      from the games DB, ply ≥ 16, check-excluded, capture-window-excluded, Zobrist-
+      deduped; scored by local Stockfish (500 ms, MultiPV 2). `calibration_sample` /
+      `calibration_save_results` commands; JSON artifacts under `app_data_dir/calibration`.
+      Schema in `docs/research/calibration-data-format.md`. Real-DB smoke (n=20): 48 s
+      (~2.4 s/pos), fills the eval bands.
+- [x] Learn UI (`components/calibration-tab.tsx`): intro → per-position (White-bottom
+      board, eval input, why, optional move) → results (user-vs-SF scatter, Pearson,
+      MAE, per-band table, best-move hit rate, biggest misses → analyze board);
+      incremental localStorage persistence + unfinished-session resume. Verified headless.
+- [ ] **Coverage gap (honest):** the position index caps at ply 40, so true endgames
+      and many `3+` positions aren't sampleable from it — sessions come out
+      middlegame-heavy. Widening needs a deeper index or an endgame-seeded pool.
+- [ ] Collect a real self-rated session (user is the ~1300/1650-puzzle datapoint) and
+      fold it into the E1 corpus once the evaluator exists.
+
 ### Phase 1 — Inference plumbing
 - [ ] `maia.rs`: lc0 process management (spawn with `--weights`, warm pool with LRU over
       bands), `VerboseMoveStats` policy parsing, `(fen, R) → Vec<(move, prob)>` API
