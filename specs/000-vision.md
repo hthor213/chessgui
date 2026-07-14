@@ -99,6 +99,10 @@ Not another puzzle site clone — decks built from OUR data:
 - Avoidance puzzles ("don't step on the rake") mined from the banded corpus — spec:211
 - Calibration decks stratified by training value (conversion, critical, endgame, level) — the Learn tab's sampler v3
 - Failed-puzzle respawn (spaced-repetition hook), streaks, per-deck stats
+- "Play it out": hand any training position to play-vs-engine and convert it to a result —
+  perceiving +2 and converting +2 are different skills. Endgame decks train the distinct
+  skill class (counting, king activity, passed-pawn technique), not just endgame tactics
+- Opening-rake decks: "don't be -1 by move 10" — the sub-1900 form of opening training
 - Difficulty from real band miss-rates once the mining data exists, not hand-tuned ratings
 
 ### 9. Game Review & Mistake Analysis
@@ -107,6 +111,8 @@ commit your own eval and reasoning first, then see the evidence. This is the Lea
 - Eval-calibration sessions with the AI coach (note → rebuttal → reply dialogue) — spec:213 Phase 0
 - Cause-tagged mistake taxonomy (the machine-labeled per-player error signature)
 - Import your own games (Lichess/chess.com) and review them under the same discipline
+- Opening leak detection: which openings do YOU repeatedly bleed in (own-games data)
+- Plan elicitation: state the plan before the eval; the coach grades plan direction vs the engine line
 - Per-phase/per-deck skill tracking over time; Elo-conditioned "visible from ~R" mistake labels — spec:212/213
 
 ## Principles

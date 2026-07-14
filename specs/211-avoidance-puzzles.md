@@ -115,3 +115,13 @@ LAST_SESSION entry.
 - [ ] Session flow + streak/score, failed-puzzle respawn (spaced repetition hook)
 - [ ] Tier-2: band miss-rate difficulty once mining data exists
 - [ ] Tier-3: feature-filtered decks; "from your own games" mode
+- [ ] "Play it out" (2026-07-14): from any puzzle/calibration position — especially
+      conversion and endgame decks — hand the position to play-vs-engine and play it to a
+      result; score conversion rate vs the position's expected score. Perceiving +2 and
+      converting +2 are different skills (the per-player perception-vs-conversion gap from
+      spec:213, as a training loop). Endgame decks add technique coaching hooks: counting,
+      king activity, passed-pawn escort (coach tag endgame_technique exists).
+- [ ] Opening-rake decks (2026-07-14): early-game eval cliffs — at sub-1900 the opening
+      goal is "don't be -1 by move 10", not prep; pairs with an opening-leak report over
+      the user's own imported games (module 9). No repertoire trainer — evidence says that
+      hour belongs to tactics/review below ~1900 (docs/research/chessbase-usage-research.md).

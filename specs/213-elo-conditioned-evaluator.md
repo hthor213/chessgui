@@ -227,6 +227,12 @@ optional move, and score them against Stockfish. Files are the research artifact
       so the coach can explain the tactic from data; optionally render it in the reveal. A
       prompt guard (coach.rs) now forbids positional stories for material-hanging moves in
       the meantime.
+- [ ] Plan elicitation (2026-07-14): on selected decks, before the eval, also ask "what's
+      the plan for the side to move?" (one line, e.g. "queenside minority attack" /
+      "trade into the pawn endgame"). The coach grades plan DIRECTION against the engine
+      PV, separately from the eval number — measures wrong_plan_priority directly instead
+      of inferring it, and captures "how do tactics serve the plan" reasoning. Optional
+      plan-B field. Richer labeling data than eval+why alone.
 - [ ] Range elicitation (from calibration session 2026-07-14): replace point-value quick
       buttons with log-spaced RANGES (+0.1–0.3, 0.3–0.6, 0.6–1.0, 1–2, 2–4, 4+ and mirrored),
       matching Weber-Fechner discrimination — nobody distinguishes 1.6 from 1.8, and forcing
