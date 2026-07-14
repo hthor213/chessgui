@@ -257,6 +257,36 @@ export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
   }
 }
 
+/**
+ * Build the coach's input from a locked answer + its position. Tolerates v1
+ * sessions still live in localStorage: their positions predate `to_move` and
+ * the other v2 game-context fields, and Rust's `CoachInput` requires `to_move`
+ * — a dropped-undefined key fails the whole invoke before any API call. The
+ * FEN always carries the side to move, so derive it from there, and send
+ * explicit nulls for the v2-only fields.
+ */
+export function coachInputFor(answer: CalibrationAnswer, position: CalibrationPosition): CoachInput {
+  return {
+    fen: position.fen,
+    to_move: position.fen.split(" ")[1] === "b" ? "black" : "white",
+    sf_cp: position.sf_cp,
+    sf_mate: position.sf_mate,
+    sf_best_san: position.sf_best_san,
+    sf_best_uci: position.sf_best_uci,
+    multipv_gap_cp: position.multipv_gap_cp,
+    material: position.material,
+    user_eval: answer.eval,
+    user_why: answer.why ?? "",
+    user_move_uci: answer.move_uci ?? null,
+    revised_eval: answer.revised_eval ?? null,
+    revision_note: answer.revision_note ?? null,
+    played_san: position.played_san ?? null,
+    continuation_san: position.continuation_san ?? null,
+    white_elo: position.white_elo ?? null,
+    black_elo: position.black_elo ?? null,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Command wrappers
 // ---------------------------------------------------------------------------

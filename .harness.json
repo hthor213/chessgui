@@ -1,6 +1,6 @@
 {
-  "phase": "started",
-  "started_at": "2026-04-01T08:20:35.284181+00:00",
+  "phase": "working",
+  "started_at": "2026-07-14T14:06:47.475539+00:00",
   "branch": "main",
   "active_specs": [
     "000",
@@ -14,5 +14,5 @@
   "focus": "",
   "gates_passed": {},
   "artifacts": [],
-  "last_transition": "2026-04-01T08:20:35.284181+00:00"
+  "last_transition": "2026-07-14T14:06:47.475704+00:00"
 }

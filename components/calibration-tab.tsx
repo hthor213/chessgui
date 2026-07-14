@@ -22,6 +22,7 @@ import {
   sampleSession,
   saveResults,
   coachFeedback,
+  coachInputFor,
   normalizeAnswer,
   RESULTS_VERSION,
   MIN_PHASE_N,
@@ -923,29 +924,6 @@ function SecondLookCard({
       </div>
     </div>
   )
-}
-
-/** Build the coach's input from a locked answer + its position. */
-function coachInputFor(answer: CalibrationAnswer, position: CalibrationPosition): CoachInput {
-  return {
-    fen: position.fen,
-    to_move: position.to_move,
-    sf_cp: position.sf_cp,
-    sf_mate: position.sf_mate,
-    sf_best_san: position.sf_best_san,
-    sf_best_uci: position.sf_best_uci,
-    multipv_gap_cp: position.multipv_gap_cp,
-    material: position.material,
-    user_eval: answer.eval,
-    user_why: answer.why,
-    user_move_uci: answer.move_uci,
-    revised_eval: answer.revised_eval,
-    revision_note: answer.revision_note,
-    played_san: position.played_san,
-    continuation_san: position.continuation_san,
-    white_elo: position.white_elo,
-    black_elo: position.black_elo,
-  }
 }
 
 /** Post-answer feedback: shown only after the answer is locked (so it can't

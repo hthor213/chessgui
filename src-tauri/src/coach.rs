@@ -287,6 +287,36 @@ mod tests {
         }
     }
 
+    /// The wire shape the frontend sends for a v1 calibration session (no v2
+    /// game context — coachInputFor derives to_move from the FEN and sends
+    /// explicit nulls). A required field missing here fails the whole invoke
+    /// before any API call, which the UI shows as "request failed".
+    #[test]
+    fn deserializes_v1_session_wire_payload() {
+        let wire = json!({
+            "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
+            "to_move": "black",
+            "sf_cp": 35,
+            "sf_mate": null,
+            "sf_best_san": "Nf6",
+            "sf_best_uci": "g8f6",
+            "multipv_gap_cp": 20,
+            "material": 0,
+            "user_eval": 0.5,
+            "user_why": "developing",
+            "user_move_uci": null,
+            "revised_eval": null,
+            "revision_note": null,
+            "played_san": null,
+            "continuation_san": null,
+            "white_elo": null,
+            "black_elo": null
+        });
+        let input: CoachInput = serde_json::from_value(wire).expect("v1 wire payload must deserialize");
+        assert_eq!(input.to_move, "black");
+        assert!(input.played_san.is_none());
+    }
+
     #[test]
     fn request_is_forced_strict_tool_call_on_opus() {
         let req = build_request(&sample_input());

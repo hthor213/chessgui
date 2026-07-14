@@ -9,7 +9,7 @@ import {
   groupStats,
   formatPawns,
 } from "@/lib/calibration-stats"
-import { normalizeAnswer } from "@/lib/calibration"
+import { normalizeAnswer, coachInputFor } from "@/lib/calibration"
 import type {
   CalibrationAnswer,
   CalibrationPosition,
@@ -275,5 +275,48 @@ describe("formatPawns", () => {
     expect(formatPawns(1.5)).toBe("+1.5")
     expect(formatPawns(-0.7)).toBe("-0.7")
     expect(formatPawns(0.02)).toBe("0")
+  })
+})
+
+describe("coachInputFor — v1 session tolerance", () => {
+  // A stored v1 position: no to_move, played_*, continuation_san, or Elo fields.
+  // Rust's CoachInput requires to_move, so sending undefined (dropped by JSON)
+  // made every coach invoke fail with "missing field `to_move`".
+  const v1Position = {
+    fen: "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
+    sf_cp: 35,
+    sf_mate: null,
+    sf_best_uci: "g8f6",
+    sf_best_san: "Nf6",
+    multipv_gap_cp: 20,
+    material: 0,
+    band: "0-0.5",
+    phase: "middlegame",
+    game_id: 1,
+    ply: 6,
+  } as unknown as CalibrationPosition
+
+  it("derives to_move from the FEN when the stored position predates the field", () => {
+    const input = coachInputFor(ans({ why: "developing" }), v1Position)
+    expect(input.to_move).toBe("black")
+    const white = coachInputFor(ans({}), { ...v1Position, fen: "8/8/8/8/8/8/8/8 w - - 0 1" })
+    expect(white.to_move).toBe("white")
+  })
+
+  it("survives a JSON round-trip with every Rust-required field present", () => {
+    const wire = JSON.parse(JSON.stringify(coachInputFor(ans({ why: "x" }), v1Position)))
+    for (const k of ["fen", "to_move", "user_why"]) expect(k in wire).toBe(true)
+    // v2-only fields become explicit nulls, never dropped keys.
+    expect(wire.played_san).toBeNull()
+    expect(wire.continuation_san).toBeNull()
+    expect(wire.white_elo).toBeNull()
+    expect(wire.black_elo).toBeNull()
+  })
+
+  it("passes v2 fields through when present", () => {
+    const input = coachInputFor(ans({}), pos({ played_san: "e4", white_elo: 1900 }))
+    expect(input.played_san).toBe("e4")
+    expect(input.white_elo).toBe(1900)
+    expect(input.to_move).toBe("white")
   })
 })
