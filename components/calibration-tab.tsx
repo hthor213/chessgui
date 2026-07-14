@@ -773,7 +773,10 @@ function AnsweringScreen({
           <span>
             Position {index + 1} <span className="text-muted-foreground">of {total}</span>
           </span>
-          {position.deck && (
+          {/* Deck chip only AFTER the answer is locked (reveal/second-look):
+              during answering it would anchor — "level" literally says the
+              eval is near zero, "conversion" says there's a real advantage. */}
+          {position.deck && (reveal || secondLook) && (
             <span
               data-testid="calib-deck"
               className="px-1.5 py-0.5 rounded text-[11px] font-normal capitalize bg-white/10 text-muted-foreground"
