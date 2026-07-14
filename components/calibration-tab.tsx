@@ -30,7 +30,7 @@ import {
   type CalibrationSession,
   type PhaseStat,
 } from "@/lib/calibration"
-import { summarize, scoredAnswers, formatPawns, type Scored } from "@/lib/calibration-stats"
+import { summarize, scoredAnswers, sfEvalPawns, formatPawns, type Scored } from "@/lib/calibration-stats"
 
 const Board = dynamic(() => import("@/components/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -46,6 +46,14 @@ interface Saved {
   session: CalibrationSession
   answers: CalibrationAnswer[]
   index: number
+  /** Session-level reveal setting; older saves omit it (default shown). */
+  showReveal?: boolean
+}
+
+/** A locked answer paired with its position, for the post-answer reveal card. */
+interface Reveal {
+  answer: CalibrationAnswer
+  position: CalibrationPosition
 }
 
 interface CalibrationTabProps {
@@ -115,6 +123,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const [why, setWhy] = useState("")
   const [moveUci, setMoveUci] = useState<string | null>(null)
   const [timeExcluded, setTimeExcluded] = useState(false)
+  // Session-level: show the post-answer reveal card, or run blind (no feedback
+  // between positions — methodologically distinct data).
+  const [showReveal, setShowReveal] = useState(true)
+  // The just-locked answer being revealed, or null when answering.
+  const [revealed, setRevealed] = useState<Reveal | null>(null)
   // Position-shown time (elapsed clock) and first-interaction time (think clock).
   const startedAt = useRef<number>(Date.now())
   const firstInteractionAt = useRef<number | null>(null)
@@ -143,13 +156,19 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     }
   }, [])
 
-  const persist = useCallback((s: CalibrationSession, a: CalibrationAnswer[], i: number) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ session: s, answers: a, index: i }))
-    } catch {
-      /* storage full / unavailable — the session still runs in memory */
-    }
-  }, [])
+  const persist = useCallback(
+    (s: CalibrationSession, a: CalibrationAnswer[], i: number, sr: boolean) => {
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ session: s, answers: a, index: i, showReveal: sr }),
+        )
+      } catch {
+        /* storage full / unavailable — the session still runs in memory */
+      }
+    },
+    [],
+  )
 
   const clearStorage = useCallback(() => {
     try {
@@ -180,20 +199,23 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       setSession(s)
       setAnswers([])
       setIndex(0)
+      setRevealed(null)
       resetInputs()
       setPhase("answering")
-      persist(s, [], 0)
+      persist(s, [], 0, showReveal)
     } catch (e) {
       setError(String(e))
       setPhase("intro")
     }
-  }, [size, persist, resetInputs])
+  }, [size, persist, resetInputs, showReveal])
 
   const continueSaved = useCallback(() => {
     if (!resume) return
     setSession(resume.session)
     setAnswers(resume.answers)
     setIndex(resume.index)
+    setShowReveal(resume.showReveal ?? true)
+    setRevealed(null)
     resetInputs()
     setPhase("answering")
   }, [resume, resetInputs])
@@ -213,6 +235,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         const path = await saveResults({
           version: RESULTS_VERSION,
           finished_at: Date.now(),
+          show_reveal: showReveal,
           session: s,
           answers: finalAnswers,
           summary,
@@ -222,7 +245,25 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         setError(String(e))
       }
     },
-    [clearStorage],
+    [clearStorage, showReveal],
+  )
+
+  // Advance to the next position (or finish). Shared by the no-reveal path and
+  // the reveal card's Continue button.
+  const advance = useCallback(
+    (finalAnswers: CalibrationAnswer[]) => {
+      if (!session) return
+      setRevealed(null)
+      const nextIndex = index + 1
+      if (nextIndex >= session.positions.length) {
+        finish(finalAnswers, session)
+        return
+      }
+      setIndex(nextIndex)
+      resetInputs()
+      persist(session, finalAnswers, nextIndex, showReveal)
+    },
+    [session, index, finish, resetInputs, persist, showReveal],
   )
 
   const submit = useCallback(
@@ -230,6 +271,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       if (!session || !current) return
       const parsed = parseFloat(evalInput)
       const now = Date.now()
+      // answer_locked_at is stamped HERE, before any reveal renders — the
+      // reveal provably cannot influence the committed answer.
       const answer: CalibrationAnswer = {
         index,
         eval: skipped || Number.isNaN(parsed) ? null : parsed,
@@ -241,23 +284,28 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
             ? null
             : firstInteractionAt.current - startedAt.current,
         time_excluded: timeExcluded,
+        answer_locked_at: now,
         skipped,
       }
       const nextAnswers = [...answers.filter((a) => a.index !== index), answer].sort(
         (a, b) => a.index - b.index,
       )
       setAnswers(nextAnswers)
+      // Persist immediately at the locked index so a crash mid-reveal never
+      // loses the answer (resume lands on the next position).
       const nextIndex = index + 1
-      if (nextIndex >= session.positions.length) {
-        finish(nextAnswers, session)
-        return
+      persist(session, nextAnswers, nextIndex, showReveal)
+      if (showReveal) {
+        // Answer is locked; show feedback, then advance on Continue.
+        setRevealed({ answer, position: current })
+      } else {
+        advance(nextAnswers)
       }
-      setIndex(nextIndex)
-      resetInputs()
-      persist(session, nextAnswers, nextIndex)
     },
-    [session, current, evalInput, why, moveUci, timeExcluded, index, answers, finish, resetInputs, persist],
+    [session, current, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, advance],
   )
+
+  const onContinueReveal = useCallback(() => advance(answers), [advance, answers])
 
   // Input setters that also stop the think clock on first use.
   const onEvalChange = useCallback(
@@ -278,10 +326,23 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const canSubmit = evalInput.trim() !== "" && !Number.isNaN(parseFloat(evalInput))
 
   const legalMoves = useMemo(() => (current ? legalDests(current.fen) : new Map<Key, Key[]>()), [current])
+  const arrow = (uci: string, brush: string): DrawShape => ({
+    orig: uci.slice(0, 2) as Key,
+    dest: uci.slice(2, 4) as Key,
+    brush,
+  })
+  // While answering: the user's own move (green). While revealing: their move
+  // (green) plus Stockfish's best (blue), for a side-by-side compare.
   const moveShapes = useMemo<DrawShape[]>(() => {
-    if (!moveUci) return []
-    return [{ orig: moveUci.slice(0, 2) as Key, dest: moveUci.slice(2, 4) as Key, brush: "green" }]
-  }, [moveUci])
+    if (revealed) {
+      const shapes: DrawShape[] = []
+      if (revealed.answer.move_uci) shapes.push(arrow(revealed.answer.move_uci, "green"))
+      const best = revealed.position.sf_best_uci
+      if (best && best.length >= 4) shapes.push(arrow(best, "blue"))
+      return shapes
+    }
+    return moveUci ? [arrow(moveUci, "green")] : []
+  }, [revealed, moveUci])
 
   const onBoardMove = useCallback(
     (from: Key, to: Key) => {
@@ -310,6 +371,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         <IntroScreen
           size={size}
           setSize={setSize}
+          showReveal={showReveal}
+          setShowReveal={setShowReveal}
           onStart={start}
           error={error}
         />
@@ -345,6 +408,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           canSubmit={canSubmit}
           timeExcluded={timeExcluded}
           onToggleTimeExcluded={() => setTimeExcluded((v) => !v)}
+          reveal={revealed}
+          onContinueReveal={onContinueReveal}
           onNext={() => submit(false)}
           onSkip={() => submit(true)}
         />
@@ -376,11 +441,15 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
 function IntroScreen({
   size,
   setSize,
+  showReveal,
+  setShowReveal,
   onStart,
   error,
 }: {
   size: number
   setSize: (n: number) => void
+  showReveal: boolean
+  setShowReveal: (b: boolean) => void
   onStart: () => void
   error: string | null
 }) {
@@ -429,6 +498,22 @@ function IntroScreen({
             ))}
           </div>
         </div>
+        <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showReveal}
+            onChange={(e) => setShowReveal(e.target.checked)}
+            data-testid="calib-show-reveal"
+            className="mt-0.5 accent-emerald-500"
+          />
+          <span>
+            <span className="text-foreground">Show answers after each position</span>
+            <span className="text-muted-foreground">
+              {" "}— see Stockfish&apos;s eval, best move, and what the game player did once
+              you&apos;ve committed. Turn off for a blind run.
+            </span>
+          </span>
+        </label>
         <Button onClick={onStart} size="lg" className="w-full" data-testid="calib-start">
           Start session
         </Button>
@@ -515,6 +600,8 @@ function AnsweringScreen({
   canSubmit,
   timeExcluded,
   onToggleTimeExcluded,
+  reveal,
+  onContinueReveal,
   onNext,
   onSkip,
 }: {
@@ -536,6 +623,8 @@ function AnsweringScreen({
   canSubmit: boolean
   timeExcluded: boolean
   onToggleTimeExcluded: () => void
+  reveal: Reveal | null
+  onContinueReveal: () => void
   onNext: () => void
   onSkip: () => void
 }) {
@@ -564,6 +653,7 @@ function AnsweringScreen({
             onMove={onBoardMove}
             legalMoves={legalMoves}
             autoShapes={moveShapes}
+            viewOnly={!!reveal}
             onBoardSize={setBoardSize}
           />
         </div>
@@ -578,6 +668,11 @@ function AnsweringScreen({
               {whiteToMove ? "White" : "Black"} to move
             </span>
           </div>
+
+          {reveal ? (
+            <RevealCard reveal={reveal} onContinue={onContinueReveal} />
+          ) : (
+          <>
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Your eval (pawns, + = White)</label>
@@ -653,8 +748,65 @@ function AnsweringScreen({
               </Button>
             </div>
           </div>
+          </>
+          )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Post-answer feedback: shown only after the answer is locked (so it can't
+ *  anchor the eval). Compares the user's eval to Stockfish, names the best move
+ *  and its margin, and — for v2 sessions — what the rated human actually played. */
+function RevealCard({ reveal, onContinue }: { reveal: Reveal; onContinue: () => void }) {
+  const { answer, position } = reveal
+  const sf = sfEvalPawns(position)
+  const played = playedReveal(position)
+  const gapPawns = position.multipv_gap_cp == null ? null : position.multipv_gap_cp / 100
+  return (
+    <div className="flex flex-col gap-3" data-testid="calib-reveal">
+      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2.5">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Your eval</span>
+          <span className="font-mono tabular-nums">
+            {answer.skipped || answer.eval == null ? "skipped" : formatPawns(answer.eval)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Stockfish</span>
+          <span className="font-mono tabular-nums text-foreground">{formatPawns(sf)}</span>
+        </div>
+        {!answer.skipped && answer.eval != null && (
+          <div className="flex items-center justify-between text-sm border-t border-white/10 pt-2">
+            <span className="text-muted-foreground">Off by</span>
+            <span className="font-mono tabular-nums text-amber-300">
+              {Math.abs(answer.eval - sf).toFixed(1)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Best move</span>
+          <span className="font-mono text-blue-300">{position.sf_best_san ?? position.sf_best_uci}</span>
+        </div>
+        {gapPawns != null && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Margin over 2nd</span>
+            <span className="font-mono tabular-nums text-muted-foreground">
+              {gapPawns < 0.3 ? `${gapPawns.toFixed(1)} (close)` : gapPawns.toFixed(1)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {played && <p className="text-sm text-emerald-300/90">{played}</p>}
+
+      <Button onClick={onContinue} className="w-full mt-1" data-testid="calib-continue">
+        Continue
+      </Button>
     </div>
   )
 }

@@ -49,6 +49,7 @@ function ans(over: Partial<CalibrationAnswer>): CalibrationAnswer {
     elapsed_ms: 1000,
     think_ms: 3000,
     time_excluded: false,
+    answer_locked_at: 1_000_000,
     skipped: false,
     ...over,
   }
@@ -251,6 +252,8 @@ describe("normalizeAnswer — retroactive upgrade", () => {
     const up = normalizeAnswer(old as unknown as CalibrationAnswer)
     expect(up.think_ms).toBeNull()
     expect(up.time_excluded).toBe(true)
+    // No lock timestamp on old answers → 0 (unknown), not undefined.
+    expect(up.answer_locked_at).toBe(0)
     // A current-schema answer is left as-is.
     const cur = ans({ index: 1, think_ms: 5000, time_excluded: false })
     expect(normalizeAnswer(cur).time_excluded).toBe(false)

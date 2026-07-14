@@ -94,6 +94,12 @@ export type CalibrationAnswer = {
    * Set automatically on old answers that predate think_ms.
    */
   time_excluded: boolean
+  /**
+   * Unix-ms at which the answer was locked — stamped before any post-answer
+   * reveal is rendered, so the reveal provably cannot have influenced the
+   * answer. 0 for answers that predate this field.
+   */
+  answer_locked_at: number
   skipped: boolean
 }
 
@@ -159,7 +165,15 @@ export const MIN_PHASE_N = 8
 export type CalibrationResults = {
   version: number
   finished_at: number
+  /**
+   * Whether the post-answer reveal was shown during this session. A blind
+   * session (false) is methodologically distinct data — no feedback between
+   * positions — so the mode is recorded with the artifact.
+   */
+  show_reveal: boolean
   session: CalibrationSession
+  /** Answers in presentation order (each carries its `index`), so learning /
+   *  drift effects over the session are analysable. */
   answers: CalibrationAnswer[]
   summary: CalibrationSummary
 }
@@ -188,6 +202,7 @@ export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
     ...a,
     think_ms: hasThink ? a.think_ms : null,
     time_excluded: hasThink ? a.time_excluded ?? false : true,
+    answer_locked_at: a.answer_locked_at ?? 0,
   }
 }
 

@@ -80,13 +80,20 @@ bucket on but now at least appear.)
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "finished_at": 1736808600000,    // unix ms
+  "show_reveal": true,             // was the post-answer reveal shown (vs a blind run)?
   "session": CalibrationSession,   // the full session (embedded)
   "answers": [ CalibrationAnswer, ... ],
   "summary": CalibrationSummary
 }
 ```
+
+`show_reveal` records whether the user saw Stockfish's answer after each
+position. A **blind** session (`false`) is methodologically distinct data — no
+between-position feedback, so no within-session learning — and analysis should
+segregate the two. When `true`, `answer_locked_at` on each answer guarantees the
+eval was committed before the reveal was visible.
 
 ### `CalibrationAnswer`
 
@@ -101,7 +108,11 @@ One per position the user reached (in session order).
 | `elapsed_ms` | int            | Wall time from position-shown to submit (includes typing). |
 | `think_ms`   | int \| null    | Think time: position-shown → first interaction (first keystroke or board move). The meaningful metric — typing time is not thinking time. `null` if never interacted, or for answers that predate this field. |
 | `time_excluded` | bool        | The user asked not to count their time here (distracted), or the answer predates `think_ms`. The answer still counts for eval accuracy; only time analysis ignores it. |
+| `answer_locked_at` | int         | Unix-ms the answer was committed — stamped *before* any post-answer reveal renders, so the reveal provably could not have influenced the answer. `0` for answers predating this field. |
 | `skipped`    | bool           | True if the user skipped rather than answered. |
+
+Answers are listed in **presentation order** and each carries its `index`, so
+learning / drift effects over a session are analysable.
 
 Answers written before `think_ms` existed are upgraded on load: `think_ms` → `null`,
 `time_excluded` → `true` (a distracted early session must not pollute the timing
