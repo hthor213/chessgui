@@ -84,6 +84,10 @@ def parse_args():
     p.add_argument("--require-evals", action="store_true",
                    help="Keep only games whose movetext carries [%%eval] "
                         "annotations (the mistake-mining corpus). Cuts yield.")
+    p.add_argument("--band-cap", type=int, default=0,
+                   help="Per-run cap on matched games per 100-Elo band (by the "
+                        "lower of the two players' Elos). 0 = no cap. Use for "
+                        "band-balanced mining corpora (even games per band).")
     p.add_argument("--rated-only", dest="rated_only", action="store_true",
                    default=True,
                    help="Keep only rated games (default on).")
@@ -280,6 +284,22 @@ def game_matches(headers, args):
     return True
 
 
+def min_elo_of(headers):
+    """Lower of the two players' Elos as int, or None if missing/malformed."""
+    we, be = headers.get("WhiteElo"), headers.get("BlackElo")
+    if not we or not be or we == "?" or be == "?":
+        return None
+    try:
+        return min(int(we), int(be))
+    except (ValueError, TypeError):
+        return None
+
+
+def band_of(lo_elo):
+    """100-Elo band label for a lower-Elo value, e.g. 1456 -> '1400'."""
+    return str((lo_elo // 100) * 100)
+
+
 def year_of(headers):
     """Best-effort 4-digit year from UTCDate/Date ('2024.01.31'), or 'unknown'."""
     for k in ("UTCDate", "Date"):
@@ -309,6 +329,8 @@ def main():
     seen = matched = errors = 0
     by_year = {}
     by_tc = {}
+    by_band = {}
+    band_skipped = 0
     started = time.time()
 
     # Per-game accumulation. A new game begins at a '[' header line that
@@ -321,7 +343,7 @@ def main():
 
     def flush(buf, headers):
         """Decide + (maybe) write one accumulated game. Returns True to stop."""
-        nonlocal seen, matched, errors
+        nonlocal seen, matched, errors, band_skipped
         flush.last_bytes = getattr(flush, "last_bytes", 0)
         if not headers:  # leading junk / blank noise between games
             return False
@@ -336,6 +358,13 @@ def main():
         text = "".join(buf)
         if keep and args.require_evals and "%eval" not in text:
             keep = False
+        band = None
+        if keep and args.band_cap:
+            lo = min_elo_of(headers)
+            band = band_of(lo) if lo is not None else "?"
+            if by_band.get(band, 0) >= args.band_cap:
+                band_skipped += 1
+                keep = False
         if keep:
             out.write(text)
             if not text.endswith("\n"):
@@ -346,6 +375,10 @@ def main():
             by_year[y] = by_year.get(y, 0) + 1
             tc = headers.get("TimeControl", "?")
             by_tc[tc] = by_tc.get(tc, 0) + 1
+            if band is None:
+                lo = min_elo_of(headers)
+                band = band_of(lo) if lo is not None else "?"
+            by_band[band] = by_band.get(band, 0) + 1
             if args.limit and matched >= args.limit:
                 return True
         return False
@@ -386,13 +419,16 @@ def main():
             "time_control": args.time_control,
             "min_elo": args.min_elo,
             "require_evals": args.require_evals,
+            "band_cap": args.band_cap or None,
         },
         "games_seen": seen,
         "games_matched": matched,
         "errors_malformed": errors,
+        "band_cap_skipped": band_skipped,
         "matched_by_year": dict(sorted(by_year.items())),
         "matched_by_time_control": dict(sorted(by_tc.items(),
                                                key=lambda kv: -kv[1])),
+        "matched_by_band": dict(sorted(by_band.items())),
         "limit_hit": bool(args.limit and matched >= args.limit),
         "max_input_bytes": args.max_input_bytes or None,
         "compressed_bytes_read": last_bytes,

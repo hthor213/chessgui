@@ -14,12 +14,14 @@ Two classes of pack, different homes:
   TWIC + a future ChessBase/Mega CBH import) are the heart of the reference
   DB. Keep everything — no quality filter. Stored **locally AND on the
   homeserver**.
-- **Lichess pack = homeserver-only.** Online games are bulk, so the Lichess
-  quality pack is tightened to a **20–30 GB imported DB** (see calibration
-  below) and lives only on the homeserver.
+- **Lichess packs = homeserver-only.** Online games are bulk, so they are
+  filtered into two tiers, both server-only: a **reference pack** (high Elo +
+  long TC → 20–30 GB, §3) and a larger **mining corpus** (lower Elo bands +
+  eval labels → 50–60 GB, §4) for blunder-mining. The reference pack is the
+  `elo≥2000` slice of the mining corpus (§4) — one build serves both.
 
 The homeserver holds ONE canonical everything-DB, served from there; datamining
-jobs (e.g. the mistake-mining corpus) run there too.
+jobs (e.g. the blunder-mining corpus) run there too.
 
 **Everything under `data/reference/` is staging and gitignored** (except this
 README). Downloaded dumps, packs, `.stats.json` sidecars, `lumbra/`, `twic/`,
@@ -119,10 +121,14 @@ flags:
 - `--min-elo` — required of **both** players
 - `--require-evals` — keep only games carrying `[%eval]` annotations (the
   mistake-mining corpus; also roughly halves yield)
+- `--band-cap N` — cap matched games at N per 100-Elo band (by the lower of the
+  two players' Elos), per run. For band-balanced mining corpora (even games per
+  band). 0 = off.
 - `--limit`, `--max-input-bytes` (sample the head of a huge remote month),
   `--allow-unrated`
 
-`stats.json` now also breaks matches down by `matched_by_time_control`.
+`stats.json` now also breaks matches down by `matched_by_time_control` and
+`matched_by_band`.
 
 ### Calibration (how the filter was sized)
 
@@ -173,6 +179,70 @@ done
 Resumable at month granularity; the importer dedups, so overlapping re-runs are
 safe. Requires the `zstandard` package (falls back to a `zstd`/`zstdcat`
 binary).
+
+---
+
+## 4. Lichess mining corpus (server-only, lower bands, 50–60 GB)
+
+A **second** Lichess corpus for blunder-mining: instructive mistakes live in the
+**lower Elo bands**, so the floor drops to **1400–1500** (both players), and
+`--require-evals` is ON — the `[%eval]` annotations are free blunder labels.
+Budget: a **50–60 GB** imported DB (~9–10.5 M games at 5.7 KB/game). Ideally
+roughly even games per 100-Elo band (1400–2200) for per-band miss-rate stats.
+
+### Calibration (2026-07-13, 100 MB/month heads, evals ON)
+
+| filter | est. games (full history) | est. DB |
+|---|---|---|
+| `elo≥1400` rapid | 25.1 M | ~144 GB |
+| `elo≥1400` rapid+classical | 31.0 M | ~178 GB |
+| `elo≥1400` rapid+classical+**blitz** | 218 M | ~1251 GB |
+| `elo≥1500` rapid | 21.5 M | ~123 GB |
+| `elo≥1500` rapid+classical | 26.5 M | ~152 GB |
+| `elo≥1500` rapid+classical+**blitz** | 190 M | ~1092 GB |
+
+**Every combo overshoots 50–60 GB** — the low bands are the bulk of the player
+base. Even the smallest (elo≥1500, rapid-only) is ~123 GB, ~2× over. So budget
+is met by **capping**, not by choosing floor/TC.
+
+**Blitz verdict: exclude it.** Blitz isn't needed for volume — the opposite:
+rapid/classical alone is already 2–3× over budget, and adding blitz explodes it
+to ~1100–1250 GB (7×). Blitz blunders are also noisier (time-pressure, not
+instructive). Its only merit is filling the sparse top bands (2100–2200) — which
+the reference pack already covers.
+
+**Eval-annotation rate** (evals-on ÷ evals-off, elo≥1400): **~22 % in 2019
+rising to ~33 % in 2025** for rapid+classical — much higher than the ~6–10 %
+rule of thumb. (That 6–10 % figure is the *blitz-inclusive* rate: blitz games
+are rarely analyzed, ~5–10 %.) So requiring evals at these bands only trims to
+~⅓, not ~1/10 — abundant labeled data.
+
+**Band skew** (rapid+classical, evals-on, 2025-06 sample, games per band):
+1400≈241 … 1800≈229 … 2000≈132 … 2200≈39 — a **~6× skew** (low bands dominate,
+2100–2200 thin). Above the 2–3× "band-cap advisable" threshold, so cap.
+
+### Recommended mining filter
+
+**`--min-elo 1400 --time-control "600+5,900+10,1800+0,1800+20" --require-evals
+--band-cap N`**, N tuned so the total lands ~9–10.5 M games (≈1.05–1.17 M/band).
+
+`--band-cap` does double duty: it hits the disk budget *and* flattens the 6× band
+skew. It trims the over-full **low** bands first (1400–1900); the **high** bands
+(2000–2200) are already below the cap, so they pass through untouched. `N` is
+per-run (= per-month, since history builds month-by-month); tune by running 2–3
+recent months and reading `matched_by_band` in the stats (100 MB heads only
+sampled here). Expect the 2100–2200 bands to under-fill even uncapped — top them
+up from the reference pack (below).
+
+### Relationship to the reference pack (subset-consistent)
+
+The reference pack (`elo≥2000`, same TC set, evals-on) and this mining corpus
+(`elo≥1400`, same TC set, evals-on) share **identical TC set and eval
+requirement** — they differ only in Elo floor. Because `--band-cap` trims only
+the over-full low bands, the mining corpus retains essentially all 2000+ games,
+so **the reference pack is the `elo≥2000` slice of the mining corpus**. Build
+the mining corpus once; serve the reference pack as an Elo-filtered query over
+it. One build, both corpora.
 
 ---
 
