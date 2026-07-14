@@ -140,8 +140,15 @@ export function TournamentTab({
       const raw = localStorage.getItem("chessgui-tournament-config")
       if (raw) {
         const c = JSON.parse(raw)
-        if (c.engineA) setEngineA(c.engineA)
-        if (c.engineB) setEngineB(c.engineB)
+        // Self-heal engine paths saved before the repo moved out of
+        // ~/Documents/GitHub — a stale saved path overrides the fixed
+        // default and makes every game fail at spawn.
+        const healPath = (p: unknown) =>
+          typeof p === "string"
+            ? p.replace("/Documents/GitHub/chessgui/", "/github/chessgui/")
+            : p
+        if (c.engineA) setEngineA(healPath(c.engineA) as string)
+        if (c.engineB) setEngineB(healPath(c.engineB) as string)
         if (c.mode) setMode(c.mode)
         if (c.minEval != null) setMinEval(String(c.minEval))
         if (c.maxEval != null) setMaxEval(String(c.maxEval))
