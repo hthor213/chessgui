@@ -30,5 +30,17 @@ matching (components/calibration-tab.tsx RevealCard). The real error —
   tool-call markup (`</antml...><parameter name="note">` prefix) under strict
   tool mode — watch for it; add a sanitizer in parse_response if it recurs.
 
+## Rival mode ("beat dad", 2026-07-14)
+Named-opponent prep at family scale — composes existing modules, no new dossier
+machinery: import/enter games vs one named rival → explorer filtered to them
+(their book, where each line's depth ends, which lines are objectively weakest)
+→ anti-lines: per rival opening, one sound low-theory deviation that exits their
+prep by move ~6 → rake decks mined from THEIR games → play-vs-engine sparring at
+their strength from their pet positions. User's explicit sub-goal: beat his dad
+(peak ~1850, now ~1750, ~10 deep openings, strong endgames). Allocation guidance
+from research stands: anti-lines are one cheap evening each; the transferable
+hours go to endgame conversion ("play it out"), which is also where the rival
+currently wins.
+
 ## Ideas — See spec:900
 Play vs engine (advanced), full-game analysis, multi-engine, opening repertoire, Lichess/Chess.com import, themes, FEN editor, engine tournament, tablebases, cloud sync, move sounds.
