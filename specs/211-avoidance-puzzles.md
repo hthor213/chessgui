@@ -104,6 +104,16 @@ later if the 2400+ tail proves thin); **target = 10M games** (~33 GB at the real
 alternatives and tuning tables remain in `~/chess-corpus/tune_*.out` and the 2026-07-14
 LAST_SESSION entry.
 
+**BUILT 2026-07-15: 11,008,005 games / 36.2 GB across 8 months (2025-11..2026-06),**
+all months rc=0 + self-verified, identical params. Per-band: 1400-1700 flat at 1.6M
+(cap-saturated), 1800 near-saturated 1.54M, then natural supply: 1900 1.24M, 2000 861k,
+2100 512k, 2200 275k, 2300 126k, 2400 42k, 2500 9.7k, 2600+ ~1.5k. TAIL RULE for all
+band-conditioned experiments: top usable band = 2300+ (180k) or 2400+ (54k) merged —
+2600+ is anecdote, not data. Reference slice (elo>=2000): 1,828,465 games / 6.45 GB at
+~/chess-corpus/reference/. Raw .zst kept (219 GB); server disk 294 GB free. Tier-1
+eval-cliff generator can consume ~/chess-corpus/months/*.pgn now. (Server checkout
+predates the build_reference_pack.py fix 202d5e3 — git pull there before using it.)
+
 ## Checklist
 
 - [ ] Tier-1 generator: eval-cliff scanner over the games DB (Rust, batch command)

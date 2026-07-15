@@ -65,12 +65,12 @@ from the player's real games, how often does the persona play the human's move?
 
 ## Checklist
 
-- [ ] Tier 0: rival book sampler (weighted from data/rivals PGNs) + maia_play command
+- [x] Tier 0 (2026-07-15): rival book sampler (weighted from data/rivals PGNs) + maia_play command
       (lc0, go nodes 1, level param) + "Spar vs rival" UI entry from Learn or Play
-- [ ] Fischer/Kasparov extraction from app DB → data/personas/ (gitignored is fine;
+- [x] Fischer/Kasparov (+Sigurjonsson) extraction (2026-07-15): from app DB → data/personas/ (gitignored is fine;
       public-figure games may be committed if useful)
-- [ ] Held-out eval harness: move-match@1/@3, per phase, per policy backend
+- [x] Held-out eval harness (2026-07-15, results in data/personas/HARNESS_RESULTS.md — strong-engine policy beats Maia at every tested strength; BT3 = GM-persona backend): move-match@1/@3, per phase, per policy backend
 - [ ] Persona config format + loader
-- [ ] Persona vs persona through match runner (Fischer–Kasparov exhibition)
-- [ ] Dad OTB data chase (skak.is, chess-results) — results/rating even if no moves
+- [x] Persona vs persona v0 (2026-07-15, script not match-runner): Kasparov 3.5-2.5 Fischer, data/personas/EXHIBITION.md
+- [x] Dad OTB data chase (2026-07-15): identity confirmed (KR, b.1947, FIDE 2316668, standard 1591-converted), zero recorded games — dad-sim stays chess.com-book+Maia (skak.is, chess-results) — results/rating even if no moves
 - [ ] Style priors, gated on measured move-match improvement

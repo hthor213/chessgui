@@ -55,7 +55,7 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
   lessons should feed manual adjustments (later: suggested adjustments).
 
 ## Tiers
-- **Tier 0 (first build)**: Training tab with bundled Road-to-1900 program + local
+- **Tier 0 (first build — SHIPPED 2026-07-15, c8cbdea)**: Training tab with bundled Road-to-1900 program + local
   overlay; Today view with launch/check-off for the exercise types that EXIST
   (calibration_session, spar_rival, long_game_review as external check-off); chapter
   timeline; manual metrics entry + the baseline row; milestone card with countdown.
