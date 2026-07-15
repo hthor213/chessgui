@@ -111,6 +111,12 @@ export function buildSparResult(input: {
   resultLabel: string
   plies: number
   at?: string
+  /** Explicit per-game intent (the SparConfig screen's "Counts toward
+   *  training" toggle). Omitted = the old implicit default (serious counts,
+   *  probe doesn't). A probe game is ALWAYS forced false regardless of this
+   *  value — spec 215 "probe never counts" is not overridable at record time
+   *  (matches setCountsToward's same refusal at reclassify time). */
+  countsTowardTraining?: boolean
 }): SparResultEntry | null {
   const result = resultFromLabel(input.resultLabel, input.userColor)
   if (result === null) return null
@@ -124,8 +130,9 @@ export function buildSparResult(input: {
     result,
     resultLabel: input.resultLabel,
     plies: input.plies,
-    // Declared intent: serious counts by default; probe never counts.
-    countsTowardTraining: input.mode === "serious",
+    // Declared intent: serious counts by default (or the explicit toggle
+    // value, if given); probe never counts, no matter what was passed.
+    countsTowardTraining: input.mode === "serious" ? (input.countsTowardTraining ?? true) : false,
     anomalyFlags: detectAnomalies({ result, resultLabel: input.resultLabel, plies: input.plies }),
   }
 }

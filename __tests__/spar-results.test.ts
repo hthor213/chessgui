@@ -106,6 +106,43 @@ describe("buildSparResult", () => {
     expect(e!.countsTowardTraining).toBe(false)
   })
 
+  it("honors an explicit countsTowardTraining override on a serious game (the SparConfig toggle)", () => {
+    const off = buildSparResult({
+      opponent: "Rival",
+      level: 1700,
+      mode: "serious",
+      userColor: "white",
+      resultLabel: "Checkmate — White wins",
+      plies: 50,
+      countsTowardTraining: false,
+    })
+    expect(off!.countsTowardTraining).toBe(false)
+
+    const on = buildSparResult({
+      opponent: "Rival",
+      level: 1700,
+      mode: "serious",
+      userColor: "white",
+      resultLabel: "Checkmate — White wins",
+      plies: 50,
+      countsTowardTraining: true,
+    })
+    expect(on!.countsTowardTraining).toBe(true)
+  })
+
+  it("forces a probe game's countsTowardTraining false even if the override says true (probe never counts)", () => {
+    const e = buildSparResult({
+      opponent: "Rival",
+      level: 1700,
+      mode: "probe",
+      userColor: "white",
+      resultLabel: "Checkmate — White wins",
+      plies: 50,
+      countsTowardTraining: true,
+    })
+    expect(e!.countsTowardTraining).toBe(false)
+  })
+
   it("returns null on an unparseable label", () => {
     expect(
       buildSparResult({

@@ -24,6 +24,7 @@ import { Chess } from "chessops/chess"
 import { parseFen } from "chessops/fen"
 import { chessgroundDests } from "chessops/compat"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   personaMove,
@@ -243,6 +244,11 @@ export function SparTab() {
   // on the config screen, fixed for the duration of a game.
   const [bookStartMode, setBookStartMode] = useState<BookStartMode>(DEFAULT_BOOK_START_MODE)
   const [sparMode, setSparMode] = useState<SparGameMode>(DEFAULT_SPAR_MODE)
+  // Counts-toward-training intent (spec 215, explicit override on top of
+  // buildSparResult's implicit default): picked on the config screen, fixed
+  // for the duration of the session like level/mode. Probe always forces
+  // false regardless of this value — see effectiveCountsTowardTraining below.
+  const [countsTowardTraining, setCountsTowardTraining] = useState(true)
 
   // Roster (spec 218 decision 4): built from the local rival book's load
   // state (his entry exists only when the book actually loaded, no error
@@ -368,11 +374,16 @@ export function SparTab() {
     return fen ? sparStatus(fen) : { over: false, label: null }
   }, [fen, manualEnd])
   const frozen = status.over || probeEnded
+  // Probe can never count (spec 215 hard rule) — the config screen's toggle
+  // renders disabled and forced off for probe, but this is the actual
+  // enforcement point, independent of whatever the toggle currently shows.
+  const effectiveCountsTowardTraining = sparMode === "probe" ? false : countsTowardTraining
 
   // Spar-results persistence (spec 215 Tier 1): a completed game is stored
   // locally for the Training tab's spar-score metric. Serious games count by
-  // default, probe games never count, anomalies flag but never exclude —
-  // all of that lives in the hook + lib/spar-results, not here.
+  // default (or the explicit toggle above), probe games never count,
+  // anomalies flag but never exclude — all of that lives in the hook +
+  // lib/spar-results, not here.
   useSparResultRecorder({
     active: phase === "playing",
     over: status.over,
@@ -383,6 +394,7 @@ export function SparTab() {
     userColor,
     plies: plies.length,
     gameKey: boardNonce,
+    countsTowardTraining: effectiveCountsTowardTraining,
   })
 
   // Load the book + the local private-rival configs once on mount.
@@ -719,6 +731,7 @@ export function SparTab() {
           setLevel(DEFAULT_LEVEL)
           setBookStartMode(DEFAULT_BOOK_START_MODE)
           setSide("either")
+          setCountsTowardTraining(true)
           setPhase("config")
         }}
       />
@@ -744,6 +757,8 @@ export function SparTab() {
         sparMode={sparMode}
         setSparMode={setSparMode}
         canImprove={canImprove}
+        countsTowardTraining={countsTowardTraining}
+        setCountsTowardTraining={setCountsTowardTraining}
         onStart={startGame}
         onBack={() => setPhase("roster")}
         canStart={hasBook ? !!oppBook : true}
@@ -1263,6 +1278,8 @@ function SparConfig({
   sparMode,
   setSparMode,
   canImprove,
+  countsTowardTraining,
+  setCountsTowardTraining,
   onStart,
   onBack,
   canStart,
@@ -1281,6 +1298,10 @@ function SparConfig({
   sparMode: SparGameMode
   setSparMode: (m: SparGameMode) => void
   canImprove: boolean
+  /** Spec 215: the per-game "counts toward training" intent. Probe forces
+   *  this off and the toggle renders disabled — probe can never count. */
+  countsTowardTraining: boolean
+  setCountsTowardTraining: (b: boolean) => void
   onStart: () => void
   onBack: () => void
   canStart: boolean
@@ -1435,6 +1456,29 @@ function SparConfig({
             tunes the NEXT persona iteration, not this game.
           </p>
         )}
+
+        {/* Counts-toward-training toggle (spec 215 ship-now polish): serious
+            games count by default; probe can never count, so the toggle
+            renders forced off and disabled rather than lying about it. */}
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={sparMode === "probe" ? false : countsTowardTraining}
+            onCheckedChange={setCountsTowardTraining}
+            disabled={sparMode === "probe"}
+            className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-white/15"
+            data-testid="spar-counts-toggle"
+          />
+          <span
+            className={`text-sm ${sparMode === "probe" ? "text-muted-foreground/50" : "text-muted-foreground"}`}
+            title={
+              sparMode === "probe"
+                ? "Probe games never count toward training (spec 215)."
+                : "This game's result feeds the Training tab's spar score."
+            }
+          >
+            Counts toward training
+          </span>
+        </div>
 
         <Button onClick={onStart} size="lg" className="w-full" disabled={!canStart} data-testid="spar-start">
           {canStart ? "Start game" : "Loading opening book…"}
