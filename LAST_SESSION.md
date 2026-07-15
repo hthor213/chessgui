@@ -1,5 +1,80 @@
 # Last Session
 
+**Date:** 2026-07-15 (full-day marathon: /start ~09:30 → checkpoint ~17:30; agent-team waves)
+**Focus:** "Finish building all specs, build all personas." Platform stance decided; spec 218
+born from dad-sim feedback + GPT mentor review triaged; persona engine built end-to-end;
+15-persona fleet with harness scores; Arena Tier 0 staged on the homeserver; tournament lab
+completed (round-robin, Elo, analysis suite); training loop closed. ~20 commits, all pushed;
+app installed to /Applications.
+
+## What changed
+- **Platform (000)**: macOS/web/mobile/PC all first-class; macOS stays the test build. Web
+  first via spec:217 (the dad honeypot).
+- **Spec 218 (NEW)**: Bot Roster & Exhibition Play — six user decisions recorded (caricature
+  avatars from public photos; one spec home; ship-now exhibition fidelity with honest labels;
+  roster v1 = everything; flat kind-prefixed tournament dropdown; disclosure-not-consent,
+  ToU deferred unless published). Glossary: rival/persona/bot/Participant.
+- **Persona engine (214)**: canonical 9-step move-selection contract (GPT mentor review,
+  triaged with user) + IMPLEMENTED: seeded tempered sampling over Maia/BT3 policy, SF
+  verification reweight, temperature schedule (phase; clock live in runner), endgame arm
+  (SF MultiPV at low material — dad's strength is exactly Maia's weakness), per-move decision
+  logs, persona snapshots, merge_books.py (N-source: chess.com + arena + OTB-if-found).
+  Style bias structurally OFF until the metrics harness gates it.
+- **Persona fleet**: 12 public GMs (Fischer, Kasparov, Spassky, Karpov, 8 Icelandic incl.
+  Gudmundur peak-slice) extracted + books + configs + FULL harness run (N=250: BT3
+  move-match@1 50-64%, beats maia-1900 everywhere); 3 private rivals local-only (identities
+  moved to gitignored data/rivals/identities.json after an agent hardcoded them — caught
+  pre-push, amended).
+- **Play vs Bot (ex Spar vs Dad)**: card roster, initials avatars, honesty gate
+  (gatePersonaLevel — BT3 GMs play their real books at labeled ~1900 approximation in spar;
+  full strength in Tournament), move numbers, back/forward review, counts-toward-training
+  toggle.
+- **Tournament (210/212/218)**: Participant dropdown (engines+personas, measured labels),
+  exhibition view (watch Fischer-Kasparov in-app), round-robin + Bradley-Terry Elo ± SE,
+  live streaming/buckets/conversion overlay/JSON export, full analysis suite (error profiles,
+  band trajectories, termination quality, annotated Open-in-Analyze), result persistence.
+- **Learn/Training (213/215/211)**: range elicitation (log-spaced, new sessions only),
+  per-deck results, play-it-out with conversion verdicts (endgame_playout live), spar-results
+  persistence + trajectory projection to the Florida milestone, monthly measurement pipeline
+  (self_report scripts rescued from expiring scratchpad).
+- **Arena Tier 0 (217)**: frontend /arena entry (login → family-sticker disclosure → lobby →
+  game → history) + FastAPI backend STAGED on homeserver (chessgui-arena container, loopback
+  :8017, lc0+BT3 built and sha-verified, per-move SQLite persistence, stall retry/respawn,
+  allowlist). Smoke-tested: create → move → persona reply.
+- **Mining (211)**: 20k-puzzle eval-cliff batch RUNNING on server (tmux mine211, engine
+  re-verified, ~3.7k rows in month 1 at last check). Generator + importer committed and
+  fixture-tested (23 tests).
+- **Polish (011/200/001)**: engine cleanup on quit (orphan fix), PV click preview, Lichess
+  explorer fallback, multi-DB switcher, performance ratings, ECO names, PGN import progress,
+  Cmd+O. Tick-passes reconciled 210/014/001/213 checklists with file:line evidence.
+
+## Known issues / open (user decisions + eyeballs)
+1. **Arena latency**: BT3 ≈ 10s/move at 32 nodes vs 2s budget (spec:217 notes options:
+   accept / onednn rebuild / smaller net). Then go-live steps: Caddy route, Google client ID,
+   dad's email in ARENA_ALLOWLIST.
+2. **Wave-6 workflow possibly in flight at checkpoint**: 211 rake solver UI + 214 metrics
+   harness/auto-tuning (workflow wf_f77607f5-4c5; resumable via scriptPath+resumeFromRunId if
+   the session closed before it landed — check git status for uncommitted agent work).
+3. Mining batch finishing on server → import via puzzles JSONL into app DB.
+4. USER EYEBALLS pending on ~everything shipped headless-only today: Play vs Bot roster,
+   exhibition, persona engine feel (defaults untuned: temp 0.5, alpha 1.0, lambda 0.75),
+   move numbers/review, range elicitation, play-it-out, training trajectory, arena mock flow.
+5. Avatars: caricature pipeline blocked on image-generation capability (initials ship).
+6. Librarian: 4 flags (3 cosmetic prose-form, 1 = 200-band gap question for user).
+
+## Next session should start with
+1. USER: eyeball pass in the installed app (Play vs Bot → play the dad-sim with the new
+   engine; watch a Fischer-Kasparov exhibition; one calibration position with range
+   elicitation → play it out). Report realism vs yesterday — decision logs are joinable
+   against "didn't feel like him" now.
+2. Arena go-live: answer the latency question; then Caddy route + client ID + allowlist +
+   deploy the /arena frontend against the real backend; invite dad (first session assisted).
+3. CODE: wave-6 results (rake solver + metrics/auto-tuning) — review/commit if landed, else
+   resume the workflow. Then: mining import when batch completes; 213 Phase-3 tree search and
+   corpus error model (server) are the remaining big NOW items.
+
+---
+
 **Date:** 2026-07-14/15 (day session + overnight /loop, ~14:00–02:45)
 **Focus:** Coach fixed and grown into a dialogue; sampler v3; the 11M-game corpus built;
 rival mode (dad + 4 others analyzed); persona simulator (Fischer/Kasparov/Sigurjónsson);
@@ -122,62 +197,3 @@ sf_18 BMI2 (`~/bin/stockfish`, bench-verified) + pgn-extract installed; repo pul
    per-move clock persistence in match_runner (spec 212 gaps), spec 212 UI (checklist
    item 3), missing-image follow-up if the user wanted more than position 9 discussed.
 
----
-
-**Date:** 2026-07-13/14 (one marathon session)
-**Focus:** The ChessBase-replacement roadmap — researched, planned, and Phases 0–3 largely
-built; plus the spec-213 Elo-conditioned evaluator (design + tier-0) and the Learn-tab
-calibration system with the user as ground-truth labeler.
-
-## What the system does now
-ChessGUI is a chess workbench: **Play/Analyze** (variation tree, annotations + eval graph,
-PGN round-trip, engine settings/arrows, take-back, captured trays, tier-0 **Elo eval slider**
-1100–1900 via Maia-over-lc0); **Tournament** (neutral third-engine evaluator, live viewer
-with eval bar + stop/pause/auto-start-gate/ply-nav/move-delay controls, per-game + averaged
-eval graphs, game browser, play-current-position-out); **Database** (955,819 games — user's
-Mega via new clean-room CBH importer + Lumbra OTB + TWIC — SQLite, Zobrist position search,
-dedup proven cross-source); **Learn** (eval-calibration sessions: stratified known-Elo
-positions, eval+why+move elicitation, think-time with honesty button, second-look revision,
-post-answer reveal with **Opus AI-coach** reading the user's reasoning + cause tags,
-per-phase results, resume-across-days). Version 0.3.0; `scripts/install-app.sh` keeps
-/Applications current on every build.
-
-## What changed this session (highlights; ~30 commits, all pushed)
-- Roadmap researched by agent fleet (community/features/formats/legal) → full plan at
-  `~/.claude/plans/then-we-are-going-witty-kazoo.md`; data strategy v3 (3 corpora, recipes
-  CALIBRATED against real Lichess dumps; Caïssabase dead → Lumbra; mining corpus = elo≥1400
-  rapid+classical evals-on band-capped 50–60GB; reference pack = its elo≥2000 slice).
-- Specs 016 (game tree) IMPLEMENTED, 011 closed, 013 + 202 implemented, 200 backend+UI+data
-  pipeline, 210 evaluator/viewer/controls; NEW specs 211 (avoidance puzzles), 212 (tournament
-  game analysis), 213 (Elo-conditioned evaluator + deep design doc incl. perception
-  psychology, phase vectors, model-driven adaptive elicitation).
-- CBH importer (`src-tauri/src/cbh.rs`, clean-room): 99.9995% of the user's 606k-game
-  ChessBase DB converts; Mega imported into the app DB.
-- Research: mistake-mining prior-art survey (`docs/research/`) — our cause-labeled method
-  appears unpublished; Maia licenses compatible; never noise-weaken engines (Turing-test
-  evidence).
-- User's calibration: 8/100 positions answered; emerging signature = sound move selection,
-  inflated eval scale, branch-selection optimism (pos-8 minimax error, engine-verified).
-- Tests: 23 → 172 JS + 38 Rust. Every UI feature headless-verified (Playwright); build
-  gotchas documented (dist/dev corruption, cargo-clean rlib fix, key-handler input guards).
-
-## Known issues / open
-1. **Homeserver unreachable** (VPN down, laptop on 192.168.0.x) — blocks: capacity recon,
-   corpus builds (mining + reference), canonical-DB deploy. First unblock when VPN returns.
-2. Band-cap N needs a tuning run on 2–3 recent full months before the corpus build.
-3. Live-engine eyeballs pending (user): tournament evaluator end-to-end, pause/clock-freeze
-   feel, Elo-slider divergence on real positions, AI-coach note quality on position 9+.
-4. Calibration endgame coverage thin pre-v2 sessions; sampler v2 fixed it for NEW sessions.
-5. Librarian: 5 flags pending (new specs + duplicate legacy numbering) — run /librarian.
-6. .2cbh format has no open reader (watch); Lumbra fetch = personal-use license (never
-   redistribute; commercial use needs a license).
-
-## Next session should start with
-1. If VPN is up: homeserver recon (re-dispatch the homeserver agent) → corpus build plan
-   (band-cap tuning → mining-corpus month loop → reference slice) — this unblocks spec 211
-   Tier-1 generation, 213 validation experiments E1/E-attention/E-history, and Phase 9.
-2. User continues calibration (position 9+, now with AI coach); review the coach's verbatim
-   quality on their answers — tune the prompt if it freelances beyond the engine lines.
-3. Smaller: in-app CBH import UI (`db_import_cbh` command + picker), opening-explorer
-   auto-update/click-to-play polish, /librarian sweep, spec 212 tier-1 (win-prob labeling —
-   evaluator data is already flowing).

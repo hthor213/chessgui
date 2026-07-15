@@ -56,7 +56,11 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
 Family-scale operations, not scaling engineering:
 
 - **Move-latency budget**: target under ~2s per persona move, with a visible thinking
-  indicator in the game screen.
+  indicator in the game screen. MEASURED (2026-07-15, Tier-0 staging): BT3 on the
+  server CPU ≈ 3-4 NN evals/s → ~10s/move at the staged 32 nodes — 5x over budget.
+  Options open (user decision): accept ~10s with the indicator; rebuild lc0 with the
+  onednn backend (likely 2-4x); or a smaller strong net (needs harness re-validation).
+  ARENA_SEARCH_NODES is env-tunable without rebuild.
 - **Engine stalls**: retry, then respawn the engine process — never silently hang a
   game.
 - **Disconnect/resume**: every move is persisted server-side as it happens; partial
