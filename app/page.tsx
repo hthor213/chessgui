@@ -26,6 +26,7 @@ import { readClipboardImage, readClipboardText, imageToFen, type ClipboardImage 
 import { uciToArrow } from "@/lib/uci-parser"
 import type { LiveGame, ViewerControls } from "@/lib/tournament"
 import { MOVE_DELAY_OPTIONS } from "@/lib/tournament"
+import { sansFromUci, numberMoves } from "@/lib/game-replay"
 import type { Key } from "@lichess-org/chessground/types"
 import type { DrawShape } from "@lichess-org/chessground/draw"
 
@@ -1088,23 +1089,58 @@ function LiveGameView({
       : ({ type: "cp", value: ev.cp ?? 0 } as const)
     : null
 
+  // Numbered SAN move list (spec 210 Phase 4 checklist / spec 218 "Move
+  // numbers" follow-up: "the same fix in the tournament live viewer — today
+  // it shows only 'game #N · move M'"). Reuses the exhibition viewer's exact
+  // reconstruction path (lib/game-replay.ts's sansFromUci + numberMoves) so
+  // there is one SAN-numbering implementation for every tournament/exhibition
+  // surface, not a second copy here.
+  const moveRows = useMemo(
+    () => numberMoves(live?.startFen ?? "", sansFromUci(live?.startFen ?? "", live?.uciMoves ?? [])),
+    [live?.startFen, live?.uciMoves],
+  )
+
   return (
     <div className="flex flex-col items-center gap-2 w-full h-full min-h-0 py-2">
-      <LivePlayer label={live.blackLabel} side="black" ms={bMs} />
-      <div className="flex-1 flex items-center justify-center w-full overflow-hidden gap-2">
-        {showEvalBar && evalScore && (
-          <EvalBar score={evalScore} turn="white" width={20} />
-        )}
-        <Board
-          fen={fen}
-          orientation="white"
-          viewOnly
-          legalMoves={EMPTY_DESTS}
-          onMove={noop}
-          lastMove={lastMove as [Key, Key] | undefined}
-        />
+      <div className="flex-1 flex items-start justify-center w-full min-h-0 overflow-hidden gap-4">
+        <div className="flex flex-col items-center justify-center gap-2 h-full min-h-0">
+          <LivePlayer label={live.blackLabel} side="black" ms={bMs} />
+          <div className="flex items-center justify-center gap-2 overflow-hidden">
+            {showEvalBar && evalScore && (
+              <EvalBar score={evalScore} turn="white" width={20} />
+            )}
+            <Board
+              fen={fen}
+              orientation="white"
+              viewOnly
+              legalMoves={EMPTY_DESTS}
+              onMove={noop}
+              lastMove={lastMove as [Key, Key] | undefined}
+            />
+          </div>
+          <LivePlayer label={live.whiteLabel} side="white" ms={wMs} />
+        </div>
+
+        {/* Numbered SAN move list, same "12.Nxe5" format as the exhibition
+            viewer — replaces the bare "move M" counter below with a real,
+            scrollable move-by-move record. */}
+        <div className="hidden md:flex flex-col gap-1 w-48 max-h-full overflow-y-auto self-center py-1">
+          <span className="text-xs text-muted-foreground">Moves</span>
+          {moveRows.length === 0 ? (
+            <span className="text-xs text-muted-foreground">Waiting for the first move&hellip;</span>
+          ) : (
+            <ol className="text-sm font-mono text-foreground grid grid-cols-[auto_1fr_1fr] gap-x-2 gap-y-0.5">
+              {moveRows.map((row) => (
+                <li key={row.no} className="contents">
+                  <span className="text-muted-foreground text-right">{row.no}.</span>
+                  <span>{row.white ?? ""}</span>
+                  <span>{row.black ?? ""}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       </div>
-      <LivePlayer label={live.whiteLabel} side="white" ms={wMs} />
 
       {/* Ply navigation + live/reviewing indicator */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">

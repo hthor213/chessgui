@@ -14,6 +14,7 @@ import {
   buildProbabilityMap,
   buildEngineCurves,
   buildEngineWDL,
+  buildTournamentResultExport,
   eloDelta,
   gameResult,
   gameError,
@@ -102,6 +103,19 @@ type RunningTally = {
   draw: number
   errors: number
   aborted: number
+}
+
+/** One row of the live per-game result log (Phase 4 checklist item: "Per-game
+ *  results stream into a compact running log"). Deliberately thinner than a
+ *  full `GameOutcome` — just enough to render "game #, result, start eval"
+ *  live as each `BatchProgress` event arrives, before the batch (and its full
+ *  `ResultsExplorer` browser) finishes. */
+type LiveResultRow = {
+  gameId: number
+  startEval: number | null
+  result: string | null // "1-0" | "0-1" | "1/2-1/2" | null (errored)
+  error: string | null
+  aborted: boolean
 }
 
 // Format a millisecond duration as h:mm:ss / m:ss.
@@ -277,6 +291,9 @@ export function TournamentTab({
   const [curveBins, setCurveBins] = useState<EngineCurveBin[]>([])
   const [sfWdl, setSfWdl] = useState<ProbBin[]>([])
   const [rkWdl, setRkWdl] = useState<ProbBin[]>([])
+  // Per-game live-stream log (Phase 4 checklist): newest first, capped so a
+  // 1000-game run doesn't grow an unbounded DOM list while still running.
+  const [liveLog, setLiveLog] = useState<LiveResultRow[]>([])
   const [error, setError] = useState<string | null>(null)
   // Wall-clock timer for the current run.
   const [startedAt, setStartedAt] = useState<number | null>(null)
@@ -473,6 +490,7 @@ export function TournamentTab({
     setCurveBins([])
     setSfWdl([])
     setRkWdl([])
+    setLiveLog([])
     setStartedAt(Date.now())
     setNowTs(Date.now())
     setRunning(true)
@@ -527,11 +545,16 @@ export function TournamentTab({
       const labelB = sideLabel(pB)
       setReportLabels({ a: labelA, b: labelB })
       const specMeta = new Map<number, { whiteLabel: string; blackLabel: string }>()
+      // Each game's start FEN (spec 218 "Move numbers" follow-up: paired with
+      // the featured game's UCI moves so the shared live viewer can build a
+      // numbered SAN move list — same source `replayFens`/`movesToPgn` use).
+      const specStartFenById = new Map<number, string | null>()
       for (const s of specs) {
         specMeta.set(s.id, {
           whiteLabel: s.flipped ? labelB : labelA,
           blackLabel: s.flipped ? labelA : labelB,
         })
+        specStartFenById.set(s.id, s.start_fen)
       }
       // Latest frame per game (for jumping to another in-flight game), the
       // featured game's full frame history (for back/forward nav), and per-game
@@ -541,6 +564,10 @@ export function TournamentTab({
       const latestEval = new Map<number, { cp: number | null; mate: number | null }>()
       let featuredId: number | null = null
       let featuredFrames: LiveFrame[] = []
+      // UCI moves of the featured game since it became featured — same reset
+      // points as featuredFrames (a mid-game switch starts fresh, same known
+      // limitation as the frame history).
+      let featuredUci: string[] = []
 
       // Emit the featured game's current view (tip + full history) to the viewer.
       const emitFeatured = () => {
@@ -559,6 +586,8 @@ export function TournamentTab({
           blackTimeMs: last.blackTimeMs,
           eval: last.eval ?? null,
           frames: featuredFrames.slice(),
+          startFen: specStartFenById.get(featuredId) ?? null,
+          uciMoves: featuredUci.slice(),
         })
       }
 
@@ -584,10 +613,12 @@ export function TournamentTab({
           if (featuredId !== m.game_id) {
             featuredId = m.game_id
             featuredFrames = []
+            featuredUci = []
           }
         }
         if (m.game_id === featuredId) {
           featuredFrames.push(frame)
+          featuredUci[m.ply - 1] = m.uci
           emitFeatured()
         }
       }
@@ -608,10 +639,19 @@ export function TournamentTab({
         }
       }
 
+      // Games completed so far, in arrival order — the substrate for the LIVE
+      // probability map / engine curves / WDL (Phase 5 checklist: "EvalBucket
+      // aggregation updates live as ... events arrive"). Cheap to recompute
+      // from scratch each event at these sizes (<=10000 games); the final,
+      // authoritative recompute from `result.outcomes` after `play_batch`
+      // resolves (below) is unaffected either way.
+      const accumulatedOutcomes: GameOutcome[] = []
+
       // Live progress channel. The backend sends one BatchProgress per game.
       const channel = new Channel<BatchProgress>()
       channel.onmessage = (p: BatchProgress) => {
         completed.add(p.last.id)
+        accumulatedOutcomes.push(p.last)
         // If auto-start is off and games remain, the runner is now waiting.
         if (!autoStartRef.current && p.completed < p.total) {
           setWaitingForNext(true)
@@ -623,9 +663,35 @@ export function TournamentTab({
             featuredId = next
             const f = liveById.get(next)
             featuredFrames = f ? [f] : []
+            // No per-ply UCI history is kept for games observed only via their
+            // latest frame (same limitation as featuredFrames above) — the
+            // move list starts fresh from whatever plies stream in from here.
+            featuredUci = []
             emitFeatured()
           }
         }
+        // Per-game live-stream log (Phase 4 checklist: "results stream into a
+        // compact running log DURING the batch"), newest first.
+        setLiveLog((prev) => {
+          const r = (p.last.result as { Ok?: { result: string } }).Ok
+          const err = (p.last.result as { Err?: string }).Err
+          const row: LiveResultRow = {
+            gameId: p.last.id,
+            startEval: evalByIdRef.current.get(p.last.id)?.eval ?? null,
+            result: p.last.aborted ? null : r?.result ?? null,
+            error: p.last.aborted ? null : err ?? null,
+            aborted: p.last.aborted ?? false,
+          }
+          return [row, ...prev]
+        })
+        // Live EvalBucket aggregation (Phase 5 checklist item) — recompute the
+        // probability map / per-engine curves / per-engine WDL from every game
+        // completed so far, so the charts fill in as the batch runs instead of
+        // only appearing once it finishes.
+        setProbBins(buildProbabilityMap(accumulatedOutcomes, evalByIdRef.current, -hi, hi))
+        setCurveBins(buildEngineCurves(accumulatedOutcomes, evalByIdRef.current, -hi, hi))
+        setSfWdl(buildEngineWDL(accumulatedOutcomes, evalByIdRef.current, "a", -hi, hi))
+        setRkWdl(buildEngineWDL(accumulatedOutcomes, evalByIdRef.current, "b", -hi, hi))
         setTally((prev) => {
           const base =
             prev ?? { completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0, aborted: 0 }
@@ -1429,6 +1495,14 @@ export function TournamentTab({
           </section>
         )}
 
+        {/* Per-game live-stream log (Phase 4 checklist item): compact,
+            newest-first, streams in DURING the run — distinct from the
+            full ResultsExplorer browser below, which needs the completed
+            batch (board hop, "Open in Analyze", etc). */}
+        {liveLog.length > 0 && (
+          <LiveResultLog rows={liveLog} labelA={reportLabels.a} labelB={reportLabels.b} />
+        )}
+
         {/* Final summary */}
         {report && (
           <SummaryCard
@@ -1457,8 +1531,9 @@ export function TournamentTab({
           />
         )}
 
-        {/* Per-engine performance curve (primary analysis) */}
-        {report && curveBins.some((b) => b.a.games > 0 || b.b.games > 0) && (
+        {/* Per-engine performance curve (primary analysis). Live: recomputed
+            from every game completed so far, not just the final report. */}
+        {curveBins.some((b) => b.a.games > 0 || b.b.games > 0) && (
           <EngineCurve
             bins={curveBins}
             labelA={reportLabels.a}
@@ -1467,17 +1542,17 @@ export function TournamentTab({
         )}
 
         {/* Per-engine W/D/L: how each engine fared when up vs down each amount. */}
-        {report && sfWdl.length > 0 && (
+        {sfWdl.length > 0 && (
           <ProbabilityMap
             bins={sfWdl}
             title={`${reportLabels.a} — results by its own starting eval`}
-            desc={`How ${reportLabels.a} fared from its own perspective: +x bins = it began up x pawns (conversion), −x bins = down x pawns (defense). The dot is its mean score.`}
+            desc={`How ${reportLabels.a} fared from its own perspective: +x bins = it began up x pawns (conversion), −x bins = down x pawns (defense). The dot is its mean score; the tick is the classical Elo-naive expectation.`}
             winLabel={`${reportLabels.a} win`}
             lossLabel="loss"
             scoreLabel="avg score"
           />
         )}
-        {report && rkWdl.length > 0 && (
+        {rkWdl.length > 0 && (
           <ProbabilityMap
             bins={rkWdl}
             title={`${reportLabels.b} — results by its own starting eval`}
@@ -1488,13 +1563,57 @@ export function TournamentTab({
           />
         )}
 
-        {/* Probability map (advantaged side, both engines pooled) */}
-        {report && probBins.length > 0 && (
+        {/* Probability map (advantaged side, both engines pooled) — the
+            headline chart, live during the run and final once it completes. */}
+        {probBins.length > 0 && (
           <ProbabilityMap bins={probBins} />
         )}
         {report && probBins.length === 0 && (
           <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 text-sm text-muted-foreground">
             No completed games to chart (all games errored?).
+          </section>
+        )}
+
+        {/* Export the completed result as JSON (Phase 5 checklist item) —
+            same Blob + object-URL download pattern app/page.tsx's PGN export
+            uses; no Tauri save dialog yet, matching that precedent. */}
+        {report && (
+          <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Export</h2>
+              <p className="text-xs text-muted-foreground">
+                Save this run's probability map as JSON (engines, mode, eval range, buckets).
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const exported = buildTournamentResultExport(
+                  reportLabels.a,
+                  reportLabels.b,
+                  report.outcomes.length,
+                  mode,
+                  [-Math.max(Math.abs(Number(minEval) || 0), Math.abs(Number(maxEval) || 0)),
+                    Math.max(Math.abs(Number(minEval) || 0), Math.abs(Number(maxEval) || 0))],
+                  probBins,
+                )
+                const json = JSON.stringify(exported, null, 2)
+                const base = `${reportLabels.a}_vs_${reportLabels.b}`.replace(/[^\w.-]+/g, "_")
+                const name = `tournament_${base}_${exported.completedAt.replace(/[:.]/g, "-")}.json`
+                const blob = new Blob([json], { type: "application/json" })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement("a")
+                a.href = url
+                a.download = name
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+                setTimeout(() => URL.revokeObjectURL(url), 1000)
+              }}
+            >
+              Export JSON
+            </Button>
           </section>
         )}
       </div>
@@ -1539,6 +1658,71 @@ function MachineProfileCard({
         </span>
       )}
       {error && <span className="text-xs text-red-400">{error}</span>}
+    </section>
+  )
+}
+
+/**
+ * Compact per-game result log (Phase 4 checklist: "Per-game results stream
+ * into a compact running log (game #, result, start eval)"), fed straight
+ * off the `BatchProgress` channel as each game finishes — no waiting on the
+ * blocking `play_batch` await. Newest game first; capped to the most recent
+ * `maxRows` so a long batch stays a fixed-height scroller instead of an
+ * ever-growing list.
+ */
+function LiveResultLog({
+  rows,
+  labelA,
+  labelB,
+  maxRows = 200,
+}: {
+  rows: LiveResultRow[]
+  labelA: string
+  labelB: string
+  maxRows?: number
+}) {
+  const shown = rows.slice(0, maxRows)
+  const resultText = (row: LiveResultRow): { text: string; cls: string } => {
+    if (row.aborted) return { text: "stopped", cls: "text-muted-foreground" }
+    if (row.error) return { text: `error`, cls: "text-amber-400" }
+    if (row.result === "1-0") return { text: "1-0 (White)", cls: "text-green-400" }
+    if (row.result === "0-1") return { text: "0-1 (Black)", cls: "text-red-400" }
+    if (row.result === "1/2-1/2") return { text: "draw", cls: "text-muted-foreground" }
+    return { text: "?", cls: "text-muted-foreground" }
+  }
+  return (
+    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-foreground">Live results</h2>
+        <span className="text-xs text-muted-foreground">
+          {labelA} vs {labelB} — {rows.length} game{rows.length === 1 ? "" : "s"} so far
+        </span>
+      </div>
+      <div className="max-h-48 overflow-y-auto">
+        <table className="w-full text-xs font-mono">
+          <tbody>
+            {shown.map((row) => {
+              const { text, cls } = resultText(row)
+              return (
+                <tr key={row.gameId} className="border-t border-white/5">
+                  <td className="py-0.5 pr-3 text-muted-foreground">#{row.gameId}</td>
+                  <td className={`py-0.5 pr-3 ${cls}`}>{text}</td>
+                  <td className="py-0.5 pr-3 text-muted-foreground">
+                    {row.startEval != null
+                      ? `${row.startEval >= 0 ? "+" : ""}${row.startEval.toFixed(2)}`
+                      : "—"}
+                  </td>
+                  {row.error && (
+                    <td className="py-0.5 text-muted-foreground truncate max-w-[24rem]" title={row.error}>
+                      {row.error}
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }
@@ -1737,7 +1921,7 @@ function EngineCurve({
 function ProbabilityMap({
   bins,
   title = "Conversion probability map",
-  desc = "Each bar is one ~0.25-pawn starting-eval bin (White-POV). Stacks show how the advantaged (White) side fared; the dot marks the mean White score = how often that advantage converted.",
+  desc = "Each bar is one ~0.25-pawn starting-eval bin (White-POV). Stacks show how the advantaged (White) side fared; the dot marks the mean White score = how often that advantage converted. The amber line is the classical Elo-naive expectation for the same eval — above it means this pairing converts advantage BETTER than eval alone predicts, below means worse (spec 210 conversion_delta).",
   winLabel = "White win",
   lossLabel = "Black win",
   scoreLabel = "avg White score",
@@ -1773,12 +1957,16 @@ function ProbabilityMap({
             <span className="inline-block w-3 h-3 rounded-full bg-white" />
             {scoreLabel}
           </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-0.5 bg-amber-400" />
+            expected (Elo-naive)
+          </span>
         </div>
       </div>
       <p className="text-xs text-muted-foreground">{desc}</p>
 
       {/* Bars */}
-      <div className="flex items-stretch gap-1 h-56">
+      <div className="relative flex items-stretch gap-1 h-56">
         {bins.map((bin) => {
           const total = bin.count || 1
           const wPct = (bin.whiteWins / total) * 100
@@ -1786,11 +1974,12 @@ function ProbabilityMap({
           const bPct = (bin.blackWins / total) * 100
           // Dot vertical position: top = 1.0 score, bottom = 0.0 score.
           const dotBottomPct = bin.avgWhiteScore * 100
+          const deltaPct = bin.conversionDelta * 100
           return (
             <div
               key={bin.lo}
               className="flex-1 flex flex-col items-center gap-1 min-w-0"
-              title={`eval [${bin.lo.toFixed(2)}, ${bin.hi.toFixed(2)})  n=${bin.count}  W ${bin.whiteWins} / D ${bin.draws} / B ${bin.blackWins}  avgWhiteScore=${(bin.avgWhiteScore * 100).toFixed(0)}%`}
+              title={`eval [${bin.lo.toFixed(2)}, ${bin.hi.toFixed(2)})  n=${bin.count}  W ${bin.whiteWins} / D ${bin.draws} / B ${bin.blackWins}  avgWhiteScore=${(bin.avgWhiteScore * 100).toFixed(0)}%  expected=${(bin.expectedWhiteScore * 100).toFixed(0)}%  conversionDelta=${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(0)}pp`}
             >
               <span className="text-[10px] text-muted-foreground font-mono">
                 {bin.count}
@@ -1812,6 +2001,30 @@ function ProbabilityMap({
             </div>
           )
         })}
+        {/* Conversion-delta overlay: the classical Elo-naive expected-score
+            line (spec 210 Phase 5 checklist item), so actual-vs-expected is
+            readable at a glance against the dots above. */}
+        {bins.length > 0 && (
+          <svg
+            className="absolute left-0 right-0 top-0 pointer-events-none"
+            style={{ height: "calc(100% - 1.25rem)" }} // stop above the eval-label row
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+          >
+            <polyline
+              points={bins
+                .map(
+                  (b, i) =>
+                    `${((i + 0.5) / bins.length) * 100},${(1 - b.expectedWhiteScore) * 100}`,
+                )
+                .join(" ")}
+              fill="none"
+              stroke="#fbbf24"
+              strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        )}
       </div>
     </section>
   )
@@ -2316,13 +2529,13 @@ function PersonaLogPanel({
  * numbered SAN move list (spec 218 item 3 — "the live viewer currently shows
  * only 'game #N · move M' ... give it a real move list"). Deliberately
  * self-contained within this tab rather than reusing app/page.tsx's
- * LiveGameView: that shared full-screen viewer is out of this task's file
- * scope (components/tournament-tab.tsx, lib/tournament.ts, lib/game-replay.ts
- * + new files only), so this renders inline in the tab's own scroll area
- * instead — less stats-first than the batch view above, but still a second,
- * DIFFERENT viewer from the shared one. Wiring the same numbered-move fix
- * into app/page.tsx's live viewer is an open follow-up for whichever agent
- * owns that file (see this task's final report).
+ * LiveGameView: that shared full-screen viewer was out of THIS item's file
+ * scope, so this renders inline in the tab's own scroll area instead — less
+ * stats-first than the batch view above, but still a second, DIFFERENT
+ * viewer from the shared one. The same numbered-move fix has since landed in
+ * app/page.tsx's LiveGameView too (spec 210 Phase 4 tick-pass, 2026-07-15) —
+ * both viewers now share the exact sansFromUci/numberMoves reconstruction,
+ * just rendered in each one's own layout.
  */
 function ExhibitionView({
   running,

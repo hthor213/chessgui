@@ -18,6 +18,7 @@ import {
 } from "@/lib/win-prob"
 import {
   buildProbabilityMap,
+  expectedWinPct,
   type EvalMap,
   type GameOutcome,
   type PlyEval,
@@ -29,6 +30,7 @@ const START_FEN_BLACK = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPPPPPP/RNBQKBNR b KQkq - 
 
 function bin(center: number, avgWhiteScore: number, count: number): ProbBin {
   // W/D/L breakdown is not consumed by the curve; only center/count/avgWhiteScore.
+  const expectedWhiteScore = expectedWinPct(center)
   return {
     lo: center - 0.125,
     hi: center + 0.125,
@@ -38,6 +40,8 @@ function bin(center: number, avgWhiteScore: number, count: number): ProbBin {
     draws: 0,
     blackWins: 0,
     avgWhiteScore,
+    expectedWhiteScore,
+    conversionDelta: avgWhiteScore - expectedWhiteScore,
   }
 }
 

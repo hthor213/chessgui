@@ -14,12 +14,18 @@ import {
   gameEvalSeries,
   averageEvalByPly,
   evalBarDefaultForBaseMs,
+  buildProbabilityMap,
+  buildEngineWDL,
+  buildEngineCurves,
+  expectedWinPct,
+  buildTournamentResultExport,
   MATE_EVAL_PAWNS,
   TIME_CONTROLS,
   type GameOutcome,
   type Participant,
   type PlyEval,
   type Seed,
+  type EvalMap,
 } from "@/lib/tournament"
 
 const FEN_AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
@@ -322,5 +328,194 @@ describe("evalBarDefaultForBaseMs — auto-check the eval bar for slow TCs", () 
     expect(evalBarDefaultForBaseMs(byId.standard)).toBe(true) // 60s
     expect(evalBarDefaultForBaseMs(byId.long)).toBe(true) // 300s
     expect(evalBarDefaultForBaseMs(byId.rapid)).toBe(true) // 600s
+  })
+})
+
+// spec 210 Phase 5 tick-pass caveat (2026-07-15): "zero coverage today" for
+// buildProbabilityMap/buildEngineWDL/buildEngineCurves. Closed here.
+describe("expectedWinPct — classical Elo-naive pawns->win% (conversion_delta baseline)", () => {
+  it("is 0.5 at eval 0 regardless of slope", () => {
+    expect(expectedWinPct(0)).toBeCloseTo(0.5)
+  })
+
+  it("increases monotonically with a positive White-POV eval", () => {
+    expect(expectedWinPct(1)).toBeGreaterThan(expectedWinPct(0.5))
+    expect(expectedWinPct(0.5)).toBeGreaterThan(expectedWinPct(0))
+  })
+
+  it("is symmetric: expected(-e) = 1 - expected(e)", () => {
+    expect(expectedWinPct(1.3) + expectedWinPct(-1.3)).toBeCloseTo(1)
+  })
+})
+
+describe("buildProbabilityMap — eval-bucket W/D/L + conversion_delta", () => {
+  const gameFor = (id: number, result: "1-0" | "0-1" | "1/2-1/2"): GameOutcome => ({
+    id,
+    flipped: false,
+    result: { Ok: { result, termination: "checkmate", plies: 10, start_fen: "", moves: [] } },
+  })
+
+  it("buckets by starting eval and computes avg White score + conversionDelta", () => {
+    // All three qualifying games share one bin: [0, 0.25), center 0.125.
+    const evalById: EvalMap = new Map([
+      [0, { eval: 0.1 }],
+      [1, { eval: 0.1 }],
+      [2, { eval: 0.1 }],
+    ])
+    const outcomes: GameOutcome[] = [
+      gameFor(0, "1-0"), // White (advantaged side) wins
+      gameFor(1, "1/2-1/2"),
+      gameFor(2, "0-1"), // White loses
+    ]
+    const bins = buildProbabilityMap(outcomes, evalById, 0, 0.25)
+    expect(bins).toHaveLength(1)
+    const b = bins[0]
+    expect(b).toMatchObject({ count: 3, whiteWins: 1, draws: 1, blackWins: 1 })
+    expect(b.center).toBeCloseTo(0.125)
+    expect(b.avgWhiteScore).toBeCloseTo(0.5) // (1 + 0.5 + 0) / 3
+    expect(b.expectedWhiteScore).toBeCloseTo(expectedWinPct(0.125))
+    expect(b.conversionDelta).toBeCloseTo(b.avgWhiteScore - b.expectedWhiteScore)
+  })
+
+  it("skips Err games and games with no evalById entry", () => {
+    const evalById: EvalMap = new Map([[0, { eval: 0.1 }]]) // id 1 and 2 unmapped
+    const outcomes: GameOutcome[] = [
+      gameFor(0, "1-0"),
+      { id: 1, flipped: false, result: { Err: "boom" } }, // errored
+      gameFor(2, "1-0"), // no eval entry
+    ]
+    const bins = buildProbabilityMap(outcomes, evalById, 0, 0.25)
+    expect(bins).toHaveLength(1)
+    expect(bins[0].count).toBe(1)
+  })
+
+  it("omits empty bins and sorts ascending by eval", () => {
+    const evalById: EvalMap = new Map([
+      [0, { eval: 1.1 }],
+      [1, { eval: -1.1 }],
+    ])
+    const outcomes: GameOutcome[] = [gameFor(0, "1-0"), gameFor(1, "0-1")]
+    const bins = buildProbabilityMap(outcomes, evalById, -1.25, 1.25)
+    // Only the two occupied bins, nothing in between.
+    expect(bins.map((b) => b.count)).toEqual([1, 1])
+    expect(bins[0].lo).toBeLessThan(bins[1].lo)
+  })
+})
+
+describe("buildEngineWDL — per-engine W/D/L from ITS OWN perspective eval", () => {
+  // Engine A is White (unflipped), White wins: A's perspective eval is the
+  // raw eval (+1.0), a win; B's perspective eval is mirrored (-1.0), a loss.
+  const evalById: EvalMap = new Map([[0, { eval: 1.0 }]])
+  const outcomes: GameOutcome[] = [
+    {
+      id: 0,
+      flipped: false,
+      result: { Ok: { result: "1-0", termination: "checkmate", plies: 10, start_fen: "", moves: [] } },
+    },
+  ]
+
+  it("engine A: win recorded at its own +1.0 perspective bin", () => {
+    const bins = buildEngineWDL(outcomes, evalById, "a", -1.25, 1.25)
+    const bin = bins.find((b) => b.lo <= 1.0 && 1.0 < b.hi)
+    expect(bin).toBeDefined()
+    expect(bin).toMatchObject({ count: 1, whiteWins: 1, draws: 0, blackWins: 0 })
+    expect(bin!.avgWhiteScore).toBeCloseTo(1)
+  })
+
+  it("engine B: loss recorded at its own -1.0 perspective bin (mirrored)", () => {
+    const bins = buildEngineWDL(outcomes, evalById, "b", -1.25, 1.25)
+    const bin = bins.find((b) => b.lo <= -1.0 && -1.0 < b.hi)
+    expect(bin).toBeDefined()
+    expect(bin).toMatchObject({ count: 1, whiteWins: 0, draws: 0, blackWins: 1 })
+    expect(bin!.avgWhiteScore).toBeCloseTo(0)
+  })
+
+  it("a draw counts as a draw for BOTH engines regardless of perspective", () => {
+    const drawOutcome: GameOutcome[] = [
+      {
+        id: 0,
+        flipped: false,
+        result: { Ok: { result: "1/2-1/2", termination: "draw", plies: 10, start_fen: "", moves: [] } },
+      },
+    ]
+    const aBins = buildEngineWDL(drawOutcome, evalById, "a", -1.25, 1.25)
+    const bBins = buildEngineWDL(drawOutcome, evalById, "b", -1.25, 1.25)
+    expect(aBins.find((b) => b.lo <= 1.0 && 1.0 < b.hi)).toMatchObject({ draws: 1 })
+    expect(bBins.find((b) => b.lo <= -1.0 && -1.0 < b.hi)).toMatchObject({ draws: 1 })
+  })
+})
+
+describe("buildEngineCurves — per-engine score curve over starting eval", () => {
+  it("mirrors A's and B's perspective eval + score for a single unflipped win", () => {
+    const evalById: EvalMap = new Map([[0, { eval: 1.0 }]])
+    const outcomes: GameOutcome[] = [
+      {
+        id: 0,
+        flipped: false, // A is White
+        result: { Ok: { result: "1-0", termination: "checkmate", plies: 10, start_fen: "", moves: [] } },
+      },
+    ]
+    const bins = buildEngineCurves(outcomes, evalById, -1.25, 1.25)
+    const aBin = bins.find((b) => b.lo <= 1.0 && 1.0 < b.hi)
+    const bBin = bins.find((b) => b.lo <= -1.0 && -1.0 < b.hi)
+    expect(aBin?.a).toMatchObject({ games: 1, avgScore: 1 })
+    expect(bBin?.b).toMatchObject({ games: 1, avgScore: 0 })
+  })
+
+  it("folds a flipped game onto the same perspective axis as an unflipped one", () => {
+    // Two games, same starting White-POV eval magnitude, colors flipped: A is
+    // White and wins in game 0, A is Black and wins (as Black) in game 1. From
+    // A's OWN perspective both are a "+1.0, A won" sample, so they land in the
+    // SAME bin instead of cancelling like the raw White-POV numbers would.
+    const evalById: EvalMap = new Map([
+      [0, { eval: 1.0 }],
+      [1, { eval: -1.0 }],
+    ])
+    const outcomes: GameOutcome[] = [
+      {
+        id: 0,
+        flipped: false,
+        result: { Ok: { result: "1-0", termination: "checkmate", plies: 10, start_fen: "", moves: [] } },
+      },
+      {
+        id: 1,
+        flipped: true, // A is Black
+        result: { Ok: { result: "0-1", termination: "checkmate", plies: 10, start_fen: "", moves: [] } }, // A (Black) wins
+      },
+    ]
+    const bins = buildEngineCurves(outcomes, evalById, -1.25, 1.25)
+    const aBin = bins.find((b) => b.lo <= 1.0 && 1.0 < b.hi)
+    expect(aBin?.a).toMatchObject({ games: 2, avgScore: 1 })
+  })
+})
+
+describe("buildTournamentResultExport — JSON export shape (spec 210 TournamentResult)", () => {
+  it("maps ProbBin fields onto EvalBucket percentages (0..100) and preserves run config", () => {
+    const evalById: EvalMap = new Map([[0, { eval: 0.1 }]])
+    const outcomes: GameOutcome[] = [
+      {
+        id: 0,
+        flipped: false,
+        result: { Ok: { result: "1-0", termination: "checkmate", plies: 10, start_fen: "", moves: [] } },
+      },
+    ]
+    const bins = buildProbabilityMap(outcomes, evalById, 0, 0.25)
+    const exported = buildTournamentResultExport(
+      "Stockfish",
+      "Reckless",
+      1,
+      "eval",
+      [-2, 2],
+      bins,
+      "2026-07-15T00:00:00.000Z",
+    )
+    expect(exported.engineA).toBe("Stockfish")
+    expect(exported.engineB).toBe("Reckless")
+    expect(exported.totalGames).toBe(1)
+    expect(exported.startMode).toBe("eval")
+    expect(exported.evalRange).toEqual([-2, 2])
+    expect(exported.completedAt).toBe("2026-07-15T00:00:00.000Z")
+    expect(exported.buckets).toHaveLength(1)
+    expect(exported.buckets[0]).toMatchObject({ games: 1, winPct: 100, drawPct: 0, lossPct: 0 })
   })
 })

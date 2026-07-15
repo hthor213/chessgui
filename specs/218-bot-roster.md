@@ -106,9 +106,12 @@ strength (spec:216 curve) — no unmeasured realism claims.
 - [x] Move numbers in the spar/Play-vs-Bot move list (2026-07-15, user request):
       numbered move pairs, so realism-feedback notes can cite "12.Nxe5" instead of
       prose — strengthens the shipped feedback ground-truth stream (spec:214).
-      (headless-verified, user eyeball pending) Later: the same fix in the
-      tournament live viewer (today it shows only "game #N · move M"), landing
-      with the exhibition viewer work below.
+      (headless-verified, user eyeball pending) Landed in the tournament live
+      viewer too (2026-07-15, spec:210 Phase 4 tick-pass): `app/page.tsx`'s
+      `LiveGameView` now renders the same numbered SAN move list alongside the
+      "game #N · move M" counter (which stays, for the compact live status
+      line), reusing the exhibition viewer's exact `sansFromUci`/`numberMoves`
+      reconstruction path — see spec:210's checklist for detail.
 - [x] Back/forward review during a live game (2026-07-15, user request — "he
       captured with the knight on e5 and I think he captured my knight (I know he
       did), but it helps to have back/forward to see better what he's planning...

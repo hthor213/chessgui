@@ -1974,6 +1974,43 @@ mod tests {
         assert_eq!(summary.errors, 1);
     }
 
+    // Real-engine game, terminal RESULT value asserted (spec 210 Phase 1
+    // tick-pass gap, 2026-07-15: the other real-engine tests here assert on
+    // plies/eval/abort/pause, none on the actual `result` string). Seeded from
+    // a hand-built mate-in-1 (White Ra1 -> Ra8#, king boxed in by its own
+    // pawns) so the assertion is deterministic regardless of engine strength —
+    // Stockfish (or any competent engine) always takes a proven mate over any
+    // other move, so White wins by checkmate in exactly one ply. Skips
+    // cleanly on a box without Stockfish, like its neighbors.
+    #[tokio::test]
+    async fn real_engine_game_terminal_result_is_checkmate() {
+        let Some(sf) = find_stockfish() else {
+            eprintln!("skipping real_engine_game_terminal_result_is_checkmate: no stockfish");
+            return;
+        };
+        let mate_in_1_fen = "6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1";
+        let specs = vec![spec(0, &sf, &sf, Some(mate_in_1_fen))];
+
+        let outcomes = run_batch_core(
+            specs,
+            1,
+            |_p| {},
+            Arc::new(|_ev| {}),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert_eq!(outcomes.len(), 1);
+        let g = outcomes[0]
+            .result
+            .as_ref()
+            .unwrap_or_else(|e| panic!("expected a completed game, got error: {e}"));
+        assert_eq!(g.result, "1-0", "White should win by delivering Ra8#");
+        assert_eq!(g.termination, "checkmate");
+        assert_eq!(g.plies, 1, "the mate is in exactly one ply");
+        assert_eq!(g.moves, vec!["a1a8".to_string()]);
+    }
+
     #[test]
     fn preflight_flags_missing_engine_with_path() {
         let specs = vec![spec(0, "/opt/does-not-exist/stockfish", "/bin/sh", None)];

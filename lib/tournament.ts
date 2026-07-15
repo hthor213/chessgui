@@ -222,6 +222,20 @@ export type LiveGame = {
    * last frame is the live tip.
    */
   frames?: LiveFrame[]
+  /**
+   * The featured game's start FEN (null = standard start), paired with
+   * `uciMoves` so the shared live viewer (`app/page.tsx`'s `LiveGameView`) can
+   * build a numbered SAN move list via `lib/game-replay.ts`'s
+   * `sansFromUci`/`numberMoves` — the same fix already shipped for the
+   * exhibition viewer (spec 218 "Move numbers" follow-up).
+   */
+  startFen?: string | null
+  /**
+   * UCI moves played so far in the featured game, ply-indexed (uciMoves[0] is
+   * ply 1) — same source as `MoveEvent.uci`. Like `frames`, only covers moves
+   * played SINCE this game became featured (switching mid-game starts fresh).
+   */
+  uciMoves?: string[]
 }
 
 /**
@@ -655,6 +669,32 @@ export function buildExhibitionSpec(
 // Probability-map aggregation
 // ---------------------------------------------------------------------------
 
+/**
+ * Classical Elo/eval-naive win-probability slope (per pawn), used ONLY as the
+ * "expected" reference line for `conversionDelta` below — how a naive
+ * Elo-equivalent prediction would convert a starting eval into a result,
+ * independent of what this run's own engines actually did. Duplicated (not
+ * imported) from `lib/win-prob.ts`'s `DEFAULT_LOGISTIC_K`: that module already
+ * imports `ProbBin`/`GameOutcome` from this file for its OWN (data-derived,
+ * per-run) win-prob curve, so importing back here would cycle. Same value
+ * (0.4/pawn), which in turn mirrors the 0.004/cp squash `lib/annotations.ts`
+ * uses for the eval graph — one consistent pawn<->win% shape across the app.
+ */
+export const CLASSICAL_LOGISTIC_K = 0.4
+
+/**
+ * Classical Elo-equivalent expected score (0..1) for the side holding a
+ * White-POV eval of `pawns`, via the standard logistic pawns<->win%
+ * conversion. This is the naive "what would the eval alone predict" baseline
+ * spec 210's `conversion_delta` (`win_pct - expected_win_pct`) is measured
+ * against — deliberately NOT fit to this run's own results, so a positive
+ * delta means "this pairing converts advantage better than eval alone would
+ * suggest" and a negative delta means worse.
+ */
+export function expectedWinPct(pawns: number, k = CLASSICAL_LOGISTIC_K): number {
+  return 1 / (1 + Math.exp(-k * pawns))
+}
+
 /** One eval bin in the conversion probability map. */
 export type ProbBin = {
   /** Bin lower bound (pawns, White-POV). */
@@ -672,6 +712,13 @@ export type ProbBin = {
    * "How often the side holding the +eval converted."
    */
   avgWhiteScore: number
+  /** Classical Elo-naive expected score at this bin's center eval (see
+   *  `expectedWinPct`) — the reference line `conversionDelta` is measured
+   *  against. */
+  expectedWhiteScore: number
+  /** `avgWhiteScore - expectedWhiteScore` — how much this run over/under-
+   *  performed the eval-naive prediction (spec 210 `conversion_delta`). */
+  conversionDelta: number
 }
 
 /**
@@ -739,15 +786,20 @@ export function buildProbabilityMap(
     if (acc.count === 0) continue // omit empty bins from the map
     const binLo = lo + i * binWidth
     const binHi = binLo + binWidth
+    const center = binLo + binWidth / 2
+    const avgWhiteScore = acc.scoreSum / acc.count
+    const expectedWhiteScore = expectedWinPct(center)
     bins.push({
       lo: binLo,
       hi: binHi,
-      center: binLo + binWidth / 2,
+      center,
       count: acc.count,
       whiteWins: acc.w,
       draws: acc.d,
       blackWins: acc.b,
-      avgWhiteScore: acc.scoreSum / acc.count,
+      avgWhiteScore,
+      expectedWhiteScore,
+      conversionDelta: avgWhiteScore - expectedWhiteScore,
     })
   }
   bins.sort((a, b) => a.lo - b.lo)
@@ -815,15 +867,20 @@ export function buildEngineWDL(
     const acc = accs[i]
     if (acc.count === 0) continue
     const binLo = lo + i * binWidth
+    const center = binLo + binWidth / 2
+    const avgWhiteScore = acc.scoreSum / acc.count
+    const expectedWhiteScore = expectedWinPct(center)
     bins.push({
       lo: binLo,
       hi: binLo + binWidth,
-      center: binLo + binWidth / 2,
+      center,
       count: acc.count,
       whiteWins: acc.w,
       draws: acc.d,
       blackWins: acc.b,
-      avgWhiteScore: acc.scoreSum / acc.count,
+      avgWhiteScore,
+      expectedWhiteScore,
+      conversionDelta: avgWhiteScore - expectedWhiteScore,
     })
   }
   bins.sort((a, b) => a.lo - b.lo)
@@ -1026,3 +1083,72 @@ export function averageEvalByPly(
 }
 
 export { STANDARD_START_FEN }
+
+// ---------------------------------------------------------------------------
+// JSON export of a completed run (spec 210 Phase 5 checklist item)
+// ---------------------------------------------------------------------------
+
+/** One bucket row of an exported result, matching spec 210's `EvalBucket`
+ *  (`specs/210-engine-tournament.md:78-86`) field-for-field except
+ *  `rangeMin`/`rangeMax` come straight off the bin's `lo`/`hi` (no re-parsing
+ *  a "+1.25..+1.50" string) and the pct fields are 0..100, not 0..1. */
+export type ExportedEvalBucket = {
+  rangeMin: number
+  rangeMax: number
+  games: number
+  winPct: number
+  drawPct: number
+  lossPct: number
+  conversionDelta: number
+}
+
+/** A completed run, shaped for JSON export — matches spec 210's
+ *  `TournamentResult` (`specs/210-engine-tournament.md:88-96`) except
+ *  `startMode` uses this codebase's shipped `StartMode` union ("eval", not
+ *  "eval-qualified"; plus "current", not in the original spec) rather than
+ *  the spec's exact three-value union — see the Phase 3 tick-pass note on
+ *  `StartMode`. */
+export type ExportedTournamentResult = {
+  engineA: string
+  engineB: string
+  totalGames: number
+  startMode: StartMode
+  evalRange: [number, number]
+  buckets: ExportedEvalBucket[]
+  completedAt: string
+}
+
+/**
+ * Build the exportable shape of a completed `TournamentResult` from the
+ * primary probability map (the advantaged-side, both-engines-pooled bins
+ * rendered as the main chart) plus the run's config/labels. Pure — the caller
+ * (`tournament-tab.tsx`'s Export button) hands the result to a Blob download,
+ * same pattern `app/page.tsx`'s PGN export already uses.
+ */
+export function buildTournamentResultExport(
+  labelA: string,
+  labelB: string,
+  totalGames: number,
+  startMode: StartMode,
+  evalRange: [number, number],
+  bins: ProbBin[],
+  completedAt: string = new Date().toISOString(),
+): ExportedTournamentResult {
+  return {
+    engineA: labelA,
+    engineB: labelB,
+    totalGames,
+    startMode,
+    evalRange,
+    buckets: bins.map((b) => ({
+      rangeMin: b.lo,
+      rangeMax: b.hi,
+      games: b.count,
+      winPct: b.count ? (b.whiteWins / b.count) * 100 : 0,
+      drawPct: b.count ? (b.draws / b.count) * 100 : 0,
+      lossPct: b.count ? (b.blackWins / b.count) * 100 : 0,
+      conversionDelta: b.conversionDelta * 100,
+    })),
+    completedAt,
+  }
+}
