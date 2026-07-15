@@ -165,3 +165,47 @@ matching when grepping the 955k-game corpus:**
    year) but not confirmed against a primary FIDE title-award record.
 7. **Hjörvar Steinn Grétarsson's current rating/rank** conflicts between sources (see
    Table 2 anomaly note) and was not resolved.
+
+
+## FIDE ISL top 30 — standard, latest list (July 2026), fetched directly
+
+Source: ratings.fide.com `a_top_var.php` (the rankings page's own data endpoint),
+fetched 2026-07-15 with period=LATEST. This is FIDE's ACTIVE list — Hjörvar Steinn
+Grétarsson (GM 2013) does not appear in the top 100, consistent with an inactivity
+flag, which resolves the aggregator conflict noted above.
+
+| # | Name | Std | Born |
+|--:|---|--:|--:|
+| 1 | Stefansson, Vignir Vatnar | 2540 | 2003 |
+| 2 | Steingrimsson, Hedinn | 2502 | 1975 |
+| 3 | Danielsen, Henrik | 2466 | 1966 |
+| 4 | Hjartarson, Johann | 2461 | 1963 |
+| 5 | Olafsson, Helgi | 2447 | 1956 |
+| 6 | Gretarsson, Helgi Ass | 2420 | 1977 |
+| 7 | Stefansson, Hannes | 2419 | 1972 |
+| 8 | Gunnarsson, Jon Viktor | 2414 | 1980 |
+| 9 | Thorsteins, Karl | 2407 | 1964 |
+| 10 | Arnason, Jon L | 2404 | 1960 |
+| 11 | Kjartansson, Gudmundur | 2395 | 1988 |
+| 12 | Ragnarsson, Dagur | 2388 | 1997 |
+| 13 | Thorhallsson, Throstur | 2387 | 1969 |
+| 14 | Petursson, Margeir | 2386 | 1960 |
+| 15 | Thorfinnsson, Bragi | 2370 | 1981 |
+| 16 | Domalchuk-Jonasson, Aleksandr | 2362 | 2005 |
+| 17 | Arngrimsson, Dagur | 2356 | 1987 |
+| 18 | Ulfarsson, Magnus Orn | 2351 | 1976 |
+| 19 | Thorfinnsson, Bjorn | 2347 | 1979 |
+| 20 | Heimisson, Hilmir Freyr | 2338 | 2001 |
+| 21 | Karlsson, Bjorn-Ivar | 2329 | 1985 |
+| 22 | Sigfusson, Sigurdur | 2307 | 1972 |
+| 23 | Johannsson, Birkir Isak | 2306 | 2002 |
+| 24 | Lagerman, Robert | 2299 | 1962 |
+| 25 | Gislason, Gudmundur | 2274 | 1964 |
+| 26 | Thorgeirsson, Jon Kristinn | 2271 | 1999 |
+| 27 | Johannsson, Orn Leo | 2265 | 1994 |
+| 28 | Johannesson, Oliver | 2262 | 1998 |
+| 29 | Bjornsson, Sigurbjorn | 2260 | 1975 |
+| 30 | Johannesson, Ingvar Thor | 2260 | 1977 |
+
+Arena-relevant: Margeir Pétursson still ACTIVE at #14 (2386) — the "win the game
+Gudmundur never got" quest has a live, currently-rated benchmark.
