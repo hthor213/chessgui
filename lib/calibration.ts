@@ -74,12 +74,75 @@ export type CalibrationProgress = {
   target: number
 }
 
+// ---------------------------------------------------------------------------
+// Range elicitation (spec 213 Phase 0)
+// ---------------------------------------------------------------------------
+
+/** One log-spaced answer range in pawns, White-POV. A `null` bound is
+ *  unbounded ("+4 or more" → `{ lo: 4, hi: null }`). Every defined range has
+ *  at least one finite bound. */
+export type EvalRange = { lo: number | null; hi: number | null }
+
+/** The six positive-side log-spaced ranges (Weber-Fechner spacing — nobody
+ *  distinguishes 1.6 from 1.8, so a point answer adds pure input noise):
+ *  0.1–0.3, 0.3–0.6, 0.6–1, 1–2, 2–4, 4+. The UI mirrors them for Black. */
+export const POSITIVE_RANGES: EvalRange[] = [
+  { lo: 0.1, hi: 0.3 },
+  { lo: 0.3, hi: 0.6 },
+  { lo: 0.6, hi: 1 },
+  { lo: 1, hi: 2 },
+  { lo: 2, hi: 4 },
+  { lo: 4, hi: null },
+]
+
+/** The level range — fills the ±0.1 gap the mirrored log-spaced ranges leave
+ *  around zero ("no one is better"). */
+export const LEVEL_RANGE: EvalRange = { lo: -0.1, hi: 0.1 }
+
+/** All thirteen answer ranges, most-Black-favouring first: the mirrored
+ *  negatives, the level range, then the positives. */
+export const EVAL_RANGES: EvalRange[] = [
+  ...POSITIVE_RANGES.map((r): EvalRange => ({
+    lo: r.hi == null ? null : -r.hi,
+    hi: -(r.lo as number),
+  })).reverse(),
+  LEVEL_RANGE,
+  ...POSITIVE_RANGES,
+]
+
+/** Representative point of a range — midpoint, or the finite edge when one
+ *  side is unbounded. Used for the derived `eval` on range answers so every
+ *  point-based consumer (correlation, scatter, coach fallback) keeps working;
+ *  it is derived, NOT what the user asserted — the range is. */
+export function rangePoint(r: EvalRange): number {
+  if (r.lo == null) return r.hi as number
+  if (r.hi == null) return r.lo
+  return (r.lo + r.hi) / 2
+}
+
+/** The range an answer asserted, or null for point/skipped answers (v1/v2
+ *  elicitation or pre-range sessions). Every real range has at least one
+ *  finite bound, so both-null unambiguously means "no range". */
+export function answerRange(a: CalibrationAnswer): EvalRange | null {
+  if (a.eval_lo == null && a.eval_hi == null) return null
+  return { lo: a.eval_lo ?? null, hi: a.eval_hi ?? null }
+}
+
 /** The user's response to one position. */
 export type CalibrationAnswer = {
   /** Index of the position within the session. */
   index: number
-  /** Perceived eval in pawns (+ = White better); null if skipped. */
+  /** Perceived eval in pawns (+ = White better); null if skipped. On
+   *  range-elicitation answers this is a DERIVED representative point
+   *  (`rangePoint`) kept for point back-compat — `eval_lo`/`eval_hi` are the
+   *  actual assertion. */
   eval: number | null
+  /** Range elicitation (spec 213): the asserted range's bounds in pawns,
+   *  White-POV; a null side is unbounded ("4+"). Both null/absent = a point
+   *  answer (pre-range session) or a skip. Never retrofitted onto stored
+   *  point answers. */
+  eval_lo?: number | null
+  eval_hi?: number | null
   /** One-or-two-sentence reason. */
   why: string
   /** UCI of the move they'd play, or null if they didn't pick one. */
@@ -150,6 +213,11 @@ export type CoachInput = {
   multipv_gap_cp: number | null
   material: number | null
   user_eval: number | null
+  /** Range elicitation: the asserted range's bounds (null side = unbounded;
+   *  both null = point answer). The coach critiques what was actually
+   *  asserted — the range, not the derived point. */
+  user_eval_lo: number | null
+  user_eval_hi: number | null
   user_why: string
   user_move_uci: string | null
   revised_eval: number | null
@@ -202,7 +270,10 @@ export type Miss = {
   index: number
   fen: string
   band: string
+  /** The asserted point, or the range's derived representative point. */
   userEval: number
+  /** The asserted range (range-elicitation sessions), else null. */
+  userRange: EvalRange | null
   sfEval: number
   absError: number
 }
@@ -248,6 +319,13 @@ export type CalibrationResults = {
   show_reveal: boolean
   /** Whether AI coach feedback was enabled (off = no API calls were made). */
   show_coach: boolean
+  /**
+   * How evals were elicited this session: `"point"` (typed number, v1/v2) or
+   * `"range"` (log-spaced range buttons, spec 213 range elicitation). Fixed at
+   * session creation and never mixed mid-session — mixing point and range
+   * answers muddies the per-player curve. Absent on pre-v3 files ⇒ point.
+   */
+  elicitation: "point" | "range"
   session: CalibrationSession
   /** Answers in presentation order (each carries its `index`), so learning /
    *  drift effects over the session are analysable. */
@@ -255,8 +333,9 @@ export type CalibrationResults = {
   summary: CalibrationSummary
 }
 
-/** On-disk schema version this build writes (v2 adds known-Elo game context). */
-export const RESULTS_VERSION = 2
+/** On-disk schema version this build writes (v2 added known-Elo game context;
+ *  v3 adds range elicitation: `elicitation` + per-answer `eval_lo`/`eval_hi`). */
+export const RESULTS_VERSION = 3
 
 // ---------------------------------------------------------------------------
 // Provider seam
@@ -280,6 +359,10 @@ export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
     think_ms: hasThink ? a.think_ms : null,
     time_excluded: hasThink ? a.time_excluded ?? false : true,
     answer_locked_at: a.answer_locked_at ?? 0,
+    // Pre-range answers were points and STAY points — never reinterpreted as
+    // ranges (spec 213: range answers arrive at new-session boundaries only).
+    eval_lo: a.eval_lo ?? null,
+    eval_hi: a.eval_hi ?? null,
     revised_eval: a.revised_eval ?? null,
     revision_note: a.revision_note ?? null,
     revised_at: a.revised_at ?? null,
@@ -308,6 +391,10 @@ export function coachInputFor(answer: CalibrationAnswer, position: CalibrationPo
     multipv_gap_cp: position.multipv_gap_cp,
     material: position.material,
     user_eval: answer.eval,
+    // Explicit nulls (never dropped keys) on point answers; Rust's
+    // #[serde(default)] tolerates both.
+    user_eval_lo: answer.eval_lo ?? null,
+    user_eval_hi: answer.eval_hi ?? null,
     user_why: answer.why ?? "",
     user_move_uci: answer.move_uci ?? null,
     revised_eval: answer.revised_eval ?? null,

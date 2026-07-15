@@ -8,8 +8,18 @@ import {
   summarize,
   groupStats,
   formatPawns,
+  formatRange,
+  rangeError,
 } from "@/lib/calibration-stats"
-import { normalizeAnswer, coachInputFor } from "@/lib/calibration"
+import {
+  normalizeAnswer,
+  coachInputFor,
+  answerRange,
+  rangePoint,
+  EVAL_RANGES,
+  POSITIVE_RANGES,
+  LEVEL_RANGE,
+} from "@/lib/calibration"
 import type {
   CalibrationAnswer,
   CalibrationPosition,
@@ -44,6 +54,8 @@ function ans(over: Partial<CalibrationAnswer>): CalibrationAnswer {
   return {
     index: 0,
     eval: 0,
+    eval_lo: null,
+    eval_hi: null,
     why: "",
     move_uci: null,
     elapsed_ms: 1000,
@@ -271,6 +283,10 @@ describe("summarize — per-deck breakdown (v3)", () => {
     // ...and every deck row is present but empty (the UI hides the table).
     expect(sum.perDeck).toHaveLength(4)
     expect(sum.perDeck.every((d) => d.count === 0 && d.mae === null)).toBe(true)
+    // Point answers are never reinterpreted as ranges (range elicitation is a
+    // new-session-boundary feature): scoring stays point-distance, no range.
+    expect(sum.biggestMisses[0].userRange).toBeNull()
+    expect(sum.biggestMisses[0].absError).toBeCloseTo(0.2)
   })
 })
 
@@ -305,6 +321,142 @@ describe("summarize — think time", () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Range elicitation (spec 213 Phase 0)
+// ---------------------------------------------------------------------------
+
+describe("EVAL_RANGES — log-spaced answer scale", () => {
+  it("has 13 ranges: 6 mirrored pairs around the level range, ordered Black→White", () => {
+    expect(EVAL_RANGES).toHaveLength(13)
+    expect(EVAL_RANGES[6]).toEqual(LEVEL_RANGE)
+    // Mirror symmetry: range i is the negation of range 12−i.
+    for (let i = 0; i < 6; i++) {
+      const neg = EVAL_RANGES[i]
+      const pos = EVAL_RANGES[12 - i]
+      expect(neg.lo).toBe(pos.hi == null ? null : -pos.hi)
+      expect(neg.hi).toBe(-(pos.lo as number))
+    }
+    // Positive side matches the spec's list: 0.1–0.3, 0.3–0.6, 0.6–1, 1–2, 2–4, 4+.
+    expect(POSITIVE_RANGES).toEqual([
+      { lo: 0.1, hi: 0.3 },
+      { lo: 0.3, hi: 0.6 },
+      { lo: 0.6, hi: 1 },
+      { lo: 1, hi: 2 },
+      { lo: 2, hi: 4 },
+      { lo: 4, hi: null },
+    ])
+  })
+
+  it("tiles the eval axis with no gaps: each range's hi is the next one's lo", () => {
+    for (let i = 0; i < EVAL_RANGES.length - 1; i++) {
+      expect(EVAL_RANGES[i].hi).toBe(EVAL_RANGES[i + 1].lo)
+    }
+    // Unbounded tails on both ends.
+    expect(EVAL_RANGES[0].lo).toBeNull()
+    expect(EVAL_RANGES[12].hi).toBeNull()
+  })
+
+  it("every range has at least one finite bound (so answerRange is unambiguous)", () => {
+    for (const r of EVAL_RANGES) expect(r.lo != null || r.hi != null).toBe(true)
+  })
+})
+
+describe("rangePoint", () => {
+  it("is the midpoint of a bounded range and the finite edge of an unbounded one", () => {
+    expect(rangePoint({ lo: 1, hi: 2 })).toBeCloseTo(1.5)
+    expect(rangePoint({ lo: -0.1, hi: 0.1 })).toBeCloseTo(0)
+    expect(rangePoint({ lo: 4, hi: null })).toBe(4)
+    expect(rangePoint({ lo: null, hi: -4 })).toBe(-4)
+  })
+})
+
+describe("answerRange", () => {
+  it("is null on point and skipped answers, the range otherwise", () => {
+    expect(answerRange(ans({ eval: 1.2 }))).toBeNull()
+    expect(answerRange(ans({ eval: null, skipped: true }))).toBeNull()
+    expect(answerRange(ans({ eval: 1.5, eval_lo: 1, eval_hi: 2 }))).toEqual({ lo: 1, hi: 2 })
+    expect(answerRange(ans({ eval: 4, eval_lo: 4, eval_hi: null }))).toEqual({ lo: 4, hi: null })
+  })
+})
+
+describe("rangeError", () => {
+  it("is 0 inside the range (edges inclusive), the edge distance outside", () => {
+    const r = { lo: 1, hi: 2 }
+    expect(rangeError(1.5, r)).toBe(0)
+    expect(rangeError(1, r)).toBe(0)
+    expect(rangeError(2, r)).toBe(0)
+    expect(rangeError(0.5, r)).toBeCloseTo(0.5)
+    expect(rangeError(3.2, r)).toBeCloseTo(1.2)
+  })
+  it("treats a null bound as unbounded", () => {
+    expect(rangeError(11, { lo: 4, hi: null })).toBe(0) // "+4 or more", SF says +11
+    expect(rangeError(3, { lo: 4, hi: null })).toBeCloseTo(1)
+    expect(rangeError(-9, { lo: null, hi: -4 })).toBe(0)
+    expect(rangeError(-2, { lo: null, hi: -4 })).toBeCloseTo(2)
+  })
+})
+
+describe("scoredAnswers — range answers", () => {
+  it("scores against the range edge (0 inside) and carries the range", () => {
+    const s = session([
+      pos({ sf_cp: 150 }), // inside 1–2
+      pos({ sf_cp: 320 }), // above 1–2 by 1.2
+      pos({ sf_cp: 600 }), // inside 4+
+    ])
+    const scored = scoredAnswers(s, [
+      ans({ index: 0, eval: 1.5, eval_lo: 1, eval_hi: 2 }),
+      ans({ index: 1, eval: 1.5, eval_lo: 1, eval_hi: 2 }),
+      ans({ index: 2, eval: 4, eval_lo: 4, eval_hi: null }),
+    ])
+    expect(scored).toHaveLength(3)
+    expect(scored[0].absError).toBe(0)
+    expect(scored[0].userRange).toEqual({ lo: 1, hi: 2 })
+    expect(scored[1].absError).toBeCloseTo(1.2)
+    expect(scored[2].absError).toBe(0)
+    // Point answers keep a null range and point-distance error.
+    const pointScored = scoredAnswers(session([pos({ sf_cp: 150 })]), [ans({ index: 0, eval: 1.0 })])
+    expect(pointScored[0].userRange).toBeNull()
+    expect(pointScored[0].absError).toBeCloseTo(0.5)
+  })
+
+  it("recovers the derived point from the range if eval is missing", () => {
+    const scored = scoredAnswers(session([pos({ sf_cp: 150 })]), [
+      ans({ index: 0, eval: null, eval_lo: 1, eval_hi: 2 }),
+    ])
+    expect(scored).toHaveLength(1)
+    expect(scored[0].userEval).toBeCloseTo(1.5)
+  })
+})
+
+describe("summarize — range session", () => {
+  it("MAE is range-aware and misses carry the asserted range", () => {
+    const s = session([
+      pos({ band: "0.5-1.5", sf_cp: 150 }), // in range → 0
+      pos({ band: "3+", sf_cp: 450 }), // asserted 1–2, off by 2.5
+    ])
+    const sum = summarize(s, [
+      ans({ index: 0, eval: 1.5, eval_lo: 1, eval_hi: 2 }),
+      ans({ index: 1, eval: 1.5, eval_lo: 1, eval_hi: 2 }),
+    ])
+    expect(sum.mae).toBeCloseTo(1.25)
+    expect(sum.biggestMisses[0].index).toBe(1)
+    expect(sum.biggestMisses[0].userRange).toEqual({ lo: 1, hi: 2 })
+    expect(sum.biggestMisses[0].absError).toBeCloseTo(2.5)
+    // A point-session miss has userRange null (never retrofitted).
+    const pointSum = summarize(session([pos({ sf_cp: 300 })]), [ans({ index: 0, eval: 0 })])
+    expect(pointSum.biggestMisses[0].userRange).toBeNull()
+  })
+})
+
+describe("formatRange", () => {
+  it("renders bounded, unbounded, and level ranges White-POV", () => {
+    expect(formatRange({ lo: 1, hi: 2 })).toBe("+1.0 to +2.0")
+    expect(formatRange({ lo: 4, hi: null })).toBe("+4.0 or more")
+    expect(formatRange({ lo: null, hi: -4 })).toBe("-4.0 or less")
+    expect(formatRange({ lo: -0.1, hi: 0.1 })).toBe("-0.1 to +0.1")
+  })
+})
+
 describe("normalizeAnswer — retroactive upgrade", () => {
   it("excludes the time of pre-think_ms answers", () => {
     // Simulate an old-schema answer (no think_ms / time_excluded fields).
@@ -312,6 +464,11 @@ describe("normalizeAnswer — retroactive upgrade", () => {
     const up = normalizeAnswer(old as unknown as CalibrationAnswer)
     expect(up.think_ms).toBeNull()
     expect(up.time_excluded).toBe(true)
+    // Pre-range point answers gain explicit null bounds — never a retrofitted
+    // range (spec 213: ranges apply at new-session boundaries only).
+    expect(up.eval_lo).toBeNull()
+    expect(up.eval_hi).toBeNull()
+    expect(answerRange(up)).toBeNull()
     // No lock timestamp on old answers → 0 (unknown), not undefined.
     expect(up.answer_locked_at).toBe(0)
     // Second-look + coach fields default to null when absent.
@@ -386,5 +543,21 @@ describe("coachInputFor — v1 session tolerance", () => {
     // never a dropped key (Rust's #[serde(default)] tolerates the null).
     const withoutPv = coachInputFor(ans({}), pos({}))
     expect(withoutPv.sf_pv_san).toBeNull()
+  })
+
+  it("carries the asserted range so the coach critiques the range, not the derived point", () => {
+    const input = coachInputFor(ans({ eval: 1.5, eval_lo: 1, eval_hi: 2 }), pos({}))
+    expect(input.user_eval_lo).toBe(1)
+    expect(input.user_eval_hi).toBe(2)
+    expect(input.user_eval).toBe(1.5) // the derived point rides along for back-compat
+    // Point answers (and pre-range stored answers): explicit nulls on the wire,
+    // never dropped keys.
+    const wire = JSON.parse(JSON.stringify(coachInputFor(ans({ eval: 0.5 }), pos({}))))
+    expect(wire.user_eval_lo).toBeNull()
+    expect(wire.user_eval_hi).toBeNull()
+    // Unbounded side survives the JSON round-trip as null.
+    const open = JSON.parse(JSON.stringify(coachInputFor(ans({ eval: 4, eval_lo: 4, eval_hi: null }), pos({}))))
+    expect(open.user_eval_lo).toBe(4)
+    expect(open.user_eval_hi).toBeNull()
   })
 })

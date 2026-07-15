@@ -247,7 +247,7 @@ optional move, and score them against Stockfish. Files are the research artifact
       PV, separately from the eval number — measures wrong_plan_priority directly instead
       of inferring it, and captures "how do tactics serve the plan" reasoning. Optional
       plan-B field. Richer labeling data than eval+why alone.
-- [ ] Range elicitation (from calibration session 2026-07-14): replace point-value quick
+- [x] Range elicitation (from calibration session 2026-07-14): replace point-value quick
       buttons with log-spaced RANGES (+0.1–0.3, 0.3–0.6, 0.6–1.0, 1–2, 2–4, 4+ and mirrored),
       matching Weber-Fechner discrimination — nobody distinguishes 1.6 from 1.8, and forcing
       a point answer (0.5-vs-1.0 grid) adds pure input noise to MAE. Answers become ranges in
@@ -255,6 +255,21 @@ optional move, and score them against Stockfish. Files are the research artifact
       distance from range edge, 0 inside). Coach input carries the range so it critiques what
       the student actually asserted. New-session boundary only — never mid-session (mixing
       point and range answers muddies the per-player curve).
+      Shipped 2026-07-15: 13-range picker (6 mirrored pairs + level −0.1…+0.1 filling the
+      gap the spec's list leaves around zero) in calibration-tab.tsx; answers carry
+      `eval_lo`/`eval_hi` + a derived midpoint `eval` for point back-compat
+      (`EVAL_RANGES`/`rangePoint`/`answerRange`, lib/calibration.ts); range-aware
+      `rangeError` in scoring + reveal shows "in range ✓" (lib/calibration-stats.ts);
+      results v3 records `elicitation`; coach input carries `user_eval_lo/hi` and the
+      prompt critiques the range, never the derived point (coach.rs, rust-tested).
+      Boundary rule enforced: new sessions are always range; a resumed pre-range session
+      stays point (verified headless: Playwright drove a fresh range session end-to-end
+      AND a seeded pre-range resume that kept the numeric input); 9116ce4's pre-v3
+      regression tests extended — stored point answers never gain a range
+      (`answerRange` null, point-distance error, `userRange` null on misses).
+      Caveats: correlation/scatter use the derived midpoint (edge for unbounded 4+), so
+      range-session Pearson is midpoint-based; per-band MAE mixes elicitation modes
+      across sessions — segregate by the results-file `elicitation` field when analysing.
 
 ### Phase 1 — Inference plumbing
 - [x] `maia.rs`: lc0 process management (spawn with `--weights`, warm pool with LRU over

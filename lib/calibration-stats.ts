@@ -3,6 +3,7 @@
 // Pure functions, no React or Tauri — unit-tested in __tests__/calibration.test.ts
 // and reused by components/calibration-tab.tsx to render the results screen.
 
+import { answerRange, rangePoint } from "./calibration"
 import type {
   BandStat,
   CalibrationAnswer,
@@ -10,6 +11,7 @@ import type {
   CalibrationSession,
   CalibrationSummary,
   DeckStat,
+  EvalRange,
   Miss,
   PhaseStat,
 } from "./calibration"
@@ -73,13 +75,27 @@ export function pearson(xs: number[], ys: number[]): number | null {
   return sxy / denom
 }
 
+/** Range-aware error: 0 when `sfEval` falls inside the asserted range, else
+ *  the distance to the nearest range edge (spec 213 range elicitation — the
+ *  user asserted an interval, so only leaving it is an error). */
+export function rangeError(sfEval: number, r: EvalRange): number {
+  if (r.lo != null && sfEval < r.lo) return r.lo - sfEval
+  if (r.hi != null && sfEval > r.hi) return sfEval - r.hi
+  return 0
+}
+
 /** One answered, non-skipped position paired with its numbers. */
 export type Scored = {
   index: number
   pos: CalibrationPosition
   answer: CalibrationAnswer
+  /** The asserted point, or the range's representative point (derived). */
   userEval: number
+  /** The asserted range, or null on point answers. */
+  userRange: EvalRange | null
   sfEval: number
+  /** Point answers: |user − SF|. Range answers: distance from the range edge,
+   *  0 inside. */
   absError: number
 }
 
@@ -91,7 +107,9 @@ export function scoredAnswers(
 ): Scored[] {
   const out: Scored[] = []
   for (const a of answers) {
-    if (a.skipped || a.eval == null) continue
+    const userRange = answerRange(a)
+    const point = a.eval ?? (userRange ? rangePoint(userRange) : null)
+    if (a.skipped || point == null) continue
     const pos = session.positions[a.index]
     if (!pos) continue
     const sfEval = sfEvalPawns(pos)
@@ -99,9 +117,10 @@ export function scoredAnswers(
       index: a.index,
       pos,
       answer: a,
-      userEval: a.eval,
+      userEval: point,
+      userRange,
       sfEval,
-      absError: Math.abs(a.eval - sfEval),
+      absError: userRange ? rangeError(sfEval, userRange) : Math.abs(point - sfEval),
     })
   }
   return out
@@ -181,6 +200,7 @@ export function summarize(
       fen: s.pos.fen,
       band: s.pos.band,
       userEval: s.userEval,
+      userRange: s.userRange,
       sfEval: s.sfEval,
       absError: s.absError,
     }))
@@ -205,4 +225,14 @@ export function summarize(
 export function formatPawns(v: number): string {
   if (Math.abs(v) < 0.05) return "0"
   return `${v > 0 ? "+" : ""}${v.toFixed(1)}`
+}
+
+/** Format an asserted range, White-POV: "+1.0 to +2.0", "+4.0 or more",
+ *  "-4.0 or less". Bounds keep their sign so the level range reads
+ *  "-0.1 to +0.1". */
+export function formatRange(r: EvalRange): string {
+  const fmt = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`
+  if (r.lo == null) return `${fmt(r.hi as number)} or less`
+  if (r.hi == null) return `${fmt(r.lo)} or more`
+  return `${fmt(r.lo)} to ${fmt(r.hi)}`
 }

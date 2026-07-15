@@ -83,8 +83,18 @@ pub struct CoachInput {
     pub sf_best_uci: Option<String>,
     pub multipv_gap_cp: Option<i64>,
     pub material: Option<i32>,
-    /// The user's perceived eval in pawns (White-POV), if given.
+    /// The user's perceived eval in pawns (White-POV), if given. On range
+    /// elicitation this is a derived representative point — the range below is
+    /// what they actually asserted.
     pub user_eval: Option<f64>,
+    /// Range elicitation (spec 213): the asserted log-spaced range's bounds in
+    /// pawns, White-POV; a missing side is unbounded ("4+"). Both None on
+    /// point-elicitation answers. `#[serde(default)]` so pre-range frontends
+    /// that omit the keys still deserialize.
+    #[serde(default)]
+    pub user_eval_lo: Option<f64>,
+    #[serde(default)]
+    pub user_eval_hi: Option<f64>,
     pub user_why: String,
     /// The move the user said they'd play (UCI), if any.
     pub user_move_uci: Option<String>,
@@ -164,9 +174,24 @@ fn user_text(input: &CoachInput) -> String {
         }
     }
     s.push_str("\nTHE STUDENT'S ANSWER\n");
-    match input.user_eval {
-        Some(e) => s.push_str(&format!("Their eval: {e:+.1} pawns (White-POV)\n")),
-        None => s.push_str("Their eval: (skipped)\n"),
+    // Range elicitation: critique the range they actually asserted, never the
+    // derived point. Point answers render exactly as before.
+    match (input.user_eval_lo, input.user_eval_hi) {
+        (None, None) => match input.user_eval {
+            Some(e) => s.push_str(&format!("Their eval: {e:+.1} pawns (White-POV)\n")),
+            None => s.push_str("Their eval: (skipped)\n"),
+        },
+        (lo, hi) => {
+            let range = match (lo, hi) {
+                (Some(l), Some(h)) => format!("between {l:+.1} and {h:+.1}"),
+                (Some(l), None) => format!("{l:+.1} or more"),
+                (None, Some(h)) => format!("{h:+.1} or less"),
+                (None, None) => unreachable!(),
+            };
+            s.push_str(&format!(
+                "Their eval: {range} pawns (White-POV — they asserted this RANGE, not a point; judge whether the truth falls inside it)\n"
+            ));
+        }
     }
     s.push_str(&format!("Their reasoning: {}\n", if input.user_why.trim().is_empty() {
         "(they wrote nothing)"
@@ -380,6 +405,8 @@ mod tests {
             multipv_gap_cp: Some(20),
             material: Some(0),
             user_eval: Some(1.5),
+            user_eval_lo: None,
+            user_eval_hi: None,
             user_why: "White wins a pawn on e7 with the exchange sequence".to_string(),
             user_move_uci: Some("c4d5".to_string()),
             revised_eval: None,
@@ -444,6 +471,36 @@ mod tests {
         assert!(input.played_san.is_none());
         // v3's PV is absent on the v1 wire → None via #[serde(default)].
         assert!(input.sf_pv_san.is_none());
+        // Range-elicitation bounds are absent on pre-range wires → None.
+        assert!(input.user_eval_lo.is_none());
+        assert!(input.user_eval_hi.is_none());
+    }
+
+    /// Range elicitation (spec 213): the prompt carries the asserted range —
+    /// not the derived point — and unbounded sides render as "or more/less".
+    #[test]
+    fn range_answer_renders_as_range_not_point() {
+        let mut input = sample_input();
+        input.user_eval = Some(1.5); // derived midpoint — must NOT be shown
+        input.user_eval_lo = Some(1.0);
+        input.user_eval_hi = Some(2.0);
+        let text = user_text(&input);
+        assert!(text.contains("between +1.0 and +2.0"));
+        assert!(text.contains("asserted this RANGE"));
+        assert!(!text.contains("Their eval: +1.5"), "derived point must not leak into the prompt");
+
+        input.user_eval_lo = Some(4.0);
+        input.user_eval_hi = None;
+        assert!(user_text(&input).contains("Their eval: +4.0 or more"));
+
+        input.user_eval_lo = None;
+        input.user_eval_hi = Some(-4.0);
+        assert!(user_text(&input).contains("Their eval: -4.0 or less"));
+
+        // Point answers (both bounds None) render exactly as before.
+        input.user_eval_lo = None;
+        input.user_eval_hi = None;
+        assert!(user_text(&input).contains("Their eval: +1.5 pawns (White-POV)"));
     }
 
     #[test]

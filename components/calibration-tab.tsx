@@ -25,6 +25,10 @@ import {
   coachFollowup,
   coachInputFor,
   normalizeAnswer,
+  answerRange,
+  rangePoint,
+  POSITIVE_RANGES,
+  LEVEL_RANGE,
   RESULTS_VERSION,
   MIN_PHASE_N,
   type CalibrationAnswer,
@@ -34,9 +38,18 @@ import {
   type CoachFeedback,
   type CoachInput,
   type DeckStat,
+  type EvalRange,
   type PhaseStat,
 } from "@/lib/calibration"
-import { summarize, scoredAnswers, sfEvalPawns, formatPawns, type Scored } from "@/lib/calibration-stats"
+import {
+  summarize,
+  scoredAnswers,
+  sfEvalPawns,
+  formatPawns,
+  formatRange,
+  rangeError,
+  type Scored,
+} from "@/lib/calibration-stats"
 
 const Board = dynamic(() => import("@/components/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -44,9 +57,17 @@ const Board = dynamic(() => import("@/components/board").then((m) => ({ default:
 
 const STORAGE_KEY = "chessgui:calibration"
 const SIZE_OPTIONS = [20, 50, 100]
+// Point-mode quick buttons — only shown when resuming a session that predates
+// range elicitation (new sessions use EVAL_RANGES).
 const QUICK_EVALS = [-3, -2, -1, -0.5, 0, 0.5, 1, 2, 3]
 
 type Phase = "intro" | "resume" | "sampling" | "answering" | "results"
+
+/** How evals are elicited. Fixed at session creation: new sessions are always
+ *  "range" (spec 213 range elicitation); a resumed session that started with
+ *  point answers stays "point" — mixing the two mid-session would muddy the
+ *  per-player curve. */
+type Elicitation = "point" | "range"
 
 interface Saved {
   session: CalibrationSession
@@ -56,6 +77,8 @@ interface Saved {
   showReveal?: boolean
   /** Session-level AI-coach setting; older saves omit it (default on). */
   showCoach?: boolean
+  /** Elicitation mode; saves that predate ranges omit it (⇒ point). */
+  elicitation?: Elicitation
 }
 
 /** A locked answer paired with its position, for the post-answer reveal card. */
@@ -126,8 +149,12 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const [savedPath, setSavedPath] = useState<string | null>(null)
   const [resume, setResume] = useState<Saved | null>(null)
 
+  // Elicitation mode for the running session. New sessions are always "range";
+  // only a resumed pre-range session runs in "point" mode.
+  const [elicitation, setElicitation] = useState<Elicitation>("range")
   // Per-position input state.
   const [evalInput, setEvalInput] = useState("")
+  const [evalRange, setEvalRange] = useState<EvalRange | null>(null)
   const [why, setWhy] = useState("")
   const [moveUci, setMoveUci] = useState<string | null>(null)
   const [timeExcluded, setTimeExcluded] = useState(false)
@@ -172,11 +199,18 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   }, [])
 
   const persist = useCallback(
-    (s: CalibrationSession, a: CalibrationAnswer[], i: number, sr: boolean, sc: boolean) => {
+    (s: CalibrationSession, a: CalibrationAnswer[], i: number, sr: boolean, sc: boolean, el: Elicitation) => {
       try {
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ session: s, answers: a, index: i, showReveal: sr, showCoach: sc }),
+          JSON.stringify({
+            session: s,
+            answers: a,
+            index: i,
+            showReveal: sr,
+            showCoach: sc,
+            elicitation: el,
+          }),
         )
       } catch {
         /* storage full / unavailable — the session still runs in memory */
@@ -198,6 +232,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
 
   const resetInputs = useCallback(() => {
     setEvalInput("")
+    setEvalRange(null)
     setWhy("")
     setMoveUci(null)
     setTimeExcluded(false)
@@ -215,9 +250,12 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       setAnswers([])
       setIndex(0)
       setRevealed(null)
+      // Range elicitation applies at NEW session boundaries only — every fresh
+      // session is a range session (spec 213).
+      setElicitation("range")
       resetInputs()
       setPhase("answering")
-      persist(s, [], 0, showReveal, showCoach)
+      persist(s, [], 0, showReveal, showCoach, "range")
     } catch (e) {
       setError(String(e))
       setPhase("intro")
@@ -231,6 +269,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     setIndex(resume.index)
     setShowReveal(resume.showReveal ?? true)
     setShowCoach(resume.showCoach ?? true)
+    // A session that started with point answers finishes with point answers —
+    // never mix elicitation modes mid-session.
+    setElicitation(resume.elicitation ?? "point")
     setRevealed(null)
     resetInputs()
     setPhase("answering")
@@ -253,6 +294,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           finished_at: Date.now(),
           show_reveal: showReveal,
           show_coach: showCoach,
+          elicitation,
           session: s,
           answers: finalAnswers,
           summary,
@@ -262,7 +304,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         setError(String(e))
       }
     },
-    [clearStorage, showReveal, showCoach],
+    [clearStorage, showReveal, showCoach, elicitation],
   )
 
   // Advance to the next position (or finish). Shared by every exit path.
@@ -278,9 +320,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       }
       setIndex(nextIndex)
       resetInputs()
-      persist(session, finalAnswers, nextIndex, showReveal, showCoach)
+      persist(session, finalAnswers, nextIndex, showReveal, showCoach, elicitation)
     },
-    [session, index, finish, resetInputs, persist, showReveal, showCoach],
+    [session, index, finish, resetInputs, persist, showReveal, showCoach, elicitation],
   )
 
   // After the (optional) second look: show the reveal, or advance if blind.
@@ -296,13 +338,32 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const submit = useCallback(
     (skipped: boolean) => {
       if (!session || !current) return
-      const parsed = parseFloat(evalInput)
       const now = Date.now()
+      // Range sessions store the asserted range plus a DERIVED representative
+      // point in `eval` (point back-compat: correlation/scatter/coach keep
+      // working); point sessions store the typed number and no range.
+      let evalPoint: number | null = null
+      let evalLo: number | null = null
+      let evalHi: number | null = null
+      if (!skipped) {
+        if (elicitation === "range") {
+          if (evalRange) {
+            evalLo = evalRange.lo
+            evalHi = evalRange.hi
+            evalPoint = rangePoint(evalRange)
+          }
+        } else {
+          const parsed = parseFloat(evalInput)
+          evalPoint = Number.isNaN(parsed) ? null : parsed
+        }
+      }
       // answer_locked_at is stamped HERE, before any second look or reveal
       // renders — neither can influence the committed answer.
       const answer: CalibrationAnswer = {
         index,
-        eval: skipped || Number.isNaN(parsed) ? null : parsed,
+        eval: evalPoint,
+        eval_lo: evalLo,
+        eval_hi: evalHi,
         why: why.trim(),
         move_uci: moveUci,
         elapsed_ms: now - startedAt.current,
@@ -326,14 +387,14 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       setAnswers(nextAnswers)
       // Persist immediately at the locked index so a crash mid-step never loses
       // the answer (resume lands on the next position).
-      persist(session, nextAnswers, index + 1, showReveal, showCoach)
+      persist(session, nextAnswers, index + 1, showReveal, showCoach, elicitation)
       // Straight to the reveal. (The second-look step was retired 2026-07-14:
       // under the X/✓ commit model everything is editable until commit, so a
       // post-commit "revise" prompt added friction without adding data. Old
       // answers keep their revised_* fields.)
       proceedToReveal(answer, current, nextAnswers)
     },
-    [session, current, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, proceedToReveal],
+    [session, current, elicitation, evalRange, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, showCoach, proceedToReveal],
   )
 
   // Second look done: apply an optional revision (original stays immutable), then
@@ -352,11 +413,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         }
         finalAnswers = answers.map((a) => (a.index === answer.index ? answer : a))
         setAnswers(finalAnswers)
-        persist(session, finalAnswers, index + 1, showReveal, showCoach)
+        persist(session, finalAnswers, index + 1, showReveal, showCoach, elicitation)
       }
       proceedToReveal(answer, secondLook.position, finalAnswers)
     },
-    [secondLook, session, answers, index, persist, showReveal, proceedToReveal],
+    [secondLook, session, answers, index, persist, showReveal, showCoach, elicitation, proceedToReveal],
   )
 
   const onContinueReveal = useCallback(() => advance(answers), [advance, answers])
@@ -367,11 +428,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     (answerIndex: number, coach: CoachFeedback) => {
       setAnswers((prev) => {
         const next = prev.map((a) => (a.index === answerIndex ? { ...a, coach } : a))
-        if (session) persist(session, next, index + 1, showReveal, showCoach)
+        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation)
         return next
       })
     },
-    [session, index, persist, showReveal, showCoach],
+    [session, index, persist, showReveal, showCoach, elicitation],
   )
 
   // Store the user's rebuttal + the coach's follow-up reply on its answer.
@@ -380,11 +441,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     (answerIndex: number, rebuttal: string, reply: string | null) => {
       setAnswers((prev) => {
         const next = prev.map((a) => (a.index === answerIndex ? { ...a, rebuttal, coach_reply: reply } : a))
-        if (session) persist(session, next, index + 1, showReveal, showCoach)
+        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation)
         return next
       })
     },
-    [session, index, persist, showReveal, showCoach],
+    [session, index, persist, showReveal, showCoach, elicitation],
   )
 
   // Input setters that also stop the think clock on first use.
@@ -402,11 +463,22 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     },
     [markInteraction],
   )
+  const onRangeSelect = useCallback(
+    (r: EvalRange) => {
+      markInteraction()
+      setEvalRange(r)
+    },
+    [markInteraction],
+  )
 
   // Committing requires a move AND an eval (2026-07-14). The written "why" is
   // bonus — the coach evaluates the move alone and the dialogue can fill in
   // the reasoning afterwards.
-  const canSubmit = evalInput.trim() !== "" && !Number.isNaN(parseFloat(evalInput)) && moveUci !== null
+  const evalGiven =
+    elicitation === "range"
+      ? evalRange !== null
+      : evalInput.trim() !== "" && !Number.isNaN(parseFloat(evalInput))
+  const canSubmit = evalGiven && moveUci !== null
 
   const legalMoves = useMemo(() => (current ? legalDests(current.fen) : new Map<Key, Key[]>()), [current])
   const arrow = (uci: string, brush: string): DrawShape => ({
@@ -495,8 +567,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
             setBoardNonce((n) => n + 1)
           }}
           boardNonce={boardNonce}
+          elicitation={elicitation}
           evalInput={evalInput}
           setEvalInput={onEvalChange}
+          evalRange={evalRange}
+          onRangeSelect={onRangeSelect}
           why={why}
           setWhy={onWhyChange}
           onEvalKeyDown={onEvalKeyDown}
@@ -571,9 +646,11 @@ function IntroScreen({
           <p className="font-medium text-foreground">For each position:</p>
           <ul className="space-y-1.5 text-muted-foreground list-disc list-inside">
             <li>
-              Type your eval in pawns — <span className="text-foreground">+ favours White</span>{" "}
-              (e.g. <code className="text-foreground">+1.5</code>,{" "}
-              <code className="text-foreground">-0.7</code>, <code className="text-foreground">0</code>).
+              Pick the eval <span className="text-foreground">range</span> that matches your read —{" "}
+              <span className="text-foreground">+ favours White</span> (e.g.{" "}
+              <code className="text-foreground">1–2</code> on the White row means &ldquo;White is
+              better by one to two pawns&rdquo;). Nobody distinguishes +1.6 from +1.8, so the
+              ranges are the honest scale.
             </li>
             <li>Write <span className="text-foreground">why</span> in a sentence or two.</li>
             <li>Optionally click the move you&apos;d play.</li>
@@ -718,8 +795,11 @@ function AnsweringScreen({
   onBoardMove,
   onClearMove,
   boardNonce,
+  elicitation,
   evalInput,
   setEvalInput,
+  evalRange,
+  onRangeSelect,
   why,
   setWhy,
   onEvalKeyDown,
@@ -747,8 +827,11 @@ function AnsweringScreen({
   onBoardMove: (from: Key, to: Key) => void
   onClearMove: () => void
   boardNonce: number
+  elicitation: Elicitation
   evalInput: string
   setEvalInput: (s: string) => void
+  evalRange: EvalRange | null
+  onRangeSelect: (r: EvalRange) => void
   why: string
   setWhy: (s: string) => void
   onEvalKeyDown: (e: React.KeyboardEvent) => void
@@ -834,32 +917,36 @@ function AnsweringScreen({
           ) : (
           <>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Your eval (pawns, + = White)</label>
-            <Input
-              type="number"
-              step={0.1}
-              inputMode="decimal"
-              autoFocus
-              data-testid="calib-eval"
-              value={evalInput}
-              onChange={(e) => setEvalInput(e.target.value)}
-              onKeyDown={onEvalKeyDown}
-              placeholder="e.g. +1.5"
-              className="text-lg tabular-nums"
-            />
-            <div className="flex flex-wrap gap-1">
-              {QUICK_EVALS.map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setEvalInput(String(v))}
-                  className="px-2.5 py-1.5 text-sm rounded border border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5 tabular-nums"
-                >
-                  {v > 0 ? `+${v}` : v}
-                </button>
-              ))}
+          {elicitation === "range" ? (
+            <RangePicker selected={evalRange} onSelect={onRangeSelect} />
+          ) : (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Your eval (pawns, + = White)</label>
+              <Input
+                type="number"
+                step={0.1}
+                inputMode="decimal"
+                autoFocus
+                data-testid="calib-eval"
+                value={evalInput}
+                onChange={(e) => setEvalInput(e.target.value)}
+                onKeyDown={onEvalKeyDown}
+                placeholder="e.g. +1.5"
+                className="text-lg tabular-nums"
+              />
+              <div className="flex flex-wrap gap-1">
+                {QUICK_EVALS.map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setEvalInput(String(v))}
+                    className="px-2.5 py-1.5 text-sm rounded border border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5 tabular-nums"
+                  >
+                    {v > 0 ? `+${v}` : v}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Why?</label>
@@ -924,6 +1011,79 @@ function AnsweringScreen({
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Compact magnitude label for a positive-side range: "0.1–0.3" … "2–4", "4+". */
+function magnitudeLabel(r: EvalRange): string {
+  if (r.hi == null) return `${r.lo}+`
+  return `${r.lo}–${r.hi}`
+}
+
+/** Log-spaced range picker (spec 213 range elicitation): six White-better
+ *  magnitudes, a level button, and the six mirrored Black-better magnitudes.
+ *  Weber-Fechner spacing — the buttons ARE the answer scale; there is no
+ *  free-typed point in range sessions. Button testids are stable:
+ *  calib-range-w0..w5 (White, smallest magnitude first), calib-range-level,
+ *  calib-range-b0..b5 (Black, smallest magnitude first). */
+function RangePicker({
+  selected,
+  onSelect,
+}: {
+  selected: EvalRange | null
+  onSelect: (r: EvalRange) => void
+}) {
+  const isSel = (r: EvalRange) => selected != null && selected.lo === r.lo && selected.hi === r.hi
+  const btnClass = (r: EvalRange) =>
+    `px-2 py-1.5 text-sm rounded border transition-colors tabular-nums ${
+      isSel(r)
+        ? "border-white/30 bg-white/10 text-foreground"
+        : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+    }`
+  const mirrored = (r: EvalRange): EvalRange => ({
+    lo: r.hi == null ? null : -r.hi,
+    hi: -(r.lo as number),
+  })
+  return (
+    <div className="space-y-2" data-testid="calib-range">
+      <label className="text-sm font-medium">Your eval — pick a range (pawns)</label>
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs text-muted-foreground w-14 shrink-0">White +</span>
+          {POSITIVE_RANGES.map((r, i) => (
+            <button key={i} data-testid={`calib-range-w${i}`} onClick={() => onSelect(r)} className={btnClass(r)}>
+              {magnitudeLabel(r)}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground w-14 shrink-0" aria-hidden />
+          <button
+            data-testid="calib-range-level"
+            onClick={() => onSelect(LEVEL_RANGE)}
+            className={`${btnClass(LEVEL_RANGE)} flex-1`}
+          >
+            level
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs text-muted-foreground w-14 shrink-0">Black −</span>
+          {POSITIVE_RANGES.map((r, i) => (
+            <button
+              key={i}
+              data-testid={`calib-range-b${i}`}
+              onClick={() => onSelect(mirrored(r))}
+              className={btnClass(mirrored(r))}
+            >
+              {magnitudeLabel(r)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground min-h-4" data-testid="calib-range-assertion">
+        {selected ? `You're asserting ${formatRange(selected)} (White-POV)` : "Nobody distinguishes +1.6 from +1.8 — pick the band you'd stand behind."}
+      </p>
     </div>
   )
 }
@@ -1009,6 +1169,13 @@ function RevealCard({
   const sf = sfEvalPawns(position)
   const played = playedReveal(position)
   const gapPawns = position.multipv_gap_cp == null ? null : position.multipv_gap_cp / 100
+  // Range answers score against the range edge (0 inside); point answers as before.
+  const range = answerRange(answer)
+  const offBy =
+    answer.skipped ? null
+    : range ? rangeError(sf, range)
+    : answer.eval != null ? Math.abs(answer.eval - sf)
+    : null
 
   // Coach: fire once per reveal. Never blocks Continue; degrades to a hint.
   const [coach, setCoach] = useState<CoachFeedback | null>(answer.coach)
@@ -1065,20 +1232,28 @@ function RevealCard({
       <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2.5">
         <div className="flex items-center justify-between text-base">
           <span className="text-muted-foreground">Your eval</span>
-          <span className="font-mono tabular-nums">
-            {answer.skipped || answer.eval == null ? "skipped" : formatPawns(answer.eval)}
+          <span className="font-mono tabular-nums" data-testid="calib-reveal-your-eval">
+            {range
+              ? formatRange(range)
+              : answer.skipped || answer.eval == null
+                ? "skipped"
+                : formatPawns(answer.eval)}
           </span>
         </div>
         <div className="flex items-center justify-between text-base">
           <span className="text-muted-foreground">Stockfish</span>
           <span className="font-mono tabular-nums text-foreground">{formatPawns(sf)}</span>
         </div>
-        {!answer.skipped && answer.eval != null && (
+        {offBy != null && (
           <div className="flex items-center justify-between text-base border-t border-white/10 pt-2">
             <span className="text-muted-foreground">Off by</span>
-            <span className="font-mono tabular-nums text-amber-300">
-              {Math.abs(answer.eval - sf).toFixed(1)}
-            </span>
+            {range && offBy === 0 ? (
+              <span className="font-mono tabular-nums text-emerald-300" data-testid="calib-in-range">
+                in range ✓
+              </span>
+            ) : (
+              <span className="font-mono tabular-nums text-amber-300">{offBy.toFixed(1)}</span>
+            )}
           </div>
         )}
       </div>
@@ -1276,7 +1451,10 @@ function ResultsScreen({
                     </span>
                     <span className="flex items-center gap-3 shrink-0 text-sm tabular-nums">
                       <span>
-                        you <span className="text-foreground">{formatPawns(m.userEval)}</span>
+                        you{" "}
+                        <span className="text-foreground">
+                          {m.userRange ? formatRange(m.userRange) : formatPawns(m.userEval)}
+                        </span>
                       </span>
                       <span>
                         SF <span className="text-foreground">{formatPawns(m.sfEval)}</span>

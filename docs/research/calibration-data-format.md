@@ -19,10 +19,15 @@ Stockfish in the spec-213 program (design doc §4/§5). Each `results-*.json` is
 All engine numbers are **White-POV** (`+` favours White), matching every eval in
 the app.
 
-**Schema version.** The `version` field on both files is `2` at time of writing.
+**Schema version.** The results `version` field is `3` at time of writing.
 v2 added the known-Elo game context per position (`white_elo`, `black_elo`,
-`elo_band`, `to_move`, `played_uci`, `played_san`, `continuation_san`). v1 files
-stay readable — a reader should treat those fields as optional/absent for `version < 2`.
+`elo_band`, `to_move`, `played_uci`, `played_san`, `continuation_san`). v3 adds
+**range elicitation** (spec 213): a results-level `elicitation` field
+(`"point"` | `"range"`) and per-answer `eval_lo`/`eval_hi`. Older files stay
+readable — a reader should treat newer fields as optional/absent for older
+versions, and MUST NOT reinterpret stored point answers as ranges (elicitation
+mode changes at new-session boundaries only; mixing the two muddies the
+per-player curve).
 
 ## `session-*.json` — `CalibrationSession`
 
@@ -80,10 +85,11 @@ bucket on but now at least appear.)
 
 ```jsonc
 {
-  "version": 2,
+  "version": 3,
   "finished_at": 1736808600000,    // unix ms
   "show_reveal": true,             // was the post-answer reveal shown (vs a blind run)?
   "show_coach": true,              // was AI coach feedback enabled (else no API calls)?
+  "elicitation": "range",         // "point" (typed number, pre-v3) | "range" (log-spaced buttons)
   "session": CalibrationSession,   // the full session (embedded)
   "answers": [ CalibrationAnswer, ... ],
   "summary": CalibrationSummary
@@ -103,7 +109,9 @@ One per position the user reached (in session order).
 | field        | type           | meaning |
 |--------------|----------------|---------|
 | `index`      | int            | Index into `session.positions`. |
-| `eval`       | float \| null  | Perceived eval in pawns (`+` = White); `null` if skipped or left blank. |
+| `eval`       | float \| null  | Perceived eval in pawns (`+` = White); `null` if skipped or left blank. On range answers this is a **derived** representative point (midpoint; finite edge when a side is unbounded), kept so point-based consumers (correlation, scatter) keep working — the range is the assertion. |
+| `eval_lo`    | float \| null  | *(v3, range elicitation)* Lower bound of the asserted range, pawns White-POV; `null` = unbounded below ("−4 or less"). Absent/both-null on point answers. |
+| `eval_hi`    | float \| null  | *(v3)* Upper bound; `null` = unbounded above ("+4 or more"). Every real range has at least one finite bound. |
 | `why`        | string         | The user's stated reasoning (may be empty). |
 | `move_uci`   | string \| null | The move they'd play, UCI; `null` if none chosen. |
 | `elapsed_ms` | int            | Wall time from position-shown to submit (includes typing). |
@@ -168,4 +176,14 @@ Derived scoring (recomputable from `session` + `answers` via
 | `medianThinkMs`   | float \| null     | Median think time (ms) over time-included, interacted answers. |
 | `timeExcludedCount` | int             | Answers whose time was excluded (user-marked or upgraded). |
 | `perBand`         | `BandStat[]`      | `{ band, count, mae }` for each of the four bands. |
-| `biggestMisses`   | `Miss[]`          | Up to 10 `{ index, fen, band, userEval, sfEval, absError }`, worst first. |
+| `biggestMisses`   | `Miss[]`          | Up to 10 `{ index, fen, band, userEval, userRange, sfEval, absError }`, worst first. |
+
+**Range elicitation (v3).** The answering UI offers thirteen log-spaced ranges
+(Weber-Fechner discrimination — nobody distinguishes 1.6 from 1.8): ±0.1–0.3,
+0.3–0.6, 0.6–1, 1–2, 2–4, 4+ mirrored for Black, plus the level range
+−0.1…+0.1. Scoring is **range-aware**: `absError` is 0 when the Stockfish eval
+falls inside the asserted range, else the distance to the nearest range edge.
+Point answers (pre-v3 sessions) keep point-distance error. Correlation and the
+scatter use the derived `eval` point on range answers. The coach input carries
+`user_eval_lo`/`user_eval_hi` so the critique addresses the asserted range,
+never the derived point.
