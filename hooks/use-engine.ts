@@ -16,6 +16,35 @@ const DEFAULT_ENGINE_PATH = "/opt/homebrew/bin/stockfish";
 const STORAGE_KEY = "engine-path";
 const DEBOUNCE_MS = 50;
 
+// Engine pacing in play mode (spec 216 UI:4 — "Same slider in Play vs engine
+// ... engine's is virtual"). Persisted separately from EngineSettings since
+// it governs move timing, not the UCI options applied between searches.
+const ENGINE_PACE_STORAGE_KEY = "engine-pace-seconds";
+// Reproduces the pre-216 hardcoded 10min+5s clock exactly (see
+// clockForPaceSeconds below), so an untouched slider changes nothing.
+const DEFAULT_ENGINE_PACE_SECONDS = 20;
+
+function loadEnginePaceSeconds(): number {
+  if (typeof window === "undefined") return DEFAULT_ENGINE_PACE_SECONDS;
+  const raw = localStorage.getItem(ENGINE_PACE_STORAGE_KEY);
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_ENGINE_PACE_SECONDS;
+}
+
+/**
+ * Seconds-per-move -> a UCI wtime/winc pair. Fixes the increment at 25% of
+ * the target and the base pool at a 40-move (MOVE_BUDGET) buffer of the
+ * remainder, so lib/time-elo.ts's own averaging model — secondsPerMoveOf =
+ * base/40 + increment — reproduces the target exactly: at the default 20s
+ * this is base=600000ms/inc=5000ms, i.e. the original hardcoded clock.
+ */
+function clockForPaceSeconds(paceSeconds: number): { baseMs: number; incMs: number } {
+  const s = Math.max(0.1, paceSeconds);
+  const incMs = Math.max(50, Math.round(s * 250));
+  const baseMs = Math.max(incMs, Math.round(s * 30000));
+  return { baseMs, incMs };
+}
+
 export type EngineMode = "analysis" | "play";
 
 export type PlayerColor = "white" | "black";
@@ -110,9 +139,30 @@ export function useEngine(
   const thinkingRef = useRef(false); // guards against stale bestmove responses
   const expectedFenRef = useRef(""); // FEN we asked the engine to compute on
   
-  // Real-time opponent clock simulation state (starts at 10|5)
+  // Real-time opponent clock simulation state (starts at 10|5, i.e. the
+  // default 20s/move pace — see clockForPaceSeconds)
   const engineClockRef = useRef<{wtime: number, btime: number}>({ wtime: 600000, btime: 600000 });
   const turnStartTimeRef = useRef<number>(0);
+  // Engine pacing (spec 216 UI:4): seconds/move the engine's virtual clock
+  // budgets it. Starts at the SSR-safe default; hydrated from localStorage
+  // after mount (same pattern as engine settings).
+  const [enginePaceSeconds, setEnginePaceSecondsState] = useState<number>(DEFAULT_ENGINE_PACE_SECONDS);
+  const enginePaceSecondsRef = useRef<number>(DEFAULT_ENGINE_PACE_SECONDS);
+  useEffect(() => {
+    const loaded = loadEnginePaceSeconds();
+    enginePaceSecondsRef.current = loaded;
+    setEnginePaceSecondsState(loaded);
+  }, []);
+  const setEnginePaceSeconds = useCallback((seconds: number) => {
+    const clamped = Math.max(0.1, seconds);
+    enginePaceSecondsRef.current = clamped;
+    setEnginePaceSecondsState(clamped);
+    try {
+      localStorage.setItem(ENGINE_PACE_STORAGE_KEY, String(clamped));
+    } catch {
+      // localStorage unavailable — pace just won't persist
+    }
+  }, []);
   const uciMovesRef = useRef(uciMoves);
   const startFenRef = useRef(startFen);
   const moveIndexRef = useRef(currentMoveIndex);
@@ -241,8 +291,9 @@ export function useEngine(
       const playerColor = playerColorRef.current;
       const wtime = playerColor === "white" ? 2147483647 : engineClockRef.current.wtime;
       const btime = playerColor === "black" ? 2147483647 : engineClockRef.current.btime;
-      
-      await sendCommand(`go wtime ${wtime} btime ${btime} winc 5000 binc 5000`);
+      const { incMs } = clockForPaceSeconds(enginePaceSecondsRef.current);
+
+      await sendCommand(`go wtime ${wtime} btime ${btime} winc ${incMs} binc ${incMs}`);
     },
     [sendCommand, applyEngineOptions],
   );
@@ -286,8 +337,9 @@ export function useEngine(
         await applyEngineOptions();
         await sendCommand("isready");
 
-        // Reset match clock for the new session
-        engineClockRef.current = { wtime: 600000, btime: 600000 };
+        // Reset match clock for the new session, sized to the current pace.
+        const { baseMs: paceBaseMs } = clockForPaceSeconds(enginePaceSecondsRef.current);
+        engineClockRef.current = { wtime: paceBaseMs, btime: paceBaseMs };
         turnStartTimeRef.current = Date.now();
 
         setState((s) => ({
@@ -461,10 +513,11 @@ export function useEngine(
           // Decrement internal clock to simulate a real opponent
           const timeSpent = Date.now() - turnStartTimeRef.current;
           const isWhiteTurn = expectedFenRef.current?.includes(" w ");
+          const { incMs: paceIncMs } = clockForPaceSeconds(enginePaceSecondsRef.current);
           if (isWhiteTurn) {
-            engineClockRef.current.wtime = Math.max(1000, engineClockRef.current.wtime - timeSpent + 5000);
+            engineClockRef.current.wtime = Math.max(1000, engineClockRef.current.wtime - timeSpent + paceIncMs);
           } else {
-            engineClockRef.current.btime = Math.max(1000, engineClockRef.current.btime - timeSpent + 5000);
+            engineClockRef.current.btime = Math.max(1000, engineClockRef.current.btime - timeSpent + paceIncMs);
           }
           
           turnStartTimeRef.current = Date.now(); // Clock reset for human's stopwatch
@@ -590,5 +643,7 @@ export function useEngine(
     cancelThinking,
     clockRef: engineClockRef,
     turnStartTimeRef,
+    enginePaceSeconds,
+    setEnginePaceSeconds,
   };
 }

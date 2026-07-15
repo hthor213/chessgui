@@ -4,12 +4,14 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Slider } from "@/components/ui/slider"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Settings } from "lucide-react"
 import { formatScore, scoreToNumeric, type PvLine } from "@/lib/uci-parser"
 import { EvalBar } from "@/components/eval-bar"
 import { HumanEvalSection } from "@/components/human-eval"
 import { EngineSettingsDialog } from "@/components/engine-settings-dialog"
+import { DEFAULT_PRIOR_CURVE, paceStrength } from "@/lib/time-elo"
 import type { EngineSettings } from "@/lib/engine-settings"
 import type { EngineState, EngineMode, PlayerColor } from "@/hooks/use-engine"
 
@@ -22,8 +24,60 @@ interface AnalysisPanelProps {
     stopEngine: () => Promise<void>;
     toggleAnalysis: () => void;
     setPlayMode: (enabled: boolean, playerColor?: PlayerColor) => Promise<void>;
+    enginePaceSeconds: number;
+    setEnginePaceSeconds: (seconds: number) => void;
   };
   turn: "white" | "black";
+}
+
+// The curve's own top anchor (216: b shrinks to its flattest, ~full-strength
+// rate at 240s/move) doubles as the "how strong could it be" reference for
+// the engine-pace readout — there's no separate user time control in the Play
+// vs engine flow to compress against (spec 216 UI:4's "standalone" case).
+const ENGINE_PACE_REFERENCE_SECONDS = 240
+const ENGINE_PACE_MIN_SECONDS = 1
+const ENGINE_PACE_MAX_SECONDS = 120
+
+function EnginePaceControl({
+  paceSeconds,
+  onChange,
+}: {
+  paceSeconds: number
+  onChange: (seconds: number) => void
+}) {
+  const clamped = Math.min(ENGINE_PACE_MAX_SECONDS, Math.max(ENGINE_PACE_MIN_SECONDS, paceSeconds))
+  const logMin = Math.log2(ENGINE_PACE_MIN_SECONDS)
+  const logMax = Math.log2(ENGINE_PACE_MAX_SECONDS)
+  const fraction = ((Math.log2(clamped) - logMin) / (logMax - logMin)) * 100
+  const referenceC = ENGINE_PACE_REFERENCE_SECONDS / clamped
+  const readout = paceStrength(DEFAULT_PRIOR_CURVE, ENGINE_PACE_REFERENCE_SECONDS, referenceC, {
+    timeSensitive: true,
+  })
+
+  return (
+    <div className="flex flex-col gap-1.5 w-full">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          Engine pace — {clamped < 1 ? `${Math.round(clamped * 1000)}ms` : `${clamped.toFixed(1)}s`}/move
+        </span>
+        <Badge variant="secondary" className="font-mono text-[10px]">
+          {DEFAULT_PRIOR_CURVE.source.toUpperCase()}
+        </Badge>
+      </div>
+      <Slider
+        data-testid="engine-pace-slider"
+        min={0}
+        max={100}
+        step={0.5}
+        value={[fraction]}
+        onValueChange={([v]) => {
+          const f = v / 100
+          onChange(2 ** (logMin + f * (logMax - logMin)))
+        }}
+      />
+      <span className="text-xs text-muted-foreground">{readout.reason}</span>
+    </div>
+  )
 }
 
 function formatNodes(n: number): string {
@@ -113,6 +167,12 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
             >
               Play Black vs Stockfish
             </Button>
+          </div>
+          <div className="w-full border-t border-[#2a2825] pt-3">
+            <EnginePaceControl
+              paceSeconds={engine.enginePaceSeconds}
+              onChange={engine.setEnginePaceSeconds}
+            />
           </div>
         </div>
       </Card>
@@ -216,6 +276,15 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
             </span>
           </div>
         </div>
+
+        {state.mode === "play" && (
+          <div className="mb-2">
+            <EnginePaceControl
+              paceSeconds={engine.enginePaceSeconds}
+              onChange={engine.setEnginePaceSeconds}
+            />
+          </div>
+        )}
 
         {topLine && (
           <p

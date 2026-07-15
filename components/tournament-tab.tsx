@@ -39,6 +39,15 @@ import {
   type ViewerControls,
 } from "@/lib/tournament"
 import { replayFens, movesToPgn } from "@/lib/game-replay"
+import { Slider } from "@/components/ui/slider"
+import { Badge } from "@/components/ui/badge"
+import {
+  DEFAULT_PRIOR_CURVE,
+  paceFloor,
+  paceStrength,
+  secondsPerMoveOf,
+} from "@/lib/time-elo"
+import { useMachineProfile, type MachineProfile } from "@/hooks/use-machine-profile"
 import type { Key } from "@lichess-org/chessground/types"
 
 const Board = dynamic(
@@ -51,6 +60,27 @@ const RECKLESS_DEFAULT =
   "/Users/hjalti/github/chessgui/engines/reckless"
 
 const MAX_PLIES = 400
+
+// Human-recognizable time-format presets (spec 216 UI:1) — one click fills the
+// existing base/increment custom fields with the FACE VALUE (pre-pacing)
+// clock. Distinct from TIME_CONTROLS above, which are engine-benchmark points
+// (fast/standard/long/rapid) tuned for fair engine-vs-engine comparison rather
+// than a human-recognizable format; both feed the same custom fields and are
+// equally subject to playback-pace compression below.
+const PLAYBACK_FORMATS: { id: string; label: string; baseS: number; incS: number }[] = [
+  { id: "classical", label: "Classical — 40/2.5h+16s", baseS: 2.5 * 3600, incS: 16 },
+  { id: "rapid216", label: "Rapid — 25+10", baseS: 25 * 60, incS: 10 },
+  { id: "blitz216", label: "Blitz — 3+2", baseS: 3 * 60, incS: 2 },
+]
+
+// Playback-pace floor (spec 216 UI:2, tier-0 checklist 216:75): the slower of
+// an observability floor (games blitz by too fast to watch below this) and
+// 1.25x the machine's minimum compute time per move. Tier 0 has no measured
+// per-move minimum yet (MachineProfile carries nps, not a move-time floor), so
+// machineMinSeconds is a conservative placeholder until the Tier-1 time-odds
+// ladder measures it directly.
+const OBSERVABILITY_FLOOR_SECONDS = 0.3
+const TIER0_MACHINE_MIN_SECONDS = 0.05
 
 type RunningTally = {
   completed: number
@@ -76,6 +106,18 @@ function formatDuration(ms: number): string {
 function engineLabel(path: string): string {
   const base = path.split("/").pop() || path
   return base.replace(/\.(exe|app)$/i, "")
+}
+
+// Format a nodes-per-second bench figure for display (spec 216 machine profile).
+function formatNps(nps: number): string {
+  if (nps >= 1_000_000) return `${(nps / 1_000_000).toFixed(1)} Mnps`
+  if (nps >= 1_000) return `${(nps / 1_000).toFixed(0)} knps`
+  return `${nps} nps`
+}
+
+function formatMeasuredDate(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString()
 }
 
 // Cache the tagged positions across runs so we only fetch once.
@@ -133,6 +175,12 @@ export function TournamentTab({
   const [tcId, setTcId] = useState("fast")
   const [customBaseS, setCustomBaseS] = useState("60")
   const [customIncS, setCustomIncS] = useState("0.6")
+  // Playback pace target (seconds/move the user wants to actually watch at).
+  // null = real time (no compression, C=1); a number is the user's saved
+  // preference, re-clamped to the current format's [floor, face value] range
+  // on every render so it survives format changes without a stale slider jump.
+  const [paceTargetSeconds, setPaceTargetSeconds] = useState<number | null>(null)
+  const machineProfile = useMachineProfile()
   // Adjudicate <=7-man positions via the tablebase (perfect play) — fair, since
   // any engine can bolt on a 7-man tablebase for free.
   const [adjudicateTb, setAdjudicateTb] = useState(true)
@@ -202,6 +250,9 @@ export function TournamentTab({
         if (c.tcId) setTcId(c.tcId)
         if (c.customBaseS != null) setCustomBaseS(String(c.customBaseS))
         if (c.customIncS != null) setCustomIncS(String(c.customIncS))
+        if (typeof c.paceTargetSeconds === "number" && Number.isFinite(c.paceTargetSeconds)) {
+          setPaceTargetSeconds(c.paceTargetSeconds)
+        }
         if (typeof c.adjudicateTb === "boolean") setAdjudicateTb(c.adjudicateTb)
         if (typeof c.useEvaluator === "boolean") setUseEvaluator(c.useEvaluator)
         if (c.evaluatorPath) setEvaluatorPath(healPath(c.evaluatorPath) as string)
@@ -219,25 +270,57 @@ export function TournamentTab({
   }, [])
   useEffect(() => {
     if (!restored.current) return // don't clobber saved config before restore runs
-    const c = { engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current, autoStartNext, moveDelayMs }
+    const c = { engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current, autoStartNext, moveDelayMs }
     try { localStorage.setItem("chessgui-tournament-config", JSON.stringify(c)) } catch { /* ignore */ }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, autoStartNext, moveDelayMs])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, autoStartNext, moveDelayMs])
 
-  // Base clock (ms) implied by the current time-control selection, used to
-  // derive the eval-bar default and (in run) the actual game clock.
-  const baseMsConfig = useMemo(() => {
+  // Face-value clock (ms) implied by the current time-control selection —
+  // BEFORE playback-pace compression (spec 216 UI:1). This is what the format
+  // presets fill in, and what the pacing slider's ΔElo readout treats as
+  // "face value".
+  const faceClockConfig = useMemo(() => {
     const preset = TIME_CONTROLS.find((t) => t.id === tcId)
     return preset
-      ? preset.baseMs
-      : Math.max(100, Math.round((Number(customBaseS) || 60) * 1000))
-  }, [tcId, customBaseS])
+      ? { baseMs: preset.baseMs, incMs: preset.incMs }
+      : {
+          baseMs: Math.max(100, Math.round((Number(customBaseS) || 60) * 1000)),
+          incMs: Math.max(0, Math.round((Number(customIncS) || 0) * 1000)),
+        }
+  }, [tcId, customBaseS, customIncS])
 
-  // Auto-check "show eval bar" for TCs at 60s+ (where per-move eval reads are
-  // meaningful and there's time to watch), until the user touches the checkbox.
+  // Average seconds/move at face value, and the playback-pace floor/ceiling
+  // around it (spec 216 UI:2, tier-0 checklist 216:75). Ceiling = real time
+  // (C=1); floor = the slower of the observability floor and 1.25x the
+  // machine's minimum compute time per move.
+  const faceSecondsPerMove = useMemo(
+    () => secondsPerMoveOf({ baseSeconds: faceClockConfig.baseMs / 1000, incrementSeconds: faceClockConfig.incMs / 1000 }),
+    [faceClockConfig],
+  )
+  const machineMinSeconds = TIER0_MACHINE_MIN_SECONDS // no measured per-move floor yet (216 Tier 1)
+  const paceFloorSeconds = Math.max(OBSERVABILITY_FLOOR_SECONDS, paceFloor(machineMinSeconds))
+  const paceHasRoom = faceSecondsPerMove > paceFloorSeconds
+  // The user's saved target, clamped into the current format's range so it
+  // survives format changes without a stale/out-of-range slider position.
+  // null (never touched) means real time — right at the ceiling.
+  const clampedPaceSeconds = Math.min(
+    faceSecondsPerMove,
+    Math.max(paceFloorSeconds, paceTargetSeconds ?? faceSecondsPerMove),
+  )
+  const paceC = paceHasRoom ? faceSecondsPerMove / clampedPaceSeconds : 1
+  // Effective (post-compression) game clock actually sent to the runner —
+  // "the actual TC sent to the runner becomes format/C" (base AND increment
+  // both divided by the same compression factor).
+  const effectiveBaseMs = Math.max(50, Math.round(faceClockConfig.baseMs / paceC))
+  const effectiveIncMs = Math.max(0, Math.round(faceClockConfig.incMs / paceC))
+  const paceReadout = paceStrength(DEFAULT_PRIOR_CURVE, faceSecondsPerMove, paceC, { timeSensitive: true })
+
+  // Auto-check "show eval bar" for effective (post-pacing) clocks at 60s+
+  // (where per-move eval reads are meaningful and there's time to watch),
+  // until the user touches the checkbox.
   useEffect(() => {
     if (evalBarTouched.current) return
-    setShowEvalBar(evalBarDefaultForBaseMs(baseMsConfig))
-  }, [baseMsConfig])
+    setShowEvalBar(evalBarDefaultForBaseMs(effectiveBaseMs))
+  }, [effectiveBaseMs])
 
   // Keep the parent's live-view eval bar visibility in sync.
   useEffect(() => {
@@ -310,14 +393,11 @@ export function TournamentTab({
       const nGamesNum = Math.max(2, Math.min(10000, Math.round(Number(nGames) || 100)))
       const concurrencyNum = Math.max(0, Math.round(Number(concurrency) || 0))
 
-      // Resolve the time control (game clock, engine-managed).
-      const preset = TIME_CONTROLS.find((t) => t.id === tcId)
-      const baseMs = preset
-        ? preset.baseMs
-        : Math.max(100, Math.round((Number(customBaseS) || 60) * 1000))
-      const incMs = preset
-        ? preset.incMs
-        : Math.max(0, Math.round((Number(customIncS) || 0) * 1000))
+      // Resolve the time control (game clock, engine-managed) — the EFFECTIVE
+      // (post-playback-pace) clock: face value base/increment both divided by
+      // the pacing compression factor (spec 216 UI:2-3).
+      const baseMs = effectiveBaseMs
+      const incMs = effectiveIncMs
       // Range is an ABSOLUTE imbalance magnitude (sign is irrelevant under color
       // flip). lo/hi are |eval| bounds; the curve/map span both signs (-hi..+hi).
       const a = Number.isFinite(Number(minEval)) ? Math.abs(Number(minEval)) : 0.5
@@ -522,7 +602,7 @@ export function TournamentTab({
       setNowTs(Date.now()) // freeze elapsed at the final value
       setRunning(false)
     }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, concurrency, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, onLiveUpdate])
+  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, effectiveBaseMs, effectiveIncMs, concurrency, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, onLiveUpdate])
 
   const cancel = useCallback(async () => {
     try {
@@ -641,6 +721,19 @@ export function TournamentTab({
           </div>
         </section>
 
+        {/* Machine profile (spec 216 Tier 0) — calibrates the pacing floor and,
+            eventually, cross-machine equivalence. */}
+        <MachineProfileCard
+          profile={machineProfile.profile}
+          benching={machineProfile.benching}
+          error={machineProfile.error}
+          onBench={() => {
+            const enginePath =
+              typeof window !== "undefined" ? localStorage.getItem("engine-path") ?? undefined : undefined
+            machineProfile.runBench(enginePath)
+          }}
+        />
+
         {/* Start mode + run params */}
         <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
           <h2 className="text-sm font-semibold text-foreground">Start mode</h2>
@@ -741,6 +834,40 @@ export function TournamentTab({
             </div>
           )}
 
+          {/* Time-format presets (spec 216 UI:1) — one click fills the base/increment
+              fields below with a human-recognizable format's face value. */}
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">
+              Time format (fills base + increment below; playback pace compresses it)
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {PLAYBACK_FORMATS.map((f) => {
+                const active =
+                  tcId === "custom" &&
+                  Number(customBaseS) === f.baseS &&
+                  Number(customIncS) === f.incS
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() => {
+                      setTcId("custom")
+                      setCustomBaseS(String(f.baseS))
+                      setCustomIncS(String(f.incS))
+                    }}
+                    disabled={running}
+                    className={`px-3 py-1.5 text-sm rounded-md border transition-colors disabled:opacity-50 ${
+                      active
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-input hover:text-foreground"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <label className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">
@@ -813,6 +940,68 @@ export function TournamentTab({
               </label>
             </div>
           )}
+
+          {/* Playback pace slider (spec 216 UI:2-3): compression factor C from
+              1x (real time) down to the pacing floor. Base AND increment are
+              both divided by C for the actual runner clock (effectiveBaseMs/
+              effectiveIncMs above); the readout uses the PRIOR curve since no
+              per-machine curve has been measured yet (216 Tier 1). */}
+          <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">
+                Playback pace —{" "}
+                {paceHasRoom
+                  ? `${clampedPaceSeconds < 1 ? `${Math.round(clampedPaceSeconds * 1000)}ms` : `${clampedPaceSeconds.toFixed(1)}s`}/move (face value ${faceSecondsPerMove.toFixed(1)}s/move)`
+                  : `already at the floor for this format (${faceSecondsPerMove.toFixed(2)}s/move)`}
+              </span>
+              {paceC > 1.01 && (
+                <span className="text-xs font-mono text-muted-foreground">
+                  {paceC.toFixed(1)}&times; faster
+                </span>
+              )}
+            </div>
+            <Slider
+              data-testid="tournament-pace-slider"
+              min={0}
+              max={100}
+              step={0.5}
+              value={[
+                paceHasRoom
+                  ? ((Math.log2(clampedPaceSeconds) - Math.log2(paceFloorSeconds)) /
+                      (Math.log2(faceSecondsPerMove) - Math.log2(paceFloorSeconds))) *
+                    100
+                  : 100,
+              ]}
+              onValueChange={([v]) => {
+                if (!paceHasRoom) return
+                const logFloor = Math.log2(paceFloorSeconds)
+                const logFace = Math.log2(faceSecondsPerMove)
+                const frac = v / 100
+                setPaceTargetSeconds(2 ** (logFloor + frac * (logFace - logFloor)))
+              }}
+              disabled={running || !paceHasRoom}
+            />
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+              <span>
+                fastest ({paceFloorSeconds < 1 ? `${Math.round(paceFloorSeconds * 1000)}ms` : `${paceFloorSeconds.toFixed(2)}s`}/move)
+              </span>
+              <span>real time (1&times;)</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {DEFAULT_PRIOR_CURVE.source.toUpperCase()}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                Both engines {paceReadout.reason}
+              </span>
+            </div>
+            {!machineProfile.profile && (
+              <span className="text-[10px] text-muted-foreground/70">
+                Bench this machine (below) for an exact pacing floor — using a
+                conservative estimate until then.
+              </span>
+            )}
+          </div>
 
           <label className="flex items-start gap-2 cursor-pointer select-none">
             <input
@@ -1044,6 +1233,47 @@ export function TournamentTab({
         )}
       </div>
     </div>
+  )
+}
+
+// Machine-speed profile card (spec 216 Tier 0 checklist: "bench invocation +
+// nps capture + JSON storage" + its UI surface). One bench per machine —
+// stored locally and reused as the pacing floor's basis (once Tier 1 measures
+// a real per-move minimum) and, later, cross-machine equivalence.
+function MachineProfileCard({
+  profile,
+  benching,
+  error,
+  onBench,
+}: {
+  profile: MachineProfile | null
+  benching: boolean
+  error: string | null
+  onBench: () => void
+}) {
+  return (
+    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-foreground">Machine profile</h2>
+        <Button size="sm" variant="outline" onClick={onBench} disabled={benching}>
+          {benching ? "Benching…" : "Bench this machine"}
+        </Button>
+      </div>
+      {profile ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground font-mono">
+          <span className="text-foreground">{profile.hostname}</span>
+          <span>{profile.engine_name}</span>
+          <span>{formatNps(profile.nps)}</span>
+          <span>{profile.threads} threads</span>
+          <span>measured {formatMeasuredDate(profile.measured_at)}</span>
+        </div>
+      ) : (
+        <span className="text-xs text-muted-foreground">
+          Not benched yet — calibrates pace floors and cross-machine equivalence.
+        </span>
+      )}
+      {error && <span className="text-xs text-red-400">{error}</span>}
+    </section>
   )
 }
 
