@@ -53,6 +53,11 @@ from the player's real games, how often does the persona play the human's move?
 ## Data
 
 - Fischer, Kasparov: app DB (Lumbra OTB). Extraction query by player name, dedup.
+- Gudmundur Sigurjonsson (Icelandic GM, dad's old friend — the persona dad wants to play
+  AT HIS PEAK, since the real friend has dropped in rating and grown shy of playing):
+  401 games in app DB, 1968–2003; peak-era slice identified empirically (prior: GM 1975,
+  peak mid-late 70s). The first PERSONAL persona with GM-density data — and the bridge
+  use case: dad becomes a user. Cross-ref chessgames.com pid 37448 (reference only).
 - Dad (Thorarinn Hjaltason, Icelandic amateur OTB): not in local DB (checked 2026-07-14,
   all spellings). Chase skak.is / chess-results.com for recorded games; expect rating
   history + results, few or no move records. chess.com: 45 standard + 339 Chess960 games
