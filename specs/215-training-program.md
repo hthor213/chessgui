@@ -21,7 +21,7 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
   "flag_rate < 0.10", "calib_mae_level < 0.7"), unlocks }`
 - `Exercise types` (enum, extensible): `calibration_session` (launch Learn v3 deck),
   `spar_rival` (launch Spar vs rival at level), `endgame_playout` (play-it-out from a
-  conversion/endgame position), `rake_deck` (spec 211, when mined), `anti_line_drill`
+  conversion/endgame position), `rake_deck` (spec:211, when mined), `anti_line_drill`
   (play the prepared line vs persona book), `long_game_review` (import + engine-LAST
   review discipline), `rest` (explicitly scheduled — protects the rating signal).
 - The GENERIC program ships with the app (bundled JSON, "Road to 1900"). PRIVATE

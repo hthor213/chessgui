@@ -111,45 +111,48 @@ interface TournamentResult {
 ## Done When
 
 ### Phase 1 — Engine-vs-Engine Core
-- [ ] New Rust module `tournament.rs` with `shakmaty` dependency added to `Cargo.toml`
-- [ ] Single game loop: two UCI engines play one game to a legal terminal position
-- [ ] Terminal detection: checkmate, stalemate, 50-move rule, threefold repetition, insufficient material
-- [ ] Result returned as `(result: GameResult, pgn: String)`
-- [ ] Color flip: given a starting FEN, engines swap colors and play a second game
-- [ ] One game can be played end-to-end and result verified in a Rust unit test
+
+> Note (2026-07-15 verification pass): the runner shipped as `src-tauri/src/match_runner.rs`, **not** `tournament.rs`, and streams over `tauri::ipc::Channel<T>` with a `GameSpec`/`GameOutcome`/`BatchProgress` model rather than the `emit_to` + `match_id` + `tournament_start/cancel/get_result` design this spec describes. Boxes below are ticked against the shipped code where the intent is delivered; divergences are noted inline.
+
+- [x] New Rust module `tournament.rs` with `shakmaty` dependency added to `Cargo.toml` (verified in code 2026-07-15 — module is `src-tauri/src/match_runner.rs`, not `tournament.rs`; `shakmaty = "0.30"` at `src-tauri/Cargo.toml:23`, used at `match_runner.rs:18`)
+- [x] Single game loop: two UCI engines play one game to a legal terminal position (verified in code 2026-07-15, `play_game_streamed` `match_runner.rs:500-781`)
+- [x] Terminal detection: checkmate, stalemate, 50-move rule, threefold repetition, insufficient material (verified in code 2026-07-15, `match_runner.rs:738` checkmate, `:743` stalemate, `:746` insufficient material, `:756` 50-move, `:759-765` threefold via Zobrist rep-counts)
+- [ ] Result returned as `(result: GameResult, pgn: String)` — DIVERGES (2026-07-15): Rust `GameResult` returns a UCI move list (`moves: Vec<String>`, `match_runner.rs:138-152`), not a PGN string; PGN is assembled client-side via `movesToPgn` (`lib/game-replay.ts`). Left unticked pending user call on whether the move-list form satisfies this.
+- [x] Color flip: given a starting FEN, engines swap colors and play a second game (verified in code 2026-07-15 — pairing done in TS: `buildSpecs` emits two `GameSpec`s per seed with swapped white/black paths sharing one `start_fen`, `lib/tournament.ts:437-468`)
+- [ ] One game can be played end-to-end and result verified in a Rust unit test — code exists (real-engine tests `match_runner.rs:1565,1642,1688,1716`) but they assert on plies/eval/abort/pause, none assert the terminal **result** value, and all skip without a local Stockfish; result-verify pending (2026-07-15).
 
 ### Phase 2 — Parallel Batch Runner
-- [ ] Tokio-based concurrent game runner: N games scheduled, M concurrent (configurable)
-- [ ] Progress events emitted per completed game via Tauri `emit_to`
-- [ ] Cancellation: `tournament_cancel` drains the queue and terminates running game processes cleanly
-- [ ] Batch completes and aggregates raw results (game index, start eval, result)
-- [ ] Engine process lifecycle: no zombie processes after batch ends or is cancelled
+- [x] Tokio-based concurrent game runner: N games scheduled, M concurrent (configurable) (verified in code 2026-07-15, `run_batch_core_evaluated` uses a `tokio::sync::Semaphore` sized by `concurrency`, `match_runner.rs:1005-1207`, `:944-949`)
+- [x] Progress events emitted per completed game via Tauri `emit_to` (verified in code 2026-07-15 — emitted once per completed game via `tauri::ipc::Channel<BatchProgress>` `match_runner.rs:1183-1188,1315`, not `emit_to`)
+- [x] Cancellation: `tournament_cancel` drains the queue and terminates running game processes cleanly (verified in code 2026-07-15 — `cancel_batch` sets an `AtomicBool` `match_runner.rs:1385-1388`; new games gated `:1035-1037`, in-flight abort per move `:601-603`, engines `kill_on_drop(true)` `:168`)
+- [x] Batch completes and aggregates raw results (game index, start eval, result) (verified in code 2026-07-15 — `summarize()` aggregates W/D/L `match_runner.rs:911-940`, per-game id+result on `GameOutcome`; start eval tracked client-side in `evalById` `lib/tournament.ts:418-423`)
+- [x] Engine process lifecycle: no zombie processes after batch ends or is cancelled (verified in code 2026-07-15 — `kill_on_drop(true)` at spawn `match_runner.rs:168,1428`, explicit `quit()` with timeout+`start_kill()` `:334-339`)
 
 ### Phase 3 — Starting-Position Pipeline
-- [ ] UHO-format position file (EPD/FEN list) can be loaded from disk via file picker
-- [ ] Eval-tagging step: Stockfish evaluates each candidate position (fixed depth, e.g. depth 12), stores `(fen, eval_cp)` in a session cache
-- [ ] Sampling step: given target range and target N, sample positions so buckets are evenly represented (not all positions clustered near 0)
-- [ ] Color-flip pairing: each sampled position generates two games (A plays white, then B plays white)
-- [ ] Start-mode selector: Normal / Opening Book / Eval-Qualified exposed in config struct
+- [ ] UHO-format position file (EPD/FEN list) can be loaded from disk via file picker — NOT FOUND (2026-07-15): the tab only `fetch`es a pre-generated static asset `public/tagged_positions.json` (`tournament-tab.tsx:126-131`); no in-app EPD/FEN file picker (EPD input is a CLI `--input` arg to the offline tagger). Left unticked.
+- [ ] Eval-tagging step: Stockfish evaluates each candidate position (fixed depth, e.g. depth 12), stores `(fen, eval_cp)` in a session cache — PARTIAL (2026-07-15): tagging exists as an offline Python script `scripts/tag_positions.py` (Stockfish over UCI, default depth 16, writes `{fen,eval_cp,...}`), not an in-app session pipeline; the frontend only caches the already-tagged static file (`positionsCache`, `tournament-tab.tsx:125`). Left unticked.
+- [x] Sampling step: given target range and target N, sample positions so buckets are evenly represented (not all positions clustered near 0) (verified in code 2026-07-15, `buildSeeds(mode:"eval")` buckets by 0.25-pawn magnitude and round-robins across non-empty bins, `lib/tournament.ts:356-411`)
+- [x] Color-flip pairing: each sampled position generates two games (A plays white, then B plays white) (verified in code 2026-07-15, `buildSpecs` `lib/tournament.ts:437-468`)
+- [x] Start-mode selector: Normal / Opening Book / Eval-Qualified exposed in config struct (verified in code 2026-07-15, `StartMode = "normal" | "book" | "eval" | "current"` `lib/tournament.ts:253`)
 - [x] Current-position mode: seeds from the analyze-board FEN; `flipFirst` pairing lets engine A start on the Black side (the board-bottom side); 10m+5s "rapid" TC preset; 2-game default; "Play this out" entry point in the board view. Unit-tested (`__tests__/tournament.test.ts`) and config UI verified headless (2026-07-13). An actual engine run in this mode still needs a live-app check in Tauri.
 
 ### Phase 4 — Tournament Tab UI
-- [ ] "Tournament" tab added to the main navigation
-- [ ] Engine picker: dropdown for Engine A and Engine B (MVP: Reckless vs Stockfish hardcoded, picker wired for future)
-- [ ] Start-mode selector: radio/segmented control for Normal / Book / Eval-Qualified
-- [ ] Eval range inputs (min/max pawns) and N-games input (default 500) shown when Eval-Qualified is selected
-- [ ] Run button starts the match; button becomes Cancel during run
-- [ ] Progress bar and "X / N games complete" counter update live from `tournament-progress` events
-- [ ] Per-game results stream into a compact running log (game #, result, start eval)
+- [x] "Tournament" tab added to the main navigation (verified in code 2026-07-15, `app/page.tsx:481` renders the tab, mounts `TournamentTab` `:17,528`)
+- [ ] Engine picker: dropdown for Engine A and Engine B (MVP: Reckless vs Stockfish hardcoded, picker wired for future) — DIVERGES (2026-07-15): Engine A/B are free-text path `<input>`s (`tournament-tab.tsx:700-724`), not dropdown selects. Left unticked.
+- [x] Start-mode selector: radio/segmented control for Normal / Book / Eval-Qualified (verified in code 2026-07-15, segmented control `tournament-tab.tsx:745-767`)
+- [x] Eval range inputs (min/max pawns) and N-games input (default 500) shown when Eval-Qualified is selected (verified in code 2026-07-15 — eval min/max gated on `mode === "eval"` `tournament-tab.tsx:810-840`; the N-games input is present `:876-890` but rendered for ALL modes, not gated to eval-mode)
+- [x] Run button starts the match; button becomes Cancel during run (verified in code 2026-07-15, `tournament-tab.tsx:1123-1130`)
+- [x] Progress bar and "X / N games complete" counter update live from `tournament-progress` events (verified in code 2026-07-15 — `Progress value={pct}` + `{tally.completed} / {tally.total}` `tournament-tab.tsx:1148-1151`, driven live by the `BatchProgress` channel `:522-568`)
+- [ ] Per-game results stream into a compact running log (game #, result, start eval) — NOT FOUND as a live stream (2026-07-15): the per-game explorer is populated only after the blocking `await invoke("play_batch")` resolves (`setReport` `tournament-tab.tsx:584`); only the aggregate tally updates live per game, individual rows do not stream in during the run. Left unticked.
 
 ### Phase 5 — Probability Map & Visualization
-- [ ] Bucketing logic (TypeScript or Rust): assign each completed game to its 0.25-pawn bin
-- [ ] `EvalBucket` aggregation updates live as `tournament-game-result` events arrive
-- [ ] Stacked-bar chart renders the probability map (W/D/L % per bucket)
-- [ ] X-axis label shows bucket range; tooltip on hover shows raw game count + percentages
-- [ ] Conversion-delta line overlaid on chart (actual win % vs Elo-naive expectation)
-- [ ] Chart is readable at a glance: color-coded (green = win, grey = draw, red = loss for higher-eval side)
-- [ ] Completed `TournamentResult` can be exported as JSON
+- [x] Bucketing logic (TypeScript or Rust): assign each completed game to its 0.25-pawn bin (verified in code 2026-07-15, `buildProbabilityMap(..., binWidth = 0.25)` `lib/tournament.ts:509-579`)
+- [ ] `EvalBucket` aggregation updates live as `tournament-game-result` events arrive — NOT FOUND (2026-07-15): `buildProbabilityMap`/`buildEngineCurves`/`buildEngineWDL` run once after the batch completes (`tournament-tab.tsx:586-603`), not incrementally per game-result event. Left unticked.
+- [x] Stacked-bar chart renders the probability map (W/D/L % per bucket) (verified in code 2026-07-15, `ProbabilityMap` renders a stacked green/gray/red bar per bin `tournament-tab.tsx:1476-1557`)
+- [x] X-axis label shows bucket range; tooltip on hover shows raw game count + percentages (verified in code 2026-07-15 — bin-center label `tournament-tab.tsx:1547-1550`, `title=` tooltip with `n=`, W/D/B counts + `avgWhiteScore` `:1532`)
+- [ ] Conversion-delta line overlaid on chart (actual win % vs Elo-naive expectation) — NOT FOUND (2026-07-15): no Elo-naive expectation overlay in `tournament-tab.tsx` or `lib/tournament.ts`; only the actual white-score dot is plotted. Left unticked.
+- [x] Chart is readable at a glance: color-coded (green = win, grey = draw, red = loss for higher-eval side) (verified in code 2026-07-15, `bg-green-500`/`bg-gray-500`/`bg-red-500` `tournament-tab.tsx:1500-1540`)
+- [ ] Completed `TournamentResult` can be exported as JSON — NOT FOUND (2026-07-15): no Blob/download/JSON-export of the batch report in `tournament-tab.tsx` (grep `Blob|download|export` → 0 hits). Left unticked.
 
 ### Phase 6 — Post-MVP participants & tournaments
 

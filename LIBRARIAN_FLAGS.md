@@ -8,5 +8,5 @@ Run `/librarian` (or `hth-platform librarian propose`) to triage.
 - 200-299 band: 201, 203–209 unused. Intentional reserve, or stale numbering?
 
 ## Convention drift
-- specs/213-elo-conditioned-evaluator.md contains 1 prose mention(s) of "spec NNN" form. Use `spec:NNN` (see specs/README.md).
-- specs/215-training-program.md contains 1 prose mention(s) of "spec NNN" form. Use `spec:NNN` (see specs/README.md).
+- ~~specs/213-elo-conditioned-evaluator.md contains 1 prose mention(s) of "spec NNN" form.~~ RESOLVED 2026-07-15 — `spec 211` → `spec:211` (line 211).
+- ~~specs/215-training-program.md contains 1 prose mention(s) of "spec NNN" form.~~ RESOLVED 2026-07-15 — `spec 211` → `spec:211` (line 24).

@@ -208,7 +208,7 @@ optional move, and score them against Stockfish. Files are the research artifact
         convertible kind"; per the user's standing report this is where sub-2000 rating
         points live.
       - `critical` 25: multipv_gap_cp ≥ 100 — the move genuinely matters (proto-rake;
-        real rake decks arrive with spec 211 tier-1).
+        real rake decks arrive with spec:211 tier-1).
       - `endgame` 25: existing phase detection — the v1 hole (2/100).
       - `level` 20: |eval| < 0.5 middlegames — kept deliberately small but present:
         the user's worst band (MAE 1.01 vs 0.50) is imagined advantage in equal

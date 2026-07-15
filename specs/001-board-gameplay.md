@@ -116,22 +116,22 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 - [x] Playing a move from a past position truncates future moves
 
 ### Last Move Highlighting (from spec:014)
-- [ ] Last move squares highlighted after playing a move
-- [ ] Highlight updates correctly when navigating with arrow keys
-- [ ] No highlight shown at initial position
+- [x] Last move squares highlighted after playing a move (verified in code 2026-07-15, `lastMove` computed `hooks/use-chess-game.ts:371-385`, passed to Chessground at `components/board.tsx:128`)
+- [x] Highlight updates correctly when navigating with arrow keys (verified in code 2026-07-15 — `lastMove` is a `useMemo` keyed on `view.currentNode` `use-chess-game.ts:385`, recomputed on every nav; structural, no dedicated test)
+- [x] No highlight shown at initial position (verified in code 2026-07-15, `use-chess-game.ts:373` returns `undefined` when `!node.move || node.parent == null`)
 
 ### Promotion (from spec:015)
 - [x] Pawn reaching last rank shows a 4-piece picker overlay
 - [x] Selecting a piece commits the move with correct promotion
-- [ ] Clicking away or pressing Escape cancels the move
+- [x] Clicking away or pressing Escape cancels the move (verified in code 2026-07-15, `components/promotion-dialog.tsx:28-35` Escape → `onCancel`, `:60-67` backdrop click → `onCancel`)
 - [x] Works for both white and black promotions
 
 ### Keyboard Shortcuts (from spec:102)
-- [ ] Cmd+V opens PGN paste dialog
-- [ ] Cmd+N starts a new game
+- [x] Cmd+V opens PGN paste dialog (verified in code 2026-07-15, `app/page.tsx:358-369` `meta && key==="v"` → `handlePaste()` opens `PgnImportDialog`)
+- [x] Cmd+N starts a new game (verified in code 2026-07-15, `app/page.tsx:413-416` `meta && key==="n"` → `game.newGame()`)
 - [x] F flips the board
-- [ ] Cmd+O opens file dialog for PGN
-- [ ] Space toggles engine analysis on/off
+- [ ] Cmd+O opens file dialog for PGN — NOT IMPLEMENTED (2026-07-15): no Cmd+O key handler in `app/page.tsx` (grep for `KeyO`/`"o"` → 0 hits); PGN files open only via the "Open file…" button inside the Import dialog (`components/pgn-import-dialog.tsx:190-204`). Left unticked per team-lead instruction (do not implement).
+- [x] Space toggles engine analysis on/off (verified in code 2026-07-15, `app/page.tsx:417-421` `key===" "` → `engine.toggleAnalysis()`; note: acts only while the engine process is running — Space does not spawn/start the engine from off)
 
 ### Untested (from spec:002 migration)
 - [ ] PGN import works (paste and file open)

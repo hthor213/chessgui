@@ -96,8 +96,8 @@ Red dots where eval drops significantly:
 - [x] Annotations visible in move list (comment text + NAG glyphs; per-move eval badges deferred — evals live in the graph tooltip)
 - [x] Arrow annotations drawn on board (right-click drag), persisted per node — not yet verified in-app
 - [x] Square annotations highlighted on board (right-click), persisted as dest-less arrows — not yet verified in-app
-- [ ] Annotated PGN export includes comments, evals, NAGs, arrows, squares (spec:013 task)
-- [ ] PGN import preserves all annotation types (spec:013 task)
+- [x] Annotated PGN export includes comments, evals, NAGs, arrows, squares (spec:013 task) — shipped and ticked in spec:013:29 (`treeToPgn`/`makePgn`, round-trip tested in `__tests__/pgn.test.ts`); cross-verified 2026-07-15
+- [x] PGN import preserves all annotation types (spec:013 task) — shipped and ticked in spec:013:19 (`parsePgnToTrees`, full-tree comments/NAGs/[%eval]/[%clk]/[%cal]/[%csl]); cross-verified 2026-07-15
 - [ ] Annotations persist in database (spec:200) — they do persist in the localStorage save today
 
 ### Eval Graph (from spec:203)
