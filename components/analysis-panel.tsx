@@ -29,6 +29,11 @@ interface AnalysisPanelProps {
     setEnginePaceSeconds: (seconds: number) => void;
   };
   turn: "white" | "black";
+  /** Click a PV move to preview the line up to it on the board (spec 011).
+   *  Omitted in play mode — previews are an analysis-only affordance. */
+  onPreviewPv?: (line: PvLine, ply: number) => void;
+  /** Which line/ply is currently being previewed (highlights the prefix). */
+  previewPv?: { multipv: number; ply: number } | null;
 }
 
 // The curve's own top anchor (216: b shrinks to its flattest, ~full-strength
@@ -109,18 +114,53 @@ function ScoreBadge({ score, turn }: { score: PvLine["score"]; turn: "white" | "
   );
 }
 
-function PvLineRow({ line, turn }: { line: PvLine; turn: "white" | "black" }) {
+function PvLineRow({
+  line,
+  turn,
+  onPreview,
+  previewPly,
+}: {
+  line: PvLine;
+  turn: "white" | "black";
+  onPreview?: (line: PvLine, ply: number) => void;
+  /** Ply of this line currently previewed, or null/undefined when not this line. */
+  previewPly?: number | null;
+}) {
+  if (!onPreview) {
+    return (
+      <div className="flex flex-nowrap items-start gap-1.5">
+        <ScoreBadge score={line.score} turn={turn} />
+        <span className="text-xs text-muted-foreground font-mono leading-relaxed break-words">
+          {line.sanMoves.join("  ")}
+        </span>
+      </div>
+    );
+  }
   return (
-    <div className="flex flex-nowrap items-start gap-1.5">
+    <div className="flex flex-nowrap items-start gap-1.5" data-testid={`pv-line-${line.multipv}`}>
       <ScoreBadge score={line.score} turn={turn} />
-      <span className="text-xs text-muted-foreground font-mono leading-relaxed break-words">
-        {line.sanMoves.join("  ")}
+      <span className="text-xs font-mono leading-relaxed break-words">
+        {line.sanMoves.map((san, i) => (
+          <button
+            key={i}
+            className={`mr-1.5 rounded px-0.5 hover:text-foreground hover:bg-white/10 ${
+              previewPly != null && i <= previewPly
+                ? "text-sky-300 bg-sky-950/60"
+                : "text-muted-foreground"
+            }`}
+            onClick={() => onPreview(line, i)}
+            title="Preview this line on the board (does not change the game)"
+            data-testid={`pv-move-${line.multipv}-${i}`}
+          >
+            {san}
+          </button>
+        ))}
       </span>
     </div>
   );
 }
 
-export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
+export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: AnalysisPanelProps) {
   const { state } = engine;
 
   const isPlayWhite = state.mode === "play" && state.playerColor === "white";
@@ -331,7 +371,13 @@ export function AnalysisPanel({ engine, turn }: AnalysisPanelProps) {
           ) : (
             <>
               {state.lines.map((line) => (
-                <PvLineRow key={line.multipv} line={line} turn={scoreTurn} />
+                <PvLineRow
+                  key={line.multipv}
+                  line={line}
+                  turn={scoreTurn}
+                  onPreview={onPreviewPv}
+                  previewPly={previewPv?.multipv === line.multipv ? previewPv.ply : null}
+                />
               ))}
               {state.lines.length === 0 && state.isAnalyzing && (
                 <span className="text-xs text-muted-foreground">

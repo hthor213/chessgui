@@ -130,7 +130,7 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 - [x] Cmd+V opens PGN paste dialog (verified in code 2026-07-15, `app/page.tsx:358-369` `meta && key==="v"` → `handlePaste()` opens `PgnImportDialog`)
 - [x] Cmd+N starts a new game (verified in code 2026-07-15, `app/page.tsx:413-416` `meta && key==="n"` → `game.newGame()`)
 - [x] F flips the board
-- [ ] Cmd+O opens file dialog for PGN — NOT IMPLEMENTED (2026-07-15): no Cmd+O key handler in `app/page.tsx` (grep for `KeyO`/`"o"` → 0 hits); PGN files open only via the "Open file…" button inside the Import dialog (`components/pgn-import-dialog.tsx:190-204`). Left unticked per team-lead instruction (do not implement).
+- [x] Cmd+O opens file dialog for PGN — implemented (2026-07-15, on team-lead instruction reversing the earlier hold): ⌘O in `app/page.tsx` clicks a hidden `<input type="file" accept=".pgn,.txt">` (works in both the Tauri webview and a plain browser) and opens the Import dialog pre-filled with the file's contents, same flow as drag-and-drop. Verified headless: Playwright file-chooser → dialog pre-filled → Load lands the game on the board.
 - [x] Space toggles engine analysis on/off (verified in code 2026-07-15, `app/page.tsx:417-421` `key===" "` → `engine.toggleAnalysis()`; note: acts only while the engine process is running — Space does not spawn/start the engine from off)
 
 ### Untested (from spec:002 migration)

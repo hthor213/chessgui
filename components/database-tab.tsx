@@ -33,10 +33,24 @@ import {
   type GameFilter,
   type GameHeader,
   type ImportReport,
+  type PgnImportProgress,
   type PositionHit,
   type Sort,
   type SortColumn,
 } from "@/lib/database"
+import {
+  aggregateHits,
+  moverFromFen,
+  sortGroups,
+  type ExplorerSort,
+  type MoveGroup,
+} from "@/lib/explorer-stats"
+import {
+  fetchLichessExplorer,
+  type LichessExplorerResult,
+} from "@/lib/lichess-explorer"
+import { ecoName } from "@/lib/eco"
+import { addDbPath, dbDisplayName, loadDbPaths, saveDbPaths } from "@/lib/db-registry"
 
 const PAGE_SIZE = 50
 
@@ -71,6 +85,44 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
 
   const [hits, setHits] = useState<PositionHit[] | null>(null)
   const [searching, setSearching] = useState(false)
+  // Explorer sort mode (spec 200: "configurable: by count, by performance").
+  const [explorerSort, setExplorerSort] = useState<ExplorerSort>("count")
+  // Lichess online fallback (spec 200) — consulted when the local database has
+  // no games for the current position.
+  const [online, setOnline] = useState<
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "ok"; data: LichessExplorerResult }
+    | { status: "error"; message: string }
+  >({ status: "idle" })
+
+  // Active database (spec 200 multi-DB): undefined = the default games.db;
+  // extra databases are opened via the native picker and remembered.
+  const [dbPath, setDbPath] = useState<string | undefined>(undefined)
+  const [dbPaths, setDbPaths] = useState<string[]>([])
+  const [tauri, setTauri] = useState(false)
+  useEffect(() => {
+    setTauri(isTauri())
+    setDbPaths(loadDbPaths())
+  }, [])
+
+  const openDatabase = useCallback(async () => {
+    // Native picker: the backend needs a real filesystem path for the SQLite file.
+    const { open: openFileDialog } = await import("@tauri-apps/plugin-dialog")
+    const picked = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "ChessGUI database", extensions: ["db", "sqlite", "sqlite3"] }],
+    })
+    if (typeof picked !== "string") return // cancelled
+    setDbPaths((prev) => {
+      const next = addDbPath(prev, picked)
+      saveDbPaths(next)
+      return next
+    })
+    setDbPath(picked)
+    setPage(0)
+    setSelected(new Set())
+  }, [])
 
   // Ignore out-of-order responses when filters change rapidly.
   const reqId = useRef(0)
@@ -92,8 +144,8 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
     setLoading(true)
     try {
       const [list, s] = await Promise.all([
-        listGames(applied, PAGE_SIZE, page * PAGE_SIZE, sort),
-        dbStats(),
+        listGames(applied, PAGE_SIZE, page * PAGE_SIZE, sort, dbPath),
+        dbStats(dbPath),
       ])
       if (id !== reqId.current) return
       setRows(list)
@@ -101,7 +153,7 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
     } finally {
       if (id === reqId.current) setLoading(false)
     }
-  }, [applied, page, sort])
+  }, [applied, page, sort, dbPath])
 
   useEffect(() => {
     void refresh()
@@ -129,10 +181,10 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
 
   const openGame = useCallback(
     async (id: number) => {
-      const pgn = await getGame(id)
+      const pgn = await getGame(id, dbPath)
       if (pgn) onLoadGame(pgn)
     },
-    [onLoadGame],
+    [onLoadGame, dbPath],
   )
 
   const onImported = useCallback(
@@ -150,22 +202,22 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
   const removeSelected = useCallback(async () => {
     if (selected.size === 0) return
     if (!confirm(`Delete ${selected.size} selected game(s)? This cannot be undone.`)) return
-    const removed = await deleteGames([...selected])
+    const removed = await deleteGames([...selected], dbPath)
     setBanner(`Deleted ${removed} game(s)`)
     setSelected(new Set())
     void refresh()
-  }, [selected, refresh])
+  }, [selected, refresh, dbPath])
 
   const findPosition = useCallback(async (fen: string) => {
     const id = ++posReqId.current
     setSearching(true)
     try {
-      const found = await searchPosition(fen, 500)
+      const found = await searchPosition(fen, 500, dbPath)
       if (id === posReqId.current) setHits(found)
     } finally {
       if (id === posReqId.current) setSearching(false)
     }
-  }, [])
+  }, [dbPath])
 
   // Auto-update the explorer panel as the user plays or navigates moves on
   // the board — debounced so rapid navigation (holding an arrow key, or a
@@ -179,6 +231,42 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
     const t = setTimeout(() => void findPosition(currentFen), 200)
     return () => clearTimeout(t)
   }, [currentFen, findPosition])
+
+  // Aggregate local hits into explorer move groups, sorted per the toggle.
+  const mover = currentFen ? moverFromFen(currentFen) : "white"
+  const localGroups = useMemo(
+    () => (hits ? sortGroups(aggregateHits(hits, mover), explorerSort) : null),
+    [hits, mover, explorerSort],
+  )
+
+  // Lichess fallback: only when the local search came back empty for a real
+  // position. Guarded by a nonce so a stale response can't clobber a newer one.
+  const onlineReqId = useRef(0)
+  useEffect(() => {
+    if (!currentFen || hits === null || hits.length > 0) {
+      setOnline({ status: "idle" })
+      return
+    }
+    const id = ++onlineReqId.current
+    setOnline({ status: "loading" })
+    fetchLichessExplorer(currentFen)
+      .then((data) => {
+        if (id === onlineReqId.current) setOnline({ status: "ok", data })
+      })
+      .catch((e: unknown) => {
+        if (id === onlineReqId.current)
+          setOnline({
+            status: "error",
+            message: e instanceof Error ? e.message : "Lichess explorer failed",
+          })
+      })
+  }, [currentFen, hits])
+
+  const onlineGroups = useMemo(
+    () =>
+      online.status === "ok" ? sortGroups(online.data.moves, explorerSort) : null,
+    [online, explorerSort],
+  )
 
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id))
   const toggleAll = useCallback(() => {
@@ -202,6 +290,37 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Database switcher (spec 200 multi-DB): the backend keeps one
+                connection per path, so switching is instant. */}
+            <select
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm max-w-[14rem]"
+              value={dbPath ?? ""}
+              onChange={(e) => {
+                setDbPath(e.target.value || undefined)
+                setPage(0)
+                setSelected(new Set())
+              }}
+              title={dbPath ?? "Default database (app data)"}
+              data-testid="db-switcher"
+            >
+              <option value="">Default</option>
+              {dbPaths.map((p) => (
+                <option key={p} value={p}>
+                  {dbDisplayName(p)}
+                </option>
+              ))}
+            </select>
+            {tauri && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void openDatabase()}
+                title="Open another database file (kept open alongside this one)"
+                data-testid="db-open"
+              >
+                Open…
+              </Button>
+            )}
             {selected.size > 0 && (
               <Button
                 variant="destructive"
@@ -289,7 +408,12 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
                     <td className="px-3 py-1.5 text-center whitespace-nowrap">{r.result}</td>
                     <td className="px-3 py-1.5 whitespace-nowrap max-w-[16rem] truncate" title={r.event}>{r.event}</td>
                     <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{r.date}</td>
-                    <td className="px-3 py-1.5 whitespace-nowrap">{r.eco}</td>
+                    <td
+                      className="px-3 py-1.5 whitespace-nowrap"
+                      title={ecoName(r.eco) ?? undefined}
+                    >
+                      {r.eco}
+                    </td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{r.ply_count}</td>
                   </tr>
                 ))}
@@ -348,21 +472,89 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
                 as you play or navigate; click a move to play it.
               </p>
             </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => currentFen && void findPosition(currentFen)}
-              disabled={!currentFen || searching}
-              data-testid="db-find-position"
-            >
-              {searching ? "Searching…" : "Refresh"}
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Sort toggle (spec 200: by count / by performance) */}
+              <div className="flex rounded-md border border-input overflow-hidden text-xs">
+                {(["count", "performance"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    className={`px-2 py-1 ${
+                      explorerSort === mode
+                        ? "bg-secondary text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    onClick={() => setExplorerSort(mode)}
+                    title={mode === "count" ? "Sort moves by game count" : "Sort moves by performance rating"}
+                    data-testid={`db-explorer-sort-${mode}`}
+                  >
+                    {mode === "count" ? "Count" : "Perf"}
+                  </button>
+                ))}
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => currentFen && void findPosition(currentFen)}
+                disabled={!currentFen || searching}
+                data-testid="db-find-position"
+              >
+                {searching ? "Searching…" : "Refresh"}
+              </Button>
+            </div>
           </div>
-          {hits && <PositionResults hits={hits} onPlayMove={onPlayMove} />}
+          {localGroups && localGroups.length > 0 && (
+            <PositionResults
+              groups={localGroups}
+              games={hits!.length}
+              onPlayMove={onPlayMove}
+            />
+          )}
+          {/* Local DB has nothing → Lichess fallback, clearly marked online. */}
+          {localGroups && localGroups.length === 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground" data-testid="db-position-empty">
+                No games in the database reach this position.
+              </p>
+              {online.status === "loading" && (
+                <p className="text-xs text-muted-foreground" data-testid="db-lichess-loading">
+                  Checking the Lichess opening explorer…
+                </p>
+              )}
+              {online.status === "error" && (
+                <p className="text-xs text-amber-400/80" data-testid="db-lichess-error">
+                  {online.message}
+                </p>
+              )}
+              {online.status === "ok" && onlineGroups && (
+                <div className="flex flex-col gap-1" data-testid="db-lichess-results">
+                  <span className="inline-flex items-center gap-1.5 text-xs text-sky-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                    online — Lichess opening explorer ({online.data.total.toLocaleString()} games)
+                  </span>
+                  {onlineGroups.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Lichess has no games for this position either.
+                    </p>
+                  ) : (
+                    <PositionResults
+                      groups={onlineGroups}
+                      games={online.data.total}
+                      onPlayMove={onPlayMove}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={onImported} />
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={onImported}
+        dbPath={dbPath}
+      />
     </div>
   )
 }
@@ -471,57 +663,21 @@ function SortHeader({
 // Position search results — grouped by next move with a W/D/L bar
 // ---------------------------------------------------------------------------
 
-type MoveGroup = {
-  san: string
-  uci: string | null
-  total: number
-  whiteWins: number
-  draws: number
-  blackWins: number
-  avgElo: number | null
-}
-
-function aggregate(hits: PositionHit[]): MoveGroup[] {
-  const groups = new Map<string, MoveGroup>()
-  for (const h of hits) {
-    const key = h.next_san ?? "(end of game)"
-    let g = groups.get(key)
-    if (!g) {
-      g = { san: key, uci: h.next_uci, total: 0, whiteWins: 0, draws: 0, blackWins: 0, avgElo: null }
-      groups.set(key, g)
-    }
-    g.total += 1
-    if (h.result === "1-0") g.whiteWins += 1
-    else if (h.result === "1/2-1/2") g.draws += 1
-    else if (h.result === "0-1") g.blackWins += 1
-    const elos = [h.white_elo, h.black_elo].filter((e): e is number => e != null)
-    if (elos.length) {
-      const mean = elos.reduce((a, b) => a + b, 0) / elos.length
-      g.avgElo = g.avgElo == null ? mean : (g.avgElo * (g.total - 1) + mean) / g.total
-    }
-  }
-  return [...groups.values()].sort((a, b) => b.total - a.total)
-}
-
+// Aggregation lives in lib/explorer-stats.ts (shared with tests and the
+// Lichess fallback); this component just renders pre-sorted MoveGroups.
 function PositionResults({
-  hits,
+  groups,
+  games,
   onPlayMove,
 }: {
-  hits: PositionHit[]
+  groups: MoveGroup[]
+  games: number
   onPlayMove?: (uci: string) => void
 }) {
-  const groups = useMemo(() => aggregate(hits), [hits])
-  if (hits.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground" data-testid="db-position-empty">
-        No games in the database reach this position.
-      </p>
-    )
-  }
   return (
     <div className="flex flex-col gap-1" data-testid="db-position-results">
       <p className="text-xs text-muted-foreground">
-        {hits.length} game{hits.length === 1 ? "" : "s"} · {groups.length} move
+        {games.toLocaleString()} game{games === 1 ? "" : "s"} · {groups.length} move
         {groups.length === 1 ? "" : "s"}
       </p>
       {groups.map((g) => {
@@ -557,8 +713,23 @@ function PositionResults({
               <div className="bg-neutral-400" style={{ width: `${(g.draws / g.total) * 100}%` }} />
               <div className="bg-neutral-700" style={{ width: `${(g.blackWins / g.total) * 100}%` }} />
             </div>
-            <span className="w-14 text-right tabular-nums text-xs text-muted-foreground">
+            <span
+              className="w-14 text-right tabular-nums text-xs text-muted-foreground"
+              title={g.avgElo != null ? `Average rating ${Math.round(g.avgElo)}` : undefined}
+            >
               {g.avgElo != null ? Math.round(g.avgElo) : ""}
+            </span>
+            {/* Performance rating of the side to move for this move (spec 200) */}
+            <span
+              className="w-14 text-right tabular-nums text-xs text-muted-foreground"
+              title={
+                g.performance != null
+                  ? `Performance rating ${g.performance} (side to move)`
+                  : undefined
+              }
+              data-testid={`db-move-perf-${g.san}`}
+            >
+              {g.performance != null ? `p${g.performance}` : ""}
             </span>
           </div>
         )
@@ -575,15 +746,19 @@ function ImportDialog({
   open,
   onOpenChange,
   onImported,
+  dbPath,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onImported: (report: ImportReport) => void
+  /** Target database — imports land in the currently-selected DB. */
+  dbPath?: string
 }) {
   const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cbhProgress, setCbhProgress] = useState<CbhImportProgress | null>(null)
+  const [pgnProgress, setPgnProgress] = useState<PgnImportProgress | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // CBH import needs a real filesystem path (native dialog + Rust decoder), so
@@ -601,16 +776,22 @@ function ImportDialog({
       setBusy(true)
       setError(null)
       try {
-        const report = await importPgn({ source, text: pgn })
+        const report = await importPgn({
+          source,
+          text: pgn,
+          dbPath,
+          onProgress: setPgnProgress,
+        })
         setText("")
         onImported(report)
       } catch (e) {
         setError(typeof e === "string" ? e : "Import failed.")
       } finally {
         setBusy(false)
+        setPgnProgress(null)
       }
     },
-    [onImported],
+    [onImported, dbPath],
   )
 
   const handleFile = useCallback(
@@ -636,7 +817,7 @@ function ImportDialog({
     if (typeof picked !== "string") return // cancelled
     setBusy(true)
     try {
-      const report = await importCbh({ cbhPath: picked, onProgress: setCbhProgress })
+      const report = await importCbh({ cbhPath: picked, dbPath, onProgress: setCbhProgress })
       // Fold into the PGN-shaped report the parent banner expects.
       onImported({
         imported: report.imported,
@@ -649,7 +830,7 @@ function ImportDialog({
       setBusy(false)
       setCbhProgress(null)
     }
-  }, [onImported])
+  }, [onImported, dbPath])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -669,6 +850,22 @@ function ImportDialog({
           data-testid="db-import-text"
         />
         {error && <p className="text-sm text-destructive">{error}</p>}
+        {/* PGN import progress (spec 200): streamed per committed batch. No
+            total is knowable for a PGN stream, so the bar is indeterminate —
+            the counts are the real signal. */}
+        {pgnProgress && (
+          <div className="text-sm text-muted-foreground" data-testid="db-import-pgn-progress">
+            <span>
+              Importing… {pgnProgress.processed.toLocaleString()} games processed (
+              {pgnProgress.imported.toLocaleString()} added,{" "}
+              {pgnProgress.dups_skipped.toLocaleString()} duplicates
+              {pgnProgress.errors ? `, ${pgnProgress.errors.toLocaleString()} errors` : ""})
+            </span>
+            <div className="mt-1 h-1.5 rounded bg-secondary overflow-hidden">
+              <div className="h-full w-1/3 bg-primary animate-pulse" />
+            </div>
+          </div>
+        )}
         {cbhProgress && (
           <div className="text-sm text-muted-foreground" data-testid="db-import-cbh-progress">
             <span>

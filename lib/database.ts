@@ -35,6 +35,18 @@ export type CbhImportProgress = {
 }
 
 /**
+ * Progress snapshot streamed during a PGN import: once up front, after every
+ * committed batch, and once at the end. No `total` — a PGN stream's game
+ * count is unknown without a pre-scan. Mirrors Rust `PgnImportProgress`.
+ */
+export type PgnImportProgress = {
+  processed: number
+  imported: number
+  dups_skipped: number
+  errors: number
+}
+
+/**
  * Outcome of a full CBH import. `convert_errors` are records the CBH decoder
  * could not turn into PGN; `db_errors` are converted games the PGN importer
  * then rejected. Mirrors Rust `CbhImportReport`.
@@ -172,19 +184,34 @@ function mockApi(): Promise<DatabaseApi> {
  * `filePath` (streamed from disk in Tauri — the browser mock only uses `text`).
  * `source` is recorded per game as provenance. `dbPath` selects a specific
  * database file; omit it for the default one in the app data dir.
+ * `onProgress` receives a snapshot up front and after every committed batch
+ * (the mock emits a single final snapshot).
  */
 export function importPgn(args: {
   source: string
   text?: string
   filePath?: string
   dbPath?: string
+  onProgress?: (p: PgnImportProgress) => void
 }): Promise<ImportReport> {
-  if (!isTauri()) return mockApi().then((m) => m.importPgn(args))
+  if (!isTauri())
+    return mockApi()
+      .then((m) => m.importPgn(args))
+      .then((report) => {
+        args.onProgress?.({
+          processed: report.imported + report.dups_skipped + report.errors,
+          ...report,
+        })
+        return report
+      })
+  const channel = new Channel<PgnImportProgress>()
+  if (args.onProgress) channel.onmessage = args.onProgress
   return invoke<ImportReport>("db_import_pgn", {
     source: args.source,
     text: args.text ?? null,
     filePath: args.filePath ?? null,
     dbPath: args.dbPath ?? null,
+    onProgress: channel,
   })
 }
 

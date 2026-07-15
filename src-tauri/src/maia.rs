@@ -557,6 +557,16 @@ pub struct MaiaState {
 }
 
 impl MaiaState {
+    /// Drop every pooled lc0 process (spec 011 quit cleanup). Each child was
+    /// spawned with `kill_on_drop`, so clearing the pool SIGKILLs any process
+    /// not held by an in-flight query — and those die when the query's Arc
+    /// clone is released. Called from the app's exit handler via block_on.
+    pub async fn shutdown(&self) {
+        let mut pool = self.pool.lock().await;
+        pool.procs.clear();
+        pool.order.clear();
+    }
+
     async fn get_or_spawn(
         &self,
         band: u32,

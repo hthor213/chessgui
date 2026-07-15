@@ -23,7 +23,9 @@ import { parsePgnToTrees } from "@/lib/pgn"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 import { readClipboardImage, readClipboardText, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
-import { uciToArrow } from "@/lib/uci-parser"
+import { uciToArrow, type PvLine } from "@/lib/uci-parser"
+import { walkPv, type PvStep } from "@/lib/pv-preview"
+import { ecoLabel } from "@/lib/eco"
 import type { LiveGame, ViewerControls } from "@/lib/tournament"
 import { MOVE_DELAY_OPTIONS } from "@/lib/tournament"
 import { sansFromUci, numberMoves } from "@/lib/game-replay"
@@ -115,6 +117,10 @@ export default function Home() {
   }, [tournamentRunning])
   const [pgnDialogOpen, setPgnDialogOpen] = useState(false)
   const [pgnInitialText, setPgnInitialText] = useState("")
+  // Cmd+O (spec 001): opens the OS file picker for a .pgn, then hands the
+  // contents to the Import dialog (same flow as drag-and-drop). A hidden
+  // <input type="file"> works in both the Tauri webview and a plain browser.
+  const pgnFileInputRef = useRef<HTMLInputElement>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [pasteStatus, setPasteStatus] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
@@ -134,6 +140,28 @@ export default function Home() {
   
   const engineLiveTime = isEngineTurn ? Math.max(0, engineBaseTime - timeSpentThisTurn) : engineBaseTime;
   const humanLiveTime = !isEngineTurn ? timeSpentThisTurn : 0;
+
+  // PV preview (spec 011): clicking a move in an engine line shows the line
+  // on the board up to that ply — a read-only overlay, never a tree mutation.
+  // Exits on Esc, on the banner's button, or automatically when the game's
+  // position changes (a real move or navigation).
+  const [pvPreview, setPvPreview] = useState<{
+    multipv: number
+    steps: PvStep[]
+    ply: number
+  } | null>(null)
+  const handlePreviewPv = useCallback(
+    (line: PvLine, ply: number) => {
+      const steps = walkPv(game.fen, line.uciMoves)
+      if (steps.length === 0) return
+      setPvPreview({ multipv: line.multipv, steps, ply: Math.min(ply, steps.length - 1) })
+    },
+    [game.fen],
+  )
+  useEffect(() => {
+    setPvPreview(null) // the game moved on — drop the stale preview
+  }, [game.fen])
+  const previewStep = pvPreview ? pvPreview.steps[pvPreview.ply] : null
 
   // Engine best-move arrows (analysis mode only — no hints while playing or
   // in thinking mode). uciToArrow legality-checks each move, so PV lines that
@@ -302,6 +330,19 @@ export default function Home() {
     ;(window as unknown as Record<string, unknown>).__enterThinkingMode = enterThinkingMode
   }, [enterThinkingMode])
 
+  // Test hook: drive a PV preview without a running engine (engine lines only
+  // exist inside Tauri, so Playwright can't click a real PV row headlessly).
+  useEffect(() => {
+    ;(window as unknown as Record<string, unknown>).__previewPv = (
+      uciMoves: string[],
+      ply: number,
+    ) =>
+      handlePreviewPv(
+        { multipv: 1, score: { type: "cp", value: 0 }, depth: 0, sanMoves: [], uciMoves },
+        ply,
+      )
+  }, [handlePreviewPv])
+
   // Drag-and-drop a .pgn file onto the window → open the import dialog
   // pre-filled with its contents (reuses the multi-game selector).
   useEffect(() => {
@@ -348,6 +389,13 @@ export default function Home() {
         return
       }
 
+      // Cmd+O anywhere: open a .pgn file into the Import dialog (spec 001).
+      if (meta && (e.key === "o" || e.key === "O")) {
+        e.preventDefault()
+        pgnFileInputRef.current?.click()
+        return
+      }
+
       // The Learn view (calibration) owns its own keys; the analyze-board
       // shortcuts must not act on the hidden board behind it.
       if (view === "learn") return
@@ -355,6 +403,26 @@ export default function Home() {
       // While watching a live tournament game, the live viewer owns the arrow
       // keys (ply nav); don't also drive the hidden analyze board.
       if (liveViewing && !meta) return
+
+      // An active PV preview owns Esc and the arrow keys: step through the
+      // engine line without touching the game.
+      if (pvPreview) {
+        if (e.key === "Escape") {
+          e.preventDefault()
+          setPvPreview(null)
+          return
+        }
+        if (e.key === "ArrowLeft") {
+          e.preventDefault()
+          setPvPreview((p) => p && { ...p, ply: Math.max(0, p.ply - 1) })
+          return
+        }
+        if (e.key === "ArrowRight") {
+          e.preventDefault()
+          setPvPreview((p) => p && { ...p, ply: Math.min(p.steps.length - 1, p.ply + 1) })
+          return
+        }
+      }
 
       if (meta && e.key === "v") {
         const tag = (e.target as HTMLElement)?.tagName
@@ -429,7 +497,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view, pvPreview])
 
   return (
     <ErrorBoundary>
@@ -749,6 +817,13 @@ export default function Home() {
                       .join(" \u2022 ")}
                   </p>
                 )}
+                {/* Opening name (spec 200): the PGN's own Opening tag when
+                    present, else the bundled ECO\u2192name table. */}
+                {(game.headers["Opening"] || game.headers["ECO"]) && (
+                  <p className="text-xs text-muted-foreground" data-testid="game-opening-name">
+                    {game.headers["Opening"] || ecoLabel(game.headers["ECO"])}
+                  </p>
+                )}
               </div>
             )}
 
@@ -808,17 +883,22 @@ export default function Home() {
           <div className="flex flex-col items-center gap-4 min-h-0 overflow-hidden">
             <div className="flex-1 flex items-center justify-center w-full overflow-hidden">
               <Board
-                fen={game.fen}
+                fen={previewStep ? previewStep.fen : game.fen}
                 orientation={game.orientation}
                 movableColor={isPlayMode ? playerColor : "both"}
                 onMove={game.onMove}
+                viewOnly={!!previewStep}
                 legalMoves={
-                  isPlayMode && turn !== playerColor ? new Map() : game.legalMoves
+                  previewStep
+                    ? EMPTY_DESTS
+                    : isPlayMode && turn !== playerColor
+                      ? new Map()
+                      : game.legalMoves
                 }
-                lastMove={game.lastMove}
+                lastMove={previewStep ? (previewStep.lastMove as [Key, Key]) : game.lastMove}
                 onBoardSize={setBoardSize}
-                autoShapes={engineArrows}
-                userShapes={userShapes}
+                autoShapes={previewStep ? [] : engineArrows}
+                userShapes={previewStep ? [] : userShapes}
                 onShapesChange={handleShapesChange}
               >
                 {game.pendingPromotion && (
@@ -832,6 +912,53 @@ export default function Home() {
                 )}
               </Board>
             </div>
+
+            {/* PV preview banner — shown instead of nothing so it's obvious the
+                board is temporarily off the game (spec 011 PV preview). */}
+            {pvPreview && previewStep && (
+              <div
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-sky-950/60 border border-sky-800/50 text-xs text-sky-200"
+                data-testid="pv-preview-banner"
+              >
+                <span className="font-mono">
+                  Previewing line {pvPreview.multipv}:{" "}
+                  {pvPreview.steps
+                    .slice(0, pvPreview.ply + 1)
+                    .map((s) => s.san)
+                    .join(" ")}
+                </span>
+                <button
+                  className="px-1.5 rounded hover:bg-white/10 disabled:opacity-40"
+                  onClick={() =>
+                    setPvPreview((p) => p && { ...p, ply: Math.max(0, p.ply - 1) })
+                  }
+                  disabled={pvPreview.ply === 0}
+                  title="Step back in the previewed line (←)"
+                >
+                  ◀
+                </button>
+                <button
+                  className="px-1.5 rounded hover:bg-white/10 disabled:opacity-40"
+                  onClick={() =>
+                    setPvPreview(
+                      (p) => p && { ...p, ply: Math.min(p.steps.length - 1, p.ply + 1) },
+                    )
+                  }
+                  disabled={pvPreview.ply >= pvPreview.steps.length - 1}
+                  title="Step forward in the previewed line (→)"
+                >
+                  ▶
+                </button>
+                <button
+                  className="px-1.5 rounded hover:bg-white/10"
+                  onClick={() => setPvPreview(null)}
+                  title="Back to the game (Esc)"
+                  data-testid="pv-preview-exit"
+                >
+                  ✕ Exit preview
+                </button>
+              </div>
+            )}
 
             {/* Control bar */}
             <div className="flex items-center gap-2">
@@ -906,7 +1033,12 @@ export default function Home() {
           {/* Right column: Game Analytics */}
           <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
             <div className="shrink-0">
-              <AnalysisPanel engine={engine} turn={turn} />
+              <AnalysisPanel
+                engine={engine}
+                turn={turn}
+                onPreviewPv={isPlayMode ? undefined : handlePreviewPv}
+                previewPv={pvPreview ? { multipv: pvPreview.multipv, ply: pvPreview.ply } : null}
+              />
             </div>
             <MoveList
               tree={game.tree}
@@ -934,6 +1066,25 @@ export default function Home() {
           </div>
         </main>
       </div>
+
+      {/* Hidden picker behind Cmd+O — reads the chosen .pgn and opens the
+          Import dialog pre-filled (identical to the drag-and-drop flow). */}
+      <input
+        ref={pgnFileInputRef}
+        type="file"
+        accept=".pgn,.txt"
+        className="hidden"
+        data-testid="pgn-open-file"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = "" // allow re-picking the same file
+          if (!file) return
+          file.text().then((text) => {
+            setPgnInitialText(text)
+            setPgnDialogOpen(true)
+          })
+        }}
+      />
 
       <PgnImportDialog
         open={pgnDialogOpen}

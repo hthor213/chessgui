@@ -20,6 +20,21 @@ impl Default for EngineState {
     }
 }
 
+impl EngineState {
+    /// Synchronous best-effort teardown for app exit (spec 011 "Engine process
+    /// cleaned up on app quit"). Dropping `stdin_tx` closes the writer task's
+    /// channel, which closes the engine's stdin (a well-behaved UCI engine
+    /// exits on EOF); `start_kill` then makes sure of it without needing an
+    /// async context — the exit handler runs on the main thread, outside a
+    /// runtime. `kill_on_drop` on the spawn is the last-resort backstop.
+    pub fn shutdown(&mut self) {
+        self.stdin_tx.take();
+        if let Some(mut child) = self.child.take() {
+            let _ = child.start_kill();
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct EngineInfo {
     pub name: String,
@@ -37,6 +52,7 @@ pub async fn start_engine(
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("Failed to start engine: {}", e))?;
 
@@ -173,6 +189,42 @@ pub async fn send_command(
         .await
         .map_err(|e| format!("Send error: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The exit-handler path: a spawned child put into EngineState must be dead
+    // after shutdown(). Uses /bin/sleep as a stand-in engine process.
+    #[tokio::test]
+    async fn shutdown_kills_child() {
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id().expect("pid");
+        let mut state = EngineState {
+            child: Some(child),
+            stdin_tx: None,
+        };
+        state.shutdown();
+        assert!(state.child.is_none() && state.stdin_tx.is_none());
+        // start_kill sends SIGKILL immediately; give the OS a moment to reap.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        // kill(pid, 0) probes existence: ESRCH (Err) once the process is gone.
+        let alive = unsafe { libc_kill_probe(pid as i32) };
+        assert!(!alive, "engine child (pid {pid}) still alive after shutdown");
+    }
+
+    // Minimal existence probe without adding a libc dependency: signal 0.
+    unsafe fn libc_kill_probe(pid: i32) -> bool {
+        extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
+        }
+        kill(pid, 0) == 0
+    }
 }
 
 /// Stop the running engine.

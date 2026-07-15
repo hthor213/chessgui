@@ -45,7 +45,7 @@ Stockfish binary: user-selected via file picker (currently hardcoded for dev)
 - [x] Top 3 PV lines shown with SAN notation
 - [x] Depth and nodes/sec displayed
 - [x] Stop/start analysis toggle works
-- [ ] Engine process cleaned up on app quit
+- [x] Engine process cleaned up on app quit — `RunEvent::Exit` handler in `lib.rs` kills the analysis engine (`EngineState::shutdown`, uci.rs — now also `kill_on_drop`) and drains the warm lc0 pool (`MaiaState::shutdown`, maia.rs); kill path unit-tested (`uci::tests::shutdown_kills_child`). Rationale: `kill_on_drop` never fires on process exit (destructors don't run), so without the handler both registries leaked orphans
 - [x] Play mode: user plays white, Stockfish plays black automatically
 - [x] Play mode: board locked to user's color during engine's turn
 - [x] Play mode: engine thinking status shown in analysis panel
@@ -53,7 +53,7 @@ Stockfish binary: user-selected via file picker (currently hardcoded for dev)
 ### Analysis Panel (from spec:012)
 - [x] Eval bar updates in real-time as engine analyzes
 - [x] MultiPV lines configurable (1-5)
-- [ ] Clicking a PV line previews it on the board
+- [x] Clicking a PV line previews it on the board — click any move in a PV row to walk the line to that ply on a read-only board (game tree untouched); ←/→ step, Esc/✕ exits, auto-exits when the game position changes. `lib/pv-preview.ts` (`walkPv`, unit-tested incl. castling + stale-PV truncation) + `app/page.tsx`/`analysis-panel.tsx` wiring; UI driven headless via the `__previewPv` hook (6/6 Playwright checks)
 - [x] Analysis auto-starts when position changes
 
 ### Best Move Arrows (from spec:100)

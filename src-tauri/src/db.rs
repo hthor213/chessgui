@@ -626,6 +626,20 @@ impl Db {
         source: &str,
         ply_cap: u32,
     ) -> rusqlite::Result<ImportReport> {
+        self.import_reader_progress(reader, source, ply_cap, |_, _| {})
+    }
+
+    /// `import_reader` with a progress callback, invoked after every committed
+    /// batch (and once at the end) with the running report and the number of
+    /// games processed so far. The PGN stream's total game count is unknowable
+    /// without a pre-scan, so progress is a monotone count, not a fraction.
+    pub fn import_reader_progress<R: Read>(
+        &mut self,
+        reader: R,
+        source: &str,
+        ply_cap: u32,
+        mut progress: impl FnMut(&ImportReport, u64),
+    ) -> rusqlite::Result<ImportReport> {
         let batch_id = format!("{source}@{}", now_stamp());
         let mut report = ImportReport::default();
         let mut visitor = ImportVisitor { ply_cap };
@@ -634,6 +648,7 @@ impl Db {
         const BATCH: u64 = 1000;
         let mut tx = self.conn.transaction()?;
         let mut in_batch = 0u64;
+        let mut processed = 0u64;
         loop {
             let game = match pgn.read_game(&mut visitor) {
                 Ok(Some(g)) => g,
@@ -652,13 +667,16 @@ impl Db {
                 Err(_) => report.errors += 1,
             }
             in_batch += 1;
+            processed += 1;
             if in_batch >= BATCH {
                 tx.commit()?;
                 tx = self.conn.transaction()?;
                 in_batch = 0;
+                progress(&report, processed);
             }
         }
         tx.commit()?;
+        progress(&report, processed);
         Ok(report)
     }
 
@@ -1214,24 +1232,61 @@ pub(crate) fn resolve_db_path(
     Ok(dir.join("games.db").to_string_lossy().into_owned())
 }
 
+/// Progress snapshot streamed over the `on_progress` channel during a PGN
+/// import: once up front, then after every committed batch, then once at the
+/// end. Unlike CBH there is no `total` — a PGN stream's game count is unknown
+/// without a full pre-scan — so the UI shows a running count.
+#[derive(Serialize, Debug, Clone)]
+pub struct PgnImportProgress {
+    /// Games processed so far (imported + duplicates + errors).
+    pub processed: u64,
+    pub imported: u64,
+    pub dups_skipped: u64,
+    pub errors: u64,
+}
+
+/// Import PGN (pasted text or a file path). Runs on a blocking thread —
+/// multi-GB files take a while — and streams progress over `on_progress`.
 #[tauri::command]
-pub fn db_import_pgn(
+pub async fn db_import_pgn(
     app: tauri::AppHandle,
-    state: tauri::State<'_, DbManager>,
     source: String,
     text: Option<String>,
     file_path: Option<String>,
     db_path: Option<String>,
+    on_progress: tauri::ipc::Channel<PgnImportProgress>,
 ) -> Result<ImportReport, String> {
     let path = resolve_db_path(&app, db_path)?;
-    state.with(&path, |db| {
-        if let Some(fp) = file_path.filter(|s| !s.is_empty()) {
-            db.import_pgn_file(&fp, &source)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
-        } else {
-            db.import_pgn_str(text.as_deref().unwrap_or(""), &source)
-        }
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<DbManager>();
+        // A send failure just means the webview went away; keep importing.
+        let emit = |rep: &ImportReport, processed: u64| {
+            let _ = on_progress.send(PgnImportProgress {
+                processed,
+                imported: rep.imported,
+                dups_skipped: rep.dups_skipped,
+                errors: rep.errors,
+            });
+        };
+        emit(&ImportReport::default(), 0);
+        state.with(&path, |db| {
+            if let Some(fp) = file_path.filter(|s| !s.is_empty()) {
+                let file = std::fs::File::open(&fp)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                db.import_reader_progress(BufReader::new(file), &source, DEFAULT_PLY_CAP, emit)
+            } else {
+                db.import_reader_progress(
+                    Cursor::new(text.as_deref().unwrap_or("").as_bytes()),
+                    &source,
+                    DEFAULT_PLY_CAP,
+                    emit,
+                )
+            }
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Progress snapshot streamed over the `on_progress` channel during a CBH
@@ -1421,6 +1476,27 @@ mod tests {
         let stats = db.stats().unwrap();
         assert_eq!(stats.games, 0);
         assert_eq!(stats.positions, 0);
+    }
+
+    // The progress callback must land at least the final snapshot, with counts
+    // matching the returned report (fixture is < 1 batch, so exactly one call).
+    #[test]
+    fn import_progress_callback_reports_final_counts() {
+        let mut db = Db::open_in_memory().unwrap();
+        let mut snapshots: Vec<(u64, u64)> = Vec::new();
+        let rep = db
+            .import_reader_progress(
+                Cursor::new(SAMPLE.as_bytes()),
+                "test",
+                DEFAULT_PLY_CAP,
+                |r, processed| snapshots.push((processed, r.imported)),
+            )
+            .unwrap();
+        assert_eq!(rep.imported, 3);
+        let last = snapshots.last().expect("at least one progress snapshot");
+        assert_eq!(*last, (3, 3), "final snapshot carries full counts");
+        // processed counts are monotone
+        assert!(snapshots.windows(2).all(|w| w[0].0 <= w[1].0));
     }
 
     #[test]

@@ -63,6 +63,22 @@ pub fn run() {
             coach::coach_feedback,
             coach::coach_followup,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Spec 011: "Engine process cleaned up on app quit". kill_on_drop
+            // does NOT fire on process exit (destructors never run), so the
+            // analysis engine and any warm lc0 pool processes would outlive
+            // the app as orphans. RunEvent::Exit fires once, after the last
+            // window closes and before the process terminates — kill every
+            // long-lived child registry here. (match_runner/persona engines
+            // are per-game, owned by batch tasks that cancel with the run.)
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                if let Ok(mut engine) = app.state::<Mutex<uci::EngineState>>().lock() {
+                    engine.shutdown();
+                }
+                tauri::async_runtime::block_on(app.state::<maia::MaiaState>().shutdown());
+            }
+        });
 }

@@ -78,15 +78,15 @@ with typed TS wrappers in `lib/database.ts`. Database tab UI in
 `components/database-tab.tsx` (wired into `app/page.tsx`), drivable headless via
 the mock in `lib/database-mock.ts`.
 
-- [x] Import PGN file(s) into SQLite database (batch) — streaming, 1000-games/commit; UI import dialog (paste + file); **progress events not yet emitted** (thin follow-up via a Tauri Channel)
+- [x] Import PGN file(s) into SQLite database (batch) — streaming, 1000-games/commit; UI import dialog (paste + file); progress events now streamed over a Tauri Channel per committed batch (`PgnImportProgress` in db.rs, running-count bar in the import dialog — no `total` is knowable for a PGN stream); import moved to `spawn_blocking` like CBH
 - [x] List games with headers (players, event, result, date, ECO) — indexed, paginated table with column sort
 - [x] Search/filter by player name — either colour, substring; live-debounced filter bar
-- [x] Search/filter by ECO code — ECO prefix; **opening-name lookup not implemented** (needs an ECO→name table)
+- [x] Search/filter by ECO code — ECO prefix; opening-name lookup via a bundled compact range table (`lib/eco.ts`, covers all of A00–E99, unit-tested); names shown as tooltips on the game list's ECO column and as a line in the board's game-header card (PGN `Opening` tag wins when present)
 - [x] Search/filter by date range — `date_from`/`date_to`
 - [x] Position search: find all games containing a given position — Zobrist index + FEN verification; returns the next move per game; "Find current position" action in the tab
 - [x] Click a game to load it into the board for analysis — row click → `getGame` → `parsePgnToTrees` → `loadTree` → board
 - [x] Game count displayed (handle databases with 100K+ games) — shown in tab header; pagination + backend verified ~15k games/s import & 50k-game search
-- [~] Multiple databases can be open simultaneously — backend `DbManager` keeps one connection per path (pass `dbPath`); **multi-DB UI (open/switch) pending**
+- [x] Multiple databases can be open simultaneously — backend `DbManager` keeps one connection per path (pass `dbPath`); UI switcher in the Database tab header ("Default" + opened files, native "Open…" picker in Tauri) with the opened list persisted (`lib/db-registry.ts`); all list/search/import/delete calls follow the selected DB
 
 ### Opening Explorer (from spec:201)
 
@@ -95,9 +95,9 @@ breakdown). A dedicated live explorer panel is a later slice.
 
 - [x] Panel shows all moves played from current position in the database — grouped by next move
 - [x] Each move shows game count and result percentages (stacked bar) — white/draw/black segments
-- [~] Moves sorted by frequency (configurable: by count, by performance) — sorted by count; **performance sort not implemented**
+- [x] Moves sorted by frequency (configurable: by count, by performance) — Count/Perf toggle in the position-search panel; sorting + aggregation in `lib/explorer-stats.ts` (unit-tested)
 - [x] Clicking a move plays it on the board — click (or Enter/Space) on a move row calls `playUciMove`, staying on the Database tab so the tree can be walked move-by-move
 - [x] Updates as user navigates through moves — debounced auto-search on `currentFen` change; the "Find current position" button is now a manual "Refresh" (e.g. after an import) rather than the only trigger
-- [ ] Lichess API fallback when local database is empty — not implemented
-- [~] Average Elo and performance rating shown per move — **avg Elo shown**; performance rating not computed
+- [x] Lichess API fallback when local database is empty — when the local search returns 0 games, the panel queries `explorer.lichess.ovh` with a clear "online — Lichess" badge; graceful offline failure message; 64-position in-memory cache (`lib/lichess-explorer.ts`, unit-tested with mocked fetch; online/offline paths driven headless with intercepted network)
+- [x] Average Elo and performance rating shown per move — avg Elo plus a per-move performance rating for the side to move (mean opponent rating + FIDE logistic dp, ±800 clamp for perfect scores; `lib/explorer-stats.ts`, unit-tested). Lichess fallback rows show avg rating only — per-game opponent ratings aren't in the aggregate API, so a true performance number can't be computed there
 - [x] Tree computation is async — no UI freeze on large databases — all data access is async; Tauri runs the query off the UI thread
