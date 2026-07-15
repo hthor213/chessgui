@@ -188,7 +188,13 @@ the temperature schedule (contract step 3) and the error model (step 5).
       alternatives), then Maia takes over out of book. The drop-into-line start
       stays as a secondary option.
 - [ ] Style priors, gated on measured move-match improvement
-- [ ] Persona engine v1 (mentor review 2026-07-15): contract steps 3+4+8+9 minimal —
+- [x] Persona engine v1 (mentor review 2026-07-15; implemented same day — Rust
+      persona_move: policy-head candidates, tempered softmax over
+      alpha·ln(policy)−lambda·penalty, splitmix64 seeded per game+ply, decision
+      log stored locally; spar out-of-book moves wired through it; 72 Rust +
+      276 JS tests pass incl. a live-Stockfish verify test; NOT yet run
+      end-to-end in the Tauri app — user eyeball pending; default params
+      untuned, auto-tuning is its own item): contract steps 3+4+8+9 minimal —
       policy sampling with temperature, verification reweight, seeded determinism,
       per-move decision log
 - [ ] N-source book merge rules: per-source weights, recency decay, time-control

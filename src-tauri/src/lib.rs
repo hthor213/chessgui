@@ -54,6 +54,7 @@ pub fn run() {
             maia::maia_status,
             maia::maia_policy,
             persona::maia_move,
+            persona::persona_move,
             persona::rival_book,
             coach::coach_feedback,
             coach::coach_followup,

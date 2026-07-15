@@ -3,10 +3,13 @@
 // Spar vs rival — the Learn view's Tier-0 persona sparring (spec 214).
 //
 // You play a full game against lc0+Maia at a fixed ~1700, starting from one of
-// dad's real opening lines (weighted-sampled from data/rivals/dad_book.json). The
-// opponent's moves come from the `maia_move` command, which samples the human
-// policy (not argmax) — that IS the human-likeness (spec 214 hard rule: never
-// noise-weaken an engine to fake it). Honest label: "a ~1700 playing dad's
+// dad's real opening lines (weighted-sampled from data/rivals/dad_book.json).
+// While the position is in the rival's book the reply comes from that book (this
+// file, untouched); out of book the reply comes from the `persona_move` command
+// (persona engine v1, spec 214 contract steps 3+4+8+9) — seeded sampling from the
+// Maia human policy with a Stockfish verification reweight, never noise-weakening
+// an engine to fake it (spec 214 hard rule). Each out-of-book move's decision log
+// is stored locally (private data). Honest label: "a ~1700 playing dad's
 // openings", not "dad". This screen runs its own game loop, independent of the
 // main analysis board, exactly like the calibration screen.
 
@@ -18,7 +21,11 @@ import { Chess } from "chessops/chess"
 import { parseFen } from "chessops/fen"
 import { chessgroundDests } from "chessops/compat"
 import { Button } from "@/components/ui/button"
-import { maiaMove } from "@/lib/maia"
+import {
+  personaMove,
+  DEFAULT_PERSONA_PARAMS,
+  type PersonaDecision,
+} from "@/lib/persona"
 import {
   loadRivalBook,
   pickBookEntry,
@@ -113,6 +120,42 @@ function appendPersonaFeedback(entry: PersonaFeedbackEntry): void {
   }
 }
 
+// Per-move decision log (spec 214 persona-engine contract step 9): the
+// realism-debugging record for each out-of-book rival move — its candidates with
+// policy probs and verification evals, the chosen move, the reason arm, and the
+// derived seed. Stored locally like the feedback stream above (private data,
+// never bundled/committed), so "didn't feel like him" verdicts can be joined
+// against the exact distribution the move was sampled from.
+interface PersonaDecisionLogEntry {
+  at: string // ISO date
+  rival: string
+  level: number
+  ply: number
+  seed: number // the per-game seed the move was sampled under
+  fen: string // the position the move was chosen for
+  mode: SparGameMode
+  decision: PersonaDecision
+}
+
+const DECISION_LOG_STORAGE_KEY = "spar-persona-decision-log"
+
+function appendDecisionLog(entry: PersonaDecisionLogEntry): void {
+  try {
+    const raw = localStorage.getItem(DECISION_LOG_STORAGE_KEY)
+    const existing: PersonaDecisionLogEntry[] = raw ? JSON.parse(raw) : []
+    existing.push(entry)
+    localStorage.setItem(DECISION_LOG_STORAGE_KEY, JSON.stringify(existing))
+  } catch {
+    // localStorage unavailable / corrupt — the entry just isn't persisted
+  }
+}
+
+/** A per-game seed for the persona engine's seeded sampling (contract step 8).
+ *  Kept below 2^53 so it survives the JSON number round-trip to Rust intact. */
+function newGameSeed(): number {
+  return Math.floor(Math.random() * 2 ** 53)
+}
+
 // SAN move text ("1. e4 e5 2. Nf3 ..."), honoring a book entry's start FEN
 // (which may already be mid-game with Black to move) — not a full PGN (no
 // tags), just the movetext this feedback record needs.
@@ -156,6 +199,9 @@ export function SparTab() {
 
   const [entry, setEntry] = useState<RivalBookEntry | null>(null)
   const [userColor, setUserColor] = useState<SparColor>("white")
+  // Per-game seed for the persona engine's seeded move sampling (spec 214
+  // contract step 8); regenerated on each new game in startGame.
+  const [gameSeed, setGameSeed] = useState<number>(() => newGameSeed())
   const [startFen, setStartFen] = useState<string>("")
   const [fen, setFen] = useState<string>("")
   const [plies, setPlies] = useState<SparPly[]>([])
@@ -293,6 +339,7 @@ export function SparTab() {
     setLastDrawOfferPly(null)
     setDrawDeclinedNote(false)
     setReviewCursor(null)
+    setGameSeed(newGameSeed())
 
     if (bookStartMode === "movebymove") {
       // Spec 214 "Move-by-move rival book": start at move 1. If the user's
@@ -364,15 +411,35 @@ export function SparTab() {
     setThinking(true)
     setMoveError(null)
     setBookStatus(bookStartMode === "movebymove" ? "maia" : null)
-    maiaMove(fen, level)
-      .then((mv) => {
+    // The half-move index this reply occupies — the RNG seeds off (gameSeed, ply)
+    // so the same seed reproduces the same move (spec 214 contract step 8).
+    const movePly = plies.length
+    personaMove(fen, {
+      ...DEFAULT_PERSONA_PARAMS,
+      level,
+      seed: gameSeed,
+      ply: movePly,
+    })
+      .then((decision) => {
         // Discard if the board moved on (take-back / new game) while we waited.
         if (!live || pendingFenRef.current !== fen) return
-        const ply = applyUci(fen, mv.uci)
+        const ply = applyUci(fen, decision.uci)
         if (!ply) {
-          setMoveError(`Opponent returned an illegal move (${mv.uci}).`)
+          setMoveError(`Opponent returned an illegal move (${decision.uci}).`)
           return
         }
+        // Stash the per-move decision log locally (private data, contract step
+        // 9) — best-effort, never blocks the move.
+        appendDecisionLog({
+          at: new Date().toISOString(),
+          rival: RIVAL_LABEL,
+          level,
+          ply: movePly,
+          seed: gameSeed,
+          fen,
+          mode: sparMode,
+          decision,
+        })
         setPlies((prev) => [...prev, ply])
         setFen(ply.fen)
       })
@@ -386,7 +453,7 @@ export function SparTab() {
     return () => {
       live = false
     }
-  }, [phase, fen, rivalColor, level, frozen, bookStartMode, moveMaps])
+  }, [phase, fen, rivalColor, level, frozen, bookStartMode, moveMaps, gameSeed, plies.length, sparMode])
 
   const userToMove = phase === "playing" && !!fen && turnOf(fen) === userColor && !frozen
   const legalMoves = useMemo(
