@@ -22,10 +22,8 @@ The most concrete, dated data point found is city-level, not national: as of **D
 137,000 at the time, reported as **1 GM per 13,750 residents — the highest grandmaster
 density of any city in the world** ([cited via chess.com "Greatest Chess Player" reprint
 and ChessBase](https://www.chess.com/article/view/the-greatest-chess-player-of-all-time---part-ii)).
-Whether the *national* per-capita ratio has actually peaked and declined, or is at an
-all-time high right now (GM count has roughly doubled since 2005 while population grew
-~35%), **could not be determined** — I could not obtain a year-by-year GM-count-vs-
-population series in this session. Flagged as a gap below.
+See "Best per capita — the actual math" below for the fuller, more rigorously sourced
+version of this claim, including the world and rival-country baselines.
 
 ## Table 1 — All Icelandic grandmasters, ever
 
@@ -86,86 +84,31 @@ FIDE classical/standard ratings monthly](https://chesstv.com/rankings/top-10-che
 | 9 | Karl Þorsteins | Karl Thorsteins | 2407 | IM | not confirmed |
 | 10 | Jón L. Árnason | Jon L Arnason | 2404 | GM | 1960 |
 
-**Anomaly worth flagging:** Hjörvar Steinn Grétarsson shows a current standard rating of
-**2494** in an independent, undated search snippet — which would place him **#2**, above
-Henrik Danielsen — yet he is absent entirely from ChessTV's July 2026 top-10. This is
-either a stale/cached figure on the aggregator's part, an inactive-status exclusion, or
-a ChessTV data error. **Not resolved; flagged as a real conflict**, not silently picked
-one way.
+**Anomaly, now resolved below:** an earlier pass of this research found an independent,
+undated snippet showing Hjörvar Steinn Grétarsson at 2494 (which would rank him #2) yet
+absent from this ChessTV top-10. The directly-fetched FIDE active list in the next
+section confirms he is genuinely **absent from FIDE's active top 100** — i.e. he is
+flagged inactive, which is why he's missing here too. Not a ChessTV data error.
 
-**Beyond rank 10, no fully sourced ranked list with ratings could be assembled to reach
-30.** The following additional titled Icelandic players were identified (from
+**Beyond rank 10, no fully sourced ranked list with ratings could be assembled from
+ChessTV alone** — see the directly-fetched FIDE top 30 below, which supersedes this
+for anything beyond rank 10.
+
+The following additional titled Icelandic players were also identified (from
 [chess.com's Iceland country page](https://www.chess.com/players/country/iceland) and
-the [Wikipedia Icelandic-chess-players category](https://en.wikipedia.org/wiki/Category:Icelandic_chess_players)),
-but **current ratings and birth years are not confirmed for most of them** in this
-session — listed by title only, unranked:
-
-- IM Björn Þorfinnsson (Bjorn Thorfinnsson)
-- IM Dagur Ragnarsson
-- IM Dagur Arngrímsson (Dagur Arngrimsson)
-- FM Björn-Ívar Karlsson (Bjorn-Ivar Karlsson)
-- FM Sigurður Sigfússon (Sigurdur Sigfusson) — rated 2260 per one chess.com snapshot, date not confirmed
-- FM Róbert Lagerman (Robert Lagerman)
-- FM Guðmundur Gíslason (Gudmundur Gislason)
-- FM Jón Kristinn Þorgeirsson (Jon Kristinn Thorgeirsson)
-- FM Oliver Jóhannesson (Oliver Johannesson) — rated 2262 per one chess.com snapshot
-- FM Ingvar Þór Jóhannesson (Ingvar Thor Johannesson) — rated 2260
-- FM Sigurbjörn Björnsson (Sigurbjorn Bjornsson) — rated 2260
-- FM Börkur Örn Birkisson (Bardur Orn Birkisson, per chess.com — spelling uncertain) — rated 2254
-- FM Rúnar Sigurpálsson (Runar Sigurpalsson) — rated 2251
-- Also present in Wikipedia's Icelandic-chess-players category, titles/ratings not confirmed: Guðfríður Lilja Grétarsdóttir, Guðlaug Þorsteinsdóttir, Elsa María Kristínardóttir, Ólöf Tráinsdóttir, Olga Prudnykova
+the [Wikipedia Icelandic-chess-players category](https://en.wikipedia.org/wiki/Category:Icelandic_chess_players)):
+Björn-Ívar Karlsson, Sigurður Sigfússon, Róbert Lagerman, Guðmundur Gíslason, Jón
+Kristinn Þorgeirsson, Oliver Jóhannesson, Ingvar Þór Jóhannesson, Sigurbjörn Björnsson —
+**all of whom now appear, with confirmed ratings and birth years, in the FIDE top-30
+table below.** Also present in Wikipedia's category but not in the FIDE top 30 (i.e.
+lower-rated or untitled): Guðfríður Lilja Grétarsdóttir, Guðlaug Þorsteinsdóttir, Elsa
+María Kristínardóttir, Ólöf Tráinsdóttir, Olga Prudnykova — titles/ratings for these
+still not confirmed.
 
 Margeir Pétursson and Guðmundur Sigurjónsson (both listed in Table 1) are **not** in the
-active top-10 today: Margeir's current standard rating was found at **2393**, and
-Guðmundur Sigurjónsson's FIDE profile shows **inactive/not currently rated** (last rating
-2463, October 2017) — both still historically significant, neither currently top-ranked.
-
-## Answers to the specific questions asked
-
-**Total GM count: 16** full grandmasters (2 deceased), plus 1 WGM (Lenka Ptáčníková) —
-17 titled players if WGM is counted alongside GM. Source: skak.is (primary,
-Icelandic Chess Federation).
-
-**Names likely missing from standard PGN databases / worth double-checking with fuzzy
-matching when grepping the 955k-game corpus:**
-- **Diacritic variants** will not match literal ASCII grep — every name above needs the
-  transliterated column tried too (Guðmundur→Gudmundur, Þröstur→Throstur, Héðinn→Hedinn,
-  etc.) — already provided in both tables.
-- **Hannes Hlífar Stefánsson** is very commonly recorded in databases as simply "Hannes
-  Stefansson" (middle name dropped) — grep both forms.
-- **Jón L. Árnason** appears in sources as both "Jon L Arnason" and "Jon Loftur Arnason"
-  — grep both.
-- **Henrik Danielsen** may appear under **Denmark (DEN)** as the federation in games from
-  1992–96 and under **Iceland (ISL)** from 2006 onward — a game-count query filtered by
-  federation alone will undercount his early career.
-- **Guðmundur Kjartansson** — be careful disambiguating from other "Kjartansson" players
-  in the FIDE database (Gudfinnur, David, Dagur, Sigurdur Kjartansson all turned up as
-  distinct FIDE IDs in searches) — verify by FIDE ID 2301318, not name string alone.
-- **Karl Þorsteins**: I could not confirm this player's FIDE ID independently in this
-  session (one search returned an apparently unrelated "Gunnar Karl Thoroddsen" as a
-  false-positive match) — verify the correct FIDE ID before querying/grepping.
-
-## Gaps — what I could not verify
-
-1. **FIDE's own ISL country-ranking page would not render for automated fetch** (JS-based
-   table). The top-10 above comes from a third-party aggregator (ChessTV) stating it
-   pulls from FIDE monthly — treat as **single-source, not independently cross-checked
-   against the primary FIDE list** for exact figures.
-2. **No ranked list beyond #10 with actual ratings** could be assembled — the "top 30"
-   requested is only ~40% delivered with ranking+rating; the rest is a name list only.
-3. **Birth years for IMs/FMs** (ranks 8–9 in Table 2, and the unranked list) were not
-   found in this session.
-4. **Several "peak rating" figures lack a confirmed exact date**, and two (Margeir
-   Pétursson, Guðmundur Kjartansson) have **conflicting values from different sources**
-   that were not reconciled — reported as conflicts, not resolved.
-5. **Year-by-year Iceland population vs. GM-count series** — needed to say whether the
-   per-capita density is at a historical peak now or was higher in the past — not found.
-6. The **Henrik Danielsen 1996-vs-2006 GM-year discrepancy** between Wikipedia and
-   skak.is is flagged with a proposed explanation (federation-transfer year vs. title
-   year) but not confirmed against a primary FIDE title-award record.
-7. **Hjörvar Steinn Grétarsson's current rating/rank** conflicts between sources (see
-   Table 2 anomaly note) and was not resolved.
-
+ChessTV top-10: Margeir is confirmed **active** at #14 in the FIDE list below (2386);
+Guðmundur Sigurjónsson's FIDE profile shows **inactive/not currently rated** (last
+rating 2463, October 2017) — historically significant, not currently top-ranked.
 
 ## FIDE ISL top 30 — standard, latest list (July 2026), fetched directly
 
@@ -210,6 +153,190 @@ flag, which resolves the aggregator conflict noted above.
 Arena-relevant: Margeir Pétursson still ACTIVE at #14 (2386) — the "win the game
 Gudmundur never got" quest has a live, currently-rated benchmark.
 
+**Cross-check against Table 1:** counting titles in this active top-30, exactly **12 of
+the 16 all-time Icelandic GMs are currently FIDE-active** (Vignir, Héðinn, Danielsen,
+Jóhann, Helgi Ólafsson, Helgi Áss, Hannes, Jón L. Árnason, Guðmundur Kjartansson,
+Þröstur, Margeir, Bragi). The other 4 are accounted for: 2 deceased (Friðrik, Stefán
+Kristjánsson) and 2 confirmed inactive (Guðmundur Sigurjónsson, Hjörvar Steinn
+Grétarsson). This "12 active" figure is used in the per-capita math below as the
+most rigorously sourced current count (**primary FIDE data**, not an aggregator).
+
+## Best per capita — the actual math
+
+### 1. Did Iceland really have ~10 living GMs at once? Peak count and year(s).
+
+**Yes — directly cited.** [ChessBase, "The Best in Iceland," published 24 January
+2022](https://en.chessbase.com/post/the-best-in-iceland), states Iceland had **"ten
+active grandmasters"** at that time, against a population the same article gives as
+**"about 370,000."** This is the best single citation for the "~10 GMs" figure the user
+recalled — dated, primary-outlet, explicit. The primary-FIDE cross-check above shows
+Iceland now (July 2026) has **12 active GMs** — the active count has grown by 2 since
+that 2022 snapshot (consistent with Guðmundur Kjartansson's 2021 title and Vignir Vatnar
+Stefánsson's 2023 title both landing in that window, offset by no new inactivations in
+that specific set).
+
+**A second, broader number (analyst calculation, not a direct citation) — living
+titleholders including retired/inactive players:** using the title-years from Table 1
+(skak.is) and the death-years from Wikipedia, the *cumulative count of living Icelandic
+full-GM titleholders* (a superset of "active") looks like this:
+
+| Year | Event | Cumulative living GM count |
+|---|---|---|
+| 1958 | Friðrik Ólafsson titled | 1 |
+| 1975 | Guðmundur Sigurjónsson titled | 2 |
+| 1985 | Helgi Ólafsson + Jóhann Hjartarson titled | 4 |
+| 1986 | Jón L. Árnason + Margeir Pétursson titled | 6 |
+| 1993 | Hannes Hlífar Stefánsson titled | 7 |
+| 1994 | Helgi Áss Grétarsson titled | 8 |
+| 1996 | Þröstur Þórhallsson titled | 9 |
+| 2006 | Henrik Danielsen transfers in | 10 |
+| 2007 | Héðinn Steingrímsson titled | 11 |
+| 2011 | Stefán Kristjánsson titled | 12 |
+| 2013 | Hjörvar Steinn Grétarsson titled | 13 |
+| Feb 2018 | Stefán Kristjánsson dies | 12 |
+| Apr 2018 | Bragi Þorfinnsson titled | 13 |
+| 2021 | Guðmundur Kjartansson titled | 14 |
+| 2023 | Vignir Vatnar Stefánsson titled | **15 — peak** |
+| Apr 2025 | Friðrik Ólafsson dies | 14 (current, living total) |
+
+By this derivation, Iceland's **peak simultaneous living full-GM count is 15, reached in
+2023 and held until Friðrik Ólafsson's death in April 2025**; the living total today
+(July 2026) is **14**, of which **12 are FIDE-active** (per the top-30 cross-check
+above) and 2 are inactive (Guðmundur Sigurjónsson, Hjörvar Steinn Grétarsson). **Label:
+the "15 in 2023" figure is an analyst derivation from cited primary dates — no
+independent journalistic source was found quoting that exact peak year/count**; the
+"10 active (2022)" and "12 active (2026)" figures are direct citations/primary-data
+cross-checks.
+
+### 2. Total FIDE GM titles ever awarded, and current count (user recalled ~2,500)
+
+- **Current open GM titles, worldwide, as of May 2026: 1,889** (1,845 men + 44 women) —
+  primary-sourced, from the ratings-snapshot table on
+  [Wikipedia, "FIDE titles"](https://en.wikipedia.org/wiki/FIDE_titles).
+- **Total GM titles ever awarded (all-time, including deceased/inactive players and
+  excluding 4 revoked titles): 2,143** — this figure appears consistently across several
+  secondary aggregators ([chessjournal.com](https://www.chessjournal.com/list-of-chess-grandmasters/),
+  [shatranj.live](https://www.shatranj.live/blogs/how-many-grandmasters-chess-2026)) but
+  **could not be independently confirmed against a primary FIDE historical count page** —
+  treat as a **single-type/aggregator-sourced claim**, not FIDE-primary-verified.
+- FIDE's first-ever title cohort, in 1950, was 27 grandmasters
+  ([Wikipedia, "FIDE titles"](https://en.wikipedia.org/wiki/FIDE_titles)).
+- **The user's recollection of "~2,500" does not match either cited figure** — it's about
+  30% higher than the all-time-awarded total (2,143) and about 32% higher than the
+  current open-title count (1,889). **Flagged as likely an overestimate on the user's
+  part, not silently corrected** — possible the ~2,500 figure they're recalling is from
+  an older, since-superseded press estimate, or conflates GM with GM+IM totals; neither
+  alternative was confirmed here.
+- It is **not clear from the Wikipedia table** whether the 1,889 "current" figure
+  includes deceased titleholders still on FIDE's books (titles are held for life and
+  not removed on death) or is filtered to living players only — **unresolved, flagged**.
+
+### 3. The showpiece comparison table
+
+All population figures are [Worldometer 2026 mid-year estimates](https://www.worldometers.info/world-population/)
+unless noted; all are dated and cited. **GM counts for Armenia, Georgia, Israel, Russia,
+and Norway come from a single secondary aggregator** (an [X/Twitter "World of Statistics"
+post](https://x.com/stats_feed/status/1878878857660354613) cross-referenced loosely
+against [NationMaster's GMs-per-million table](https://www.nationmaster.com/country-info/stats/Sports/Chess/GrandMasters-per-million);
+Norway's count of 20 is a search-synthesized figure citing Wikipedia's Norwegian-GMs
+template, "as of late 2025") — **treat every GM-count column below as a single-source
+estimate, not a FIDE-primary-verified figure**, in contrast to Iceland's rows, which now
+rest on the directly-fetched FIDE data above. World GM total uses the Wikipedia/FIDE
+May-2026 figure of 1,889 for both rows (the 2022 row therefore uses a **same-count
+approximation** — GM totals move only slowly year to year, but this is explicitly an
+**ESTIMATE**, not a verified 2022 figure).
+
+| Entity | GMs | Population | Year | 1 GM per N residents | × world rate |
+|---|---|---|---|---|---|
+| **Iceland — active (ChessBase-cited)** | 10 | ~370,000 | 2022 | **1 per 37,000** | **≈ 114×** (world ≈1 per 4.23M, using 2026 GM count as an approximation for 2022 — **estimate**) |
+| **Iceland — active (primary FIDE, this session)** | 12 | 402,329 | 2026 | **1 per 33,527** | **≈ 131×** |
+| **Iceland — all-time titled** | 16 | 402,329 | 2026 | **1 per 25,146** | **≈ 175×** |
+| World (baseline) | 1,889 | 8,302,704,220 | 2026 | 1 per 4,394,000 | 1× |
+| Armenia | 44 (single-source) | 2,930,915 | 2026 | 1 per 66,612 | ≈ 66× |
+| Georgia | 32 (single-source) | 3,804,642 | 2026 | 1 per 118,895 | ≈ 37× |
+| Israel | 43 (single-source) | 9,647,689 | 2026 | 1 per 224,365 | ≈ 20× |
+| Russia | 256 (single-source) | ~144,000,000 | 2026 | 1 per 562,500 | ≈ 7.8× |
+| Norway | 20 (single-source, low confidence) | 5,652,989 | 2026 | 1 per 282,649 | ≈ 15.5× |
+
+**Note on methodology honesty:** the "× world rate" column mixes an "active GM" count for
+Iceland's first two rows against a world total (1,889) that is ambiguous on active-vs-all
+(see gap #10 below) — this understates or overstates Iceland's multiple somewhat
+depending on which reading of the world figure is correct; the "all-time titled" row
+(175×) is the cleanest apples-to-apples comparison since it doesn't depend on that
+ambiguity resolving one way or the other, as both Iceland's 16 and the world's 1,889-ish
+figures are "ever/currently titled" counts.
+
+**Bottom line:** on the cleanest reading, Iceland produces grandmasters at roughly
+**175× the world average rate** (16 all-time-titled per 402,329 people vs. 1,889
+worldwide per 8.3 billion), and even the more conservative "active-only" framings put it
+at **114–131× the world rate** — well clear of the next-densest countries in this
+comparison set (Armenia ~66×, Georgia ~37×). See also the "Statistical significance"
+section below, which converts these ratios into significance terms (observed vs.
+Poisson-expected count) using an independently sourced 2021 dataset — the two analyses
+were done independently and broadly agree that Iceland's density is not a small-sample
+artifact the way Monaco's or Andorra's are. The Armenia/Georgia/Israel/Russia/Norway
+GM-count figures above are the weakest link in this table (single aggregator source, not
+cross-verified against FIDE directly) — if this table is going to be shown to users
+rather than kept as internal calibration data, those counts should be re-verified against
+FIDE's own per-country totals first.
+
+## Answers to the specific questions asked
+
+**Total GM count: 16** full grandmasters (2 deceased), plus 1 WGM (Lenka Ptáčníková) —
+17 titled players if WGM is counted alongside GM. Source: skak.is (primary,
+Icelandic Chess Federation). **Currently active (FIDE, July 2026): 12.**
+
+**Names likely missing from standard PGN databases / worth double-checking with fuzzy
+matching when grepping the 955k-game corpus:**
+- **Diacritic variants** will not match literal ASCII grep — every name above needs the
+  transliterated column tried too (Guðmundur→Gudmundur, Þröstur→Throstur, Héðinn→Hedinn,
+  etc.) — already provided in both tables.
+- **Hannes Hlífar Stefánsson** is very commonly recorded in databases as simply "Hannes
+  Stefansson" (middle name dropped) — grep both forms.
+- **Jón L. Árnason** appears in sources as both "Jon L Arnason" and "Jon Loftur Arnason"
+  — grep both.
+- **Henrik Danielsen** may appear under **Denmark (DEN)** as the federation in games from
+  1992–96 and under **Iceland (ISL)** from 2006 onward — a game-count query filtered by
+  federation alone will undercount his early career.
+- **Guðmundur Kjartansson** — be careful disambiguating from other "Kjartansson" players
+  in the FIDE database (Gudfinnur, David, Dagur, Sigurdur Kjartansson all turned up as
+  distinct FIDE IDs in searches) — verify by FIDE ID 2301318, not name string alone.
+- **Karl Þorsteins**: confirmed via the FIDE top-30 table above (born 1964); earlier
+  search-based attempts to find his FIDE ID returned a false-positive match — use the
+  FIDE top-30 table's row, not a name-string search, if querying by ID.
+
+## Gaps — what I could not verify
+
+1. ~~FIDE's own ISL country-ranking page would not render for automated fetch~~ —
+   **resolved**: a teammate successfully fetched it via the `a_top_var.php` data endpoint
+   (see the FIDE top-30 table above), which supersedes the ChessTV-sourced top-10 for
+   ranks 11–30.
+2. ~~No ranked list beyond #10 with actual ratings could be assembled~~ — **resolved**,
+   see FIDE top-30 table.
+3. **Birth years for IMs/FMs beyond the top 30** were not found in this session.
+4. **Several "peak rating" figures lack a confirmed exact date**, and two (Margeir
+   Pétursson, Guðmundur Kjartansson) have **conflicting values from different sources**
+   that were not reconciled — reported as conflicts, not resolved.
+5. **Year-by-year Iceland population vs. GM-count series** — partially addressed in
+   "Best per capita — the actual math" above (2005 city-level, 2022 ChessBase, 2026
+   current), but a true smooth annual series was not found, and the analyst-derived
+   "peak = 15 in 2023" table is a derivation from title/death dates, not an
+   independently confirmed peak claim.
+6. The **Henrik Danielsen 1996-vs-2006 GM-year discrepancy** between Wikipedia and
+   skak.is is flagged with a proposed explanation (federation-transfer year vs. title
+   year) but not confirmed against a primary FIDE title-award record.
+7. ~~Hjörvar Steinn Grétarsson's current rating/rank conflicts~~ — **resolved**: he is
+   FIDE-inactive, confirmed by his absence from the primary FIDE top-30/top-100.
+8. **GM-count-by-country figures for Armenia, Georgia, Israel, Russia, and Norway** rest
+   on a single aggregator source (an X/Twitter post) rather than a FIDE-primary query —
+   flagged in the per-capita math section; should be re-verified before external use.
+9. **The all-time total of 2,143 GM titles ever awarded** is repeated across several
+   secondary aggregators but was not confirmed against a primary FIDE historical-count
+   page — flagged as single-type-sourced.
+10. **Whether FIDE's "1,889 current GM titles" figure includes deceased titleholders**
+    (titles are held for life, not revoked on death) is unresolved — this affects how to
+    interpret "current living GMs worldwide" precisely, and therefore the exact "× world
+    rate" multiples in the showpiece table above.
 
 ## Statistical significance — filtering the microstates (user's point, 2026-07-15)
 
