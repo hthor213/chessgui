@@ -38,6 +38,11 @@ export async function mockPersonaMove(
         band: params.level,
         // Mirrors the Rust derived-seed mix closely enough for a headless stub.
         derived_seed: (params.seed ^ (params.ply * 0x9e3779b1)) >>> 0,
+        // Step-3 log fields, coarsely mirrored: ply-only phase guess (the mock
+        // never counts material) and the flat base temperature (no schedule).
+        phase: params.ply < 16 ? "opening" : "middlegame",
+        temperature: params.temperature,
+        style_bias_applied: false,
         candidates: [
           {
             uci: ply.uci,

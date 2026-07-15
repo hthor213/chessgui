@@ -197,14 +197,38 @@ the temperature schedule (contract step 3) and the error model (step 5).
       untuned, auto-tuning is its own item): contract steps 3+4+8+9 minimal —
       policy sampling with temperature, verification reweight, seeded determinism,
       per-move decision log
-- [ ] N-source book merge rules: per-source weights, recency decay, time-control
-      weighting (contract step 2)
-- [ ] Temperature schedule: phase × clock, plus the post-book style-bias window
-      (contract step 3)
+- [x] N-source book merge rules (2026-07-15): scripts/persona/merge_books.py —
+      per-source weights × exponential half-life recency decay (half-life is an
+      explicit manifest choice, never a hidden default; no date = no decay) ×
+      time-control-label weights; entry-level date/TC override source-level;
+      source labels are arbitrary strings so arena games (spec 217) slot in as
+      source #2 without redesign; output stays a consumable book.json (float
+      weights) + a merge-provenance block + per-entry per-source raw weights;
+      fixture self-tested (--self-test). Factor VALUES ship neutral (1.0) —
+      untuned until the metrics harness can measure opening KL.
+- [x] Temperature schedule (2026-07-15): phase × clock in the shared Rust core
+      (persona.rs TemperatureSchedule) — phase from calibration.rs's thresholds
+      (endgame = non-pawn phase weight ≤ 8; opening = ply < 16), clock spikes
+      at ≤30s/≤10s. CAVEATS, honestly: the spar loop is unclocked, so the clock
+      dimension is only LIVE in the match runner (the mover's real clock feeds
+      it per move); multipliers (0.6/1.0/0.8, ×1.5/×2.25) are untuned priors —
+      auto-tuning item below. The post-book style-bias window (StyleBias: N
+      plies after book exit, multiplier on v1 move classes capture/check/
+      castle/pawn_push/quiet_piece) is implemented + tested but OFF by default
+      everywhere per the hard rule — the metrics harness gates turning it on,
+      and the spar UI doesn't pass book-exit ply yet. Effective temperature +
+      phase + bias flag land in the per-move decision log.
 - [ ] Corpus error model: P(mistake | eval, phase, clock, Elo band) from the
       11M-game evals-on corpus, human-band timing only (contract step 5)
-- [ ] Endgame arm: filtered SF / tablebase backend switch, humanized through the
-      verification reweight (contract step 6)
+- [x] Endgame arm (2026-07-15): at non-pawn phase weight ≤ 8 the candidate
+      source switches to fixed-depth (16) Stockfish MultiPV top-4, humanized
+      through the SAME reweight — each SF candidate's prior is its Maia policy
+      prob, floored at 0.01 for policy-unseen moves — reason arm "endgame" in
+      the decision log; wired into BOTH spar persona_move and the runner's
+      persona arm via the shared core (defaults ON in both); degrades to the
+      policy arm when Stockfish is missing. No tablebase branch: the ≤7-man
+      probe is a network call per move (not "cheap"), and depth-16 SF already
+      plays trivial endings correctly — revisit if a local TB lands.
 - [ ] Metrics harness + auto-tuning loop: move-match@1/@3, ACPL-profile,
       error-timing, opening KL on held-out splits; offline optimization of
       alpha/lambda/temperature/priors against them

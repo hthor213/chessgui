@@ -153,6 +153,14 @@ pub struct GameResult {
     pub start_fen: String,
     /// Moves played, in UCI notation.
     pub moves: Vec<String>,
+    /// Both sides' remaining clocks (white_ms, black_ms) AFTER each move —
+    /// `clocks_ms[i]` pairs with `moves[i]` (post-deduction + increment, the
+    /// same values [`MoveEvent`] streams live). Spec 212 tier-1 gap: the swing
+    /// labeler needs per-move clocks from a persisted outcome, not just the
+    /// live stream. Additive: omitted from JSON when empty (same pattern as
+    /// `GameOutcome::persona_logs`), so existing consumers are unaffected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clocks_ms: Vec<(i64, i64)>,
 }
 
 /// A spawned UCI engine process driven headlessly.
@@ -304,10 +312,14 @@ impl EngineHandle {
         fen: &str,
         movetime_ms: u64,
         read_wait: Duration,
-    ) -> Result<(Option<i64>, Option<i64>), String> {
+    ) -> Result<(Option<i64>, Option<i64>, Option<String>), String> {
         self.send(&format!("position fen {}", fen)).await?;
         let mut cp: Option<i64> = None;
         let mut mate: Option<i64> = None;
+        // First move of the PV that accompanied the most recent score — the
+        // evaluator's best move in this position (spec 212 "best-move gap if
+        // the evaluator reported a PV"). No POV flip: it is a move, not a score.
+        let mut best: Option<String> = None;
         self.send(&format!("go movetime {}", movetime_ms)).await?;
         // Read info lines until bestmove, keeping the most recent score. A mate
         // score supersedes a cp score and vice-versa (only one is meaningful).
@@ -322,6 +334,9 @@ impl EngineHandle {
                         mate = m;
                         cp = None;
                     }
+                    if let Some(mv) = parse_info_pv_first(line) {
+                        best = Some(mv);
+                    }
                 }
             }
             line.starts_with("bestmove")
@@ -332,7 +347,7 @@ impl EngineHandle {
             cp = cp.map(|v| -v);
             mate = mate.map(|v| -v);
         }
-        Ok((cp, mate))
+        Ok((cp, mate, best))
     }
 
     async fn quit(mut self) {
@@ -378,6 +393,16 @@ pub struct PersonaRuntime {
     pub verify_depth: Option<u32>,
     /// Per-game RNG seed (contract step 8): same seed + same snapshot = same game.
     pub seed: u64,
+    /// Temperature schedule (contract step 3): phase × clock. The runner IS
+    /// clocked, so the clock dimension is live here (the mover's remaining
+    /// clock feeds it each move).
+    pub schedule: Option<persona::TemperatureSchedule>,
+    /// Post-book style-bias window (contract step 3). The runner plays with no
+    /// book today, so book-exit ply is unknown and the window never fires —
+    /// plumbed now so arena books (spec 217) slot in without redesign.
+    pub style_bias: Option<persona::StyleBias>,
+    /// Endgame arm (contract step 6): deep fixed-depth SF top-k at low material.
+    pub endgame: Option<persona::EndgameArm>,
 }
 
 /// A persona player: a warm lc0 process bound to the persona's net, driven once
@@ -392,6 +417,9 @@ struct PersonaPlayer {
     top_p: Option<f64>,
     verify_depth: Option<u32>,
     seed: u64,
+    schedule: Option<persona::TemperatureSchedule>,
+    style_bias: Option<persona::StyleBias>,
+    endgame: Option<persona::EndgameArm>,
 }
 
 impl PersonaPlayer {
@@ -407,20 +435,36 @@ impl PersonaPlayer {
             top_p: rt.top_p,
             verify_depth: rt.verify_depth,
             seed: rt.seed,
+            schedule: rt.schedule.clone(),
+            style_bias: rt.style_bias.clone(),
+            endgame: rt.endgame.clone(),
         })
     }
 
-    /// Select the persona's move for `fen` (contract steps 3+4+8+9), returning
-    /// the UCI move, the wall time it took (debited to the persona's clock like
-    /// an engine's search), and the full per-move decision log.
+    /// Select the persona's move for `fen` (contract steps 3+4+6+8+9),
+    /// returning the UCI move, the wall time it took (debited to the persona's
+    /// clock like an engine's search), and the full per-move decision log.
+    /// `own_clock_ms` is the persona's remaining clock — the runner is clocked,
+    /// so the temperature schedule's clock dimension is live here.
     async fn bestmove(
         &self,
         fen: &str,
         ply: u32,
+        own_clock_ms: i64,
     ) -> Result<(String, i64, PersonaDecision), String> {
         let t0 = tokio::time::Instant::now();
         let policy = self.proc.query(fen).await?;
         let derived = persona::derive_seed(self.seed, ply);
+        let ctx = persona::SelectContext {
+            ply,
+            clock_ms: Some(own_clock_ms),
+            // The runner has no book phase today: book-exit ply is unknown, so
+            // the style-bias window stays inert (spec 214 honest default).
+            plies_since_book_exit: None,
+            schedule: self.schedule.clone(),
+            style_bias: self.style_bias.clone(),
+            endgame: self.endgame.clone(),
+        };
         let decision = persona::select_move_from_policy(
             fen,
             &policy,
@@ -432,6 +476,7 @@ impl PersonaPlayer {
             self.verify_depth,
             derived,
             self.stockfish.as_deref(),
+            &ctx,
         )
         .await?;
         let elapsed = t0.elapsed().as_millis() as i64;
@@ -452,8 +497,10 @@ impl Player {
     }
 
     /// Ask this player for its move. `position_cmd` drives a UCI engine (its
-    /// exact historical input); `fen` + `ply` drive a persona. Returns the UCI
-    /// move, the elapsed wall time, and — for personas — the decision log.
+    /// exact historical input); `fen` + `ply` + `own_clock_ms` (the mover's
+    /// remaining clock, feeding the temperature schedule's clock dimension)
+    /// drive a persona. Returns the UCI move, the elapsed wall time, and — for
+    /// personas — the decision log.
     #[allow(clippy::too_many_arguments)]
     async fn bestmove(
         &mut self,
@@ -465,6 +512,7 @@ impl Player {
         binc_ms: u64,
         read_wait: Duration,
         ply: u32,
+        own_clock_ms: i64,
     ) -> Result<(String, i64, Option<PersonaDecision>), String> {
         match self {
             Player::Uci(h) => {
@@ -474,7 +522,7 @@ impl Player {
                 Ok((mv, elapsed, None))
             }
             Player::Persona(p) => {
-                let (mv, elapsed, decision) = p.bestmove(fen, ply).await?;
+                let (mv, elapsed, decision) = p.bestmove(fen, ply, own_clock_ms).await?;
                 Ok((mv, elapsed, Some(decision)))
             }
         }
@@ -587,6 +635,12 @@ pub struct PlyEval {
     pub ply: usize,
     pub cp: Option<i64>,
     pub mate: Option<i64>,
+    /// The evaluator's best move (first PV move, UCI) in this position, when
+    /// its info stream reported one (spec 212 "best-move gap" plumbing).
+    /// Additive: omitted from JSON when absent, so existing consumers and
+    /// previously-serialized runs are unaffected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best: Option<String>,
 }
 
 /// A neutral-evaluator score streamed live as a game plays, tagged with its
@@ -597,6 +651,10 @@ pub struct EvalEvent {
     pub ply: usize,
     pub cp: Option<i64>,
     pub mate: Option<i64>,
+    /// The evaluator's best move (first PV move, UCI), when reported. Mirrors
+    /// [`PlyEval::best`]; omitted from JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best: Option<String>,
 }
 
 /// Configuration for the neutral evaluator. Absent = evaluation disabled.
@@ -627,6 +685,18 @@ fn parse_info_score(line: &str) -> Option<(Option<i64>, Option<i64>)> {
                 Some("mate") => it.next()?.parse::<i64>().ok().map(|v| (None, Some(v))),
                 _ => None,
             };
+        }
+    }
+    None
+}
+
+/// First move of the `pv` in a UCI `info` line (the engine's best move for the
+/// searched position), or `None` when the line carries no PV.
+fn parse_info_pv_first(line: &str) -> Option<String> {
+    let mut it = line.split_whitespace();
+    while let Some(tok) = it.next() {
+        if tok == "pv" {
+            return it.next().map(|s| s.to_string());
         }
     }
     None
@@ -777,6 +847,13 @@ pub(crate) async fn play_game_streamed_impl(
 
     let mut moves: Vec<String> = Vec::new();
 
+    // Per-move clocks (white_ms, black_ms) after each move, paired with
+    // `moves` by index (spec 212 tier-1 clock persistence). Mutex (not RefCell)
+    // so the game future stays Send for tokio::spawn — the `finish` closure
+    // below (which only borrows) drains it while the game loop keeps pushing
+    // between calls; no lock is ever held across an await.
+    let clocks_ms: std::sync::Mutex<Vec<(i64, i64)>> = std::sync::Mutex::new(Vec::new());
+
     // Sudden-death + increment game clock. Each side starts with its own
     // `*_base_ms` and gains its own `*_inc_ms` after each of its own moves
     // (equal for both sides in a normal game; asymmetric under time odds).
@@ -809,6 +886,13 @@ pub(crate) async fn play_game_streamed_impl(
             termination: termination.to_string(),
             plies: moves.len(),
             start_fen: start_fen_str.clone(),
+            // Truncate to the moves actually recorded (they are pushed in
+            // lockstep, so this is a no-op guard) and drain.
+            clocks_ms: {
+                let mut c = std::mem::take(&mut *clocks_ms.lock().unwrap());
+                c.truncate(moves.len());
+                c
+            },
             moves,
         }
     };
@@ -895,6 +979,9 @@ pub(crate) async fn play_game_streamed_impl(
                 black_inc_ms,
                 read_wait,
                 ply_idx,
+                // The mover's own remaining clock: the persona's temperature
+                // schedule conditions on it (contract step 3, clock dimension).
+                remaining,
             )
             .await
         {
@@ -988,6 +1075,10 @@ pub(crate) async fn play_game_streamed_impl(
                 tokio::time::sleep(Duration::from_millis(delay - since)).await;
             }
         }
+
+        // Record the post-move clocks (same values the MoveEvent carries) so a
+        // completed GameResult keeps them (spec 212 tier-1 clock persistence).
+        clocks_ms.lock().unwrap().push((wtime, btime));
 
         // Stream the move just applied. `ply` is 1-based; the FEN reflects the
         // position AFTER this move.
@@ -1140,6 +1231,21 @@ pub struct PersonaConfig {
     /// each game in a batch is distinct yet reproducible. Defaults to 0.
     #[serde(default)]
     pub seed: Option<u64>,
+    /// Temperature schedule (contract step 3). Absent = the untuned default
+    /// schedule — phase × clock scaling ships ON for runner personas. Nested
+    /// fields are snake_case on the wire (they mirror the spar `persona_move`
+    /// params, which are snake_case throughout).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<persona::TemperatureSchedule>,
+    /// Post-book style-bias window (contract step 3). Absent = OFF — the spec
+    /// 214 hard rule keeps it off until measured. (Inert in the runner anyway:
+    /// no book, so book-exit ply is unknown.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style_bias: Option<persona::StyleBias>,
+    /// Endgame arm (contract step 6). Absent = the default arm, ON (degrades
+    /// to the policy arm when Stockfish is missing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endgame: Option<persona::EndgameArm>,
 }
 
 /// One game to be played as part of a batch. Self-describing so the runner can
@@ -1454,11 +1560,11 @@ pub async fn run_batch_core_evaluated(
                     let read_wait =
                         Duration::from_millis(setup.movetime_ms.saturating_add(5000).max(5000));
                     while let Some((ply, fen)) = rx.recv().await {
-                        if let Ok((cp, mate)) =
+                        if let Ok((cp, mate, best)) =
                             engine.eval_at(&fen, setup.movetime_ms, read_wait).await
                         {
-                            on_eval(EvalEvent { game_id, ply, cp, mate });
-                            evals.push(PlyEval { ply, cp, mate });
+                            on_eval(EvalEvent { game_id, ply, cp, mate, best: best.clone() });
+                            evals.push(PlyEval { ply, cp, mate, best });
                         }
                     }
                     engine.quit().await;
@@ -1682,6 +1788,12 @@ async fn resolve_one(
                 top_p: cfg.top_p,
                 verify_depth: cfg.verify_depth,
                 seed,
+                // Schedule + endgame arm default ON (untuned defaults, same as
+                // the spar loop's DEFAULT_PERSONA_PARAMS); style bias only when
+                // explicitly configured (spec 214 hard rule).
+                schedule: Some(cfg.schedule.clone().unwrap_or_default()),
+                style_bias: cfg.style_bias.clone(),
+                endgame: Some(cfg.endgame.clone().unwrap_or_default()),
             }))
         }
     }
@@ -2149,6 +2261,9 @@ mod tests {
         assert_eq!(g.termination, "checkmate");
         assert_eq!(g.plies, 1, "the mate is in exactly one ply");
         assert_eq!(g.moves, vec!["a1a8".to_string()]);
+        // Per-move clocks persist in lockstep with moves (spec 212 tier-1).
+        assert_eq!(g.clocks_ms.len(), 1, "one clock pair per move");
+        assert!(g.clocks_ms[0].0 > 0 && g.clocks_ms[0].1 > 0);
     }
 
     #[test]
@@ -2248,6 +2363,14 @@ mod tests {
         }
         // Every collected eval was also streamed live.
         assert_eq!(eval_events.lock().unwrap().len(), o.evals.len());
+        // The evaluator's PV plumbing (spec 212 best-move gap): Stockfish
+        // reports a pv on scored info lines, so best moves should be captured.
+        assert!(
+            o.evals.iter().any(|pe| pe.best.is_some()),
+            "expected at least one evaluator best move to be captured"
+        );
+        // Per-move clocks persist alongside the moves.
+        assert_eq!(g.clocks_ms.len(), g.plies, "one clock pair per move");
     }
 
     fn outcome(id: usize, result: Result<GameResult, String>, aborted: bool) -> GameOutcome {
@@ -2261,7 +2384,54 @@ mod tests {
             plies: 10,
             start_fen: STANDARD_START_FEN.to_string(),
             moves: Vec::new(),
+            clocks_ms: Vec::new(),
         })
+    }
+
+    #[test]
+    fn parse_info_pv_first_reads_best_move() {
+        assert_eq!(
+            parse_info_pv_first("info depth 12 score cp -34 nodes 1000 pv e2e4 e7e5"),
+            Some("e2e4".to_string())
+        );
+        // No pv token → None (e.g. a bare score or currmove line).
+        assert_eq!(parse_info_pv_first("info depth 1 score cp 10"), None);
+        assert_eq!(parse_info_pv_first("info depth 1 currmove e2e4"), None);
+    }
+
+    // GameResult JSON stays byte-compatible for old consumers: clocks_ms is
+    // omitted when empty (same additive pattern as persona_logs) and present
+    // as [w,b] pairs when recorded; PlyEval.best is omitted when None.
+    #[test]
+    fn additive_fields_skip_when_empty() {
+        let bare = serde_json::to_string(&GameResult {
+            result: "1-0".to_string(),
+            termination: "checkmate".to_string(),
+            plies: 0,
+            start_fen: STANDARD_START_FEN.to_string(),
+            moves: Vec::new(),
+            clocks_ms: Vec::new(),
+        })
+        .unwrap();
+        assert!(!bare.contains("clocks_ms"), "empty clocks_ms must be omitted: {bare}");
+
+        let with = serde_json::to_string(&GameResult {
+            result: "1-0".to_string(),
+            termination: "checkmate".to_string(),
+            plies: 1,
+            start_fen: STANDARD_START_FEN.to_string(),
+            moves: vec!["e2e4".to_string()],
+            clocks_ms: vec![(59_500, 60_000)],
+        })
+        .unwrap();
+        assert!(with.contains("\"clocks_ms\":[[59500,60000]]"), "got: {with}");
+
+        let pe = serde_json::to_string(&PlyEval { ply: 0, cp: Some(20), mate: None, best: None }).unwrap();
+        assert!(!pe.contains("best"), "absent best must be omitted: {pe}");
+        // An old serialized PlyEval (no `best`) still deserializes.
+        let old: PlyEval = serde_json::from_str("{\"ply\":3,\"cp\":-12,\"mate\":null}").unwrap();
+        assert_eq!(old.ply, 3);
+        assert_eq!(old.best, None);
     }
 
     #[test]
@@ -2407,6 +2577,31 @@ mod tests {
         assert_eq!(cfg.verify_depth, Some(12));
         assert_eq!(cfg.weights.as_deref(), Some("bt3"));
         assert_eq!(cfg.seed, Some(214214));
+        // Step 3/6 knobs are optional on the wire; absent = None (the resolver
+        // then defaults schedule + endgame ON, style bias OFF).
+        assert!(cfg.schedule.is_none() && cfg.style_bias.is_none() && cfg.endgame.is_none());
+
+        // And when present they deserialize (camelCase field names on the
+        // config, snake_case inside the nested structs — the spar wire shape).
+        let with_knobs = r#"{
+            "id": "dad", "displayName": "Dad", "kind": "persona",
+            "personaConfig": {
+                "level": 1700, "temperature": 0.5, "alpha": 1.0, "lambda": 0.75,
+                "schedule": {"opening_mult": 0.7, "panic_time_ms": 8000},
+                "styleBias": {"window_plies": 4, "multiplier": 1.5, "move_types": ["capture"]},
+                "endgame": {"depth": 14}
+            }
+        }"#;
+        let p: Participant = serde_json::from_str(with_knobs).expect("knobbed persona deserializes");
+        let cfg = p.persona_config.unwrap();
+        let sched = cfg.schedule.unwrap();
+        assert_eq!(sched.opening_mult, 0.7);
+        assert_eq!(sched.panic_time_ms, 8000);
+        assert_eq!(sched.middlegame_mult, 1.0, "unset schedule fields keep defaults");
+        assert_eq!(cfg.style_bias.unwrap().move_types, vec!["capture"]);
+        let arm = cfg.endgame.unwrap();
+        assert_eq!(arm.depth, 14);
+        assert_eq!(arm.phase_max, persona::ENDGAME_PHASE_MAX);
 
         let uci = r#"{"id":"sf","displayName":"Stockfish 18","kind":"uci","enginePath":"/opt/homebrew/bin/stockfish"}"#;
         let p: Participant = serde_json::from_str(uci).expect("uci participant deserializes");
@@ -2470,6 +2665,9 @@ mod tests {
             top_p: None,
             verify_depth: Some(6), // shallow: fast but exercises the verify arm
             seed: 214218,
+            schedule: Some(persona::TemperatureSchedule::default()),
+            style_bias: None,
+            endgame: Some(persona::EndgameArm::default()),
         };
 
         let cancel = AtomicBool::new(false);

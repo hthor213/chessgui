@@ -245,15 +245,19 @@ export type MoveSwing = {
   drop: number
   label: MoveLabel | null
   /**
-   * Mover's remaining clock (ms) after the move, when the caller supplies the
-   * per-ply clocks (streamed MoveEvents carry them; GameResult does NOT persist
-   * them — see tier-1 report). Null when unavailable.
+   * Mover's remaining clock (ms) after the move. From the caller-supplied
+   * per-ply clocks when given (streamed MoveEvents), else from the outcome's
+   * persisted `GameResult.clocks_ms` (spec 212 tier-1 clock persistence).
+   * Null only when neither source has this ply (e.g. pre-212 payloads).
    */
   clockMs: number | null
   /**
-   * Spec 212:30 records a "best-move gap if the evaluator reported a PV".
-   * PlyEval carries no PV in the current pipeline, so this is always null in
-   * tier-1; the field documents the gap.
+   * Spec 212:30 "best-move gap if the evaluator reported a PV": how much the
+   * played move cost vs the evaluator's best line, in centipawns, mover POV.
+   * `evalBefore` is by definition the best-line value of the position, so the
+   * gap is max(0, best-line cp − played-move cp); it is pinned to 0 when the
+   * played move IS the evaluator's PV move (suppressing re-search noise), and
+   * null when the evaluator reported no PV for the before-position.
    */
   bestMoveGapCp: number | null
 }
@@ -318,10 +322,35 @@ export function computeMoveSwings(
     const delta = wpAfter - wpBefore
     const drop = Math.max(0, -delta)
 
+    // Mover's clock after the move: caller-supplied stream clocks win, else
+    // the persisted GameResult.clocks_ms (index i pairs with moves[i]).
     const clk = clocks?.get(after) ?? null
+    let clockMs = clk ? (whiteMoves ? clk.wtimeMs : clk.btimeMs) : null
+    if (clockMs === null) {
+      const rec = g.clocks_ms?.[before]
+      if (rec) clockMs = whiteMoves ? rec[0] : rec[1]
+    }
+
+    // Best-move gap (cp, mover POV) when the evaluator reported a PV for the
+    // before-position. Mates are pinned by plyEvalPawns, so the gap saturates
+    // rather than blowing up.
+    const uci = g.moves[before] ?? null
+    const best = evalBefore.best ?? null
+    const bestMoveGapCp =
+      best === null
+        ? null
+        : uci === best
+          ? 0
+          : Math.max(
+              0,
+              Math.round(
+                (whiteMoves ? pawnsBefore - pawnsAfter : pawnsAfter - pawnsBefore) * 100,
+              ),
+            )
+
     swings.push({
       ply: after,
-      uci: g.moves[before] ?? null,
+      uci,
       mover,
       engine,
       evalBefore,
@@ -331,8 +360,8 @@ export function computeMoveSwings(
       delta,
       drop,
       label: labelForDrop(drop, thresholds),
-      clockMs: clk ? (whiteMoves ? clk.wtimeMs : clk.btimeMs) : null,
-      bestMoveGapCp: null,
+      clockMs,
+      bestMoveGapCp,
     })
   }
   return swings

@@ -58,6 +58,23 @@ import {
   type PairCell,
 } from "@/lib/tournament"
 import { replayFens, movesToPgn, sansFromUci, numberMoves, type NumberedPly } from "@/lib/game-replay"
+import { deriveWinProbCurve, type MoveSwing, type WinProbCurve } from "@/lib/win-prob"
+import {
+  analyzeGame,
+  annotatedGamePgn,
+  buildBandTrajectories,
+  buildErrorProfiles,
+  buildSeedBreakdown,
+  buildTerminationQuality,
+  errorProfileDelta,
+  per100,
+  DEFAULT_LOW_CLOCK_MS,
+  CLOCK_BUCKETS,
+  GAME_PHASES,
+  type EngineErrorProfile,
+  type GameAnalysis,
+  type TrajectoryBand,
+} from "@/lib/tournament-analysis"
 import { buildTournamentRoster, type TournamentRosterEntry, type EngineOption } from "@/lib/tournament-roster"
 import { loadRivalBook, type RivalBook } from "@/lib/rival-book"
 import type { PersonaCandidate, PersonaDecision } from "@/lib/persona"
@@ -303,6 +320,11 @@ export function TournamentTab({
   // — snapshotted at run start so changing the dropdown selection afterward
   // (before the next Run) never relabels a finished result.
   const [reportLabels, setReportLabels] = useState<{ a: string; b: string }>({ a: "Side A", b: "Side B" })
+  // Effective base clock (ms) of the run that produced `report`/`tally` —
+  // snapshotted at run start like reportLabels, so the error profile's
+  // clock-pressure threshold reflects the TC the games were actually played
+  // at even if the user edits the form afterward.
+  const [reportBaseMs, setReportBaseMs] = useState(60_000)
   const [probBins, setProbBins] = useState<ProbBin[]>([])
   const [curveBins, setCurveBins] = useState<EngineCurveBin[]>([])
   const [sfWdl, setSfWdl] = useState<ProbBin[]>([])
@@ -560,6 +582,7 @@ export function TournamentTab({
       const labelA = sideLabel(pA)
       const labelB = sideLabel(pB)
       setReportLabels({ a: labelA, b: labelB })
+      setReportBaseMs(baseMs)
       const specMeta = new Map<number, { whiteLabel: string; blackLabel: string }>()
       // Each game's start FEN (spec 218 "Move numbers" follow-up: paired with
       // the featured game's UCI moves so the shared live viewer can build a
@@ -928,6 +951,20 @@ export function TournamentTab({
       setWaitingForNext(false)
     }
   }, [running])
+
+  // Eval→win-prob curve derived from this run's own probability map (spec 212
+  // checklist line 77) — the substrate for every swing-label consumer below.
+  const winCurve = useMemo(() => deriveWinProbCurve(probBins), [probBins])
+  // fen → curated-pool tag for the seed/family breakdown, from the tagged
+  // positions the run sampled (already cached by loadPositions; undefined
+  // when the run's mode never fetched them).
+  const tagByFen = useMemo(() => {
+    if (!report || !positionsCache) return undefined
+    return new Map(positionsCache.map((p) => [p.fen, p.source]))
+  }, [report])
+  // Clock-pressure threshold (spec 212:39 "sub-N-seconds flag"): 30s, capped
+  // at half the run's base clock so a blitz run isn't 100% "under pressure".
+  const lowClockMs = Math.min(DEFAULT_LOW_CLOCK_MS, Math.max(1_000, Math.round(reportBaseMs / 2)))
 
   const pct = tally && tally.total > 0 ? (tally.completed / tally.total) * 100 : 0
   // Elapsed wall-clock and a linear ETA from completed/total.
@@ -1544,6 +1581,44 @@ export function TournamentTab({
             labelA={reportLabels.a}
             labelB={reportLabels.b}
             onOpenGame={onOpenGame}
+            curve={winCurve}
+          />
+        )}
+
+        {/* Spec 212 analyses over the completed run: per-engine error
+            profiles (label × phase × clock pressure) + delta, band
+            trajectories, seed/family breakdown, termination quality. */}
+        {report && (
+          <ErrorProfileSection
+            outcomes={report.outcomes}
+            curve={winCurve}
+            labelA={reportLabels.a}
+            labelB={reportLabels.b}
+            lowClockMs={lowClockMs}
+          />
+        )}
+        {report && (
+          <BandTrajectorySection
+            outcomes={report.outcomes}
+            evalById={evalByIdRef.current}
+            labelA={reportLabels.a}
+            labelB={reportLabels.b}
+          />
+        )}
+        {report && (
+          <SeedBreakdownSection
+            outcomes={report.outcomes}
+            evalById={evalByIdRef.current}
+            tagByFen={tagByFen}
+            labelA={reportLabels.a}
+          />
+        )}
+        {report && (
+          <TerminationQualitySection
+            outcomes={report.outcomes}
+            curve={winCurve}
+            labelA={reportLabels.a}
+            labelB={reportLabels.b}
           />
         )}
 
@@ -2240,20 +2315,32 @@ function resultBadge(result: "1-0" | "0-1" | "1/2-1/2", flipped: boolean) {
  * Browse completed games: pick one from the list, step through it on a board
  * (arrow keys / click the eval graph), and optionally open it in Analyze.
  */
-function ResultsExplorer({
+export function ResultsExplorer({
   outcomes,
   labelA,
   labelB,
   onOpenGame,
+  curve,
 }: {
   outcomes: GameOutcome[]
   labelA: string
   labelB: string
   onOpenGame?: (pgn: string) => void
+  /** Run-derived eval→win-prob curve for the swing labels (spec 212). */
+  curve: WinProbCurve
 }) {
   const games = useMemo(() => outcomes.filter(isOk), [outcomes])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [ply, setPly] = useState(0)
+
+  // Per-game swing analysis (spec 212:82 — decisive moment + error counts in
+  // the list, labeled moves with click-hop in the viewer). O(plies) per game,
+  // no replay; computed once per completed report.
+  const analyses = useMemo(() => {
+    const m = new Map<number, GameAnalysis>()
+    for (const g of games) m.set(g.id, analyzeGame(g, curve))
+    return m
+  }, [games, curve])
 
   // Default to the first game once results arrive / change.
   useEffect(() => {
@@ -2280,9 +2367,15 @@ function ResultsExplorer({
     [series],
   )
 
-  // Snap the cursor to the final position whenever the selected game changes.
+  // Snap the cursor to the final position whenever the selected game changes —
+  // unless the selection carried a pending hop target (a decisive-moment /
+  // labeled-move click), which wins over the default snap-to-end.
+  const pendingHop = useRef<number | null>(null)
   useEffect(() => {
-    setPly(fens.length ? fens.length - 1 : 0)
+    const maxPly = fens.length ? fens.length - 1 : 0
+    const hop = pendingHop.current
+    pendingHop.current = null
+    setPly(hop !== null ? Math.min(hop, maxPly) : maxPly)
   }, [fens])
 
   const maxPly = Math.max(0, fens.length - 1)
@@ -2309,25 +2402,64 @@ function ResultsExplorer({
           {games.map((o) => {
             const g = gameResult(o)!
             const badge = resultBadge(g.result, o.flipped)
+            const an = analyses.get(o.id)
+            const errs = an
+              ? {
+                  blunders: an.counts.a.blunder + an.counts.b.blunder,
+                  mistakes: an.counts.a.mistake + an.counts.b.mistake,
+                  inaccuracies: an.counts.a.inaccuracy + an.counts.b.inaccuracy,
+                }
+              : null
+            const dec = an?.decisive ?? null
             return (
               <button
                 key={o.id}
                 data-testid={`tournament-game-row-${o.id}`}
-                onClick={() => setSelectedId(o.id)}
-                className={`w-full text-left px-2.5 py-1.5 flex items-center gap-2 transition-colors ${
+                onClick={() => {
+                  setSelectedId(o.id)
+                  // Clicking a game with a decisive moment hops straight to it
+                  // (spec 212:34-35). The immediate setPly covers re-clicks on
+                  // the already-selected game; pendingHop overrides the
+                  // snap-to-end effect when the selection changes.
+                  if (dec) {
+                    pendingHop.current = dec.ply
+                    setPly(dec.ply)
+                  }
+                }}
+                className={`w-full text-left px-2.5 py-1.5 flex flex-col gap-0.5 transition-colors ${
                   o.id === selectedId ? "bg-primary/20" : "hover:bg-white/5"
                 }`}
               >
-                <span className="text-[11px] text-muted-foreground font-mono w-8 shrink-0">
-                  #{o.id}
+                <span className="flex items-center gap-2 w-full">
+                  <span className="text-[11px] text-muted-foreground font-mono w-8 shrink-0">
+                    #{o.id}
+                  </span>
+                  <span className="text-xs text-foreground truncate flex-1 min-w-0">
+                    {whiteLabel(o)} <span className="text-muted-foreground">vs</span> {blackLabel(o)}
+                  </span>
+                  <span className={`text-xs font-mono ${badge.cls}`}>{badge.text}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono w-8 text-right shrink-0">
+                    {g.plies}p
+                  </span>
                 </span>
-                <span className="text-xs text-foreground truncate flex-1 min-w-0">
-                  {whiteLabel(o)} <span className="text-muted-foreground">vs</span> {blackLabel(o)}
-                </span>
-                <span className={`text-xs font-mono ${badge.cls}`}>{badge.text}</span>
-                <span className="text-[10px] text-muted-foreground font-mono w-8 text-right shrink-0">
-                  {g.plies}p
-                </span>
+                {/* Spec 212:82 — decisive moment + error counts per game. */}
+                {(dec || (errs && (errs.blunders || errs.mistakes || errs.inaccuracies))) && (
+                  <span className="flex items-center gap-2 pl-10 text-[10px] font-mono">
+                    {dec && (
+                      <span className="text-muted-foreground">
+                        decided m{Math.floor((dec.ply + 1) / 2)} ·{" "}
+                        <span className={dec.engine === "a" ? "text-green-400" : "text-sky-400"}>
+                          {dec.engine === "a" ? labelA : labelB}
+                        </span>
+                      </span>
+                    )}
+                    {errs && errs.blunders > 0 && <span className="text-red-400">{errs.blunders}??</span>}
+                    {errs && errs.mistakes > 0 && <span className="text-amber-400">{errs.mistakes}?</span>}
+                    {errs && errs.inaccuracies > 0 && (
+                      <span className="text-muted-foreground">{errs.inaccuracies}?!</span>
+                    )}
+                  </span>
+                )}
               </button>
             )
           })}
@@ -2355,12 +2487,23 @@ function ResultsExplorer({
                 <button
                   data-testid="tournament-open-in-analyze"
                   onClick={() =>
+                    // Annotated handoff (spec 212:58-61): swing labels arrive
+                    // on the Analyze tree as NAGs + comments (plus [%eval]
+                    // tags for the eval graph). Falls back to the plain PGN
+                    // when the game can't be annotated (no evals is fine —
+                    // annotatedGamePgn still emits the bare moves then).
                     onOpenGame(
-                      movesToPgn(gr.start_fen, gr.moves, gr.result, {
+                      annotatedGamePgn(selected, curve, {
                         event: "Engine tournament",
                         white: whiteLabel(selected),
                         black: blackLabel(selected),
-                      }),
+                        engineNames: { a: labelA, b: labelB },
+                      }) ??
+                        movesToPgn(gr.start_fen, gr.moves, gr.result, {
+                          event: "Engine tournament",
+                          white: whiteLabel(selected),
+                          black: blackLabel(selected),
+                        }),
                     )
                   }
                   className="px-2.5 py-1 text-xs rounded-md border border-input text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
@@ -2413,6 +2556,53 @@ function ResultsExplorer({
                 No per-move evals for this game (evaluator was off).
               </span>
             )}
+
+            {/* Error report for the selected game (spec 212:23-35): decisive
+                moment + every labeled move, each a click-hop to its ply. */}
+            {(() => {
+              const an = analyses.get(selected.id)
+              if (!an || an.labeled.length === 0) return null
+              const engineName = (e: "a" | "b") => (e === "a" ? labelA : labelB)
+              const moveNoOf = (p: number) => Math.floor((p + 1) / 2)
+              const glyph = { blunder: "??", mistake: "?", inaccuracy: "?!" } as const
+              const tint = {
+                blunder: "text-red-400 border-red-400/40",
+                mistake: "text-amber-400 border-amber-400/40",
+                inaccuracy: "text-muted-foreground border-input",
+              } as const
+              return (
+                <div className="flex flex-col gap-1.5">
+                  {an.decisive && (
+                    <button
+                      data-testid="tournament-decisive-hop"
+                      onClick={() => setPly(Math.min(an.decisive!.ply, maxPly))}
+                      className="self-start text-xs text-foreground hover:underline text-left"
+                    >
+                      Decided at move {moveNoOf(an.decisive.ply)} —{" "}
+                      <span className={an.decisive.engine === "a" ? "text-green-400" : "text-sky-400"}>
+                        {engineName(an.decisive.engine)}
+                      </span>{" "}
+                      {an.decisive.label ?? "swing"} (−{Math.round(an.decisive.drop * 100)}pp)
+                    </button>
+                  )}
+                  <div className="flex flex-wrap gap-1">
+                    {an.labeled.map((s: MoveSwing) => (
+                      <button
+                        key={s.ply}
+                        data-testid={`tournament-labeled-move-${selected.id}-${s.ply}`}
+                        onClick={() => setPly(Math.min(s.ply, maxPly))}
+                        title={`${engineName(s.engine)} · win prob ${Math.round(s.wpBefore * 100)}% → ${Math.round(s.wpAfter * 100)}%${
+                          s.bestMoveGapCp !== null ? ` · ${s.bestMoveGapCp}cp off best` : ""
+                        }${s.clockMs !== null ? ` · ${(s.clockMs / 1000).toFixed(1)}s left` : ""}`}
+                        className={`px-1.5 py-0.5 text-[11px] font-mono rounded-sm border hover:bg-white/5 transition-colors ${tint[s.label!]}`}
+                      >
+                        m{moveNoOf(s.ply)} {glyph[s.label!]} −{Math.round(s.drop * 100)}pp
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Persona decision logs (spec 218 "Exhibition & tournament"
                 checklist item 4): inspectable per-move "why" for any persona
@@ -3184,5 +3374,385 @@ function CrossTableView({
         </table>
       </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Spec 212 analyses (error profiles, band trajectories, seed breakdown,
+// termination quality) — pure renders over lib/tournament-analysis.ts
+// ---------------------------------------------------------------------------
+
+const PHASE_LABEL: Record<string, string> = {
+  opening: "Opening",
+  middlegame: "Middlegame",
+  endgame: "Endgame",
+}
+
+/** Per-engine error profile table (label × phase × clock pressure) + delta
+ *  view — spec 212:37-40 / checklist "Per-engine error profile table". */
+export function ErrorProfileSection({
+  outcomes,
+  curve,
+  labelA,
+  labelB,
+  lowClockMs,
+}: {
+  outcomes: GameOutcome[]
+  curve: WinProbCurve
+  labelA: string
+  labelB: string
+  lowClockMs: number
+}) {
+  const profiles = useMemo(
+    () => buildErrorProfiles(outcomes, curve, { lowClockMs }),
+    [outcomes, curve, lowClockMs],
+  )
+  const deltaRows = useMemo(
+    () => errorProfileDelta(profiles.a, profiles.b),
+    [profiles],
+  )
+  if (profiles.a.moves === 0 && profiles.b.moves === 0) return null
+
+  const fmtRate = (r: number | null) => (r === null ? "—" : r.toFixed(1))
+  const fmtRatio = (r: number | null) =>
+    r === null ? "—" : r === Infinity ? "∞" : `${r.toFixed(1)}×`
+  const lowLabel = `<${Math.round(lowClockMs / 1000)}s`
+
+  const profileTable = (label: string, p: EngineErrorProfile, tint: string) => (
+    <div className="flex flex-col gap-1 min-w-0">
+      <span className={`text-xs font-semibold ${tint}`}>
+        {label}{" "}
+        <span className="text-muted-foreground font-normal">
+          ({p.moves} scored moves · {p.counts.blunder}?? {p.counts.mistake}? {p.counts.inaccuracy}?!)
+        </span>
+      </span>
+      <div className="overflow-x-auto">
+        <table className="text-[11px] font-mono w-full">
+          <thead>
+            <tr className="text-muted-foreground text-left">
+              <th className="pr-2 py-0.5 font-normal">phase · clock</th>
+              <th className="pr-2 py-0.5 font-normal text-right">moves</th>
+              <th className="pr-2 py-0.5 font-normal text-right">??/100</th>
+              <th className="pr-2 py-0.5 font-normal text-right">?/100</th>
+              <th className="pr-2 py-0.5 font-normal text-right">?!/100</th>
+            </tr>
+          </thead>
+          <tbody>
+            {GAME_PHASES.flatMap((phase) =>
+              CLOCK_BUCKETS.map((clock) => {
+                const cell = p.cells[phase][clock]
+                if (cell.moves === 0) return null
+                return (
+                  <tr key={`${phase}-${clock}`} className="border-t border-white/5">
+                    <td className="pr-2 py-0.5 text-muted-foreground">
+                      {PHASE_LABEL[phase]} · {clock === "low" ? lowLabel : "ok"}
+                    </td>
+                    <td className="pr-2 py-0.5 text-right">{cell.moves}</td>
+                    <td className="pr-2 py-0.5 text-right text-red-400">{fmtRate(per100(cell, "blunder"))}</td>
+                    <td className="pr-2 py-0.5 text-right text-amber-400">{fmtRate(per100(cell, "mistake"))}</td>
+                    <td className="pr-2 py-0.5 text-right text-muted-foreground">{fmtRate(per100(cell, "inaccuracy"))}</td>
+                  </tr>
+                )
+              }),
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+
+  // Delta rows worth showing: at least one engine erred in the cell.
+  const shownDelta = deltaRows.filter(
+    (r) => (r.aRate ?? 0) > 0 || (r.bRate ?? 0) > 0,
+  )
+
+  return (
+    <section
+      data-testid="tournament-error-profile"
+      className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-3"
+    >
+      <h2 className="text-sm font-semibold text-foreground">Error profile</h2>
+      <p className="text-xs text-muted-foreground">
+        Win-prob swing labels (thresholds 5/10/20pp on this run&apos;s own
+        eval→win-prob curve) per 100 scored moves, split by game phase and
+        clock pressure (mover under {Math.round(lowClockMs / 1000)}s after the
+        move). ?? blunder · ? mistake · ?! inaccuracy.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {profileTable(labelA, profiles.a, "text-green-400")}
+        {profileTable(labelB, profiles.b, "text-sky-400")}
+      </div>
+      {shownDelta.length > 0 && (
+        <div className="flex flex-col gap-1 border-t border-white/10 pt-3">
+          <span className="text-xs font-semibold text-foreground">
+            Delta — {labelB} vs {labelA}
+          </span>
+          <div className="overflow-x-auto">
+            <table className="text-[11px] font-mono">
+              <thead>
+                <tr className="text-muted-foreground text-left">
+                  <th className="pr-3 py-0.5 font-normal">cell</th>
+                  <th className="pr-3 py-0.5 font-normal text-right">{labelA}</th>
+                  <th className="pr-3 py-0.5 font-normal text-right">{labelB}</th>
+                  <th className="pr-3 py-0.5 font-normal text-right">B/A</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shownDelta.map((r) => (
+                  <tr key={`${r.phase}-${r.clock}-${r.label}`} className="border-t border-white/5">
+                    <td className="pr-3 py-0.5 text-muted-foreground">
+                      {PHASE_LABEL[r.phase]} · {r.clock === "low" ? lowLabel : "ok"} ·{" "}
+                      {r.label === "blunder" ? "??" : r.label === "mistake" ? "?" : "?!"}
+                    </td>
+                    <td className="pr-3 py-0.5 text-right">{fmtRate(r.aRate)}</td>
+                    <td className="pr-3 py-0.5 text-right">{fmtRate(r.bRate)}</td>
+                    <td className="pr-3 py-0.5 text-right text-foreground">{fmtRatio(r.ratio)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <span className="text-[10px] text-muted-foreground">
+            Rates are errors per 100 scored moves; B/A &gt; 1 means {labelB} errs
+            more in that cell.
+          </span>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Mean ± 1sd trajectory chart for one starting-eval band (inline SVG,
+ *  matching the EvalByPlyChart inks). Engine-A perspective. */
+function BandChart({ band, height = 90 }: { band: TrajectoryBand; height?: number }) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(240)
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const update = () => setWidth(Math.max(80, el.getBoundingClientRect().width))
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const pts = band.points
+  if (pts.length < 2) return null
+  const minPly = pts[0].ply
+  const maxPly = pts[pts.length - 1].ply
+  const span = Math.max(1, maxPly - minPly)
+  const dom = Math.max(1, ...pts.map((p) => Math.abs(p.mean) + p.sd))
+  const xFor = (ply: number) => CHART_PAD_X + ((ply - minPly) / span) * (width - 2 * CHART_PAD_X)
+  const yFor = (v: number) => {
+    const c = Math.max(-dom, Math.min(dom, v))
+    return CHART_PAD_Y + ((dom - c) / (2 * dom)) * (height - 2 * CHART_PAD_Y)
+  }
+  const mean = pts
+    .map((p, i) => `${i === 0 ? "M" : "L"}${xFor(p.ply).toFixed(1)},${yFor(p.mean).toFixed(1)}`)
+    .join(" ")
+  const bandPath =
+    pts.map((p, i) => `${i === 0 ? "M" : "L"}${xFor(p.ply).toFixed(1)},${yFor(p.mean + p.sd).toFixed(1)}`).join(" ") +
+    " " +
+    [...pts]
+      .reverse()
+      .map((p) => `L${xFor(p.ply).toFixed(1)},${yFor(p.mean - p.sd).toFixed(1)}`)
+      .join(" ") +
+    " Z"
+  const yZero = yFor(0)
+  return (
+    <div ref={wrapRef} className="relative w-full" style={{ height }}>
+      <svg width={width} height={height} className="block rounded-sm">
+        <rect x={0} y={0} width={width} height={height} fill={CHART_BG} />
+        <path d={bandPath} fill="rgba(123,179,58,0.18)" />
+        <path d={mean} fill="none" stroke="#9bc700" strokeWidth={1.5} />
+        <line x1={0} x2={width} y1={yZero} y2={yZero} stroke={CHART_MID} strokeWidth={1} strokeDasharray="3,3" />
+      </svg>
+    </div>
+  )
+}
+
+/** Band trajectories (spec 212:45-47): mean ± spread of the A-perspective
+ *  eval by ply, one small chart per starting-eval bucket. */
+export function BandTrajectorySection({
+  outcomes,
+  evalById,
+  labelA,
+  labelB,
+}: {
+  outcomes: GameOutcome[]
+  evalById: EvalMap
+  labelA: string
+  labelB: string
+}) {
+  const bands = useMemo(
+    () => buildBandTrajectories(outcomes, evalById).filter((b) => b.games >= 2 && b.points.length >= 2),
+    [outcomes, evalById],
+  )
+  if (bands.length === 0) return null
+  const sign = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}`
+  return (
+    <section
+      data-testid="tournament-band-trajectories"
+      className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-3"
+    >
+      <h2 className="text-sm font-semibold text-foreground">Band trajectories</h2>
+      <p className="text-xs text-muted-foreground">
+        How the advantage typically evolves from each starting-eval band, from{" "}
+        <span className="text-green-400">{labelA}</span>&apos;s perspective (+ = {labelA}{" "}
+        better, − = <span className="text-sky-400">{labelB}</span> better). Line =
+        mean eval by ply; shading = ±1 sd across the band&apos;s games.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {bands.map((b) => (
+          <div key={b.lo} className="flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground font-mono">
+              start {sign(b.lo)}…{sign(b.hi)} · {b.games} game{b.games === 1 ? "" : "s"}
+            </span>
+            <BandChart band={b} />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+/** Seed / opening-family breakdown (spec 212:49-51): per-family score for
+ *  engine A, lopsided families flagged. */
+export function SeedBreakdownSection({
+  outcomes,
+  evalById,
+  tagByFen,
+  labelA,
+}: {
+  outcomes: GameOutcome[]
+  evalById: EvalMap
+  tagByFen?: Map<string, string>
+  labelA: string
+}) {
+  const rows = useMemo(
+    () => buildSeedBreakdown(outcomes, evalById, tagByFen),
+    [outcomes, evalById, tagByFen],
+  )
+  if (rows.length <= 1) return null // a single family says nothing
+  return (
+    <section
+      data-testid="tournament-seed-breakdown"
+      className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-3"
+    >
+      <h2 className="text-sm font-semibold text-foreground">Starting-position families</h2>
+      <p className="text-xs text-muted-foreground">
+        Games grouped by curated-pool tag × |starting eval| bucket (each seed is
+        played from both colors). Lopsided families — where {labelA} scores far
+        from 50% with a real sample — are flagged: those are the position types
+        one engine misplays.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="text-[11px] font-mono w-full">
+          <thead>
+            <tr className="text-muted-foreground text-left">
+              <th className="pr-3 py-0.5 font-normal">family</th>
+              <th className="pr-3 py-0.5 font-normal text-right">seeds</th>
+              <th className="pr-3 py-0.5 font-normal text-right">games</th>
+              <th className="pr-3 py-0.5 font-normal text-right">+/=/−</th>
+              <th className="pr-3 py-0.5 font-normal text-right">{labelA} score</th>
+              <th className="pr-3 py-0.5 font-normal" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} className="border-t border-white/5">
+                <td className="pr-3 py-0.5 text-muted-foreground">{r.key}</td>
+                <td className="pr-3 py-0.5 text-right">{r.seeds}</td>
+                <td className="pr-3 py-0.5 text-right">{r.games}</td>
+                <td className="pr-3 py-0.5 text-right whitespace-nowrap">
+                  <span className="text-green-400">{r.aWins}</span>
+                  <span className="text-muted-foreground">/{r.draws}/</span>
+                  <span className="text-sky-400">{r.aLosses}</span>
+                </td>
+                <td className="pr-3 py-0.5 text-right text-foreground">
+                  {(r.aScore * 100).toFixed(0)}%
+                </td>
+                <td className="py-0.5">
+                  {r.lopsided && (
+                    <span className="text-amber-400" title="Lopsided: ≥4 games and ≥25pp from even">
+                      ⚑ lopsided
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+/** Termination-quality cross table (spec 212:53-56): how games ended × how
+ *  the loss happened (loser-error classification). */
+export function TerminationQualitySection({
+  outcomes,
+  curve,
+  labelA,
+  labelB,
+}: {
+  outcomes: GameOutcome[]
+  curve: WinProbCurve
+  labelA: string
+  labelB: string
+}) {
+  const rows = useMemo(
+    () => buildTerminationQuality(outcomes, curve),
+    [outcomes, curve],
+  )
+  if (rows.length === 0) return null
+  return (
+    <section
+      data-testid="tournament-termination-quality"
+      className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-3"
+    >
+      <h2 className="text-sm font-semibold text-foreground">Termination quality</h2>
+      <p className="text-xs text-muted-foreground">
+        Decisive games classified by the LOSER&apos;s labeled errors: ground
+        down = lost with no move worse than an inaccuracy (the engine-gap
+        signal between {labelA} and {labelB}); single blunder = one ?? decided
+        it; multi-error = several errors ≥ mistake. &quot;Clean conversion&quot;
+        counts the winner&apos;s side of the same games (no winner errors) and
+        can overlap the loser columns.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="text-[11px] font-mono w-full">
+          <thead>
+            <tr className="text-muted-foreground text-left">
+              <th className="pr-3 py-0.5 font-normal">termination</th>
+              <th className="pr-3 py-0.5 font-normal text-right">games</th>
+              <th className="pr-3 py-0.5 font-normal text-right">draws</th>
+              <th className="pr-3 py-0.5 font-normal text-right">ground down</th>
+              <th className="pr-3 py-0.5 font-normal text-right">single ??</th>
+              <th className="pr-3 py-0.5 font-normal text-right">multi-error</th>
+              <th className="pr-3 py-0.5 font-normal text-right">clean conv.</th>
+              <th className="pr-3 py-0.5 font-normal text-right">unscored</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.termination} className="border-t border-white/5">
+                <td className="pr-3 py-0.5 text-muted-foreground">
+                  {r.termination.replace(/_/g, " ")}
+                </td>
+                <td className="pr-3 py-0.5 text-right">{r.games}</td>
+                <td className="pr-3 py-0.5 text-right">{r.draws}</td>
+                <td className="pr-3 py-0.5 text-right text-foreground">{r.groundDown}</td>
+                <td className="pr-3 py-0.5 text-right text-red-400">{r.singleBlunder}</td>
+                <td className="pr-3 py-0.5 text-right text-amber-400">{r.multiError}</td>
+                <td className="pr-3 py-0.5 text-right text-green-400">{r.cleanConversion}</td>
+                <td className="pr-3 py-0.5 text-right text-muted-foreground">{r.unscored}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }

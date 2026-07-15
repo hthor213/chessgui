@@ -100,6 +100,14 @@ export type GameResult = {
   plies: number
   start_fen: string
   moves: string[]
+  /**
+   * Both sides' remaining clocks `[white_ms, black_ms]` AFTER each move —
+   * `clocks_ms[i]` pairs with `moves[i]` (spec 212 tier-1 clock persistence;
+   * the same values MoveEvent streams live). Additive: the Rust side omits
+   * the key when empty (`skip_serializing_if`, like persona_logs), so it is
+   * optional here and absent on pre-212 payloads.
+   */
+  clocks_ms?: [number, number][]
 }
 
 /**
@@ -112,6 +120,12 @@ export type PlyEval = {
   ply: number
   cp: number | null
   mate: number | null
+  /**
+   * The evaluator's best move (first PV move, UCI) in this position, when its
+   * info stream reported one (spec 212 best-move gap). Additive/optional: the
+   * Rust side omits the key when absent.
+   */
+  best?: string | null
 }
 
 /** A neutral-evaluator score streamed live as a game plays. Mirrors Rust `EvalEvent`. */
@@ -120,6 +134,8 @@ export type EvalEvent = {
   ply: number
   cp: number | null
   mate: number | null
+  /** The evaluator's best move (first PV move, UCI), when reported. */
+  best?: string | null
 }
 
 /**

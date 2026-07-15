@@ -77,12 +77,49 @@ profile match the human band it imitates?).
 - [x] Eval→win-prob curve derived from the run's own probability map (fallback: logistic fit)
       — `lib/win-prob.ts` (isotonic over ≥5-game bins, logistic tails/fallback)
 - [x] Per-move win-prob swing labeling (config thresholds); unit tests on synthetic evals
-      — `computeMoveSwings` @ 5/10/20pp; 21 tests. Gaps: `bestMoveGapCp` always null
-      (needs evaluator PV plumbing), per-move clocks not persisted by match_runner
-- [ ] Game list shows decisive moment + error counts per game; click → hop to position
-- [ ] Per-engine error profile table (label × phase × clock pressure) + delta view
-- [ ] Band trajectories (mean ± spread by starting bucket)
-- [ ] Seed/opening family breakdown table
-- [ ] Termination-quality cross table
-- [ ] "Open in Analyze" carries labels as NAGs/comments onto the tree
+      — `computeMoveSwings` @ 5/10/20pp; 21 tests. Both former gaps CLOSED:
+      `bestMoveGapCp` now populated from the evaluator's PV (`PlyEval.best`,
+      match_runner.rs `eval_at` captures the first pv move; gap = mover-POV cp
+      loss, 0 when the played move IS the PV move, null without a PV) and
+      per-move clocks persist in `GameResult.clocks_ms` (`[w_ms,b_ms]` per
+      move, additive serde skip-if-empty like persona_logs; `computeMoveSwings`
+      falls back to them when no stream clocks are supplied). Tests:
+      `tournament-analysis.test.ts` (clocks fallback + gap, white/black POV),
+      Rust `parse_info_pv_first_reads_best_move` / `additive_fields_skip_when_empty`
+      + real-engine assertions (clocks per move, PV captured).
+- [x] Game list shows decisive moment + error counts per game; click → hop to position
+      — ResultsExplorer rows: "decided m34 · <engine>" + ??/?/?! counts
+      (`analyzeGame`); row click hops to the decisive ply, viewer adds a
+      decisive-moment line + per-labeled-move chips, each a hop
+      (`tournament-analysis-render.test.ts` asserts the markers).
+- [x] Per-engine error profile table (label × phase × clock pressure) + delta view
+      — `buildErrorProfiles`/`errorProfileDelta` (lib/tournament-analysis.ts):
+      per-100-scored-moves rates by phase (material+fullmove heuristic:
+      endgame ≤13 non-pawn points, opening ≤ fullmove 10) × sub-N-seconds flag
+      (30s capped at base/2); `ErrorProfileSection` renders both tables + B/A
+      ratio rows. Unit-tested with float-exact fixtures.
+- [x] Band trajectories (mean ± spread by starting bucket)
+      — `buildBandTrajectories`: 0.5-pawn buckets of the ENGINE-A-perspective
+      start eval (flipped games sign-folded like averageEvalByPly), mean ±
+      population sd per ply; `BandTrajectorySection` renders one mean±1sd
+      chart per band. Exact mean/sd fixtures in tests.
+- [x] Seed/opening family breakdown table
+      — `buildSeedBreakdown`: family = curated-pool tag (tagged_positions
+      `source`) × |eval| bucket (sign is arbitrary under color flip), plus a
+      "standard start" family; per-family A score with lopsided flag (≥4
+      games, ≥25pp from even). NOTE: no FEN→ECO table exists in the app
+      (lib/eco.ts maps ECO code→name, not FEN→ECO), so the spec's "ECO where
+      known" arm is not implementable yet — pool tag + bucket is the shipped
+      family key.
+- [x] Termination-quality cross table
+      — `buildTerminationQuality`: termination × loser-error class (ground
+      down = no loser move ≥ mistake / single blunder / multi-error, plus
+      winner-clean "converted cleanly" and an `unscored` column for games
+      without evals); `TerminationQualitySection` renders it.
+- [x] "Open in Analyze" carries labels as NAGs/comments onto the tree
+      — `annotatedGamePgn` extends the existing movesToPgn→parsePgnToTrees
+      handoff: $6/$2/$4 NAGs, win-prob-swing comments (+ best-move gap +
+      "Decisive moment."), and `[%eval]` tags so the Analyze eval graph
+      populates too. Round-trip test walks the tree and finds nag/comment/eval
+      on the blunder node.
 - [ ] Spec review with user after tier-1 lands

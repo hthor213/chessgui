@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use shakmaty::fen::Fen;
 use shakmaty::san::SanPlus;
 use shakmaty::uci::UciMove;
-use shakmaty::{CastlingMode, Chess, EnPassantMode, Position};
+use shakmaty::{CastlingMode, Chess, EnPassantMode, Position, Role};
 use tauri::{Manager, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -127,13 +127,20 @@ fn fen_after(fen: &str, uci: &str) -> Result<String, String> {
 }
 
 // ===========================================================================
-// Persona engine v1 — spec 214 "move-selection contract" steps 3, 4, 8, 9.
+// Persona engine — spec 214 "move-selection contract" steps 3, 4, 6, 8, 9.
 //
 // Out of book (the book phase lives in the TS frontend and is untouched) the
 // persona picks a move by:
 //   3. policy sampling — read the Maia band's human-move policy (maia.rs), trim
 //      the noise tail (POLICY_FLOOR), and keep a candidate set (top-k count cap
-//      or top-p nucleus).
+//      or top-p nucleus). The sampling temperature follows a phase × clock
+//      SCHEDULE (TemperatureSchedule), and a post-book style-bias window
+//      (StyleBias, OFF by default) can overweight the persona's characteristic
+//      move types for N plies after book exit.
+//   6. endgame arm — at low non-pawn material (phase weight ≤ 8, the
+//      calibration.rs endgame threshold) the candidate source switches to deep
+//      fixed-depth Stockfish MultiPV top-k, still humanized through the same
+//      reweight (reason arm "endgame").
 //   4. verification reweight — cheap Stockfish eval of each candidate; combine
 //      policy prior and eval penalty into one temperature-scaled softmax, then
 //      SAMPLE from it. This keeps the human move distribution while suppressing
@@ -191,6 +198,29 @@ pub struct PersonaParams {
     pub seed: u64,
     /// Half-move index within the game.
     pub ply: u32,
+    /// The persona's own remaining clock, ms. The spar loop is UNCLOCKED today,
+    /// so this defaults to None (= no time-pressure spike); the match runner IS
+    /// clocked and passes the mover's real clock. Contract step 3's clock
+    /// dimension is implemented but only live where a clock exists.
+    #[serde(default)]
+    pub clock_ms: Option<i64>,
+    /// Plies played since the position left the persona's book. None = book
+    /// state unknown (treated as "long out of book": the style-bias window
+    /// never fires). The spar frontend owns the book phase and may pass this.
+    #[serde(default)]
+    pub plies_since_book_exit: Option<u32>,
+    /// Temperature schedule (contract step 3). None = flat `temperature`
+    /// (persona engine v1 behavior, kept for older callers).
+    #[serde(default)]
+    pub schedule: Option<TemperatureSchedule>,
+    /// Post-book style-bias window (contract step 3). None = OFF — the default
+    /// until the metrics harness can gate it (spec 214 hard rule: measured
+    /// improvement before style claims).
+    #[serde(default)]
+    pub style_bias: Option<StyleBias>,
+    /// Endgame arm (contract step 6). None = disabled (v1 behavior).
+    #[serde(default)]
+    pub endgame: Option<EndgameArm>,
 }
 
 /// One candidate move's full decision record (contract step 9).
@@ -214,13 +244,23 @@ pub struct PersonaCandidate {
 pub struct PersonaDecision {
     pub uci: String,
     pub san: String,
-    /// Which arm decided the move: "verify-reweight" when Stockfish verification
-    /// ran, "policy" when it was skipped/unavailable (pure tempered policy).
+    /// Which arm decided the move: "endgame" when the endgame arm supplied the
+    /// candidates (contract step 6), "verify-reweight" when Stockfish
+    /// verification ran, "policy" when both were skipped/unavailable (pure
+    /// tempered policy).
     pub reason: String,
     /// Maia band the policy came from.
     pub band: u32,
     /// The per-move seed derived from (seed, ply); logged for reproducibility.
     pub derived_seed: u64,
+    /// Detected game phase: "opening" | "middlegame" | "endgame".
+    pub phase: String,
+    /// The EFFECTIVE sampling temperature after the schedule (contract step 3);
+    /// equals the base temperature when no schedule was supplied.
+    pub temperature: f64,
+    /// True when the post-book style-bias window was active AND at least one
+    /// candidate matched a biased move type this move.
+    pub style_bias_applied: bool,
     pub candidates: Vec<PersonaCandidate>,
 }
 
@@ -247,6 +287,241 @@ pub(crate) fn derive_seed(seed: u64, ply: u32) -> u64 {
 fn uniform_from_seed(derived: u64) -> f64 {
     let z = splitmix64(derived.wrapping_add(0x9E37_79B9_7F4A_7C15));
     ((z >> 11) as f64) / ((1u64 << 53) as f64)
+}
+
+// ---------------------------------------------------------------------------
+// Phase detection + temperature schedule + style bias + endgame arm
+// (contract steps 3 and 6)
+// ---------------------------------------------------------------------------
+
+/// Non-pawn phase weight at or below which a position counts as an endgame.
+/// Same formula and threshold as calibration.rs (minor = 1, rook = 2,
+/// queen = 4, both sides; 24 at the start; 8 ≈ queens-plus-a-rook-each traded)
+/// so "endgame" means the same thing across the codebase.
+pub const ENDGAME_PHASE_MAX: u32 = 8;
+
+/// Plies below which a non-endgame position counts as the opening. Matches
+/// calibration.rs's MIN_PLY (positions from ply 16 on are "out of the
+/// opening/book").
+pub const OPENING_MAX_PLY: u32 = 16;
+
+/// Effective-temperature clamp: never so cold sampling degenerates numerically,
+/// never so hot the persona plays uniformly at random.
+const MIN_EFFECTIVE_TEMP: f64 = 0.05;
+const MAX_EFFECTIVE_TEMP: f64 = 3.0;
+
+/// Prior a policy-unseen endgame-arm candidate gets: the same floor below which
+/// the policy tail is trimmed elsewhere. Deep-Stockfish moves the band's policy
+/// never considered enter the reweight at the floor, not at zero — so the arm
+/// can actually play the strong endgame move Maia misses, while a decent
+/// policy prob still outranks it (humanization).
+const ENDGAME_UNSEEN_PRIOR: f64 = POLICY_FLOOR;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Opening,
+    Middlegame,
+    Endgame,
+}
+
+impl Phase {
+    pub fn label(self) -> &'static str {
+        match self {
+            Phase::Opening => "opening",
+            Phase::Middlegame => "middlegame",
+            Phase::Endgame => "endgame",
+        }
+    }
+}
+
+/// Non-pawn phase weight of a position: knights + bishops ×1, rooks ×2,
+/// queens ×4, both sides (24 at the standard start). The calibration.rs
+/// formula, computed here from a parsed position.
+fn phase_weight_of(pos: &Chess) -> u32 {
+    let b = pos.board();
+    (b.knights().count() + b.bishops().count()) as u32
+        + 2 * b.rooks().count() as u32
+        + 4 * b.queens().count() as u32
+}
+
+/// Game phase from material + ply. Endgame wins over the ply test (an early
+/// queen-trade grind IS an endgame); otherwise low ply = opening.
+pub(crate) fn phase_for(phase_weight: u32, ply: u32) -> Phase {
+    if phase_weight <= ENDGAME_PHASE_MAX {
+        Phase::Endgame
+    } else if ply < OPENING_MAX_PLY {
+        Phase::Opening
+    } else {
+        Phase::Middlegame
+    }
+}
+
+/// Temperature schedule (contract step 3): the base temperature is multiplied
+/// by a per-phase factor and a clock-pressure factor. Opening low (book-like),
+/// middlegame the reference, endgame slightly converging; the clock factor
+/// spikes under time pressure. All knobs are per-persona overridable; defaults
+/// below are UNTUNED priors (auto-tuning is its own spec 214 checklist item).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct TemperatureSchedule {
+    pub opening_mult: f64,
+    pub middlegame_mult: f64,
+    pub endgame_mult: f64,
+    /// Own clock at or below this (ms) applies `low_time_mult`.
+    pub low_time_ms: i64,
+    pub low_time_mult: f64,
+    /// Own clock at or below this (ms) applies `panic_mult` instead.
+    pub panic_time_ms: i64,
+    pub panic_mult: f64,
+}
+
+impl Default for TemperatureSchedule {
+    fn default() -> Self {
+        Self {
+            opening_mult: 0.6,
+            middlegame_mult: 1.0,
+            endgame_mult: 0.8,
+            low_time_ms: 30_000,
+            low_time_mult: 1.5,
+            panic_time_ms: 10_000,
+            panic_mult: 2.25,
+        }
+    }
+}
+
+/// The effective sampling temperature for one move: base × phase multiplier ×
+/// clock multiplier, clamped. `clock_ms = None` means unclocked (the spar loop
+/// today) — clock factor 1, honestly no time-pressure dimension. Pure.
+pub(crate) fn effective_temperature(
+    base: f64,
+    schedule: Option<&TemperatureSchedule>,
+    phase: Phase,
+    clock_ms: Option<i64>,
+) -> f64 {
+    let Some(s) = schedule else {
+        return base;
+    };
+    let phase_mult = match phase {
+        Phase::Opening => s.opening_mult,
+        Phase::Middlegame => s.middlegame_mult,
+        Phase::Endgame => s.endgame_mult,
+    };
+    let clock_mult = match clock_ms {
+        Some(ms) if ms <= s.panic_time_ms => s.panic_mult,
+        Some(ms) if ms <= s.low_time_ms => s.low_time_mult,
+        _ => 1.0,
+    };
+    (base * phase_mult * clock_mult).clamp(MIN_EFFECTIVE_TEMP, MAX_EFFECTIVE_TEMP)
+}
+
+/// Post-book style-bias window (contract step 3): for `window_plies` after book
+/// exit, candidates matching any of the persona's `move_types` get their policy
+/// prior multiplied by `multiplier` before the reweight. v1 move types are
+/// coarse, mechanical classes — "capture" | "check" | "castle" | "pawn_push" |
+/// "quiet_piece" — chosen because they're cheap to classify and measurable in
+/// the decision log. OFF by default everywhere (spec 214 hard rule: no style
+/// claims without measured improvement); the metrics harness gates turning it on.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StyleBias {
+    /// The window: active while plies_since_book_exit < window_plies.
+    pub window_plies: u32,
+    /// Multiplier on matching candidates' policy prior (>1 overweights the
+    /// persona's characteristic move types while leaving theory).
+    pub multiplier: f64,
+    /// Move classes to bias; unknown labels never match (fail quiet, not loud).
+    pub move_types: Vec<String>,
+}
+
+/// Whether the style-bias window is live for this move.
+fn style_bias_active(bias: Option<&StyleBias>, plies_since_book_exit: Option<u32>) -> bool {
+    match (bias, plies_since_book_exit) {
+        (Some(b), Some(n)) => n < b.window_plies && b.multiplier != 1.0 && !b.move_types.is_empty(),
+        _ => false,
+    }
+}
+
+/// Does `uci` (legal in `pos`) fall in any of the listed move classes?
+/// Unparseable/illegal candidates simply don't match.
+fn move_matches_types(pos: &Chess, uci: &str, types: &[String]) -> bool {
+    let Ok(parsed) = UciMove::from_ascii(uci.as_bytes()) else {
+        return false;
+    };
+    let Ok(mv) = parsed.to_move(pos) else {
+        return false;
+    };
+    types.iter().any(|t| match t.as_str() {
+        "capture" => mv.is_capture(),
+        "castle" => mv.is_castle(),
+        "check" => {
+            let mut after = pos.clone();
+            after.play_unchecked(mv);
+            after.is_check()
+        }
+        "pawn_push" => mv.role() == Role::Pawn && !mv.is_capture(),
+        "quiet_piece" => mv.role() != Role::Pawn && !mv.is_capture() && !mv.is_castle(),
+        _ => false,
+    })
+}
+
+/// Multiply matching candidates' priors in place; returns true when at least
+/// one candidate matched (the decision log's `style_bias_applied`). The softmax
+/// normalizes, so no renormalization is needed here.
+fn apply_style_bias(pos: &Chess, ucis: &[&str], probs: &mut [f64], bias: &StyleBias) -> bool {
+    let mut any = false;
+    for (i, uci) in ucis.iter().enumerate() {
+        if move_matches_types(pos, uci, &bias.move_types) {
+            probs[i] *= bias.multiplier.max(0.0);
+            any = true;
+        }
+    }
+    any
+}
+
+/// Endgame arm (contract step 6): at low material the CANDIDATE SOURCE switches
+/// from the Maia policy to deeper fixed-depth Stockfish top-k (MultiPV) —
+/// because Maia is weakest exactly where the primary rival is strongest — while
+/// the move is still humanized through the same policy^alpha × exp(-lambda·
+/// penalty) reweight: each Stockfish candidate's prior is its Maia policy prob
+/// (or the floor when the policy never considered it). No tablebase probe yet:
+/// a ≤7-man network probe per move is not "cheap" offline, and the deep fixed-
+/// depth search already plays trivial endings correctly.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct EndgameArm {
+    /// Non-pawn phase weight at or below which the arm engages.
+    pub phase_max: u32,
+    /// Fixed Stockfish depth for candidate generation (deeper than the
+    /// middlegame verification's 12). 0 disables the arm.
+    pub depth: u32,
+    /// MultiPV candidate count.
+    pub top_k: usize,
+}
+
+impl Default for EndgameArm {
+    fn default() -> Self {
+        Self {
+            phase_max: ENDGAME_PHASE_MAX,
+            depth: 16,
+            top_k: 4,
+        }
+    }
+}
+
+/// Per-move selection context (contract steps 3 + 6 knobs plus the state they
+/// condition on). Shared by the spar `persona_move` command and the match
+/// runner's persona arm; `Default` = persona engine v1 behavior (flat
+/// temperature, no style bias, no endgame arm, unclocked).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SelectContext {
+    /// Half-move index (phase detection's opening test).
+    pub ply: u32,
+    /// Own remaining clock, ms; None = unclocked (spar today).
+    pub clock_ms: Option<i64>,
+    /// Plies since book exit; None = unknown (style window never fires).
+    pub plies_since_book_exit: Option<u32>,
+    pub schedule: Option<TemperatureSchedule>,
+    pub style_bias: Option<StyleBias>,
+    pub endgame: Option<EndgameArm>,
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +720,96 @@ async fn verify_candidates(
     Ok(values)
 }
 
+/// Parse one MultiPV info line into (multipv index, cp score side-to-move POV,
+/// first pv move). Lines without `multipv` count as index 1 (MultiPV=1 output);
+/// lines without a score or pv yield None. Mate scores collapse to `MATE_CP`
+/// magnitudes like `parse_score_cp`.
+fn parse_multipv_line(line: &str) -> Option<(usize, i64, String)> {
+    if !line.starts_with("info ") {
+        return None;
+    }
+    let toks: Vec<&str> = line.split_whitespace().collect();
+    let mut multipv = 1usize;
+    let mut score: Option<i64> = None;
+    let mut first_pv: Option<String> = None;
+    let mut i = 0;
+    while i < toks.len() {
+        match toks[i] {
+            "multipv" => {
+                multipv = toks.get(i + 1)?.parse().ok()?;
+                i += 2;
+            }
+            "score" => {
+                match toks.get(i + 1) {
+                    Some(&"cp") => score = toks.get(i + 2)?.parse().ok(),
+                    Some(&"mate") => {
+                        score = toks.get(i + 2)?.parse::<i64>().ok().map(|m| {
+                            if m >= 0 {
+                                MATE_CP - m
+                            } else {
+                                -MATE_CP - m
+                            }
+                        })
+                    }
+                    _ => {}
+                }
+                i += 3;
+            }
+            "pv" => {
+                first_pv = toks.get(i + 1).map(|s| s.to_string());
+                break;
+            }
+            _ => i += 1,
+        }
+    }
+    Some((multipv, score?, first_pv?))
+}
+
+/// The endgame arm's candidate source (contract step 6): Stockfish MultiPV
+/// top-k at fixed `depth` on the CURRENT position. Returns (uci, cp) pairs,
+/// mover-POV (side to move IS the persona), best first. Fixed depth keeps it
+/// reproducible per Stockfish build, same determinism claim as
+/// `verify_candidates`.
+async fn sf_top_moves(
+    sf: &Path,
+    fen: &str,
+    k: usize,
+    depth: u32,
+) -> Result<Vec<(String, i64)>, String> {
+    let mut child = Command::new(sf)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("failed to start stockfish: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("stockfish: no stdin")?;
+    let mut reader = BufReader::new(child.stdout.take().ok_or("stockfish: no stdout")?);
+
+    sf_send(&mut stdin, "uci").await?;
+    read_until(&mut reader, |l| l == "uciok").await?;
+    sf_send(&mut stdin, &format!("setoption name MultiPV value {}", k.max(1))).await?;
+    sf_send(&mut stdin, "isready").await?;
+    read_until(&mut reader, |l| l == "readyok").await?;
+
+    sf_send(&mut stdin, &format!("position fen {fen}")).await?;
+    // Keep the LAST (deepest) line per multipv index; iteration overwrites.
+    let mut best: std::collections::BTreeMap<usize, (String, i64)> =
+        std::collections::BTreeMap::new();
+    sf_send(&mut stdin, &format!("go depth {}", depth.max(1))).await?;
+    read_until(&mut reader, |line| {
+        if let Some((idx, cp, mv)) = parse_multipv_line(line) {
+            best.insert(idx, (mv, cp));
+        }
+        line.starts_with("bestmove")
+    })
+    .await?;
+    let _ = sf_send(&mut stdin, "quit").await;
+
+    // BTreeMap iterates by multipv index = Stockfish's best-first order.
+    Ok(best.into_values().map(|(mv, cp)| (mv, cp)).collect())
+}
+
 /// Write one line (with newline) to a Stockfish process and flush.
 async fn sf_send(stdin: &mut tokio::process::ChildStdin, cmd: &str) -> Result<(), String> {
     stdin
@@ -544,13 +909,16 @@ pub async fn maia_move(
     Ok(PersonaMove { uci, san })
 }
 
-/// The out-of-book selection core (contract steps 3+4+9), given an
+/// The out-of-book selection core (contract steps 3+4+6+9), given an
 /// already-fetched `policy` and a per-move `derived_seed`. Shared by the spar
 /// `persona_move` command and the match runner's persona arm so both surfaces
 /// select moves through the exact same pipeline (spec 218: the persona arm
 /// CONSUMES this contract, never redefines it). `stockfish` is the resolved
-/// verification engine (`None` degrades to pure tempered policy). See the
-/// module's persona-engine section for the reweight semantics.
+/// verification engine (`None` degrades to pure tempered policy and disables
+/// the endgame arm). `ctx` carries the step-3 schedule/style knobs and the
+/// step-6 endgame arm; `SelectContext::default()` = persona engine v1
+/// behavior. See the module's persona-engine section for the reweight
+/// semantics.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn select_move_from_policy(
     fen: &str,
@@ -563,8 +931,81 @@ pub(crate) async fn select_move_from_policy(
     verify_depth: Option<u32>,
     derived_seed: u64,
     stockfish: Option<&Path>,
+    ctx: &SelectContext,
 ) -> Result<PersonaDecision, String> {
     let u = uniform_from_seed(derived_seed);
+
+    // Parse once: phase detection (steps 3+6) and style classification share it.
+    let pos: Chess = Fen::from_ascii(fen.as_bytes())
+        .map_err(|e| format!("bad FEN: {e}"))?
+        .into_position(CastlingMode::Standard)
+        .map_err(|e| format!("illegal position: {e}"))?;
+    let pw = phase_weight_of(&pos);
+    let phase = phase_for(pw, ctx.ply);
+    let eff_temp = effective_temperature(temperature, ctx.schedule.as_ref(), phase, ctx.clock_ms);
+    let bias_live = style_bias_active(ctx.style_bias.as_ref(), ctx.plies_since_book_exit);
+
+    // Endgame arm (step 6): at low material the candidate source switches to
+    // deep fixed-depth Stockfish top-k, humanized through the SAME reweight —
+    // priors come from the Maia policy (floor for policy-unseen moves), the
+    // MultiPV evals double as the verification evals. Any Stockfish failure
+    // degrades to the normal policy arm below rather than erroring the move.
+    if let (Some(arm), Some(sf)) = (ctx.endgame.as_ref(), stockfish) {
+        if arm.depth > 0 && pw <= arm.phase_max {
+            if let Ok(top) = sf_top_moves(sf, fen, arm.top_k, arm.depth).await {
+                if !top.is_empty() {
+                    let mut probs: Vec<f64> = top
+                        .iter()
+                        .map(|(uci, _)| {
+                            policy
+                                .moves
+                                .iter()
+                                .find(|m| m.uci == *uci)
+                                .map(|m| m.prob.max(ENDGAME_UNSEEN_PRIOR))
+                                .unwrap_or(ENDGAME_UNSEEN_PRIOR)
+                        })
+                        .collect();
+                    let ucis: Vec<&str> = top.iter().map(|(uci, _)| uci.as_str()).collect();
+                    let bias_applied = bias_live
+                        && apply_style_bias(&pos, &ucis, &mut probs, ctx.style_bias.as_ref().unwrap());
+                    let best = top.iter().map(|(_, cp)| *cp).max().unwrap_or(0);
+                    let penalties: Vec<f64> = top
+                        .iter()
+                        .map(|(_, cp)| ((best - cp) as f64 / 100.0).max(0.0))
+                        .collect();
+                    let (idx, weights) =
+                        reweight_and_sample(&probs, &penalties, alpha, lambda, eff_temp, u);
+                    let candidates: Vec<PersonaCandidate> = top
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (uci, cp))| PersonaCandidate {
+                            uci: uci.clone(),
+                            san: san_for(fen, uci).unwrap_or_default(),
+                            // The prior that actually drove the choice (policy
+                            // prob, floored/biased) — honest decision-log value.
+                            policy_prob: probs[i],
+                            eval_cp: Some(*cp),
+                            eval_penalty: penalties[i],
+                            weight: weights[i],
+                        })
+                        .collect();
+                    let chosen = &top[idx].0;
+                    let san = san_for(fen, chosen)?;
+                    return Ok(PersonaDecision {
+                        uci: chosen.clone(),
+                        san,
+                        reason: "endgame".to_string(),
+                        band: policy.band,
+                        derived_seed,
+                        phase: phase.label().to_string(),
+                        temperature: eff_temp,
+                        style_bias_applied: bias_applied,
+                        candidates,
+                    });
+                }
+            }
+        }
+    }
 
     let cands = select_candidates(&policy.moves, POLICY_FLOOR, top_k, top_p);
     if cands.is_empty() {
@@ -592,9 +1033,14 @@ pub(crate) async fn select_move_from_policy(
         }
     }
 
-    let probs: Vec<f64> = cands.iter().map(|m| m.prob).collect();
-    let (idx, weights) =
-        reweight_and_sample(&probs, &penalties, alpha, lambda, temperature, u);
+    // Post-book style-bias window (step 3): overweight matching candidates'
+    // priors while leaving theory. OFF unless configured AND inside the window.
+    let mut probs: Vec<f64> = cands.iter().map(|m| m.prob).collect();
+    let ucis: Vec<&str> = cands.iter().map(|m| m.uci.as_str()).collect();
+    let bias_applied =
+        bias_live && apply_style_bias(&pos, &ucis, &mut probs, ctx.style_bias.as_ref().unwrap());
+
+    let (idx, weights) = reweight_and_sample(&probs, &penalties, alpha, lambda, eff_temp, u);
 
     let candidates: Vec<PersonaCandidate> = cands
         .iter()
@@ -602,7 +1048,8 @@ pub(crate) async fn select_move_from_policy(
         .map(|(i, m)| PersonaCandidate {
             uci: m.uci.clone(),
             san: san_for(fen, &m.uci).unwrap_or_default(),
-            policy_prob: m.prob,
+            // The prior that drove the choice (biased when the window fired).
+            policy_prob: probs[i],
             eval_cp: eval_cps[i],
             eval_penalty: penalties[i],
             weight: weights[i],
@@ -617,6 +1064,9 @@ pub(crate) async fn select_move_from_policy(
         reason: reason.to_string(),
         band: policy.band,
         derived_seed,
+        phase: phase.label().to_string(),
+        temperature: eff_temp,
+        style_bias_applied: bias_applied,
         candidates,
     })
 }
@@ -638,6 +1088,14 @@ pub async fn persona_move(
     let derived = derive_seed(params.seed, params.ply);
     let policy = maia::query_policy(&app, state.inner(), &fen, params.level).await?;
     let stockfish = resolve_stockfish();
+    let ctx = SelectContext {
+        ply: params.ply,
+        clock_ms: params.clock_ms,
+        plies_since_book_exit: params.plies_since_book_exit,
+        schedule: params.schedule.clone(),
+        style_bias: params.style_bias.clone(),
+        endgame: params.endgame.clone(),
+    };
     select_move_from_policy(
         &fen,
         &policy,
@@ -649,6 +1107,7 @@ pub async fn persona_move(
         params.verify_depth,
         derived,
         stockfish.as_deref(),
+        &ctx,
     )
     .await
 }
@@ -938,6 +1397,323 @@ mod tests {
         assert!(after.starts_with("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b"),
                 "unexpected FEN: {after}");
         assert!(fen_after(start, "e2e5").is_err(), "illegal move should error");
+    }
+
+    // -- Phase detection + temperature schedule (contract step 3) -----------
+
+    const START: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    // K+R+3P vs K+R+2P: phase weight 2+2 = 4 <= 8 -> endgame.
+    const ENDGAME_FEN: &str = "8/5pk1/6p1/8/8/1r3P2/R5PP/6K1 w - - 0 40";
+
+    fn pos_of(fen: &str) -> Chess {
+        Fen::from_ascii(fen.as_bytes())
+            .unwrap()
+            .into_position(CastlingMode::Standard)
+            .unwrap()
+    }
+
+    #[test]
+    fn phase_weight_matches_calibration_formula() {
+        // Standard start: 4 minors x1 + 4 rooks x2 + 2 queens x4 = 24.
+        assert_eq!(phase_weight_of(&pos_of(START)), 24);
+        // Rook endgame: two rooks -> 4.
+        assert_eq!(phase_weight_of(&pos_of(ENDGAME_FEN)), 4);
+    }
+
+    #[test]
+    fn phase_for_splits_opening_middlegame_endgame() {
+        // Full material: ply decides opening vs middlegame at OPENING_MAX_PLY.
+        assert_eq!(phase_for(24, 0), Phase::Opening);
+        assert_eq!(phase_for(24, 15), Phase::Opening);
+        assert_eq!(phase_for(24, 16), Phase::Middlegame);
+        // Low material is an endgame regardless of ply (early queen-trade grind).
+        assert_eq!(phase_for(8, 10), Phase::Endgame);
+        assert_eq!(phase_for(0, 90), Phase::Endgame);
+        assert_eq!(phase_for(9, 40), Phase::Middlegame);
+    }
+
+    #[test]
+    fn effective_temperature_scales_by_phase_and_clock() {
+        let s = TemperatureSchedule::default();
+        // No schedule -> flat base (persona engine v1 behavior).
+        assert_eq!(effective_temperature(0.5, None, Phase::Middlegame, None), 0.5);
+        // Phase multipliers, unclocked (the spar loop today).
+        assert_eq!(effective_temperature(0.5, Some(&s), Phase::Opening, None), 0.5 * 0.6);
+        assert_eq!(effective_temperature(0.5, Some(&s), Phase::Middlegame, None), 0.5);
+        assert_eq!(effective_temperature(0.5, Some(&s), Phase::Endgame, None), 0.5 * 0.8);
+        // Clock pressure spikes: <=30s low-time, <=10s panic (contract step 3).
+        assert_eq!(
+            effective_temperature(0.5, Some(&s), Phase::Middlegame, Some(29_000)),
+            0.5 * 1.5
+        );
+        assert_eq!(
+            effective_temperature(0.5, Some(&s), Phase::Middlegame, Some(9_000)),
+            0.5 * 2.25
+        );
+        // Ample time -> no spike.
+        assert_eq!(
+            effective_temperature(0.5, Some(&s), Phase::Middlegame, Some(120_000)),
+            0.5
+        );
+        // Clamped at both ends.
+        assert_eq!(effective_temperature(0.01, Some(&s), Phase::Opening, None), 0.05);
+        assert_eq!(
+            effective_temperature(2.0, Some(&s), Phase::Middlegame, Some(1_000)),
+            3.0
+        );
+    }
+
+    // -- Style-bias window (contract step 3, OFF by default) ----------------
+
+    fn bias(window: u32, mult: f64, types: &[&str]) -> StyleBias {
+        StyleBias {
+            window_plies: window,
+            multiplier: mult,
+            move_types: types.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn style_bias_window_gates_correctly() {
+        let b = bias(4, 1.5, &["capture"]);
+        // Inside the window.
+        assert!(style_bias_active(Some(&b), Some(0)));
+        assert!(style_bias_active(Some(&b), Some(3)));
+        // At/after the window edge.
+        assert!(!style_bias_active(Some(&b), Some(4)));
+        // Book state unknown -> never fires (honest default).
+        assert!(!style_bias_active(Some(&b), None));
+        // No bias configured -> OFF.
+        assert!(!style_bias_active(None, Some(0)));
+        // Neutral multiplier or empty types -> a no-op, treated as OFF.
+        assert!(!style_bias_active(Some(&bias(4, 1.0, &["capture"])), Some(0)));
+        assert!(!style_bias_active(Some(&bias(4, 1.5, &[])), Some(0)));
+    }
+
+    #[test]
+    fn move_classification_covers_the_v1_types() {
+        // Italian-ish position with a capturable pawn on e5 and castling ready.
+        let fen = "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+        let pos = pos_of(fen);
+        let t = |s: &str| vec![s.to_string()];
+        assert!(move_matches_types(&pos, "f3e5", &t("capture"))); // Nxe5
+        assert!(move_matches_types(&pos, "e1g1", &t("castle"))); // O-O
+        assert!(move_matches_types(&pos, "c4f7", &t("check"))); // Bxf7+ (also a capture)
+        assert!(move_matches_types(&pos, "d2d4", &t("pawn_push")));
+        assert!(move_matches_types(&pos, "b1c3", &t("quiet_piece")));
+        // Non-matches.
+        assert!(!move_matches_types(&pos, "d2d4", &t("capture")));
+        assert!(!move_matches_types(&pos, "f3e5", &t("pawn_push")));
+        assert!(!move_matches_types(&pos, "b1c3", &t("check")));
+        // Unknown labels and garbage UCI fail quiet.
+        assert!(!move_matches_types(&pos, "d2d4", &t("brilliancy")));
+        assert!(!move_matches_types(&pos, "zz99", &t("capture")));
+    }
+
+    #[test]
+    fn apply_style_bias_overweights_matching_candidates_only() {
+        let fen = "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+        let pos = pos_of(fen);
+        let b = bias(4, 2.0, &["capture"]);
+        let ucis = vec!["f3e5", "d2d4", "b1c3"];
+        let mut probs = vec![0.2, 0.5, 0.3];
+        let any = apply_style_bias(&pos, &ucis, &mut probs, &b);
+        assert!(any);
+        assert_eq!(probs, vec![0.4, 0.5, 0.3], "only the capture doubled");
+        // No candidate matches -> untouched, reports false.
+        let mut probs2 = vec![0.5, 0.5];
+        let any2 = apply_style_bias(&pos, &["d2d4", "b1c3"], &mut probs2, &b);
+        assert!(!any2);
+        assert_eq!(probs2, vec![0.5, 0.5]);
+    }
+
+    // -- Endgame arm plumbing (contract step 6) ------------------------------
+
+    #[test]
+    fn parse_multipv_line_reads_index_score_and_first_pv_move() {
+        assert_eq!(
+            parse_multipv_line("info depth 16 multipv 2 score cp -13 nodes 9 pv e2e4 e7e5"),
+            Some((2, -13, "e2e4".to_string()))
+        );
+        // MultiPV=1 output may omit the multipv token -> index 1.
+        assert_eq!(
+            parse_multipv_line("info depth 10 score cp 25 pv d2d4"),
+            Some((1, 25, "d2d4".to_string()))
+        );
+        // Mate collapses to the MATE_CP magnitude.
+        assert_eq!(
+            parse_multipv_line("info depth 20 multipv 1 score mate 2 pv a1a8"),
+            Some((1, MATE_CP - 2, "a1a8".to_string()))
+        );
+        // No score / no pv / not an info line -> None.
+        assert_eq!(parse_multipv_line("info depth 3 multipv 1 pv e2e4"), None);
+        assert_eq!(parse_multipv_line("info depth 3 multipv 1 score cp 5"), None);
+        assert_eq!(parse_multipv_line("bestmove e2e4"), None);
+    }
+
+    // -- Shared core with the step-3 context (no engines needed) ------------
+
+    fn fake_policy(moves: Vec<MaiaMove>) -> MaiaPolicy {
+        MaiaPolicy {
+            band: 1700,
+            moves,
+            value: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn core_reports_phase_and_scheduled_temperature() {
+        // Pure policy path (no stockfish, no verify): the decision must carry
+        // the detected phase and the SCHEDULED effective temperature.
+        let policy = fake_policy(vec![mv("e2e4", 0.6), mv("d2d4", 0.4)]);
+        let ctx = SelectContext {
+            ply: 2,
+            schedule: Some(TemperatureSchedule::default()),
+            ..Default::default()
+        };
+        let d = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, None, &ctx,
+        )
+        .await
+        .unwrap();
+        assert_eq!(d.phase, "opening");
+        assert!((d.temperature - 0.3).abs() < 1e-12, "0.5 x 0.6 opening mult");
+        assert_eq!(d.reason, "policy");
+        assert!(!d.style_bias_applied);
+
+        // Default context = v1 behavior: flat temperature, phase still reported.
+        let d2 = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, None,
+            &SelectContext::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(d2.temperature, 0.5);
+        assert_eq!(d2.phase, "opening");
+    }
+
+    #[tokio::test]
+    async fn core_is_seed_deterministic_with_context() {
+        let policy = fake_policy(vec![mv("e2e4", 0.4), mv("d2d4", 0.35), mv("g1f3", 0.25)]);
+        let ctx = SelectContext {
+            ply: 20,
+            plies_since_book_exit: Some(1),
+            schedule: Some(TemperatureSchedule::default()),
+            style_bias: Some(bias(4, 2.0, &["pawn_push"])),
+            ..Default::default()
+        };
+        let a = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.9, Some(4), None, None, 777, None, &ctx,
+        )
+        .await
+        .unwrap();
+        let b = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.9, Some(4), None, None, 777, None, &ctx,
+        )
+        .await
+        .unwrap();
+        assert_eq!(a, b, "same seed + same context = same decision, bit for bit");
+        assert!(a.style_bias_applied, "pawn pushes exist among the candidates");
+        assert_eq!(a.phase, "middlegame");
+    }
+
+    #[tokio::test]
+    async fn style_bias_shifts_priors_in_the_decision_log() {
+        // Two candidates, equal policy; biasing captures must overweight the
+        // capture's logged prior and sampling weight, deterministically.
+        let fen = "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
+        let policy = fake_policy(vec![mv("f3e5", 0.3), mv("d2d4", 0.3)]);
+        let ctx = SelectContext {
+            ply: 8,
+            plies_since_book_exit: Some(0),
+            style_bias: Some(bias(4, 3.0, &["capture"])),
+            ..Default::default()
+        };
+        let d = select_move_from_policy(
+            &fen, &policy, 1.0, 0.75, 1.0, Some(4), None, None, 5, None, &ctx,
+        )
+        .await
+        .unwrap();
+        assert!(d.style_bias_applied);
+        let cap = d.candidates.iter().find(|c| c.uci == "f3e5").unwrap();
+        let quiet = d.candidates.iter().find(|c| c.uci == "d2d4").unwrap();
+        assert!((cap.policy_prob - 0.9).abs() < 1e-12, "0.3 x 3.0 bias");
+        assert!((quiet.policy_prob - 0.3).abs() < 1e-12);
+        assert!(cap.weight > quiet.weight);
+
+        // One ply past the window: no bias, equal weights again.
+        let ctx_out = SelectContext {
+            plies_since_book_exit: Some(4),
+            ..ctx.clone()
+        };
+        let d2 = select_move_from_policy(
+            &fen, &policy, 1.0, 0.75, 1.0, Some(4), None, None, 5, None, &ctx_out,
+        )
+        .await
+        .unwrap();
+        assert!(!d2.style_bias_applied);
+        let w: Vec<f64> = d2.candidates.iter().map(|c| c.weight).collect();
+        assert!((w[0] - w[1]).abs() < 1e-12, "outside the window the bias is gone");
+    }
+
+    // Real Stockfish: the endgame arm end-to-end through the shared core with a
+    // FAKE policy (no lc0 needed). Skips gracefully without a stockfish binary.
+    #[tokio::test]
+    async fn real_stockfish_endgame_arm_switches_candidate_source() {
+        let Some(sf) = resolve_stockfish() else {
+            eprintln!("SKIP real_stockfish_endgame_arm: stockfish not installed");
+            return;
+        };
+        // Fake band policy that never saw the position: the arm's candidates
+        // must come from Stockfish MultiPV, priors floored, reason "endgame".
+        let policy = fake_policy(vec![mv("g1f1", 0.5), mv("h2h3", 0.5)]);
+        let ctx = SelectContext {
+            ply: 78,
+            endgame: Some(EndgameArm {
+                phase_max: ENDGAME_PHASE_MAX,
+                depth: 10, // shallow: fast but exercises the full arm
+                top_k: 3,
+            }),
+            schedule: Some(TemperatureSchedule::default()),
+            ..Default::default()
+        };
+        let d = select_move_from_policy(
+            ENDGAME_FEN, &policy, 1.0, 0.75, 0.5, Some(4), None, Some(12), 42, Some(sf.as_path()),
+            &ctx,
+        )
+        .await
+        .expect("endgame arm should select a move with real stockfish");
+        assert_eq!(d.reason, "endgame");
+        assert_eq!(d.phase, "endgame");
+        assert!((d.temperature - 0.5 * 0.8).abs() < 1e-12, "endgame mult applied");
+        assert!(!d.candidates.is_empty() && d.candidates.len() <= 3);
+        for c in &d.candidates {
+            assert!(c.eval_cp.is_some(), "MultiPV evals double as verification evals");
+        }
+        // Deterministic: the same seed + context reproduces the same choice
+        // (same stockfish build; fixed depth).
+        let d2 = select_move_from_policy(
+            ENDGAME_FEN, &policy, 1.0, 0.75, 0.5, Some(4), None, Some(12), 42, Some(sf.as_path()),
+            &ctx,
+        )
+        .await
+        .unwrap();
+        assert_eq!(d.uci, d2.uci);
+
+        // Middlegame material: the arm must NOT engage (reason is verify/policy).
+        let mg_policy = fake_policy(vec![mv("e2e4", 0.6), mv("d2d4", 0.4)]);
+        let d3 = select_move_from_policy(
+            START, &mg_policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, Some(sf.as_path()), &ctx,
+        )
+        .await
+        .unwrap();
+        assert_ne!(d3.reason, "endgame");
+        eprintln!(
+            "real_stockfish_endgame_arm: chose {} ({}), candidates {:?}",
+            d.san,
+            d.uci,
+            d.candidates.iter().map(|c| (c.uci.clone(), c.eval_cp)).collect::<Vec<_>>()
+        );
     }
 
     // Real Stockfish. Skips gracefully (prints and returns) when no binary is
