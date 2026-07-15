@@ -127,6 +127,7 @@ async fn main() {
                 max_plies: 400,
                 flipped,
                 adjudicate_tb: true,
+                ..Default::default()
             });
             id += 1;
         }

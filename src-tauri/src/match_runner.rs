@@ -242,12 +242,13 @@ impl EngineHandle {
 
     /// Ask the engine for a move given a position and the current game clock.
     ///
-    /// Drives the engine with `go wtime <wtime> btime <btime> winc <inc> binc
-    /// <inc>` so the engine budgets its own time. The clocks are clamped to at
-    /// least 1ms when sent (never negative/zero). `read_wait` bounds how long we
-    /// wait for `bestmove` — it should be the moving side's remaining time plus a
-    /// generous margin so a hung engine is caught but a legitimately slow move is
-    /// not killed.
+    /// Drives the engine with `go wtime <wtime> btime <btime> winc <winc> binc
+    /// <binc>` so the engine budgets its own time. `winc_ms`/`binc_ms` are the
+    /// per-side increments (equal in symmetric games, different under time
+    /// odds). The clocks are clamped to at least 1ms when sent (never
+    /// negative/zero). `read_wait` bounds how long we wait for `bestmove` — it
+    /// should be the moving side's remaining time plus a generous margin so a
+    /// hung engine is caught but a legitimately slow move is not killed.
     ///
     /// Returns the raw UCI bestmove token (e.g. "e2e4", "e7e8q") or the literal
     /// "(none)" when the engine reports no move, together with the precise wall
@@ -257,7 +258,8 @@ impl EngineHandle {
         position_cmd: &str,
         wtime_ms: i64,
         btime_ms: i64,
-        inc_ms: u64,
+        winc_ms: u64,
+        binc_ms: u64,
         read_wait: Duration,
     ) -> Result<(String, i64), String> {
         self.send(position_cmd).await?;
@@ -271,7 +273,7 @@ impl EngineHandle {
         let t0 = tokio::time::Instant::now();
         self.send(&format!(
             "go wtime {} btime {} winc {} binc {}",
-            wt, bt, inc_ms, inc_ms
+            wt, bt, winc_ms, binc_ms
         ))
         .await?;
 
@@ -469,6 +471,8 @@ pub async fn play_game_core(
         start_fen,
         base_ms,
         inc_ms,
+        base_ms,
+        inc_ms,
         max_plies,
         adjudicate_tb,
         0,
@@ -497,8 +501,10 @@ pub async fn play_game_streamed(
     white_path: &str,
     black_path: &str,
     start_fen: Option<String>,
-    base_ms: u64,
-    inc_ms: u64,
+    white_base_ms: u64,
+    white_inc_ms: u64,
+    black_base_ms: u64,
+    black_inc_ms: u64,
     max_plies: usize,
     adjudicate_tb: bool,
     game_id: usize,
@@ -539,12 +545,13 @@ pub async fn play_game_streamed(
 
     let mut moves: Vec<String> = Vec::new();
 
-    // Sudden-death + increment game clock. Each side starts with `base_ms` and
-    // gains `inc_ms` after each of its own moves. Signed so we can detect a
-    // flag-fall (clock crossing below zero). These persist across the whole game
-    // and are NEVER reset per move.
-    let mut wtime: i64 = base_ms as i64;
-    let mut btime: i64 = base_ms as i64;
+    // Sudden-death + increment game clock. Each side starts with its own
+    // `*_base_ms` and gains its own `*_inc_ms` after each of its own moves
+    // (equal for both sides in a normal game; asymmetric under time odds).
+    // Signed so we can detect a flag-fall (clock crossing below zero). These
+    // persist across the whole game and are NEVER reset per move.
+    let mut wtime: i64 = white_base_ms as i64;
+    let mut btime: i64 = black_base_ms as i64;
     // Grace for IPC/measurement jitter: only flag once the overshoot exceeds
     // this (a tiny, legitimate overrun is forgiven).
     const FLAG_GRACE_MS: i64 = 50;
@@ -631,7 +638,7 @@ pub async fn play_game_streamed(
             Duration::from_millis((remaining.max(0) as u64).saturating_add(5000).max(5000));
 
         let (bestmove, elapsed) = match engine
-            .bestmove(&position_cmd, wtime, btime, inc_ms, read_wait)
+            .bestmove(&position_cmd, wtime, btime, white_inc_ms, black_inc_ms, read_wait)
             .await
         {
             Ok(m) => m,
@@ -647,6 +654,10 @@ pub async fn play_game_streamed(
         // clock falls below zero (beyond the small jitter grace) the side has
         // flagged: it loses on time even though it produced a move. Otherwise
         // credit the increment.
+        let inc = match mover {
+            Color::White => white_inc_ms,
+            Color::Black => black_inc_ms,
+        };
         let clock = match mover {
             Color::White => &mut wtime,
             Color::Black => &mut btime,
@@ -656,7 +667,7 @@ pub async fn play_game_streamed(
             let result = loss_for(mover);
             return Ok(finish(white, black, result, "time_forfeit", moves));
         }
-        *clock += inc_ms as i64;
+        *clock += inc as i64;
 
         if bestmove == "(none)" || bestmove == "0000" {
             // No move offered. If it's actually checkmate/stalemate the
@@ -812,7 +823,7 @@ pub async fn play_game(
 
 /// One game to be played as part of a batch. Self-describing so the runner can
 /// schedule games in any order and the caller can correlate outcomes by `id`.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct GameSpec {
     /// Caller-assigned identifier, echoed back on the matching [`GameOutcome`].
     pub id: usize,
@@ -834,6 +845,19 @@ pub struct GameSpec {
     /// Defaults to `true` so older payloads (and the default UX) keep it on.
     #[serde(default = "default_true")]
     pub adjudicate_tb: bool,
+    /// Optional per-side clock overrides (time-odds matches). When `None`, the
+    /// side falls back to the shared `base_ms`/`inc_ms`. These are by board
+    /// COLOR, not by engine — the caller decides which engine sits on which
+    /// color. The clock logic itself stays symmetric; only the starting budgets
+    /// and per-move increments may differ between White and Black.
+    #[serde(default)]
+    pub white_base_ms: Option<u64>,
+    #[serde(default)]
+    pub white_inc_ms: Option<u64>,
+    #[serde(default)]
+    pub black_base_ms: Option<u64>,
+    #[serde(default)]
+    pub black_inc_ms: Option<u64>,
 }
 
 /// Default for [`GameSpec::adjudicate_tb`]: tablebase adjudication is on unless
@@ -1116,8 +1140,10 @@ pub async fn run_batch_core_evaluated(
                 &spec.white_path,
                 &spec.black_path,
                 spec.start_fen.clone(),
-                spec.base_ms,
-                spec.inc_ms,
+                spec.white_base_ms.unwrap_or(spec.base_ms),
+                spec.white_inc_ms.unwrap_or(spec.inc_ms),
+                spec.black_base_ms.unwrap_or(spec.base_ms),
+                spec.black_inc_ms.unwrap_or(spec.inc_ms),
                 spec.max_plies,
                 spec.adjudicate_tb,
                 spec.id,
@@ -1446,6 +1472,7 @@ mod tests {
             flipped: false,
             // Off so tests never touch the network.
             adjudicate_tb: false,
+            ..Default::default()
         }
     }
 
@@ -1630,6 +1657,7 @@ mod tests {
                 max_plies: 200,
                 flipped: false,
                 adjudicate_tb: false,
+                ..Default::default()
             })
             .collect();
         let controls = BatchControls::default();
@@ -1668,7 +1696,7 @@ mod tests {
         let delay = Arc::new(AtomicU64::new(0));
         let (p, c, d, sf2) = (Arc::clone(&paused), Arc::clone(&cancel), Arc::clone(&delay), sf.clone());
         let handle = tokio::spawn(async move {
-            play_game_streamed(&sf2, &sf2, None, 1000, 100, 30, false, 0, |_| {}, &c, &p, &d).await
+            play_game_streamed(&sf2, &sf2, None, 1000, 100, 1000, 100, 30, false, 0, |_| {}, &c, &p, &d).await
         });
         // Parked at the gate (spawn+init done, no moves played): must not finish.
         tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -1697,7 +1725,7 @@ mod tests {
         let delay = Arc::new(AtomicU64::new(delay_ms));
         // Tiny TC so search is fast and the throttle is the binding constraint.
         let t0 = tokio::time::Instant::now();
-        let res = play_game_streamed(&sf, &sf, None, 60, 0, 16, false, 0, |_| {}, &cancel, &paused, &delay)
+        let res = play_game_streamed(&sf, &sf, None, 60, 0, 60, 0, 16, false, 0, |_| {}, &cancel, &paused, &delay)
             .await
             .expect("game ok");
         let elapsed = t0.elapsed().as_millis() as u64;

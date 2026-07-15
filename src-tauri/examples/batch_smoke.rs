@@ -45,6 +45,7 @@ async fn main() {
             max_plies,
             flipped: false,
             adjudicate_tb: true,
+            ..Default::default()
         })
         .collect();
 

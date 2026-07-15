@@ -60,6 +60,7 @@ async fn main() {
                 max_plies: MAX_PLIES,
                 flipped,
                 adjudicate_tb: true,
+                ..Default::default()
             });
             id += 1;
         }

@@ -38,6 +38,7 @@ fn build_current_specs(fen: &str, base_ms: u64, inc_ms: u64, flip_first: bool) -
             max_plies: 600,
             flipped,
             adjudicate_tb: true,
+            ..Default::default()
         });
         id += 1;
     }

@@ -2,6 +2,7 @@ pub mod cbh;
 pub mod calibration;
 pub mod coach;
 pub mod db;
+pub mod machine;
 pub mod maia;
 pub mod persona;
 mod uci;
@@ -48,6 +49,8 @@ pub fn run() {
             db::db_stats,
             calibration::calibration_sample,
             calibration::calibration_save_results,
+            machine::machine_bench,
+            machine::machine_profile_get,
             maia::maia_status,
             maia::maia_policy,
             persona::maia_move,
