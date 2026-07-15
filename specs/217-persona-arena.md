@@ -46,6 +46,9 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
   Icelandic canon (extraction pipeline exists, Lumbra OTB in app DB). Backend per
   spec 214 findings: BT3/strong-policy for GM personas, Maia bands for amateurs; the
   realism lessons from match #1/#2 (verification search, draw model) apply directly.
+  Roster source of truth: spec:214 Tier 2 persona config + Participant abstraction
+  (spec:214 "Play vs Bot" section) — the lobby consumes that definition, including
+  the avatar field, rather than redefining it.
 
 ## Cultural context
 

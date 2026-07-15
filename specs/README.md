@@ -31,7 +31,14 @@ Feature specs live here. They define **what** we're building and **when it's don
 | 211 | [Avoidance Puzzles — "Don't Step On the Rake"](211-avoidance-puzzles.md) | Draft |
 | 212 | [Tournament Game Analysis](212-tournament-game-analysis.md) | Draft |
 | 213 | [Elo-Conditioned Position Evaluator](213-elo-conditioned-evaluator.md) | Draft |
+| 214 | [Persona Simulator](214-persona-simulator.md) | Draft |
+| 215 | [Training Program — the curriculum engine](215-training-program.md) | Draft |
+| 216 | [Machine Speed Profile & Time-Compression Elo Model](216-machine-speed-elo-model.md) | Draft |
+| 217 | [Persona Arena](217-persona-arena.md) | Draft |
 | 900 | [Backlog](900-backlog.md) | Ideas |
+
+(Index gap fixed 2026-07-15: 214–217 existed on disk but were unlisted. Next free
+number in the 21x band: 218.)
 
 ## Dependency Graph
 
@@ -43,7 +50,16 @@ Feature specs live here. They define **what** we're building and **when it's don
  │         ├── 200 Database & Opening Explorer
  │         └── 202 Annotations & Eval Graph
  ├── 011 Engine Analysis ← parallel to 002
+ │    └── 210 Engine Tournament & Win-Probability Lab
+ │         ├── 212 Tournament Game Analysis
+ │         ├── 216 Machine Speed / Time-Compression Elo Model → feeds 214 + 210 labels
+ │         └── 214 Persona Simulator (also needs 213)
+ │              ├── 215 Training Program (also needs 211, 212, 213)
+ │              └── 217 Persona Arena (web surface; roster defined in 214)
  └── 013 PGN Import/Export ← export needs 016
+
+211 Avoidance Puzzles ─→ 215
+213 Elo-Conditioned Evaluator ─→ 214, 215
 ```
 
 ## Status Flow

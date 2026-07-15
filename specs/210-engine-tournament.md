@@ -151,9 +151,42 @@ interface TournamentResult {
 - [ ] Chart is readable at a glance: color-coded (green = win, grey = draw, red = loss for higher-eval side)
 - [ ] Completed `TournamentResult` can be exported as JSON
 
-### Phase 6 — Post-MVP (tracked here, not yet scoped)
-- [ ] Add-engine UI: user can register any UCI binary as a named engine
-- [ ] Round-robin tournament: N engines, each pair plays M games, full cross-table
+### Phase 6 — Participants: engines OR personas, exhibition play (upgraded 2026-07-15)
+
+**Origin of the upgrade:** user feedback 2026-07-15 — "ability to select players to
+compete" with engines/bots as BOTH players and per-side selection ("watch e.g.
+Fischer vs Kasparov play"), and the persona bots "available in tournament". The
+persona/roster definition lives in spec:214 ("Play vs Bot" section + Tier 2); this
+phase is the runner/picker side of the same seam. Open questions (fidelity bar for
+GM exhibitions, v1 roster contents, shared review-nav component) are recorded in
+spec:214 — user decisions pending, not defaulted here.
+
+- [ ] Participant picker replaces the two free-text binary paths: Engine A / Engine B
+      become roster picks — **engines OR personas as named participants** — with
+      explicit per-side assignment (Phase 3 `flipFirst` is only half of side
+      selection). One Participant object per spec:214:
+      `{ id, displayName, avatar?, kind: uci | persona, enginePath | personaConfig }`.
+- [ ] Persona arm in the runner. A persona is NOT a UCI binary — a shim script would
+      launch lc0 but lose temperature sampling, the persona book, the policy floor,
+      and the draw model: it would launch, but it would not be the persona. The seam
+      is a Rust Participant enum (`UciBinary(path)` | `Persona{book, weights,
+      sampling, nodes}`) at the single per-move call site in the game loop, the
+      persona arm reusing the existing Maia plumbing (extended to arbitrary weights,
+      e.g. BT3) plus the persona policy sampling. The same abstraction serves
+      spec:217's server-side roster.
+- [ ] Managed weights: the GM personas' strong net (~190MB BT3) lives outside the
+      repo today; extend the existing checksummed Maia weight-download story to
+      fetch/locate it.
+- [ ] Exhibition framing: batch of 1 through the existing runner as v1 (UCI +
+      Maia-band participants first; full GM persona arm per spec:214); featured
+      single-game presentation (less stats-first) and a SAN move list with move
+      numbers in the live viewer (today it shows only "game #N · move M"). Persona
+      matches display honest strength labels from the spec:216 measured curve — no
+      unmeasured realism claims (spec:214 hard rule).
+- [ ] Add-engine UI: user can register any UCI binary as a named engine (original
+      Phase 6 item — now a Participant of kind `uci`)
+- [ ] Round-robin tournament: N engines, each pair plays M games, full cross-table;
+      persona entries appear in standings with spec:216 honest-strength labels
 - [ ] Elo estimation from match results (BayesElo-style or simple logistic)
 - [ ] Tournament result persistence: save/load past tournament results to disk
 - [ ] Deeper UHO integration: filter by ECO code, opening family, or custom FEN lists

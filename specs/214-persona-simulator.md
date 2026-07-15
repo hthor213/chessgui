@@ -35,12 +35,56 @@ from the player's real games, how often does the persona play the human's move?
   low-Elo personas; for 2700+ use lc0 full-policy and Stockfish-multipv-rerank blends).
   Report per-phase match rates. This tells us what a persona CAN capture before we
   promise anything.
-- **Tier 2 — persona = book + policy + priors**: persona config format (name, book
-  source, policy backend, strength, priors); persona-vs-persona via match runner;
-  "play vs persona" UI entry.
+- **Tier 2 — persona = book + policy + priors, surfaced through a bot roster**:
+  persona config format (name, book source, policy backend, strength, priors, avatar
+  asset — privacy rules below); the **Participant** abstraction (see "Play vs Bot"
+  section) consumed by every surface that fields a bot; "Spar vs Dad" renamed to
+  **Play vs Bot** with a roster and per-entry action set; persona-vs-persona via
+  match runner **in-app** (the exhibition — pick any two roster entries, assign
+  sides, watch; runner seam specced in spec:210 Phase 6); personas selectable as
+  tournament participants (same seam). Honest strength labels for persona matches
+  come from the spec:216 measured curve.
 - **Tier 3 — style priors that matter**: simplification appetite (trade-seeking bias),
   opening-phase fidelity vs middlegame drift, endgame automatics. Only priors that
   measurably improve move-match survive (no vibes-based parameters).
+
+## Play vs Bot — the roster (2026-07-15 user feedback)
+
+**Origin:** user feedback 2026-07-15, playing the dad-sim — rename "Spar vs Dad" to
+"Play vs Bot": "dad becomes one bot in a roster; the only one that's different: dad
+has the options 'improve profile' / 'play'. Others just 'play'." Plus: avatar
+pictures for the bots, "ability to select players to compete" with engines/bots as
+BOTH players ("watch e.g. Fischer vs Kasparov play"), and the bots "available in
+tournament".
+
+The architectural core is one object, the **Participant**:
+
+```
+{ id, displayName, avatar?, kind: uci | persona, enginePath | personaConfig }
+```
+
+consumed by three surfaces:
+
+1. **Play vs Bot** (the renamed Learn sub-tab entry): human vs one roster entry.
+   The private rival persona is the only entry with two actions — **Play** and
+   **Improve profile** (= the shipped serious/probe spar modes); all others get
+   **Play** only.
+2. **Exhibition / Tournament** (spec:210 Phase 6): pick any two roster entries
+   (engine or persona), assign sides explicitly, watch them play — Fischer vs
+   Kasparov in-app, §2's promise.
+3. **Persona Arena** (spec:217): the web surface of the same roster; its lobby
+   consumes this definition (including the avatar field) rather than redefining it.
+
+A persona is NOT a UCI binary — the runner spawns bare paths and takes argmax
+`bestmove`; a shim script would launch lc0 but lose temperature sampling, the
+persona book, the policy floor, and the draw model. It would launch, but it would
+not be the persona. The runner integration therefore goes through a Participant
+seam at the per-move call site (Rust enum, detail in spec:210 Phase 6), never a
+shim.
+
+Two items in the same feedback batch are pure spar-UI polish, independent of the
+roster and shippable immediately (see Checklist): move numbers in the spar move
+list, and back/forward review during a live game.
 
 ## Hard rules
 
@@ -49,6 +93,13 @@ from the player's real games, how often does the persona play the human's move?
 - Personas of private individuals stay LOCAL (data/rivals is gitignored); only
   historical public figures (Fischer, Kasparov) may ship as bundled examples.
 - Every persona carries its eval-harness scores in the UI — no unmeasured realism claims.
+  Roster cards and exhibition matches show measured strength (spec:216 curve) the same way.
+- The LOCAL rule above extends to avatar images and roster metadata: a private
+  rival's photo and personal details live in data/rivals (or app data), never
+  bundled, never committed. Committed spec/UI text refers to "the private rival
+  persona" generically — the rename/roster adds nothing about him beyond what this
+  spec already discloses. The roster must not create a path around spec:217's
+  consent rule for living private individuals.
 
 ## Data
 
@@ -95,3 +146,68 @@ from the player's real games, how often does the persona play the human's move?
       alternatives), then Maia takes over out of book. The drop-into-line start
       stays as a secondary option.
 - [ ] Style priors, gated on measured move-match improvement
+- [ ] Move numbers in the spar move list (2026-07-15, user request): numbered move
+      pairs in the spar display, so realism-feedback notes can cite "12.Nxe5"
+      instead of prose — strengthens the shipped feedback ground-truth stream.
+      Later: the same fix in the tournament live viewer (which has no move list at
+      all, only "game #N · move M"), landing naturally with the exhibition viewer
+      work (spec:210 Phase 6).
+- [ ] Back/forward review during a live spar game (2026-07-15, user request — "he
+      captured with the knight on e5 and I think he captured my knight (I know he
+      did), but it helps to have back/forward to see better what he's planning...
+      similar to how one might ask in a friendly game 'wait, what did you do'"):
+      port the spec:210 Phase 8 ply-nav pattern (per-ply frame history, arrow keys,
+      snap back to live) into the spar board. Review-only — browsing renders a
+      derived position and never mutates the live game; board interaction is
+      suppressed while browsing; snaps back to live on the opponent's move or "go
+      live". Explicitly NOT takeback (the existing destructive control / spec:010
+      undo is a different mechanic).
+- [ ] Play vs Bot roster (2026-07-15, user request): rename the "Spar vs Dad" entry
+      to "Play vs Bot"; a roster of Participants replaces the hardcoded rival
+      label/book; per-entry action set (private rival persona = Play + Improve
+      profile, i.e. the shipped serious/probe modes; all others = Play only). v1
+      roster contents are an open question below.
+- [ ] Avatars on roster entries (2026-07-15, user request): persona config gains an
+      avatar asset field; v1 rendering = initials/monogram fallback (ships with zero
+      art). Private individuals' avatar images are local-only files, never
+      bundled/committed (hard rule above); bundled imagery for public figures is
+      gated on the rights open question below. spec:217's lobby consumes the same
+      field.
+- [ ] Personas as selectable tournament/exhibition players (2026-07-15, user request
+      — engines/bots as both players, per-side selection, "watch e.g. Fischer vs
+      Kasparov play"; and bots "available in tournament"): Participant abstraction
+      registered with the match runner; picker + per-side assignment + persona
+      runner arm specced in spec:210 Phase 6. v1 exhibition = batch of 1 via the
+      existing runner with UCI + Maia-band participants; GM personas (BT3 net +
+      own-game book + draw model, today script-only in scripts/persona/) follow.
+      Every persona match carries a spec:216 honest strength label.
+
+## Open questions (user decisions pending — do not default)
+
+1. **Avatar art for real people.** Photos of Fischer/Kasparov carry rights/likeness
+   issues (photo licensing; personality rights vary by jurisdiction and
+   post-mortem). Options: (a) licensed/public-domain photos, (b) generated/stylized
+   portraits (weaker rights exposure, but "AI portrait of a real GM" has its own
+   taste question), (c) initials/monogram tiles (zero risk, ships today, matches
+   the v1 checklist item). Separately for the private rival: a photo is fine
+   *locally* — is a local-file picker enough, or a stylized portrait too?
+2. **New spec 218 vs edits spread across 214/210?** No item strictly requires a new
+   spec, but the Participant abstraction touches 214 + 210 + 217; a single "Bot
+   Roster & Exhibition Play" spec (218 is the next free number) would be the one
+   home, with 214/210/217 each carrying a one-line cross-reference. Currently
+   specced as spread edits; user's call whether to consolidate.
+3. **Fidelity bar for in-app Fischer vs Kasparov.** Exhibition with Maia-band
+   personas is cheap; the *real* GM personas need the BT3 net (~190MB, currently
+   scratchpad-only), the own-game book, and the draw model ported to Rust. Is a
+   "watchable but honest-labelled approximation first" acceptable, or is the
+   exhibition not worth shipping until the full persona arm exists?
+4. **v1 roster contents.** Just the private rival + Maia strength bands, or should
+   the two GM personas appear immediately (greyed/"coming soon" vs absent until
+   playable)?
+5. **Shared review-nav component?** Does the back/forward review mechanic get
+   extracted and shared between spar and the tournament live viewer (one
+   implementation), or is a second copy in the spar tab acceptable for speed?
+6. **Consent status for the private rival persona beyond the local app.** spec:217
+   already gates arena exposure on asking him; the rename/roster changes no
+   exposure, but if avatars or roster sync ever touch the web arena, that
+   conversation gates it. Has it happened?
