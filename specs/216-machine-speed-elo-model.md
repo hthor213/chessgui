@@ -77,5 +77,7 @@ policy personas (Maia/BT3-policy), whose strength is time-invariant.
 ### Tier 1
 - [x] Time-odds ladder runner (engine lab, resumable rungs) — smoke-verified
       +89 Elo/doubling at the 62ms rung, 20 games
-- [ ] `b(t)` fit + CI, persisted to machine profile
-- [ ] UI flips to MEASURED with rung count
+- [x] `b(t)` fit + CI, persisted to machine profile (2026-07-15: +100@0.09s,
+      +30@0.35s — 2.5x steeper falloff than the prior; slow rungs refining)
+- [x] UI flips to MEASURED with rung count (profile.curve populated; flip
+      mechanism synthetic-tested, real-profile visual confirm pending)
