@@ -1,0 +1,42 @@
+{
+  "250ms": {
+    "ci_hi": 36.73784772333959,
+    "ci_lo": 22.49388949985809,
+    "d": 885,
+    "elapsed_s": 2869.911941125,
+    "elo_per_doubling": 29.60345764724001,
+    "errors": 0,
+    "fast_base_ms": 2000,
+    "fast_inc_ms": 200,
+    "fast_ms": 250,
+    "finished_at": 1784106903,
+    "games": 1000,
+    "l": 15,
+    "rung": "250ms",
+    "score": 0.5425,
+    "slow_base_ms": 4000,
+    "slow_inc_ms": 400,
+    "slow_ms": 500,
+    "w": 100
+  },
+  "62ms": {
+    "ci_hi": 111.44018912507647,
+    "ci_lo": 87.93002709246453,
+    "d": 669,
+    "elapsed_s": 756.060910292,
+    "elo_per_doubling": 99.57411190368994,
+    "errors": 0,
+    "fast_base_ms": 500,
+    "fast_inc_ms": 50,
+    "fast_ms": 62,
+    "finished_at": 1784104033,
+    "games": 1000,
+    "l": 26,
+    "rung": "62ms",
+    "score": 0.6395,
+    "slow_base_ms": 1000,
+    "slow_inc_ms": 100,
+    "slow_ms": 125,
+    "w": 305
+  }
+}
