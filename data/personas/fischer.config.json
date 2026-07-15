@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "slug": "fischer",
+  "display_name": "Robert James Fischer",
+  "bio": "11th World Champion (1972)",
+  "kind": "public-figure",
+  "db_names": [
+    "Fischer, Robert James"
+  ],
+  "book": {
+    "path": "data/personas/fischer.book.json",
+    "max_ply": 24,
+    "positions": 1848,
+    "games": 258
+  },
+  "backend": {
+    "kind": "lc0-policy",
+    "net": {
+      "file": "BT3-768x15x24h-swa-2790000.pb.gz",
+      "sha256": "e3067757d1fc2dfc66947b21d15ace0cedf4c54254fc1de83d77c378a3e8b8e1",
+      "url": "https://storage.lczero.org/files/networks-contrib/BT3-768x15x24h-swa-2790000.pb.gz"
+    }
+  },
+  "runnable_in_engine_v1": false,
+  "runnable_note": "persona-engine v1 drives Maia bands only (level 1100-1900); this BT3-backed GM persona awaits the engine's strong-net policy arm (later tier).",
+  "sampling": {
+    "level": 1900,
+    "temperature": 0.5,
+    "alpha": 1.0,
+    "lambda": 0.75,
+    "top_k": 4,
+    "verify_depth": 12
+  },
+  "harness": {
+    "backend": "lc0-bt3",
+    "match@1": 0.604,
+    "match@3": 0.84,
+    "n": 250,
+    "date": "2026-07-15",
+    "note": "held-out move-match; BT3 strong-net policy (GM-class backend per spec 214). Maia bands are a floor for 2400+ players — see HARNESS_RESULTS.md."
+  },
+  "data": {
+    "games": 322,
+    "train": 258,
+    "eval": 64,
+    "note": "extracted 2026-07-14 (extract_personas.py); see EXTRACTION.md"
+  }
+}

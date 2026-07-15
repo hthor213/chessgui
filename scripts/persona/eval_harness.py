@@ -83,6 +83,26 @@ PERSONAS = [
     # slice is more self-consistent than the whole career.
     PersonaCfg("sigurjonsson-peak", "sigurjonsson",
                DATA_DIR / "sigurjonsson.eval.pgn", year_range=(1975, 1978)),
+    # Fleet roster (spec 217, 2026-07-15): Spassky/Karpov + Icelandic canon,
+    # extracted by extract_roster.py. The matcher is the FULL lowercase DB name,
+    # not the bare surname — two Olafssons are in the roster and Icelandic
+    # eval games routinely have another roster player as the opponent.
+    PersonaCfg("spassky", "spassky, boris", DATA_DIR / "spassky.eval.pgn"),
+    PersonaCfg("karpov", "karpov, anatoly", DATA_DIR / "karpov.eval.pgn"),
+    PersonaCfg("fridrik-olafsson", "olafsson, fridrik",
+               DATA_DIR / "fridrik-olafsson.eval.pgn"),
+    PersonaCfg("margeir-petursson", "petursson, margeir",
+               DATA_DIR / "margeir-petursson.eval.pgn"),
+    PersonaCfg("johann-hjartarson", "hjartarson, johann",
+               DATA_DIR / "johann-hjartarson.eval.pgn"),
+    PersonaCfg("hannes-stefansson", "stefansson, hannes",
+               DATA_DIR / "hannes-stefansson.eval.pgn"),
+    PersonaCfg("helgi-olafsson", "olafsson, helgi",
+               DATA_DIR / "helgi-olafsson.eval.pgn"),
+    PersonaCfg("jon-l-arnason", "arnason, jon l",
+               DATA_DIR / "jon-l-arnason.eval.pgn"),
+    PersonaCfg("hedinn-steingrimsson", "steingrimsson, hedinn",
+               DATA_DIR / "hedinn-steingrimsson.eval.pgn"),
 ]
 
 PHASES = ("opening", "middlegame", "endgame")

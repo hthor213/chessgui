@@ -1,0 +1,819 @@
+[Event "ISL-ch"]
+[Site "Gardabaer"]
+[Date "1991.??.??"]
+[Round "5"]
+[White "Steingrimsson, Hedinn"]
+[Black "Olafsson, Helgi"]
+[Result "1/2-1/2"]
+[WhiteElo "2505"]
+[BlackElo "2595"]
+[ECO "A28"]
+
+1. c4 Nf6 2. Nc3 e5 3. Nf3 Nc6 4. e4 d6 5. d4 Bg4 6. d5 Nd4 7. Be3 Nxf3+ 8. gxf3 Bc8 9. f4 Ng4 10. Bd2 exf4 11. Bxf4 g5 12. Bg3 Bg7 13. h4 h6 14. hxg5 hxg5 15. Rxh8+ Bxh8 16. Bh3 Ne5 17. Bxc8 Rxc8 18. Qe2 Qf6 19. O-O-O Qf3 20. Bxe5 Qxe2 21. Nxe2 Bxe5 22. Rg1 Bf6 23. Ng3 Kd7 24. b3 Rh8 25. Rh1 Rxh1+ 1/2-1/2
+
+[Event "ISL-ch"]
+[Site "Gardabaer"]
+[Date "1991.??.??"]
+[Round "6"]
+[White "Steingrimsson, Hedinn"]
+[Black "Arnason, Jon L"]
+[Result "0-1"]
+[WhiteElo "2505"]
+[BlackElo "2540"]
+[ECO "A30"]
+
+1. Nf3 c5 2. c4 Nc6 3. g3 g6 4. d4 cxd4 5. Nxd4 Bg7 6. Nc2 d6 7. Bg2 Be6 8. Ne3 Qd7 9. h3 f5 10. Nd5 Bf7 11. O-O Rc8 12. Na3 e6 13. Nc3 Nge7 14. Nab5 Rd8 15. Be3 a6 16. Na3 O-O 17. Qd2 Qc7 18. Bh6 Bxh6 19. Qxh6 d5 20. cxd5 exd5 21. e3 d4 22. exd4 Nxd4 23. Rfe1 Nec6 24. Rac1 Qd6 25. Red1 Qb4 26. Rd2 Ne5 27. Kh1 Nef3 28. Rd3 Qxb2 29. Bxf3 Nxf3 30. Rxf3 Qxa3 31. Kh2 Qe7 32. Rf4 Qe5 33. h4 Rc8 34. Rf3 b5 35. Qg5 b4 36. Re3 Qg7 37. Ne2 Bxa2 38. Re7 Bf7 39. h5 Rxc1 40. Qxc1 b3 41. h6 Qf6 42. Rb7 g5 43. f3 Qxh6+ 44. Kg2 Bd5 45. Rb4 Qf6 46. Qd2 Bf7 47. Rd4 Rc8 48. Kf1 Rc2 49. Qd3 a5 50. Rd8+ Kg7 51. Ra8 Bc4 0-1
+
+[Event "ISL-FRA"]
+[Site "Reykjavik"]
+[Date "1993.??.??"]
+[Round "1"]
+[White "Steingrimsson, Hedinn"]
+[Black "Hauchard, Arnaud"]
+[Result "1-0"]
+[WhiteElo "2420"]
+[BlackElo "2450"]
+[ECO "C95"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 O-O 8. c3 d6 9. h3 Nb8 10. d4 Nbd7 11. Nbd2 Bb7 12. Bc2 Re8 13. a4 Bf8 14. Bd3 c6 15. b3 Qc7 16. Bb2 g6 17. Qc2 Bg7 18. Rad1 Rac8 19. Bf1 Qb8 20. Qb1 Ba8 21. Qa2 Nh5 22. b4 Re7 23. c4 exd4 24. Bxd4 Bxd4 25. Nxd4 c5 26. Nc2 bxa4 27. Qxa4 cxb4 28. Nxb4 Nc5 29. Qa3 Qa7 30. Re3 Rce8 31. Rde1 Nf6 32. f3 h5 33. h4 Qb6 34. Kh1 Rb8 35. Nd3 Nfd7 36. Rb1 Qd8 37. Rxb8 Qxb8 38. Nxc5 Nxc5 39. Nb3 Qd8 40. Nxc5 dxc5 41. Qxc5 Rb7 42. Kg1 Rb1 43. Re2 Bb7 44. Qf2 Bc8 45. Rd2 Qc7 46. Qd4 Be6 47. Qf6 Rb8 48. e5 Bxc4 49. Bxc4 Qxc4 50. Rd6 Qc5+ 51. Kh2 a5 52. f4 Qc3 53. Rd7 Rf8 54. f5 Qc8 55. e6 Qb8+ 56. g3 gxf5 57. Rxf7 1-0
+
+[Event "ISL-FRA"]
+[Site "Reykjavik"]
+[Date "1993.??.??"]
+[Round "9"]
+[White "Steingrimsson, Hedinn"]
+[Black "Marciano, David"]
+[Result "1/2-1/2"]
+[WhiteElo "2420"]
+[BlackElo "2430"]
+[ECO "C63"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 f5 4. Nc3 fxe4 5. Nxe4 d5 6. Nxe5 dxe4 7. Nxc6 Qg5 8. Qe2 Nf6 9. f4 Qxf4 10. d4 Qd6 11. Ne5+ c6 12. Bc4 Be6 13. Bf4 Bxc4 14. Qxc4 Qd5 15. O-O-O Bd6 16. Qb3 Qxb3 17. axb3 O-O 18. Rhe1 Rae8 19. h3 Ng4 20. hxg4 Rxf4 21. g3 Rf6 22. Rxe4 Rfe6 23. Rde1 c5 24. c3 cxd4 25. cxd4 Bxe5 26. dxe5 Kf7 27. Kd2 R8e7 28. Kd3 Rd7+ 29. Ke3 Rb6 30. b4 Ke6 31. Rc1 Rb5 1/2-1/2
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1994.??.??"]
+[Round "9"]
+[White "Steingrimsson, Hedinn"]
+[Black "Kveinys, Aloyzas"]
+[Result "0-1"]
+[WhiteElo "2420"]
+[BlackElo "2520"]
+[ECO "E95"]
+
+1. d4 Nf6 2. c4 d6 3. Nf3 g6 4. Nc3 Bg7 5. e4 O-O 6. Be2 Nbd7 7. O-O e5 8. Re1 c6 9. Bf1 h6 10. Rb1 Nh7 11. d5 c5 12. g3 f5 13. Nh4 Qf6 14. exf5 gxf5 15. f4 exf4 16. Bxf4 Ng5 17. Be2 Ne5 18. b3 Bd7 19. Qc2 Rae8 20. Rf1 Ng4 21. Nd1 b5 22. Kh1 Ne4 23. h3 Ne5 24. Kh2 Ng6 25. Nxg6 Qxg6 26. Nf2 Nf6 27. Nd3 Nh5 28. Rf3 Re4 29. Rbf1 Rfe8 30. R3f2 Re3 31. Bxe3 Qxg3+ 32. Kh1 Rxe3 33. Rf3 Rxf3 34. Rxf3 Qg5 35. Qc1 Bd4 36. Qe1 b4 37. Kh2 f4 38. Nf2 Be5 39. Bf1 Nf6 40. Be2 Be8 41. Kh1 Bh5 42. Rd3 Bg6 43. Rf3 Nh5 44. Bd3 Ng3+ 45. Kh2 Bh5 46. Ne4 Qh4 47. Rxg3+ fxg3+ 48. Nxg3 Qf4 49. Be4 Bf3 50. Bxf3 Qxf3 51. Qg1 h5 52. h4 Qf4 53. Qe1 Qxh4+ 54. Kg2 Qxg3+ 55. Qxg3+ Bxg3 56. Kxg3 Kg7 57. Kh3 Kg6 58. Kh4 Kh6 59. Kh3 Kg5 60. Kg3 h4+ 61. Kh3 Kh5 0-1
+
+[Event "Gausdal Int"]
+[Site "Gausdal"]
+[Date "1994.??.??"]
+[Round "9"]
+[White "Gausel, Einar"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2505"]
+[BlackElo "2410"]
+[ECO "A37"]
+
+1. Nf3 g6 2. c4 Bg7 3. Nc3 c5 4. g3 Nc6 5. Bg2 e6 6. d4 cxd4 7. Nb5 d5 8. Qa4 Nge7 9. cxd5 Nxd5 10. Nbxd4 Bd7 11. Nxc6 Bxc6 12. Qa3 Qe7 13. Qxe7+ Nxe7 14. O-O O-O 15. Ne1 Rfd8 1/2-1/2
+
+[Event "Peer Gynt"]
+[Site "Gausdal"]
+[Date "1994.??.??"]
+[Round "3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Kumaran, Dharshan"]
+[Result "1/2-1/2"]
+[WhiteElo "2410"]
+[BlackElo "2495"]
+[ECO "B17"]
+
+1. e4 c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4 Nd7 5. Ng5 Ndf6 6. Bc4 e6 7. Ne2 h6 8. Nf3 Bd6 9. Bf4 Ne7 10. Qd2 Ned5 11. Be5 O-O 12. O-O b6 13. Rfe1 Bb7 14. c3 c5 15. Rad1 a6 16. Bd3 b5 17. Bb1 Re8 18. Qc2 cxd4 19. Rxd4 Bxe5 20. Nxe5 Qc7 21. Ng3 Rad8 22. Ng4 Kf8 23. Ne5 Nb6 24. Rh4 Qd6 25. Nf1 Qd5 26. f3 Nbd7 27. Nxd7+ Rxd7 28. Qf2 e5 29. a4 Bc6 30. Bf5 Rdd8 31. axb5 axb5 32. Bc2 Kg8 33. Ne3 Qd2 34. Rd1 Qxf2+ 35. Kxf2 Rxd1 36. Bxd1 e4 37. Bc2 h5 38. Rf4 exf3 39. gxf3 Rxe3 40. Kxe3 Nd5+ 41. Ke4 Nb4+ 42. Ke3 Nd5+ 43. Ke4 Nb4+ 44. Ke3 1/2-1/2
+
+[Event "Peer Gynt"]
+[Site "Gausdal"]
+[Date "1994.??.??"]
+[Round "9"]
+[White "Steingrimsson, Hedinn"]
+[Black "Beshukov, Sergei"]
+[Result "0-1"]
+[WhiteElo "2410"]
+[BlackElo "2495"]
+[ECO "D91"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. Nf3 Bg7 5. Bg5 Ne4 6. cxd5 Nxg5 7. Nxg5 e6 8. Qa4+ Bd7 9. Qb3 Qxg5 10. Qxb7 Bxd4 11. Qxa8 O-O 12. Qb7 Qf6 13. Nd1 Bb6 14. e3 Ba5+ 15. Ke2 Bc8 0-1
+
+[Event "Peer Gynt"]
+[Site "Gausdal"]
+[Date "1995.??.??"]
+[Round "9"]
+[White "Gausel, Einar"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2490"]
+[BlackElo "2410"]
+[ECO "A46"]
+
+1. d4 Nf6 2. Nf3 e6 3. Bg5 c5 4. c3 h6 5. Bh4 b6 6. e3 Be7 7. Bd3 Ba6 8. O-O O-O 9. a4 Bxd3 10. Qxd3 d5 11. Nbd2 Nc6 12. Rfe1 c4 13. Qc2 a6 14. Ra2 b5 15. axb5 axb5 16. Rea1 Rxa2 17. Rxa2 b4 18. Ra6 b3 19. Qb1 Ne8 20. Bg3 Qd7 21. Qa1 Nc7 22. Bxc7 Qxc7 23. Qa4 Rc8 24. g3 Qb7 25. Nb1 Bd8 26. Na3 Bb6 27. Ne5 Nxe5 28. dxe5 Bc7 29. f4 Rb8 30. Kf2 Bb6 31. h4 Bc5 32. Nb1 d4 33. exd4 Qh1 34. dxc5 Qxb1 35. Qa3 Qc2+ 36. Kf3 Qd1+ 37. Kf2 Qd2+ 38. Kg1 Qe3+ 39. Kh2 Rb5 40. Ra8+ Kh7 41. Qa7 Rxc5 42. Qxf7 Qf2+ 43. Kh3 Qf1+ 44. Kh2 Qf2+ 45. Kh3 Qf1+ 46. Kh2 Qe2+ 47. Kh3 Qf1+ 1/2-1/2
+
+[Event "Gausdal Int"]
+[Site "Gausdal"]
+[Date "1995.??.??"]
+[Round "1"]
+[White "Jansa, Vlastimil"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1-0"]
+[WhiteElo "2525"]
+[BlackElo "2410"]
+[ECO "B70"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 Nc6 6. g3 g6 7. Nde2 Bd7 8. Bg2 Qc8 9. h3 Bg7 10. b3 O-O 11. Bb2 a5 12. Rb1 Ra6 13. Nd5 Nxd5 14. exd5 Bxb2 15. Rxb2 Na7 16. c4 b5 17. cxb5 Nxb5 18. Rc2 Qb7 19. O-O a4 20. Re1 Rfa8 21. b4 Na3 22. Rc1 Rb6 23. Qd3 Nb5 24. a3 Rc8 25. Nd4 Rxc1 26. Rxc1 Qa8 27. Nxb5 Bxb5 28. Qe3 Rb7 29. h4 h5 30. Bh3 Bd7 31. Bxd7 Rxd7 32. Rc6 e5 33. Qb6 Qf8 34. Qa6 Qe7 35. Qxa4 e4 36. Qb3 Ra7 37. Qc3 Kh7 38. Rc8 f6 39. b5 Qb7 40. Qc6 Qe7 41. Re8 Qg7 42. Qxd6 g5 43. b6 1-0
+
+[Event "BL2-Nord 0506"]
+[Site "Germany"]
+[Date "2005.10.23"]
+[Round "1.1"]
+[White "Steingrimsson, Hedinn"]
+[Black "Mortensen, Erling"]
+[Result "0-1"]
+[WhiteElo "2435"]
+[BlackElo "2466"]
+[ECO "B09"]
+
+1. d4 g6 2. e4 Bg7 3. Nc3 d6 4. f4 Nc6 5. Be3 Nf6 6. Nf3 O-O 7. Be2 e6 8. h3 a6 9. g4 b5 10. e5 Nd7 11. a4 b4 12. Ne4 Nb6 13. g5 Nd5 14. Qd2 Nce7 15. Bf2 Nf5 16. Rg1 Bb7 17. Nh4 Nxh4 18. Bxh4 Ne7 19. Nf6+ Bxf6 20. gxf6 Nf5 21. Bf2 Be4 22. Qxb4 Bxc2 23. Qc3 Be4 24. h4 Qd7 25. h5 Rfb8 26. hxg6 fxg6 27. b4 Rb7 28. Kd2 c5 29. b5 cxd4 30. Qb3 d3 31. Bg4 dxe5 32. fxe5 Rc8 33. Rac1 Rc2+ 34. Rxc2 dxc2+ 35. Kc1 axb5 36. a5 Qc6 37. Re1 Kf7 38. Qh3 Kg8 39. Qb3 h5 40. Rxe4 Qxe4 41. Qxe6+ Kh7 42. Bb6 Qxg4 43. Qd5 Qf4+ 44. Kxc2 Rc7+ 45. Kd3 Qf1+ 0-1
+
+[Event "Budapest FS12 GM-A"]
+[Site "Budapest"]
+[Date "2005.12.09"]
+[Round "7"]
+[White "Steingrimsson, Hedinn"]
+[Black "Turov, Maxim"]
+[Result "1/2-1/2"]
+[WhiteElo "2435"]
+[BlackElo "2546"]
+[ECO "A17"]
+
+1. Nf3 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 O-O 5. a3 Bxc3 6. Qxc3 c5 7. b4 b6 8. e3 Bb7 9. Bb2 Qe7 10. Be2 Rc8 11. O-O d5 12. cxd5 cxb4 13. Qxb4 Nxd5 14. Qg4 Nf6 15. Qb4 Nbd7 16. Qh4 1/2-1/2
+
+[Event "Budapest FS12 GM-A"]
+[Site "Budapest"]
+[Date "2005.12.12"]
+[Round "10"]
+[White "Boros, Denes"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2460"]
+[BlackElo "2435"]
+[ECO "C67"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 Nf6 4. O-O Nxe4 5. Re1 Nd6 6. Nxe5 Be7 7. Bf1 Nxe5 8. Rxe5 O-O 9. d4 Bf6 10. Re1 Nf5 11. c3 d5 12. Bd3 c6 13. Bf4 Nh4 14. Nd2 Bf5 15. Bxf5 Nxf5 16. Nf3 Be7 17. Qd3 g6 18. Re5 Bd6 19. Rxf5 gxf5 20. Ne5 f6 21. Qg3+ Kh8 22. Nd3 Rg8 23. Qf3 Bxf4 24. Qxf4 Qe8 25. Qxf5 Qg6 26. Qf3 Rae8 27. g3 Rg7 28. Nf4 Qg4 29. Qxg4 Rxg4 30. Kf1 Kg8 31. Rd1 Rg7 32. Nh5 Rf7 33. Rd3 Re4 34. Rf3 f5 35. Nf4 Ree7 36. Nd3 Kg7 37. a3 Rf6 38. h3 a5 39. b4 axb4 40. axb4 Re8 41. Ne5 Re7 42. Rf4 Re8 1/2-1/2
+
+[Event "Keres Memorial-A"]
+[Site "Tallinn"]
+[Date "2006.01.10"]
+[Round "5"]
+[White "Rytshagov, Mikhail"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1-0"]
+[WhiteElo "2474"]
+[BlackElo "2439"]
+[ECO "B90"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be3 e5 7. Nb3 Be6 8. Qd2 Nbd7 9. f3 b5 10. O-O-O Rc8 11. g4 Nb6 12. g5 Nfd7 13. Kb1 g6 14. h4 b4 15. Nd5 Nxd5 16. exd5 Bf5 17. Bd3 Bxd3 18. Qxd3 Bg7 19. Qxa6 Qc7 20. Rh2 h6 21. Qe2 h5 22. Qb5 Ke7 23. Qxb4 Ra8 24. Rd3 Rhb8 25. Rc3 Qd8 26. Qe4 Kf8 27. Rc6 Qe7 28. Rd2 Kg8 29. c4 Ra4 30. Rg2 Rba8 31. a3 Nb8 32. Rb6 Qc7 33. Rc2 Nd7 34. Rb5 Kh7 35. Nd2 Re8 36. Qd3 e4 37. fxe4 Ne5 38. Qb3 Raa8 39. c5 dxc5 40. Bxc5 Qd7 41. Bd4 Qg4 42. Bxe5 Rxe5 43. Ka2 Re7 44. d6 Rea7 45. Rb7 Qd1 46. Rxa7 Rxa7 47. Nc4 Rd7 48. e5 Qg4 49. Nb6 Rd8 50. Qxf7 Qd4 51. Nc4 Rf8 52. Rd2 Qg1 53. Qd5 Rf1 54. d7 Ra1+ 55. Kb3 Qb1 56. d8=Q Qa2+ 57. Ka4 1-0
+
+[Event "Reykjavik op 22nd"]
+[Site "Reykjavik"]
+[Date "2006.03.14"]
+[Round "9"]
+[White "Steingrimsson, Hedinn"]
+[Black "Ivanisevic, Ivan"]
+[Result "0-1"]
+[WhiteElo "2439"]
+[BlackElo "2588"]
+[ECO "C63"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 f5 4. Nc3 Nf6 5. exf5 Bc5 6. O-O O-O 7. d3 d6 8. Bxc6 bxc6 9. Ne4 Bb6 10. Ng3 Nd5 11. d4 exd4 12. Bg5 Qe8 13. Re1 Qf7 14. Nxd4 Bxd4 15. Qxd4 Bxf5 16. c4 Nb4 17. Re7 Qg6 18. Qd2 a5 19. Rxc7 d5 20. Re1 Na6 21. Rce7 dxc4 22. h4 h6 23. Nxf5 Qxf5 24. R1e5 Qb1+ 25. Kh2 Qh7 26. Qd4 Nb4 27. Qxc4+ Kh8 28. Be3 Nd5 29. R7e6 Rab8 30. Bc5 Rg8 31. Rxc6 Nf6 32. b3 Qg6 33. Ree6 Rbd8 34. Be3 Rd1 35. f3 Qb1 36. Bc1 Qxa2 37. Re2 Qa1 38. Qc2 Qd4 39. Qc4 Qg1+ 40. Kg3 Nh5+ 41. Kg4 Rd4+ 42. Kxh5 Rxc4 43. Rxc4 Qd1 44. Re7 Qxb3 45. Rcc7 Qa2 46. g4 Qd5+ 47. g5 Qxf3+ 48. Kg6 Qd3+ 49. Kh5 hxg5 50. Bxg5 a4 51. Rf7 a3 52. Ra7 Qe2+ 53. Kg6 a2 54. Rf4 Qd3+ 55. Kh5 Qd1+ 0-1
+
+[Event "EU-ch 7th"]
+[Site "Kusadasi"]
+[Date "2006.04.04"]
+[Round "1"]
+[White "Nevednichy, Vladislav"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2581"]
+[BlackElo "2439"]
+[ECO "B90"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. a4 e5 7. Nf3 Be7 8. Bc4 O-O 9. Bg5 Be6 10. Bxf6 Bxc4 11. Nd2 Be6 12. Bxe7 Qxe7 13. Nf1 Nd7 14. Ne3 Rfc8 15. Ncd5 Qd8 16. O-O Nb6 17. Nc3 Nc4 18. Qe1 Nxe3 19. Qxe3 Rc5 20. Rfd1 Rac8 21. Rd3 Qb6 22. Rb1 Qb4 23. Qd2 h6 24. Rg3 Kh7 25. Qxd6 b5 26. axb5 axb5 27. h3 Qd4 28. Qxd4 exd4 29. Ne2 Ba2 30. Ra1 Rxc2 31. Nxd4 Rxb2 32. Nxb5 Bb1 33. Nc3 Rb3 34. Rxb1 Rxb1+ 35. Nxb1 Rc1+ 36. Kh2 Rxb1 37. Re3 h5 38. Kg3 Rb2 39. h4 g6 40. Kf3 Kg7 41. g3 Kf6 1/2-1/2
+
+[Event "EU-ch 7th"]
+[Site "Kusadasi"]
+[Date "2006.04.06"]
+[Round "3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Mchedlishvili, Mikheil"]
+[Result "0-1"]
+[WhiteElo "2439"]
+[BlackElo "2568"]
+[ECO "D45"]
+
+1. d4 d5 2. c4 c6 3. Nc3 Nf6 4. e3 a6 5. Qc2 e6 6. Nf3 c5 7. cxd5 exd5 8. Be2 Nc6 9. Ne5 Bd7 10. Nxd7 Qxd7 11. Na4 Nb4 12. Qd1 cxd4 13. exd4 Qc7 14. O-O Bd6 15. h3 O-O 16. a3 Nc6 17. Bf3 Ne4 18. b4 Rad8 19. Bb2 Ng5 20. Be2 Rfe8 21. Nc5 Qc8 22. Bg4 f5 23. Bh5 g6 24. Be2 Bb8 25. Rc1 Qc7 26. f4 Ne4 27. Rc2 Qe7 28. Qd3 Na7 29. g3 Nb5 30. Qb3 Qf7 31. Kh2 Nbd6 32. Nd3 b5 33. Ne5 Qb7 34. g4 Rf8 35. gxf5 Nxf5 36. Bg4 Kh8 37. Rg2 Nfd6 38. Qf3 Nc4 39. Rfg1 Rde8 40. Ba1 Nxe5 41. dxe5 Bxe5 42. Bxe5+ Rxe5 43. fxe5 Rxf3 44. Bxf3 Qe7 45. Bxe4 Qxe5+ 46. Rg3 dxe4 47. Rf1 Kg7 48. Kg2 e3 49. Kf3 Qc3 50. Rg4 e2+ 51. Kxe2 Qxh3 52. Rd4 Qe6+ 53. Kd3 h5 54. Rf3 Kh6 55. Re3 Qf6 56. Rde4 h4 57. Re6 Qf1+ 58. Kd2 Qf2+ 59. Kd3 Qf5+ 60. Ke2 Qg4+ 61. Kf2 Qf4+ 62. Kg2 Kh5 63. Re8 g5 64. R8e4 Qd6 65. Re8 Qd5+ 66. Kh2 Qd2+ 67. Kg1 Qd4 68. Kg2 Qd5+ 69. Kf2 Kg4 70. R8e5 Qd2+ 71. Kg1 Qc1+ 72. Kf2 Qb2+ 73. Kg1 h3 74. Re2 Qxa3 75. R5e4+ Kf3 0-1
+
+[Event "Lodi op"]
+[Site "Lodi"]
+[Date "2006.06.08"]
+[Round "6"]
+[White "Steingrimsson, Hedinn"]
+[Black "Lazic, Miroljub"]
+[Result "1/2-1/2"]
+[WhiteElo "2447"]
+[BlackElo "2493"]
+[ECO "D46"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Nc3 e6 5. e3 Nbd7 6. Bd3 Bd6 7. e4 dxe4 8. Nxe4 Nxe4 9. Bxe4 e5 10. O-O exd4 11. Qxd4 Qf6 12. Bc2 Qxd4 13. Nxd4 O-O 14. Nf5 Bc5 15. Bf4 Nb6 16. b3 Bxf5 17. Bxf5 1/2-1/2
+
+[Event "Lodi op"]
+[Site "Lodi"]
+[Date "2006.06.10"]
+[Round "8"]
+[White "Mrdja, Milan"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2409"]
+[BlackElo "2447"]
+[ECO "B51"]
+
+1. e4 c5 2. Nf3 d6 3. Bb5+ Nd7 4. O-O Nf6 5. Re1 a6 6. Bf1 b6 7. c4 Bb7 8. Nc3 Ne5 9. d3 e6 10. b3 Be7 11. h3 Nxf3+ 12. Qxf3 Nd7 13. Be3 Bf6 14. Rac1 O-O 15. Qd1 Bd4 16. Qd2 Bc6 17. Rc2 Re8 18. g3 Ra7 19. Bg2 Qa8 20. f4 f6 21. Qf2 Bxe3 22. Qxe3 e5 1/2-1/2
+
+[Event "EU-Cup 22nd"]
+[Site "Fuegen"]
+[Date "2006.10.11"]
+[Round "4.3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Goloshchapov, Alexander"]
+[Result "1/2-1/2"]
+[WhiteElo "2466"]
+[BlackElo "2552"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb4+ 6. Bd2 Be7 7. Bg2 c6 8. Bc3 d5 9. Nbd2 Nbd7 10. O-O O-O 11. Re1 c5 12. e4 Nxe4 13. Nxe4 dxe4 14. Rxe4 Bb7 15. Re3 Bf6 16. Ne5 Bxg2 17. Kxg2 cxd4 18. Bxd4 Nxe5 19. Bxe5 Bxe5 20. Rxe5 Qf6 21. Qe2 Rad8 22. Rc1 Rd7 23. c5 Rc8 24. b4 Rdc7 25. Rc4 Qe7 26. Qc2 a5 27. a3 axb4 28. axb4 Qf8 29. h4 h6 30. Kh2 Rc6 31. Re1 bxc5 32. Rc1 Qd6 33. Rd1 1/2-1/2
+
+[Event "BL2-West 0607"]
+[Site "Germany"]
+[Date "2006.10.15"]
+[Round "1.3"]
+[White "Kupreichik, Viktor D"]
+[Black "Steingrimsson, Hedinn"]
+[Result "0-1"]
+[WhiteElo "2461"]
+[BlackElo "2449"]
+[ECO "B71"]
+
+1. e4 c5 2. Nc3 d6 3. f4 g6 4. Nf3 Bg7 5. d4 cxd4 6. Nxd4 Nc6 7. Nb3 Nf6 8. Be2 b6 9. O-O O-O 10. Bf3 Bb7 11. Qe2 Nd7 12. Rd1 Rc8 13. Be3 Qc7 14. Rd2 Nc5 15. Nd5 Qb8 16. Nd4 Rfe8 17. Rad1 e6 18. Nc3 Nxd4 19. Bxd4 Bxd4+ 20. Rxd4 e5 21. Rxd6 exf4 22. e5 Bxf3 23. gxf3 Re7 24. R1d5 Nb7 25. Rd7 Rxd7 26. Rxd7 Nc5 27. Rd5 Rd8 28. Qd2 Rxd5 29. Qxd5 Kg7 30. b4 Ne6 31. Ne4 Qc8 32. c4 Qa6 33. c5 Qe2 34. Nf2 bxc5 35. bxc5 Ng5 36. Kg2 Nh3 37. Kxh3 Qxf2 38. c6 h5 39. e6 Qf1+ 40. Kh4 f6 0-1
+
+[Event "BL2-West 0607"]
+[Site "Germany"]
+[Date "2006.11.19"]
+[Round "3.2"]
+[White "Steingrimsson, Hedinn"]
+[Black "Inkiov, Ventzislav"]
+[Result "1-0"]
+[WhiteElo "2449"]
+[BlackElo "2523"]
+[ECO "C63"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 f5 4. Nc3 fxe4 5. Nxe4 d5 6. Nxe5 dxe4 7. Nxc6 Qg5 8. Qe2 Nf6 9. Nxa7+ Kd8 10. Nxc8 Qxg2 11. Qf1 Qf3 12. Nb6 cxb6 13. Rg1 Bc5 14. Rg3 Qf5 15. d4 Bxd4 16. c3 Bc5 17. Rxg7 Rf8 18. Rg5 Qe6 19. Bf4 Nd5 20. Bc4 Nxf4 21. Rd1+ Qd7 22. Rxd7+ Kxd7 23. Rg7+ Kd6 24. Kd2 Ne6 25. Rg2 e3+ 26. Kc2 Nf4 27. Qd1+ Kc6 28. Qf3+ Kd6 29. Qd1+ Kc6 30. Qf3+ Kd6 31. Qg3 Kc6 32. fxe3 Nxg2 33. Qxg2+ Kc7 34. Qg7+ Kd6 35. Qxb7 Rae8 36. e4 Re5 37. Bb3 Rg5 1-0
+
+[Event "BEL-chT 0607"]
+[Site "Belgium"]
+[Date "2006.12.03"]
+[Round "5"]
+[White "Steingrimsson, Hedinn"]
+[Black "Zaragatski, Ilja"]
+[Result "0-1"]
+[WhiteElo "2466"]
+[BlackElo "2436"]
+[ECO "D02"]
+
+1. d4 d5 2. Nf3 Nc6 3. Bf4 Bg4 4. e3 e6 5. h3 Bh5 6. c4 Bd6 7. Bxd6 Qxd6 8. Nc3 Nf6 9. g4 Bg6 10. c5 Qe7 11. Bb5 O-O 12. Bxc6 bxc6 13. Ne5 Ne4 14. Nxe4 Bxe4 15. f3 f6 16. Nxc6 Qd7 17. Nb4 Bg6 18. Rh2 Qb5 19. a3 a5 20. Na2 c6 21. Nc3 Qb8 22. f4 e5 23. dxe5 fxe5 24. f5 Bf7 25. Qc2 Ra7 26. Rd2 Rb7 27. Na4 Rb5 28. Nb6 Qd8 29. Rh2 Qh4+ 30. Kf1 d4 31. Re1 Rb3 32. Qf2 Qg5 33. exd4 exd4 34. Kg1 d3 35. Qd2 Qf6 36. Qf4 Rxb2 37. Nd7 Qc3 38. Rxb2 Qxe1+ 39. Kh2 Re8 40. Rb8 d2 41. Qd6 Qf2+ 0-1
+
+[Event "Porto Mannu op"]
+[Site "Porto Mannu"]
+[Date "2007.05.25"]
+[Round "8"]
+[White "Steingrimsson, Hedinn"]
+[Black "Shytaj, Luca"]
+[Result "1/2-1/2"]
+[WhiteElo "2482"]
+[BlackElo "2451"]
+[ECO "B96"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bg5 e6 7. f4 Nbd7 8. Qf3 Qc7 9. O-O-O b5 10. Bxb5 axb5 11. Ndxb5 Qb8 12. e5 Ra5 13. exf6 gxf6 14. Bh6 Bxh6 15. Nxd6+ Ke7 16. Kb1 Rd8 17. Rhe1 Nb6 18. Ncb5 Ba6 1/2-1/2
+
+[Event "Kaupthing op-A 1st"]
+[Site "Differdange"]
+[Date "2007.07.12"]
+[Round "7"]
+[White "Jansa, Vlastimil"]
+[Black "Steingrimsson, Hedinn"]
+[Result "0-1"]
+[WhiteElo "2494"]
+[BlackElo "2470"]
+[ECO "B92"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be2 e5 7. Nb3 Be7 8. O-O O-O 9. Be3 Be6 10. Qd2 Nbd7 11. a4 Rc8 12. a5 Qc7 13. Rfd1 Nc5 14. Nxc5 dxc5 15. f3 Rfd8 16. Qe1 Rxd1 17. Qxd1 c4 18. Na4 Nd7 19. Qe1 h6 20. Kf1 Kh8 21. Nb6 Nxb6 22. Bxb6 Qc6 23. c3 Kg8 24. Bd1 Bc5 25. Ba4 Qd6 26. Rd1 Qe7 27. Qd2 Bxb6 28. axb6 Qc5 29. Qf2 Qxf2+ 30. Kxf2 Kf8 31. Ke3 Ke7 32. f4 exf4+ 33. Kxf4 Rc5 34. e5 Ra5 35. Bc2 Rb5 36. Be4 Rxb6 37. Rd2 Rb5 38. h4 a5 39. g3 b6 40. Bf3 Rc5 41. Be4 b5 42. Bf5 g5+ 43. hxg5 hxg5+ 44. Kxg5 Rxe5 45. g4 a4 46. Kf4 Re1 47. Rh2 Ra1 48. Re2 a3 49. bxa3 Rxa3 50. Bxe6 fxe6 0-1
+
+[Event "Mlada Boleslav Real Spektrum Cup"]
+[Site "Mlada Boleslav"]
+[Date "2007.08.04"]
+[Round "8"]
+[White "Steingrimsson, Hedinn"]
+[Black "Jedynak, Radoslaw"]
+[Result "1-0"]
+[WhiteElo "2470"]
+[BlackElo "2540"]
+[ECO "C18"]
+
+1. d4 e6 2. e4 d5 3. Nc3 Bb4 4. e5 c5 5. a3 Bxc3+ 6. bxc3 Ne7 7. Qg4 Kf8 8. a4 Nbc6 9. Nf3 Bd7 10. Bd3 Qa5 11. Bd2 c4 12. Be2 Nd8 13. h4 b5 14. h5 h6 15. Qf4 bxa4 16. Ra2 Rb8 17. Bc1 Rb1 18. Kd2 Qb6 19. Bd1 a5 20. Ba3 Nc6 21. Bc5 Qb5 22. Qh4 Ke8 23. g4 Rb2 24. Ra1 Kd8 25. Ba3 Rb1 26. Be2 Rxh1 27. Qxh1 Be8 28. Rb1 Qa6 29. Bc5 Kc7 30. Nh4 Bd7 31. Qf3 Be8 32. Ng2 Rf8 33. Qg3 Rh8 34. Ne3 Bd7 35. Bd6+ Kd8 36. f4 Nc8 37. Qh4+ Ke8 38. Bc5 N6e7 39. Rb8 Nc6 40. Rb1 N6e7 41. Bf1 Rf8 42. Bh3 f6 43. g5 f5 44. Rb8 Nc6 45. Bxf8 Nxb8 46. Bxg7 a3 47. gxh6 a2 48. h7 1-0
+
+[Event "Bundesliga 0708"]
+[Site "Germany"]
+[Date "2007.10.20"]
+[Round "1.4"]
+[White "Steingrimsson, Hedinn"]
+[Black "Bindrich, Falko"]
+[Result "0-1"]
+[WhiteElo "2470"]
+[BlackElo "2504"]
+[ECO "D42"]
+
+1. c4 c6 2. e4 d5 3. exd5 cxd5 4. d4 Nf6 5. Nc3 e6 6. Nf3 Be7 7. cxd5 Nxd5 8. Bd3 Nc6 9. O-O O-O 10. Re1 Bf6 11. Be4 Nce7 12. Ne5 Ng6 13. Qh5 Bxe5 14. dxe5 Qa5 15. Bf3 Nb4 16. Bd1 Bd7 17. Re3 Rfd8 18. a3 Bc6 19. Rh3 h6 20. Bb3 Nd5 21. Rg3 Nxc3 22. bxc3 Ba4 23. Bxa4 Qxa4 24. Bxh6 Qe4 25. Re3 Qc2 26. Bg5 Rd3 27. h4 Qxc3 28. Rae1 Qxa3 29. Qg4 Rxe3 30. Rxe3 Qa1+ 31. Kh2 Nxe5 32. Qg3 Nd7 33. h5 Rc8 34. Ra3 Qd1 35. Qh3 Qd6+ 36. Rg3 Rc3 37. Be3 0-1
+
+[Event "Bundesliga 0708"]
+[Site "Germany"]
+[Date "2007.10.21"]
+[Round "2.4"]
+[White "Kuczynski, Robert"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2490"]
+[BlackElo "2470"]
+[ECO "B92"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be2 e5 7. Nb3 Be7 8. O-O O-O 9. Be3 Be6 10. Qd2 Nbd7 11. a4 Rc8 12. a5 Qc7 13. Rfd1 Nc5 14. Nxc5 dxc5 15. Qe1 Rfd8 16. Rxd8+ Qxd8 17. Bf3 Qc7 18. h3 c4 19. Bb6 Qc6 20. Qe3 g6 21. Qg5 1/2-1/2
+
+[Event "EU-chT (Men) 16th"]
+[Site "Heraklio"]
+[Date "2007.11.04"]
+[Round "7.2"]
+[White "Gyimesi, Zoltan"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2610"]
+[BlackElo "2533"]
+[ECO "D43"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 d5 4. Nc3 c6 5. Bg5 h6 6. Bxf6 Qxf6 7. e3 Nd7 8. Bd3 dxc4 9. Bxc4 g6 10. O-O Bg7 11. Qc2 O-O 12. Bb3 Rd8 13. Rac1 Qe7 14. Ne4 e5 15. Ng3 Kf8 16. h4 exd4 17. exd4 Nb6 18. h5 g5 19. Rfe1 Qf6 20. Ne5 Nd5 21. Ne4 Qe7 22. Nc3 Be6 23. Nxd5 cxd5 24. Qh7 Qf6 25. Rc7 Rac8 26. Ng6+ fxg6 27. Rxe6 Qxd4 28. Rxc8 Rxc8 29. Re1 Qd2 30. Rf1 Rc1 31. Qxg6 Rxf1+ 32. Kxf1 Qc1+ 33. Ke2 Qxb2+ 34. Kf1 Qa1+ 35. Ke2 Qe5+ 36. Kf1 Qa1+ 37. Ke2 Qe5+ 38. Kf1 1/2-1/2
+
+[Event "EU-ch 9th"]
+[Site "Plovdiv"]
+[Date "2008.05.01"]
+[Round "10"]
+[White "Steingrimsson, Hedinn"]
+[Black "Kritz, Leonid"]
+[Result "0-1"]
+[WhiteElo "2551"]
+[BlackElo "2609"]
+[ECO "D93"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. Bf4 Bg7 5. e3 O-O 6. Rc1 c5 7. dxc5 Qa5 8. Nf3 Nbd7 9. cxd5 Ne4 10. Nd4 Nxc3 11. bxc3 Nxc5 12. Bc4 Bd7 13. O-O Rac8 14. Bb3 Nxb3 15. Qxb3 b5 16. e4 Rc4 17. f3 Rfc8 18. Ne2 Qb6+ 19. Kh1 e6 20. Rcd1 a5 21. Rd2 h6 22. h3 Qa6 23. Rfd1 g5 24. Bh2 b4 25. cxb4 axb4 26. Qe3 Rc2 27. Qb3 Ba4 28. Qxb4 R2c4 29. Qa3 exd5 30. exd5 Bc3 31. d6 Bxd2 32. Rxd2 Rc2 33. d7 Rxd2 34. Qxa4 Rc1+ 0-1
+
+[Event "FRA-chT1A 0809"]
+[Site "France"]
+[Date "2008.11.08"]
+[Round "2.1"]
+[White "Steingrimsson, Hedinn"]
+[Black "Lupulescu, Constantin"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2594"]
+[ECO "D30"]
+
+1. c4 e6 2. d4 d5 3. Nf3 c6 4. Nbd2 Nf6 5. g3 c5 6. Bg2 Nc6 7. O-O cxd4 8. cxd5 exd5 9. Nb3 Be7 10. Nbxd4 O-O 11. b3 Ne4 12. Bb2 Qb6 13. Rc1 Re8 14. Qc2 Nb4 15. Qb1 Bf6 16. h3 Qa6 17. a3 Bxd4 18. Nxd4 Nd2 19. Qa1 Nc6 20. Nxc6 bxc6 21. Bxg7 Nxb3 22. Qc3 Nxc1 23. Rxc1 Re6 24. e4 Bb7 25. f4 dxe4 26. Bh8 f6 27. Bxf6 Qd3 28. Be5 Rae8 29. Qe1 Rxe5 30. fxe5 Qd4+ 31. Kh2 Qxe5 32. Qe3 Ba8 33. Rc4 c5 34. Rxc5 Qb2 35. Rc7 Qb6 36. Qc3 Qg6 37. Qc4+ Kh8 38. Qd4+ Kg8 39. Bf1 1-0
+
+[Event "Dresden ol (Men) 38th"]
+[Site "Dresden"]
+[Date "2008.11.16"]
+[Round "4"]
+[White "Steingrimsson, Hedinn"]
+[Black "Iordachescu, Viorel"]
+[Result "1/2-1/2"]
+[WhiteElo "2540"]
+[BlackElo "2572"]
+[ECO "E37"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 d5 5. a3 Bxc3+ 6. Qxc3 Ne4 7. Qc2 c5 8. dxc5 Nc6 9. e3 Qa5+ 10. Bd2 Nxd2 11. Qxd2 dxc4 12. Qxa5 Nxa5 13. Rc1 b5 14. cxb6 Bb7 15. bxa7 Ke7 16. Ne2 Rxa7 17. Nc3 Rb8 18. Na2 Bd5 19. Nb4 Nc6 20. Nxc6+ Bxc6 21. Bxc4 Rxb2 22. O-O Rxa3 23. Rb1 Rc2 24. Rfc1 Be4 25. Rxc2 Bxc2 26. Rc1 Bd3 27. h4 h6 28. Bxd3 Rxd3 29. g4 g5 30. Kg2 Kf6 31. Kg3 1/2-1/2
+
+[Event "Dresden ol (Men) 38th"]
+[Site "Dresden"]
+[Date "2008.11.17"]
+[Round "5"]
+[White "Sunye Neto, Jaime"]
+[Black "Steingrimsson, Hedinn"]
+[Result "0-1"]
+[WhiteElo "2488"]
+[BlackElo "2540"]
+[ECO "A07"]
+
+1. Nf3 d5 2. g3 c6 3. Bg2 Bg4 4. b3 Nd7 5. Bb2 Ngf6 6. O-O e6 7. d3 Bd6 8. h3 Bh5 9. Nbd2 O-O 10. Qe1 Re8 11. e4 e5 12. Nh4 Qc7 13. Nf5 Bc5 14. a3 a5 15. Nf3 Rad8 16. b4 Bf8 17. N3h4 b5 18. g4 Bg6 19. Nxg6 hxg6 20. Ng3 dxe4 21. dxe4 axb4 22. axb4 c5 23. bxc5 Nxc5 24. Qa5 Qd7 25. g5 Nh7 26. Bc1 Be7 27. Rb1 Nxg5 28. Bxg5 Bxg5 29. Qxb5 Qe7 30. Rfd1 Bf4 31. Ne2 Ne6 32. Rd3 Qc7 33. Rxd8 Rxd8 34. c3 Qe7 35. Qc4 Rd2 36. Kf1 Kh7 37. Qb3 Qd8 38. Bf3 Ng5 39. Bg2 Qd3 40. Re1 Nxe4 0-1
+
+[Event "Khanty-Mansiysk ol (Men) 39th"]
+[Site "Khanty-Mansiysk"]
+[Date "2010.09.22"]
+[Round "2.2"]
+[White "Agrest, Evgenij"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2585"]
+[BlackElo "2550"]
+[ECO "D39"]
+
+1. c4 e6 2. Nf3 Nf6 3. Nc3 d5 4. d4 dxc4 5. e4 Bb4 6. Bg5 h6 7. Bxf6 Qxf6 8. Bxc4 c5 9. O-O cxd4 10. e5 Qd8 11. Ne4 O-O 12. Qe2 b6 13. Rfd1 Nc6 14. Bb5 Bb7 15. Bxc6 Bxc6 16. Nxd4 Qd5 17. Nxc6 Qxc6 18. Rac1 Qb7 19. Qg4 Kh7 20. Ng5+ hxg5 21. Qxb4 Rac8 22. h4 Rxc1 23. Rxc1 Rc8 24. Rd1 Rc5 25. Qg4 Qc7 26. hxg5 Rxe5 27. Qg3 g6 28. Kh2 Rc5 29. Qxc7 Rxc7 30. Rd2 Kg7 31. Kg3 Kf8 32. f4 Ke7 33. Kf3 Rc1 34. g3 Ra1 35. a3 Re1 36. Rc2 Kd7 37. Rd2+ Ke7 38. Rc2 Kd7 39. Rd2+ 1/2-1/2
+
+[Event "Khanty-Mansiysk ol (Men) 39th"]
+[Site "Khanty-Mansiysk"]
+[Date "2010.09.25"]
+[Round "5.2"]
+[White "Steingrimsson, Hedinn"]
+[Black "Gallagher, Joseph G"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2517"]
+[ECO "A81"]
+
+1. d4 f5 2. g3 Nf6 3. Bg2 g6 4. Nf3 Bg7 5. b4 c6 6. c4 d5 7. Qc2 Be6 8. Nbd2 a5 9. bxa5 Qxa5 10. cxd5 Bxd5 11. O-O Qa4 12. Qb1 Nbd7 13. e3 c5 14. dxc5 Nxc5 15. Nd4 1/2-1/2
+
+[Event "Khanty-Mansiysk ol (Men) 39th"]
+[Site "Khanty-Mansiysk"]
+[Date "2010.09.29"]
+[Round "8.2"]
+[White "Cordova, Emilio"]
+[Black "Steingrimsson, Hedinn"]
+[Result "0-1"]
+[WhiteElo "2539"]
+[BlackElo "2550"]
+[ECO "E54"]
+
+1. d4 e6 2. Nf3 c5 3. e3 Nf6 4. c4 cxd4 5. exd4 d5 6. Nc3 Bb4 7. Bd3 O-O 8. O-O dxc4 9. Bxc4 b6 10. Bg5 Bb7 11. Qe2 Bxc3 12. bxc3 Nbd7 13. Nd2 Qc7 14. Rac1 Rfe8 15. f4 Ne4 16. Nxe4 Bxe4 17. Bb3 f5 18. Bh4 Rac8 19. c4 h6 20. Qe3 Kh7 21. a4 Qc6 22. Rf2 a6 23. Ra1 Nf8 24. Rb2 Ng6 25. Be1 Qd6 26. Ba2 Red8 27. Rd1 Nxf4 28. a5 b5 29. Bg3 e5 30. Rbd2 Qg6 31. c5 Nxg2 32. Rxg2 Bxg2 33. Kxg2 exd4 34. Qe5 Qc6+ 35. Kh3 Qxc5 36. Qe6 Rc6 37. Qf7 Rf6 38. Qb7 Qc2 39. Rg1 Qxa2 40. Bh4 Rf7 41. Qxa6 0-1
+
+[Event "ISL-chT 1011"]
+[Site "Reykjavik"]
+[Date "2010.10.10"]
+[Round "4.3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Gurevich, Mikhail"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2613"]
+[ECO "D35"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Nc3 e6 5. Bg5 Nbd7 6. cxd5 exd5 7. e3 Be7 8. Bd3 Ne4 9. Bf4 Ndf6 10. Qe2 Bf5 11. Ne5 g6 12. f3 Nd6 13. Bxf5 Nxf5 14. g4 Nd6 15. O-O-O h5 16. g5 Nd7 17. h4 Nf8 18. e4 Ne6 19. Be3 Qa5 20. Kb1 1/2-1/2
+
+[Event "ISL-chT 1112"]
+[Site "Reykjavik"]
+[Date "2011.10.07"]
+[Round "1.4"]
+[White "Gurevich, Mikhail"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2612"]
+[BlackElo "2562"]
+[ECO "A37"]
+
+1. c4 c5 2. g3 g6 3. Bg2 Bg7 4. Nc3 Nc6 5. a3 d6 6. Rb1 a5 7. Nf3 e5 8. O-O Nge7 9. d3 O-O 10. Ne1 Be6 11. Nc2 d5 12. cxd5 Nxd5 13. Ne3 Nde7 14. Nc4 Rb8 15. Bg5 f6 16. Be3 b6 17. Re1 Kh8 18. Nb5 Qd7 19. Bd2 Rfd8 20. Qc2 Nd5 21. Rec1 Nce7 22. Nc3 Bf8 23. Nxd5 Nxd5 24. b3 Rdc8 25. Qd1 Qd8 26. Rc2 Qd7 27. Qc1 Rd8 28. Rcb2 Kg7 29. h4 Kg8 30. Kh2 Kg7 31. Qf1 h6 32. Bh3 Bxh3 33. Qxh3 Qf7 34. Rc2 Rb7 35. Bc1 h5 36. Bb2 Kh7 37. Nd2 Re7 38. Nc4 Re6 39. Qg2 Rd7 40. Bc1 Rd8 41. Bd2 Rd7 42. Ne3 Nxe3 43. Bxe3 f5 44. Bd2 Bd6 45. Kg1 Bf8 46. Bg5 Rd4 47. Re1 Kg8 48. Be3 Rd7 49. Bg5 Rd4 50. Rd2 e4 51. Kf1 Qd7 1/2-1/2
+
+[Event "Bundesliga 1112"]
+[Site "Germany"]
+[Date "2011.10.14"]
+[Round "1.3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Bartel, Mateusz"]
+[Result "1/2-1/2"]
+[WhiteElo "2562"]
+[BlackElo "2627"]
+[ECO "A90"]
+
+1. Nf3 d5 2. d4 c6 3. c4 e6 4. Nbd2 f5 5. g3 Nf6 6. Bg2 Bd6 7. O-O Nbd7 8. b3 b6 9. cxd5 cxd5 10. Ng5 Qe7 11. Nc4 Bb4 12. a3 Bc3 13. a4 Bb4 14. Ba3 Bxa3 15. Nxa3 O-O 16. Qc2 Bb7 17. Rfc1 Rfc8 18. Qb2 h6 19. Nf3 Qb4 20. Nc2 Qd6 1/2-1/2
+
+[Event "Bundesliga 1112"]
+[Site "Germany"]
+[Date "2011.10.15"]
+[Round "2.3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Richter, Michael"]
+[Result "1/2-1/2"]
+[WhiteElo "2562"]
+[BlackElo "2484"]
+[ECO "C06"]
+
+1. e4 e6 2. d4 d5 3. Nd2 Nf6 4. e5 Nfd7 5. c3 c5 6. Bd3 Nc6 7. Ngf3 Rb8 8. O-O b5 9. Re1 Be7 10. Nf1 b4 11. Bf4 bxc3 12. bxc3 Qa5 13. c4 dxc4 14. Bxc4 Nxd4 15. Nxd4 cxd4 16. Qg4 g5 17. Bxg5 Rg8 18. Bd2 Rxg4 19. Bxa5 Bb4 20. Bxb4 Rxb4 21. Bd3 Bb7 22. Ng3 h6 23. a3 Rb6 24. Be2 Rg8 25. Rad1 Nxe5 26. Rxd4 Nc6 27. Rh4 Kf8 28. Bf3 Rg6 29. h3 1/2-1/2
+
+[Event "Bundesliga 1112"]
+[Site "Germany"]
+[Date "2011.12.11"]
+[Round "7.1"]
+[White "Shirov, Alexei"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2713"]
+[BlackElo "2562"]
+[ECO "C67"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 Nf6 4. O-O Nxe4 5. d4 Nd6 6. Bxc6 dxc6 7. dxe5 Nf5 8. Qxd8+ Kxd8 9. Nc3 Ke8 10. h3 Be7 11. g4 Nh4 12. Nxh4 Bxh4 13. Ne2 h5 14. f3 b6 15. Nf4 Ba6 16. Rd1 hxg4 17. fxg4 Ke7 18. b3 Bb7 19. e6 Rhd8 20. Rf1 Bf6 21. exf7 c5 22. f8=Q+ Rxf8 23. Ng6+ Ke8 24. Bb2 Bd4+ 25. Bxd4 Rxf1+ 26. Rxf1 cxd4 27. Rf8+ Kd7 28. Rf4 Re8 29. Rxd4+ Kc8 30. Rd2 a5 31. Kf2 Re6 32. Nh4 a4 33. bxa4 Re4 34. Nf5 g6 35. Nd4 c5 36. Nb5 Rxa4 37. Rd6 g5 38. Ke3 Rxa2 39. Rh6 Bg2 40. c4 Kd7 41. Nc3 Rc2 42. Na4 Ke8 43. Nxb6 Bxh3 44. Re6+ Kf7 45. Re4 Bf1 46. Nd7 Re2+ 47. Kf3 Rxe4 48. Kxe4 Ke7 1/2-1/2
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "2012.03.09"]
+[Round "4"]
+[White "Trella, Thomas"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2410"]
+[BlackElo "2556"]
+[ECO "A11"]
+
+1. c4 c6 2. g3 d5 3. Bg2 Nf6 4. Nf3 dxc4 5. O-O Nbd7 6. Na3 Nb6 7. Qc2 Be6 8. Ne5 h5 9. Naxc4 Nxc4 10. Nxc4 h4 11. d3 g6 12. Ne5 Nd7 13. Nf3 hxg3 14. hxg3 Bg7 15. Ng5 Nf8 16. Bd2 Bd5 17. e4 Be6 18. Bc3 Bd4 19. Nf3 Bf6 20. Bxf6 exf6 21. d4 1/2-1/2
+
+[Event "EU-ch 13th"]
+[Site "Plovdiv"]
+[Date "2012.03.22"]
+[Round "3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Cheparinov, Ivan"]
+[Result "0-1"]
+[WhiteElo "2556"]
+[BlackElo "2664"]
+[ECO "B20"]
+
+1. g3 g6 2. Bg2 Bg7 3. e4 c5 4. Ne2 Nc6 5. O-O d6 6. c4 a6 7. Nbc3 Rb8 8. a4 e6 9. d3 Nge7 10. Rb1 O-O 11. Be3 Qb6 12. Na2 Qa5 13. Bd2 Qc7 14. b4 b6 15. Qb3 Bb7 16. b5 axb5 17. axb5 Nd4 18. Nxd4 Bxd4 19. Nc3 Ra8 20. Bh6 Rfe8 21. Ra1 Qd7 22. Ra4 Rxa4 23. Nxa4 Qc7 24. Re1 Ra8 25. Re2 Qd8 26. h4 Nc8 27. Kh2 Qf6 28. Bg5 Qg7 29. Bd8 Qf8 30. Bg5 h6 31. Bc1 Qg7 32. Be3 Bxe3 33. Rxe3 Qa1 34. Nb2 Qb1 35. Re2 Ra1 36. Rd2 Qg1+ 37. Kh3 g5 38. f3 Rb1 39. hxg5 hxg5 40. Qc2 Rc1 41. Qa4 f5 42. Nd1 Qe1 43. Qa2 Rxd1 44. Qb2 g4+ 45. Kh4 e5 46. Re2 Rb1 47. Qc2 Qd1 48. Qxd1 Rxd1 49. fxg4 fxe4 50. Bxe4 Bxe4 51. dxe4 Kf7 52. Rf2+ Kg7 53. Ra2 Kg6 54. g5 Re1 55. Ra8 Rxe4+ 56. g4 Ne7 57. Re8 Nf5+ 58. Kh3 Ng7 59. Rd8 Rd4 60. Kh4 Nf5+ 61. Kh3 Rd3+ 62. Kh2 Ne3 63. Kh3 Nxc4+ 64. Kh4 Rd1 65. Rg8+ Kf7 66. Ra8 e4 0-1
+
+[Event "ISL-ch op"]
+[Site "Reykjavik"]
+[Date "2013.06.04"]
+[Round "6"]
+[White "Steingrimsson, Hedinn"]
+[Black "Kristjansson, Stefan"]
+[Result "0-1"]
+[WhiteElo "2558"]
+[BlackElo "2494"]
+[ECO "A52"]
+
+1. d4 Nf6 2. c4 e5 3. dxe5 Ng4 4. Bf4 g5 5. Bd2 Nxe5 6. Nf3 Nxf3+ 7. exf3 Bg7 8. Qe2+ Kf8 9. Nc3 Nc6 10. Be3 d6 11. Qd2 h6 12. h4 gxh4 13. O-O-O Be6 14. f4 a6 15. Nd5 b5 16. c5 Ne7 17. Nxe7 Qxe7 18. Qc2 Qf6 19. g3 hxg3 20. fxg3 Bf5 21. Bd3 Qe6 22. Bd4 Bxd4 23. Bxf5 Qe3+ 24. Kb1 dxc5 25. Rhe1 Qxg3 26. Qe4 Rd8 27. Rxd4 cxd4 28. Qe7+ Kg7 29. Qe5+ Kg8 30. Qe7 Rd5 31. Re5 Rxe5 32. Qxe5 Qg1+ 33. Kc2 Qg2+ 34. Kb3 Qc6 35. Qxd4 Qc4+ 0-1
+
+[Event "Andorra op 31st"]
+[Site "La Massana"]
+[Date "2013.07.26"]
+[Round "7"]
+[White "Steingrimsson, Hedinn"]
+[Black "Riff, Jean Noel"]
+[Result "1/2-1/2"]
+[WhiteElo "2557"]
+[BlackElo "2427"]
+[ECO "E11"]
+
+1. d4 e6 2. c4 Bb4+ 3. Nd2 Nf6 4. Nf3 O-O 5. a3 Be7 6. e4 d6 7. Bd3 e5 8. dxe5 dxe5 9. Nxe5 Re8 10. Qe2 Bc5 11. Nef3 Nc6 12. h3 Bf5 13. O-O Qd6 14. b4 Bd4 15. c5 Qd7 16. Nxd4 Nxd4 17. Qe3 Rad8 18. Rb1 Bg6 19. g4 h5 20. f3 hxg4 21. hxg4 Nxg4 22. fxg4 Qxg4+ 23. Kf2 Nf5 24. Qf3 Qh4+ 25. Kg2 Qg5+ 26. Kf2 Qh4+ 27. Kg2 Qg5+ 1/2-1/2
+
+[Event "EU-chT (Men) 19th"]
+[Site "Warsaw"]
+[Date "2013.11.14"]
+[Round "6.15"]
+[White "Steingrimsson, Hedinn"]
+[Black "Hansen, Sune Berg"]
+[Result "1-0"]
+[WhiteElo "2543"]
+[BlackElo "2563"]
+[ECO "E14"]
+
+1. d4 d5 2. c4 c6 3. Nc3 Nf6 4. e3 e6 5. Nf3 Nbd7 6. Qc2 b6 7. cxd5 exd5 8. Bd3 Bb7 9. O-O Be7 10. e4 dxe4 11. Nxe4 O-O 12. Ne5 c5 13. Ng5 g6 14. Bc4 Nd5 15. Ngxf7 Rxf7 16. Nxf7 Kxf7 17. Rd1 Qc7 18. dxc5 Nf6 19. cxb6 axb6 20. Bxd5+ Nxd5 21. Qxc7 Nxc7 22. Rd7 Rd8 23. Rxe7+ Kxe7 24. Bg5+ Kd7 25. Rd1+ Nd5 26. Bxd8 Kxd8 27. f3 Ke7 28. Kf2 Bc6 29. Rd4 Kf6 30. a4 Ke5 31. Re4+ Kd6 32. Rh4 h5 33. Rc4 Bd7 34. Kg3 Bf5 35. b4 b5 36. axb5 Bd7 37. f4 Bxb5 38. Rd4 Kc6 39. Kh4 Nc7 40. f5 gxf5 41. Kxh5 Bf1 42. Rd2 Ne6 43. Kh6 Kb5 44. Rb2 Bd3 45. h4 f4 46. h5 Bf5 47. Re2 Kxb4 48. Re5 Bg4 49. Kg6 Nd4 50. Kg5 f3 51. Re4 Bxh5 52. Rxd4+ Kc3 53. Kxh5 1-0
+
+[Event "EU-chT (Men) 19th"]
+[Site "Warsaw"]
+[Date "2013.11.17"]
+[Round "9.49"]
+[White "Steingrimsson, Hedinn"]
+[Black "Vallejo Pons, Francisco"]
+[Result "1-0"]
+[WhiteElo "2543"]
+[BlackElo "2705"]
+[ECO "E32"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 b6 5. a3 Bxc3+ 6. Qxc3 Bb7 7. Nf3 O-O 8. Bg5 d6 9. Nd2 Nbd7 10. f3 h6 11. Bh4 Re8 12. e3 e5 13. dxe5 Rxe5 14. Bg3 Re6 15. Be2 Qe7 16. Bf2 d5 17. O-O Re8 18. Rfe1 c5 19. Bf1 Ne5 20. b3 dxc4 21. bxc4 Nh5 22. Rad1 Rg6 23. e4 Bc6 24. Nb1 Qb7 25. Kh1 Nxf3 26. gxf3 Rxe4 27. Rxe4 Bxe4 28. Nd2 Bc6 29. Re1 f5 30. Re5 Qd7 31. Be1 Rd6 32. Qe3 Nf6 33. Re7 Qd8 34. Re6 f4 35. Qe5 Rxd2 36. Rxc6 Rd7 37. Bh3 Re7 38. Re6 Rf7 39. Qxf4 Qd3 40. Re3 1-0
+
+[Event "ISL-ch"]
+[Site "Kopavogur"]
+[Date "2014.05.25"]
+[Round "3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Thorhallsson, Throstur"]
+[Result "0-1"]
+[WhiteElo "2537"]
+[BlackElo "2437"]
+[ECO "A14"]
+
+1. c4 e6 2. g3 d5 3. Bg2 Nf6 4. Nf3 Be7 5. O-O O-O 6. b3 c5 7. Bb2 Nc6 8. e3 b6 9. Nc3 Ba6 10. Qe2 Rc8 11. Rac1 Qd7 12. Nb5 Rfd8 13. d4 cxd4 14. exd4 Qe8 15. Rfd1 h6 16. a4 Bb7 17. Ne5 a6 18. Nxc6 Rxc6 19. Nc3 Rcc8 20. cxd5 exd5 21. Qd3 Qd7 22. Rc2 Bb4 23. Rdc1 Re8 24. Na2 Rxc2 25. Qxc2 Bd6 26. Nc3 h5 27. Qd2 Qf5 28. Qd1 h4 29. Qf3 Qg5 30. Rd1 hxg3 31. hxg3 Ng4 32. Bc1 Qh5 33. Bf4 Bb4 34. Nxd5 Be1 35. Nf6+ gxf6 36. Qxb7 Bxf2+ 37. Kf1 Nh2+ 38. Kxf2 Qxd1 39. Be4 Ng4+ 40. Kg2 Qe2+ 0-1
+
+[Event "Bratto op 34th"]
+[Site "Bratto"]
+[Date "2014.08.28"]
+[Round "7"]
+[White "Steingrimsson, Hedinn"]
+[Black "Stopa, Jacek"]
+[Result "1/2-1/2"]
+[WhiteElo "2536"]
+[BlackElo "2498"]
+[ECO "D09"]
+
+1. d4 d5 2. c4 e5 3. dxe5 d4 4. Nf3 Nc6 5. g3 Nge7 6. Bg2 Ng6 7. O-O Ngxe5 8. Nbd2 Be7 9. a3 a5 10. b3 O-O 11. Bb2 Ra6 12. Qc2 Re8 13. Rad1 d3 14. exd3 Qxd3 15. Ne1 Qxc2 16. Nxc2 Bg4 17. Rb1 Nd3 18. Bf3 Bxf3 19. Nxf3 Nxb2 20. Rxb2 Rb6 21. Rd1 g6 22. Kf1 Rd8 23. Rxd8+ Nxd8 24. b4 axb4 25. axb4 Ra6 26. Ne3 c6 27. b5 Ra1+ 28. Kg2 Kg7 29. bxc6 bxc6 30. Ne5 Rc1 31. Rd2 Kf8 32. h4 Ke8 33. Kf3 Rc3 34. Ke2 Bf6 35. N3g4 Bg7 36. Nd7 Rxc4 37. Ngf6+ Ke7 38. Nb6 Rc1 39. Nxh7 Ne6 40. Nc8+ Ke8 41. Nd6+ Ke7 1/2-1/2
+
+[Event "ISL-chT 1415"]
+[Site "Reykjavik"]
+[Date "2014.10.05"]
+[Round "5.3"]
+[White "Steingrimsson, Hedinn"]
+[Black "Grandelius, Nils"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2569"]
+[ECO "E46"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. e3 O-O 5. Ne2 Re8 6. a3 Bf8 7. d5 a5 8. g3 Na6 9. Bg2 Nc5 10. b3 exd5 11. cxd5 b6 12. O-O Ba6 13. a4 Nfe4 14. Nxe4 Nxe4 15. Qc2 Nc5 16. Re1 Qf6 17. Bb2 Bd3 18. Qc1 Qg5 19. Qc3 Be4 20. Nf4 Bxg2 21. Kxg2 Bd6 22. h4 Qe5 23. Rab1 Qxc3 24. Bxc3 b5 25. axb5 Reb8 26. Ne2 Rxb5 27. Nd4 Rb7 28. Ra1 Nxb3 29. Nxb3 Rxb3 30. Bxa5 f5 31. Bc3 1/2-1/2
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "2015.03.12"]
+[Round "4"]
+[White "Steingrimsson, Hedinn"]
+[Black "Mamedyarov, Shakhriyar"]
+[Result "0-1"]
+[WhiteElo "2530"]
+[BlackElo "2756"]
+[ECO "A42"]
+
+1. d4 g6 2. e4 d6 3. c4 Bg7 4. Nc3 Nc6 5. d5 Ne5 6. f4 Nd7 7. Nh3 Nc5 8. Nf2 e5 9. Be2 exf4 10. Bxf4 Nf6 11. e5 dxe5 12. Bxe5 O-O 13. O-O Re8 14. Bd4 Ncd7 15. b4 a5 16. a3 axb4 17. axb4 Rxa1 18. Qxa1 c5 19. bxc5 Nxc5 20. Bxc5 Nd7 21. Bd6 Rxe2 22. Qc1 Re8 23. Nb5 Nf6 24. Bf4 Re2 25. Re1 Rxe1+ 26. Qxe1 Bd7 27. Nd6 Qb6 28. h3 Bf8 29. Ne4 Nxe4 30. Qxe4 Bc5 31. Qe2 h5 32. Bg3 f5 33. Bf4 h4 34. Kf1 Qb1+ 35. Qd1 Qa2 36. Qe2 Qb1+ 37. Qd1 Qb4 38. Qc1 Qb3 39. Kg1 g5 40. Be5 f4 41. Ba1 Bxh3 42. Qe1 Kf8 43. Qe5 Bxf2+ 44. Kxf2 Qg3+ 45. Ke2 Qxg2+ 46. Kd3 Qf1+ 47. Kc2 Qf2+ 48. Kb1 Qb6+ 49. Ka2 Qa6+ 50. Kb3 Qb6+ 51. Ka2 Qg6 52. Bd4 Bd7 53. Kb2 h3 54. d6 Be6 55. Qh8+ Kf7 56. Qd8 Qf5 57. Qe7+ Kg6 58. Qe8+ Qf7 59. Qh8 f3 60. Qe5 f2 61. Qe4+ Qf5 62. Qxb7 f1=Q 0-1
+
+[Event "ISL-chT 1415"]
+[Site "Reykjavik"]
+[Date "2015.03.19"]
+[Round "6.4"]
+[White "Gajewski, Grzegorz"]
+[Black "Steingrimsson, Hedinn"]
+[Result "0-1"]
+[WhiteElo "2648"]
+[BlackElo "2530"]
+[ECO "A34"]
+
+1. c4 c5 2. Nf3 Nc6 3. g3 Nf6 4. Bg2 d5 5. cxd5 Nxd5 6. Nc3 Nc7 7. d3 e5 8. Be3 Be7 9. Nd2 Bd7 10. Rc1 Rc8 11. O-O O-O 12. Nc4 f6 13. Bxc6 Bxc6 14. Na5 Ne6 15. Nxc6 Rxc6 16. Qa4 Ra6 17. Qb3 Qd7 18. Ne4 Rb6 19. Qc4 Rc8 20. Rc2 Rb4 21. Qc3 f5 22. Nxc5 Bxc5 23. Rfc1 a5 24. a3 Ra4 25. Qb3 b6 26. Bxc5 bxc5 27. Rxc5 Rxc5 28. Rxc5 Rd4 29. Rxe5 Rd6 30. Rxa5 g6 31. Ra8+ Kg7 32. Qc3+ Kh6 33. Rc8 Nd4 34. Qd2+ Kg7 35. Qc3 Kh6 36. Kf1 Qb7 37. Qc1+ g5 38. e4 fxe4 39. Qc5 Qd7 40. Kg2 exd3 41. f3 d2 42. h4 Nxf3 43. hxg5+ Nxg5 0-1
+
+[Event "ISL-ch"]
+[Site "Reykjavik"]
+[Date "2015.05.14"]
+[Round "1"]
+[White "Steingrimsson, Hedinn"]
+[Black "Thorfinnsson, Bragi"]
+[Result "1-0"]
+[WhiteElo "2532"]
+[BlackElo "2416"]
+[ECO "A50"]
+
+1. d4 Nf6 2. c4 b6 3. f3 Nc6 4. Nc3 e5 5. d5 Na5 6. e4 Nb7 7. Bd3 Bc5 8. Nge2 Nh5 9. a3 Qh4+ 10. g3 Qh3 11. b4 Be7 12. Kf2 d6 13. Ng1 Qd7 14. c5 Qd8 15. c6 Nc5 16. bxc5 dxc5 17. Nge2 O-O 18. g4 Nf6 19. Ng3 Ne8 20. Kg2 Kh8 21. a4 a5 22. Ra2 g6 23. f4 Bf6 24. Nb5 exf4 25. Bxf4 Bg7 26. Rf2 Ba6 27. h4 Qe7 28. h5 Bxb5 29. axb5 Bd4 30. Rf3 a4 31. hxg6 fxg6 32. e5 Qf7 33. e6 Qxf4 34. Rxf4 Rxf4 35. Qd2 Rf2+ 36. Qxf2 Bxf2 37. Kxf2 Kg7 38. Ne4 a3 39. Ra1 Nf6 40. d6 c4 41. Nxf6 Kxf6 42. Bxc4 cxd6 43. Ba2 1-0
+
+[Event "ISL-ch"]
+[Site "Reykjavik"]
+[Date "2015.05.22"]
+[Round "9"]
+[White "Hjartarson, Johann"]
+[Black "Steingrimsson, Hedinn"]
+[Result "0-1"]
+[WhiteElo "2566"]
+[BlackElo "2532"]
+[ECO "B90"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be3 e5 7. Nb3 Be7 8. h3 Be6 9. f4 exf4 10. Bxf4 Nc6 11. Qe2 Ne5 12. O-O-O Nfd7 13. Kb1 O-O 14. g4 Re8 15. Qe3 Bf8 16. g5 b5 17. h4 b4 18. Nd5 a5 19. Qg3 a4 20. Nd4 b3 21. cxb3 axb3 22. Nxb3 Qb8 23. Bh3 Qa7 24. Nc1 Nc5 25. Bxe5 Bxd5 26. exd5 dxe5 27. Qe3 Qb6 28. Rh2 Rab8 29. h5 e4 30. Rc2 Qd6 31. Rd4 g6 32. hxg6 hxg6 33. Rdc4 Rb5 34. Bf1 Ra5 35. b4 Rb8 36. a3 Qxd5 37. Rh2 Qe5 38. Qh3 Bg7 39. Nb3 Rxa3 40. Rxc5 Rxb3+ 41. Qxb3 Qxh2 42. Bc4 Qg1+ 43. Kc2 Qf2+ 44. Kb1 e3 45. Rc7 Qg1+ 46. Kc2 {picking up the rook} 46... Qh2+ 0-1
+
+[Event "Washington op 4th"]
+[Site "Rockville"]
+[Date "2015.08.09"]
+[Round "4"]
+[White "Azarov, Sergei"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1-0"]
+[WhiteElo "2602"]
+[BlackElo "2550"]
+[ECO "C50"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. O-O Nf6 5. d4 Bxd4 6. Nxd4 Nxd4 7. f4 d6 8. fxe5 dxe5 9. Bg5 Qe7 10. Na3 Rg8 11. Kh1 Bd7 12. Qe1 Ne6 13. Be3 a6 14. Qa5 Ng4 15. Bg1 f6 16. Rad1 Nh6 17. Nb5 b6 18. Nxc7+ Nxc7 19. Qxb6 Qd8 20. Rd6 Rb8 21. Rxd7 Kxd7 22. Rd1+ Kc8 23. Bxa6+ Nxa6 24. Qxa6+ Rb7 25. Rxd8+ Rxd8 26. h3 Rd1 27. Kh2 Nf7 28. Bc5 Nd8 29. b4 Rd2 30. c4 Kd7 31. Bb6 Rxb6 32. Qxb6 Ne6 33. c5 Nf4 34. Qb7+ Ke6 35. Qxg7 1-0
+
+[Event "Washington op 4th"]
+[Site "Rockville"]
+[Date "2015.08.12"]
+[Round "8"]
+[White "Steingrimsson, Hedinn"]
+[Black "Yang, Darwin"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2465"]
+[ECO "E32"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 O-O 5. Nf3 d6 6. Bd2 c5 7. dxc5 dxc5 8. a3 Ba5 9. e3 Qe7 10. Bd3 Rd8 11. O-O-O b6 12. e4 e5 13. Bg5 Bxc3 14. Qxc3 Nc6 15. h3 Bb7 16. Rhe1 Rd7 17. g4 Rad8 18. Bh4 Nd4 19. Nxd4 Rxd4 20. f3 Bc6 21. Bf2 R4d7 22. h4 Ne8 23. Bc2 Nc7 24. b4 f6 25. b5 Rxd1+ 26. Rxd1 Rxd1+ 27. Kxd1 Bb7 28. Ke1 Ne6 29. Bd3 h6 30. h5 Qd6 31. Be3 Kf7 32. a4 Ke7 33. Bf1 Kd7 34. a5 Kc7 35. a6 Bc8 36. Qd2 Qxd2+ 37. Bxd2 Kd6 38. Kf2 Bd7 39. Ke3 Kc7 40. Be1 Kd6 41. Bg3 Kc7 1/2-1/2
+
+[Event "EU-chT (Men) 20th"]
+[Site "Reykjavik"]
+[Date "2015.11.16"]
+[Round "4.2"]
+[White "Brunello, Sabino"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2562"]
+[BlackElo "2566"]
+[ECO "D30"]
+
+1. d4 d5 2. c4 e6 3. Nf3 Nf6 4. Bg5 h6 5. Bxf6 Qxf6 6. Nbd2 Nd7 7. Qc2 c6 8. g3 dxc4 9. Bg2 Be7 10. Nxc4 Bb4+ 11. Kf1 O-O 12. a3 Be7 13. e4 Rd8 14. Ke2 Nb6 15. Na5 Bf8 16. Rhd1 Rb8 17. b4 Bd7 18. Kf1 Be8 19. Rd2 Qe7 20. Re1 f6 21. Bh3 Kh8 22. Nh4 g5 23. Ng2 h5 24. f3 Bg6 25. Qb3 Re8 26. Ne3 Rbd8 27. Qd1 Bh6 28. Kg1 f5 29. Bg2 Qg7 30. e5 f4 31. gxf4 gxf4 32. Nec4 Nd5 33. Nd6 Re7 34. Kh1 Ne3 35. Qc1 h4 36. Bh3 Bh5 37. Rf2 Rg8 38. Rg1 Qxg1+ 39. Qxg1 Rxg1+ 40. Kxg1 Rg7+ 41. Kh1 Nd1 42. Rf1 Ne3 43. Rf2 Nd1 1/2-1/2
+
+[Event "EU-ch 17th"]
+[Site "Gjakova"]
+[Date "2016.05.13"]
+[Round "2"]
+[White "Steingrimsson, Hedinn"]
+[Black "Nisipeanu, Liviu Dieter"]
+[Result "1/2-1/2"]
+[WhiteElo "2574"]
+[BlackElo "2669"]
+[ECO "E92"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O 6. Be2 e5 7. dxe5 dxe5 8. Qxd8 Rxd8 9. Bg5 Re8 10. Nd5 Nxd5 11. cxd5 c6 12. Bc4 cxd5 13. Bxd5 Nc6 14. O-O Be6 15. Bxc6 bxc6 16. Rfc1 Reb8 17. b3 a5 18. Rxc6 a4 19. bxa4 Rxa4 20. Nd2 Rb2 21. a3 h6 22. Be3 Bf8 23. f3 Bxa3 24. Rb1 Rxb1+ 25. Nxb1 Be7 26. Nc3 Ra1+ 27. Kf2 Rh1 28. h3 Kg7 29. Ke2 Bb3 30. Rc7 Bd6 31. Rc6 Be7 32. Rc7 Bb4 33. Kf2 Ba5 34. Rc5 Ra1 35. Rc6 Be6 36. Nd5 Be1+ 37. Ke2 Bg3 38. Rc1 Ra3 39. Rc2 Bd7 40. Rb2 Bc8 41. Nb4 h5 42. Bg5 Ba6+ 1/2-1/2
+
+[Event "ISL-ch"]
+[Site "Reykjavik"]
+[Date "2016.06.05"]
+[Round "6"]
+[White "Hjartarson, Johann"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2547"]
+[BlackElo "2574"]
+[ECO "B10"]
+
+1. c4 c6 2. e4 d5 3. exd5 cxd5 4. cxd5 Nf6 5. Nc3 Nxd5 6. Nf3 Nxc3 7. bxc3 g6 8. d4 Bg7 9. h4 Qc7 10. h5 Qxc3+ 11. Bd2 Qc7 12. Rc1 Qd8 13. Bc4 Nc6 14. Qb3 e6 15. d5 exd5 16. Bxd5 O-O 17. hxg6 hxg6 18. Bc3 Bg4 19. Bxg7 Qe7+ 20. Kf1 Kxg7 21. Qb2+ f6 22. Re1 Qd7 23. Bxc6 bxc6 24. Ne5 fxe5 25. Qxe5+ Rf6 26. Qg5 Rg8 27. Rh4 Qf5 28. Qh6+ Kf7 29. Qe3 Re6 30. Qxa7+ Kf6 31. Qd4+ Kg5 32. Rxg4+ Qxg4 33. Qxg4+ Kxg4 34. Rxe6 c5 35. Rc6 Ra8 36. Rxg6+ Kf4 37. Re6 Rxa2 38. g3+ Kf5 39. Re8 c4 40. Re3 Rb2 41. Ke1 Rb1+ 42. Kd2 Rb2+ 43. Kc3 1/2-1/2
+
+[Event "ISL-ch"]
+[Site "Reykjavik"]
+[Date "2016.06.09"]
+[Round "9"]
+[White "Steingrimsson, Hedinn"]
+[Black "Thorfinnsson, Bjorn"]
+[Result "1-0"]
+[WhiteElo "2574"]
+[BlackElo "2410"]
+[ECO "B00"]
+
+1. d4 e6 2. e4 b6 3. Nf3 Bb7 4. Bd3 c5 5. c3 Nf6 6. Nbd2 Nc6 7. a3 Be7 8. b4 Qc7 9. O-O a5 10. b5 Nb8 11. Qe2 d5 12. e5 Nh5 13. Nb1 g6 14. Bh6 Bf8 15. Qd2 f5 16. exf6 Nd7 17. Bxf8 Nxf8 18. Qg5 Qf7 19. Nbd2 Rc8 20. Rfe1 Qxf6 21. Re3 Qxg5 22. Nxg5 Ng7 23. Rf3 Rc7 24. dxc5 bxc5 25. b6 Re7 26. Bb5+ Nd7 27. Nb3 d4 28. Nxc5 Bxf3 29. Nxf3 Kd8 30. Bxd7 Rxd7 31. Nxd4 Rf7 32. Rb1 e5 33. Nc6+ Kc8 34. b7+ 1-0
+
+[Event "12th Washington Int 2025"]
+[Site "Rockville USA"]
+[Date "2025.08.10"]
+[Round "3.13"]
+[White "Steingrimsson, Hedinn"]
+[Black "Prabhu, Naveen"]
+[Result "1-0"]
+[WhiteElo "2492"]
+[BlackElo "2257"]
+[ECO "D30"]
+
+1. d4 d5 2. c4 e6 3. Nf3 a6 4. Bg5 Be7 5. Bxe7 Nxe7 6. Nbd2 Nd7 7. Rc1 O-O 8. Qc2 c6 9. e3 Ng6 10. Bd3 Qf6 11. h4 Re8 12. g4 e5 13. g5 Qe7 14. cxd5 cxd5 15. h5 Ngf8 16. dxe5 Nxe5 17. Nxe5 Qxe5 18. Nf3 Qf4 19. Be2 Qb4+ 20. Qd2 Qxd2+ 21. Kxd2 Bd7 22. h6 g6 23. Bd3 Bc6 24. Rhg1 Nd7 25. Nd4 Rec8 26. f4 Kf8 27. Be2 Nb6 28. Rc3 Na4 29. Rc2 Bd7 30. b3 Rxc2+ 31. Nxc2 Nb6 32. Nd4 Ke7 33. Bd3 Kd6 34. Rf1 Rf8 35. f5 Ke7 36. e4 dxe4 37. Bxe4 Bc8 38. fxg6 fxg6 39. Rxf8 Kxf8 40. Ke3 Nd7 41. Kf4 Kf7 42. a4 b6 43. Bd5+ Kf8 44. Be6 Ke7 45. b4 a5 46. b5 Kd6 47. Bh3 Kc5 48. Nc6 Kd6 49. Bg4 Bb7 50. Bxd7 Kxd7 51. Ne5+ Ke8 52. Nxg6 Bd5 53. Ne5 Kf8 54. Nd7+ Kf7 55. Nxb6 Bb3 56. Nd7 Bxa4 57. b6 1-0
+
+[Event "12th Washington Int 2025"]
+[Site "Rockville USA"]
+[Date "2025.08.10"]
+[Round "4.5"]
+[White "Liu, Eric"]
+[Black "Steingrimsson, Hedinn"]
+[Result "0-1"]
+[WhiteElo "2402"]
+[BlackElo "2492"]
+[ECO "B23"]
+
+1. e4 c5 2. Nc3 d6 3. f4 Nc6 4. Nf3 g6 5. Bb5 Bd7 6. d3 Bg7 7. O-O a6 8. Bc4 Na5 9. Bb3 Nxb3 10. axb3 Bc6 11. Qe1 Qd7 12. h3 Nf6 13. Qh4 h6 14. Qf2 Nh5 15. g4 Nf6 0-1
+
+[Event "12th Washington Int 2025"]
+[Site "Rockville USA"]
+[Date "2025.08.12"]
+[Round "7.1"]
+[White "Zhou, Jianchao"]
+[Black "Steingrimsson, Hedinn"]
+[Result "1/2-1/2"]
+[WhiteElo "2584"]
+[BlackElo "2492"]
+[ECO "A06"]
+
+1. Nf3 d5 2. e3 Nf6 3. c4 c6 4. Nc3 e6 5. b3 Bd6 6. Bb2 O-O 7. Be2 b6 8. Qc2 Bb7 9. d4 Nbd7 10. O-O Qe7 11. Rad1 Rad8 12. Rfe1 Rfe8 13. h3 a6 14. a4 c5 1/2-1/2
+

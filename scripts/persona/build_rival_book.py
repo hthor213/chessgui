@@ -38,7 +38,8 @@ import chess
 import chess.pgn
 
 # Dad's opening depth is shallow (~3 plies per the dossier); 8 plies of book is
-# a generous cap that still stays inside genuine opening theory.
+# a generous cap that still stays inside genuine opening theory. GM personas use
+# --max-ply 24 (real theory depth, matching exhibition_v2's BOOK_MAX_PLY).
 MAX_PLY = 8
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -108,16 +109,17 @@ def _san_with_number(ply: int, san: str) -> str:
 
 
 def harvest_game(
-    game: chess.pgn.Game, color: str, entries: "OrderedDict[tuple[str, str], Entry]"
+    game: chess.pgn.Game, color: str, entries: "OrderedDict[tuple[str, str], Entry]",
+    max_ply: int = MAX_PLY,
 ) -> bool:
     """Walk a game's opening and record positions after each of the rival's moves
-    (up to MAX_PLY). Returns True if the game contributed at least one position."""
+    (up to max_ply). Returns True if the game contributed at least one position."""
     board = game.board()
     tokens: list[str] = []
     contributed = False
     rival_turn_white = color == "white"
     for ply, move in enumerate(game.mainline_moves()):
-        if ply >= MAX_PLY:
+        if ply >= max_ply:
             break
         # Whose move is this? White to move on even ply indices.
         mover_is_white = board.turn == chess.WHITE
@@ -140,7 +142,8 @@ def harvest_game(
     return contributed
 
 
-def build(sources: list[tuple[str, Path]]) -> tuple[list[Entry], BuildStats]:
+def build(sources: list[tuple[str, Path]],
+          max_ply: int = MAX_PLY) -> tuple[list[Entry], BuildStats]:
     entries: "OrderedDict[tuple[str, str], Entry]" = OrderedDict()
     stats = BuildStats()
     for username, path in sources:
@@ -159,7 +162,7 @@ def build(sources: list[tuple[str, Path]]) -> tuple[list[Entry], BuildStats]:
                 if color is None:
                     stats.skipped_rival_absent += 1
                     continue
-                if harvest_game(game, color, entries):
+                if harvest_game(game, color, entries, max_ply):
                     stats.used += 1
         stats.sources.append({"username": username, "path": str(path), "games": src_games})
     # Most-played lines first — the frontend samples by weight, but a sorted book
@@ -168,14 +171,15 @@ def build(sources: list[tuple[str, Path]]) -> tuple[list[Entry], BuildStats]:
     return ordered, stats
 
 
-def to_document(entries: list[Entry], stats: BuildStats) -> dict:
+def to_document(entries: list[Entry], stats: BuildStats,
+                rival: str = "dad", max_ply: int = MAX_PLY) -> dict:
     white = sum(1 for e in entries if e.rival_color == "white")
     black = len(entries) - white
     return {
         "version": 1,
         "generated_at": int(time.time()),
-        "max_ply": MAX_PLY,
-        "rival": "dad",
+        "max_ply": max_ply,
+        "rival": rival,
         "sources": stats.sources,
         "stats": {
             "games_seen": stats.games,
@@ -326,6 +330,10 @@ def self_test() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build a rival opening book from PGNs.")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output JSON path")
+    ap.add_argument("--max-ply", type=int, default=MAX_PLY,
+                    help=f"book depth in plies (default {MAX_PLY}; GM personas use 24)")
+    ap.add_argument("--rival", default="dad",
+                    help="label stored in the book's `rival` field")
     ap.add_argument("--self-test", action="store_true", help="run built-in checks and exit")
     ap.add_argument(
         "sources",
@@ -353,8 +361,8 @@ def main() -> int:
         print(f"error: source PGN(s) not found: {', '.join(missing)}", file=sys.stderr)
         return 1
 
-    entries, stats = build(sources)
-    doc = to_document(entries, stats)
+    entries, stats = build(sources, max_ply=args.max_ply)
+    doc = to_document(entries, stats, rival=args.rival, max_ply=args.max_ply)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(doc, indent=1), encoding="utf-8")
 

@@ -1,0 +1,2522 @@
+[Event "Luzern zt prel-A"]
+[Site "Luzern"]
+[Date "1979.05.24"]
+[Round "4"]
+[White "Huebner, Robert"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2595"]
+[BlackElo "2420"]
+[ECO "B20"]
+
+1. g3 c5 2. Bg2 Nc6 3. e4 g6 4. Ne2 Bg7 5. O-O d6 6. c3 e5 7. Na3 Nge7 8. Nc2 O-O 9. d4 cxd4 10. cxd4 exd4 11. Ncxd4 d5 12. Nxc6 bxc6 13. Qc2 dxe4 14. Bxe4 Bf5 15. Bg5 Bxe4 16. Qxe4 Re8 17. Nc3 Qd4 18. Qxd4 Bxd4 19. Rfd1 Bg7 20. Rd7 Nd5 21. Nxd5 cxd5 22. Rc1 Bxb2 23. Rcc7 Be5 24. Rb7 Reb8 25. Rxf7 Rxb7 26. Rxb7 Bg7 27. Rd7 d4 28. Kf1 a6 29. Ke2 Re8+ 30. Kd3 Re6 31. Rb7 h6 32. Bd8 Rc6 33. Rc7 Re6 34. Be7 Re1 35. Ra7 g5 36. Bb4 Rb1 37. Bd2 Rb6 38. Bc1 Rf6 39. f4 gxf4 40. Bxf4 Rc6 41. a4 Rc3+ 42. Ke4 Rc2 43. h3 Rc6 44. Kd5 Rf6 45. Kc4 Rc6+ 46. Kb4 h5 47. h4 Re6 48. Rd7 Kh7 49. Rd5 Bf6 50. Rxh5+ Kg7 51. Kc4 Re2 52. Ra5 Rc2+ 53. Kd3 Rc6 54. Rd5 Kf7 55. Rd6 Rxd6 56. Bxd6 Ke6 57. Bc5 Kd5 58. Ba7 Be5 1-0
+
+[Event "USA"]
+[Site "USA"]
+[Date "1979.??.??"]
+[Round "?"]
+[White "Gheorghiu, Florin"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2420"]
+[ECO "D42"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 d5 4. Nc3 c5 5. e3 Nc6 6. cxd5 Nxd5 7. Bd3 cxd4 8. exd4 Be7 9. O-O O-O 10. Re1 Bf6 11. Be4 Qd6 12. Bg5 Bxg5 13. Nxg5 h6 14. Nf3 Bd7 15. Bxd5 exd5 16. Ne5 Be6 17. Nxc6 Qxc6 18. Rc1 Rac8 19. Qd2 Qa6 20. Re5 Qc6 21. h3 Rfe8 22. Rce1 f6 23. R5e2 Bf7 24. Qf4 Rxe2 25. Rxe2 Re8 26. Rxe8+ Qxe8 27. Kh2 Qd8 28. Nb5 Qb6 29. a4 a6 30. Qb8+ Kh7 31. Qd6 Qc6 32. Qxc6 bxc6 33. Nc7 a5 34. Na6 Bg6 35. b4 1-0
+
+[Event "Lone Pine op"]
+[Site "Lone Pine"]
+[Date "1979.??.??"]
+[Round "1"]
+[White "Gheorghiu, Florin"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2420"]
+[ECO "E12"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. a3 Bb7 5. Nc3 Be7 6. d5 d6 7. e4 c6 8. Bd3 a6 9. dxe6 fxe6 10. Ng5 Qd7 11. f4 e5 12. f5 b5 13. Ne6 Bd8 14. O-O Bb6+ 15. Kh1 Qe7 16. Be2 Rg8 17. Bg5 Nbd7 18. Qb3 Qf7 19. Qd1 Qe7 20. cxb5 axb5 21. Qb3 Qf7 22. a4 Nc5 23. Nxc5 Bxc5 24. Qxf7+ Kxf7 25. axb5 cxb5 26. Bxb5 Rgb8 27. Bc4+ Kf8 28. Bxf6 gxf6 29. Rxa8 Bxa8 30. b3 Bd4 31. Nd5 Bxd5 32. Bxd5 Rc8 33. Rb1 Rc2 34. b4 Kg7 35. b5 Kh6 36. h4 Bb6 37. Kh2 Kg7 38. Rb3 Kh6 39. Kh3 Rc1 40. Kg4 Rf1 41. g3 Rf2 42. Ra3 Rb2 43. Ra8 Rxb5 44. Rb8 Rb2 45. Rb7 Bd4 46. Rf7 1-0
+
+[Event "Lone Pine op"]
+[Site "Lone Pine"]
+[Date "1979.??.??"]
+[Round "7"]
+[White "Zaltsman, Vitaly F"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2470"]
+[BlackElo "2420"]
+[ECO "B37"]
+
+1. c4 c5 2. Nf3 g6 3. d4 cxd4 4. Nxd4 Bg7 5. e4 Nc6 6. Nc2 Nf6 7. Nc3 O-O 8. Be2 b6 9. f3 Bb7 10. Bg5 Rc8 11. Rc1 h6 12. Bh4 Nh5 13. Qd2 Qc7 14. Bf2 Ne5 15. Ne3 Nf4 16. Ncd5 Bxd5 17. Nxd5 Nxd5 18. exd5 d6 19. O-O Nd7 20. Rfe1 Rfe8 21. Bd3 Nc5 22. Bb1 a5 23. Be3 Kh7 24. f4 Qd7 25. f5 gxf5 26. Rf1 e6 27. Rf3 Qe7 28. Rcf1 Rg8 29. Kh1 Bf8 30. Rxf5 exf5 31. Bxf5+ Kh8 32. Bd4+ f6 33. Bxc8 Bg7 34. Bxf6 Rf8 35. Bxg7+ Qxg7 36. Bf5 a4 37. Kg1 Rf6 38. Rf2 Qe7 39. Bc2 Qe5 40. Rxf6 Qxf6 41. Bb1 Kg7 42. g3 Qe5 43. Kg2 h5 44. h4 Nd7 45. Qg5+ Qxg5 46. hxg5 Ne5 47. b3 a3 48. Kf2 Kf7 49. g6+ Ke7 50. Ke3 Kf6 51. Be4 Ng4+ 52. Kd4 Ne5 53. b4 Nd7 54. Bc2 Kg7 55. Bf5 1-0
+
+[Event "Lloyds Bank op 03rd"]
+[Site "London"]
+[Date "1979.??.??"]
+[Round "3"]
+[White "Plaskett, H James"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2410"]
+[BlackElo "2420"]
+[ECO "B38"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Bg7 6. Be3 Nf6 7. Nc3 O-O 8. Be2 d6 9. O-O Bd7 10. Nc2 Ne5 11. b3 Rc8 12. h3 Bc6 13. f3 b6 14. Qd2 Ned7 15. Rac1 Nc5 16. Rfd1 a5 17. Nd4 Bb7 18. Ndb5 Nfd7 19. Bg5 Bf6 20. Bxf6 Nxf6 21. Qg5 Ne6 22. Qe3 Nd7 23. f4 Bc6 24. Bg4 Bxb5 25. Nxb5 Qe8 26. f5 Nec5 27. f6 Rc6 28. Bxd7 Nxd7 29. fxe7 Qxe7 30. Qd4 Ne5 31. Nxd6 Qg5 32. Qc3 h5 33. Nf5 gxf5 34. Qxe5 Qe3+ 35. Kh1 Qxe4 36. Qg3+ Rg6 37. Qf2 Kh7 38. Re1 Qc6 39. Rc2 Qf6 40. c5 bxc5 41. Rxc5 Rg5 42. Rxa5 Rfg8 43. Qf3 R8g6 44. Rf1 Qb2 45. Rxf5 Rxf5 0-1
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1980.??.??"]
+[Round "?"]
+[White "Arnason, Jon L"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2435"]
+[BlackElo "2425"]
+[ECO "C82"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Nxe4 6. d4 b5 7. Bb3 d5 8. dxe5 Be6 9. c3 Bc5 10. Nbd2 O-O 11. Bc2 Nxf2 12. Rxf2 f6 13. exf6 Bxf2+ 14. Kxf2 Qxf6 15. Nf1 Ne5 16. Be3 Rae8 17. Kg1 Nxf3+ 18. Qxf3 Qxf3 19. gxf3 Rxf3 20. Bd1 Rf7 21. Bb3 c6 22. Bd4 Bh3 23. Ne3 Rf4 24. Re1 Re6 25. Bc2 h5 26. Bd3 h4 27. Bc5 a5 28. Bf1 Bf5 29. Re2 Be4 30. h3 Rf3 31. Rf2 Rxf2 32. Kxf2 Rf6+ 33. Ke1 Rf3 34. Ng4 Bd3 35. Bxd3 Rxd3 36. Be3 d4 37. cxd4 b4 38. Ke2 b3 39. a4 Rc3 40. Ne5 Rc2+ 41. Kd3 Rxb2 42. Bd2 Ra2 43. Bxa5 Rh2 44. Bc3 b2 45. Bxb2 Rxb2 46. Nf3 Ra2 47. Nxh4 Kf7 48. Nf3 Ke6 49. Kc4 Rxa4+ 50. Kc5 Ra3 51. Ne5 Rc3+ 52. Nc4 g5 53. Kb4 Rxh3 54. Ne5 Kd5 55. Ng6 Kxd4 56. Nf8 Rh6 57. Nd7 g4 58. Nc5 g3 59. Nb3+ Ke3 0-1
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1980.??.??"]
+[Round "?"]
+[White "Byrne, Robert Eugene"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2425"]
+[ECO "B38"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Bg7 6. Be3 Nf6 7. Nc3 d6 8. Be2 O-O 9. O-O Bd7 10. Rc1 Nxd4 11. Bxd4 Bc6 12. Qd3 a5 13. c5 dxc5 14. Bxc5 Qxd3 15. Bxd3 Rfd8 16. Rfd1 Kf8 17. f3 Bh6 18. Rb1 Nd7 19. Bf2 b6 20. Kf1 Nc5 21. Bc4 e6 22. Ke2 Bf4 23. b3 Ke7 24. g3 Be5 25. Nb5 Rxd1 26. Rxd1 Rd8 27. Nd4 Be8 28. Be3 Rc8 29. Rc1 Bxd4 30. Bxd4 Nxb3 31. axb3 b5 32. Bc3 bxc4 33. Bxa5 Bb5 1/2-1/2
+
+[Event "Lone Pine op"]
+[Site "Lone Pine"]
+[Date "1980.??.??"]
+[Round "9"]
+[White "Quinteros, Miguel Angel"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2515"]
+[BlackElo "2425"]
+[ECO "A08"]
+
+1. Nf3 Nf6 2. g3 c5 3. Bg2 Nc6 4. O-O d5 5. d3 g6 6. Nbd2 Bg7 7. e4 O-O 8. Re1 Qc7 9. c3 dxe4 10. dxe4 Rd8 11. Qc2 Ng4 12. Nc4 Nce5 13. Nfxe5 Nxe5 14. Bf4 b6 15. Bxe5 Bxe5 16. f4 Bg7 17. e5 Bb7 18. Rad1 Bxg2 19. Qxg2 Rxd1 20. Rxd1 Rd8 21. Rd5 Bf8 22. Qd2 Rxd5 23. Qxd5 e6 24. Qa8 Kg7 25. Qe8 Qb7 26. Nd6 Bxd6 27. exd6 Qd5 28. Qe7 h5 29. d7 Qd1+ 30. Kf2 Qd2+ 31. Kf3 Qd3+ 32. Kf2 Qd2+ 33. Kf3 Qd3+ 34. Kf2 1/2-1/2
+
+[Event "Keres Memorial"]
+[Site "Tallinn"]
+[Date "1981.??.??"]
+[Round "9"]
+[White "Petursson, Margeir"]
+[Black "Ftacnik, Lubomir"]
+[Result "1/2-1/2"]
+[WhiteElo "2445"]
+[BlackElo "2520"]
+[ECO "D85"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. Nf3 Bg7 5. cxd5 Nxd5 6. e4 Nxc3 7. bxc3 c5 8. Rb1 O-O 9. Be2 Qa5 10. Bd2 Qxa2 11. O-O cxd4 12. cxd4 b6 13. Qc1 Qe6 14. Bc4 Qd7 15. Ne5 Bxe5 16. dxe5 Ba6 17. Bh6 Bxc4 18. Bxf8 Qe6 19. Qh6 Qxe5 20. Rfc1 b5 21. Rxb5 Bxb5 22. Bg7 f6 23. Bh8 Kf7 24. Qxh7+ Ke6 25. Qg8+ Kd6 26. Qd8+ Ke6 27. Qg8+ Kd6 28. Qd8+ Ke6 1/2-1/2
+
+[Event "Ljubljana"]
+[Site "Ljubljana"]
+[Date "1981.??.??"]
+[Round "5"]
+[White "Ostojic, Predrag"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2450"]
+[BlackElo "2460"]
+[ECO "D11"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Bg5 dxc4 5. Qc2 b5 6. Nbd2 e6 7. e4 h6 8. Bxf6 Qxf6 9. g3 c5 10. Bg2 Nc6 11. e5 Qd8 12. Qe4 Bb7 13. O-O Qb6 14. dxc5 Bxc5 15. Qg4 O-O 16. Ne4 Kh8 17. Qh5 Rad8 18. Nf6 Bd4 19. Ng4 Kg8 20. Nxh6+ gxh6 21. Qxh6 Nxe5 22. Ng5 Rfe8 23. Rae1 Bxf2+ 24. Kh1 Bxg2+ 25. Kxg2 Qb7+ 26. Kh3 Bxe1 27. Qh7+ Kf8 28. Qh8+ Ke7 29. Qxe5 Rh8+ 30. Kg4 f5+ 31. Rxf5 Rd4+ 32. Rf4 Rxf4+ 0-1
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1982.??.??"]
+[Round "?"]
+[White "Sahovic, Dragutin"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2450"]
+[BlackElo "2415"]
+[ECO "D15"]
+
+1. d4 d5 2. Nf3 Nf6 3. Bf4 Bf5 4. c4 e6 5. Nc3 c6 6. Qb3 Qc8 7. Rc1 dxc4 8. Qxc4 Qd8 9. a3 Nbd7 10. e3 Be7 11. h3 O-O 12. Be2 Ne4 13. O-O Ndf6 14. Nxe4 Bxe4 15. Nd2 Bg6 16. Rfd1 Bd6 17. Bg5 Be7 18. Bf3 Nd5 19. Bxe7 Qxe7 20. Qb3 f6 21. Nc4 Bf7 22. e4 Nf4 23. e5 fxe5 24. Nxe5 Qg5 25. Kh2 Bh5 26. Rg1 Bxf3 27. Nxf3 Qd5 28. Qe3 Rf6 29. Rc5 Qd6 30. Qe5 Qxe5 31. dxe5 Rff8 32. Rd1 Rad8 33. Rxd8 Rxd8 34. Rc4 Nd3 35. Rc2 Rd5 36. Re2 h6 37. Kg3 a5 38. b3 b5 39. Re4 Kf7 40. Re2 Nc1 41. Re3 Rd3 42. Rxd3 Nxd3 43. Nd4 Nxe5 44. Kf4 Nd3+ 45. Ke3 Ne5 46. f4 Nd7 47. Nxc6 a4 48. bxa4 bxa4 49. Kd4 Kf6 50. g4 g5 51. fxg5+ Kxg5 52. Nd8 Kh4 53. Nxe6 Kxh3 54. g5 hxg5 55. Nxg5+ Kg4 56. Nf7 Kf5 57. Nd6+ Ke6 1/2-1/2
+
+[Event "Bela Crkva op"]
+[Site "Bela Crkva"]
+[Date "1983.??.??"]
+[Round "10"]
+[White "Petursson, Margeir"]
+[Black "Martinovic, Slobodan"]
+[Result "0-1"]
+[WhiteElo "2455"]
+[BlackElo "2445"]
+[ECO "E90"]
+
+1. d4 Nf6 2. c4 c5 3. d5 d6 4. Nc3 g6 5. e4 Bg7 6. Nf3 O-O 7. Bd3 e6 8. h3 exd5 9. exd5 Re8+ 10. Be3 Bh6 11. O-O Bxe3 12. fxe3 a6 13. a4 Qe7 14. e4 Nbd7 15. Qd2 Kg7 16. Rf2 Ng8 17. Raf1 f6 18. Qf4 Ne5 19. Nxe5 Qxe5 20. Qxe5 Rxe5 21. a5 b6 22. axb6 Rb8 23. Na4 Bd7 24. Ra1 Ne7 25. b4 cxb4 26. c5 Bxa4 27. Rxa4 dxc5 28. Rxa6 f5 29. d6 Nc6 30. exf5 gxf5 31. b7 Re1+ 32. Kh2 Ne5 33. Ra7 Rd1 34. Rxf5 Rxd3 35. Rxe5 Rxd6 36. Re7+ Kf6 37. Ra8 Rdd8 38. Rxb8 Rxb8 {Zeitnot....0:1} 39. Rxh7 0-1
+
+[Event "Gausdal Int"]
+[Site "Gausdal"]
+[Date "1983.??.??"]
+[Round "?"]
+[White "Ornstein, Axel"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2455"]
+[BlackElo "2465"]
+[ECO "B76"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Be3 Bg7 7. f3 Nc6 8. Qd2 O-O 9. O-O-O d5 10. Nxc6 bxc6 11. Bh6 Qa5 12. Bxg7 Kxg7 13. exd5 cxd5 14. g4 Be6 15. g5 Nh5 16. Qd4+ Kg8 17. Nxd5 Bxd5 18. Qxd5 Qb6 19. Qe5 Rab8 20. Bc4 Rfc8 21. Bb3 e6 22. Rd6 Qf2 23. Rxe6 Nf4 24. Qxf4 Rxb3 25. Qd2 Qxd2+ 26. Kxd2 Rxb2 27. Ra6 Rcxc2+ 28. Kd3 Rxa2 29. Rxa7 Rd2+ 30. Ke3 Re2+ 31. Kd3 Rad2+ 32. Kc3 Rd5 33. h4 Re3+ 34. Kc4 Rf5 35. Ra8+ Kg7 36. h5 Rxg5 37. h6+ Kf6 38. Rh8 Rxf3 39. Rxh7 Rg4+ 40. Kd5 Rf5+ 41. Kd6 Rd4+ 42. Kc6 g5 43. Rh8 Rh4 44. Rd1 Kg6 0-1
+
+[Event "Nordic-tt"]
+[Site "Oslo"]
+[Date "1983.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Adamski, Jan"]
+[Result "1/2-1/2"]
+[WhiteElo "2465"]
+[BlackElo "2450"]
+[ECO "E11"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 Bb4+ 4. Bd2 Qe7 5. g3 Nc6 6. Bg2 Bxd2+ 7. Nbxd2 d6 8. O-O a5 9. e4 e5 10. d5 Nb8 11. c5 dxc5 12. Nc4 O-O 13. Re1 Nbd7 14. Qd2 b6 15. Nh4 g6 16. f4 Ba6 17. Nxe5 Nxe5 18. fxe5 Nd7 19. e6 Ne5 20. Qc3 Qf6 21. Bf1 fxe6 22. Bxa6 Rxa6 23. Rf1 Qg7 24. Rxf8+ Kxf8 25. Nf3 Nxf3+ 26. Qxf3+ Kg8 27. dxe6 Ra8 28. Rd1 Qe7 29. Rd7 Qxe6 30. Rxc7 1/2-1/2
+
+[Event "Nordic-tt"]
+[Site "Oslo"]
+[Date "1983.??.??"]
+[Round "?"]
+[White "Schneider, Lars Ake"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2445"]
+[BlackElo "2465"]
+[ECO "D34"]
+
+1. c4 e6 2. Nf3 d5 3. d4 c5 4. cxd5 exd5 5. g3 Nc6 6. Bg2 Nf6 7. O-O Be7 8. dxc5 Bxc5 9. Bg5 O-O 10. Nc3 d4 11. Ne4 Be7 12. Bxf6 Bxf6 13. Ne1 Be7 14. Nd3 Re8 15. Rc1 Qb6 16. Re1 Bf5 17. Nec5 Rac8 18. Qa4 Bg5 19. f4 Bxd3 20. exd3 Be7 1/2-1/2
+
+[Event "Thessaloniki ol (Men)"]
+[Site "Thessaloniki"]
+[Date "1984.11.23"]
+[Round "5"]
+[White "Smejkal, Jan"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2565"]
+[BlackElo "2465"]
+[ECO "E11"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 Bb4+ 4. Bd2 Qe7 5. g3 Nc6 6. Nc3 Bxc3 7. Bxc3 Ne4 8. Rc1 Nb4 9. Qa4 a5 10. Bg2 O-O 11. O-O Nxc3 12. bxc3 Nc6 13. c5 d6 14. cxd6 cxd6 15. Rb1 Rb8 16. Nd2 Bd7 17. Rb6 e5 18. dxe5 Qxe5 19. Ne4 Rfd8 20. Rd1 Ne7 21. Qd4 Bc6 22. c4 Qxd4 23. Rxd4 d5 24. Nc3 dxc4 25. Rxc4 Bxg2 26. Kxg2 Nc8 27. Rb3 Nd6 28. Ra4 b6 29. Nd5 Nb7 30. Rb5 Nc5 31. Rxc5 bxc5 32. Ne7+ Kf8 33. Nc6 Rb4 34. Rxa5 Rc8 35. Nxb4 cxb4 36. e4 g6 37. g4 h6 38. h4 Rc3 39. f3 b3 40. axb3 Rxb3 41. Kg3 Kg7 42. Rd5 Rb1 43. Kf4 Rf1 44. h5 g5+ 45. Ke3 Re1+ 46. Kf2 Ra1 47. Rd3 Ra4 48. Ke3 Rb4 49. f4 gxf4+ 50. Kxf4 Rb1 51. Rg3 Rf1+ 52. Ke5 Rh1 53. Rf3 Rg1 54. Rf4 Ra1 55. Rf5 Rg1 56. Kf4 Rf1+ 57. Ke3 Rg1 58. Kf3 Rf1+ 59. Kg2 1/2-1/2
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1984.??.??"]
+[Round "?"]
+[White "Olafsson, Helgi"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2445"]
+[BlackElo "2465"]
+[ECO "E11"]
+
+1. d4 Nf6 2. Nf3 e6 3. c4 Bb4+ 4. Bd2 Qe7 5. g3 Nc6 6. Bg2 Bxd2+ 7. Nbxd2 d6 8. O-O O-O 9. e4 e5 10. d5 Nb8 11. Ne1 a5 12. Nd3 Na6 13. Re1 1/2-1/2
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1984.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Alburt, Lev O"]
+[Result "1/2-1/2"]
+[WhiteElo "2465"]
+[BlackElo "2515"]
+[ECO "A43"]
+
+1. d4 Nf6 2. Nf3 c5 3. d5 b5 4. Bg5 Bb7 5. Bxf6 exf6 6. e4 Qe7 7. Be2 a6 8. O-O g6 9. c4 b4 10. a3 bxa3 11. Nc3 axb2 12. Rb1 d6 13. Rxb2 Qc7 14. Qa4+ Nd7 15. Rfb1 Rb8 16. e5 fxe5 17. Nxe5 dxe5 18. d6 Bxd6 19. Bf3 e4 20. Bxe4 Bxh2+ 21. Kh1 O-O 22. Rxb7 Rxb7 23. Rxb7 Qe5 24. Qc2 Nf6 25. Bf3 Bf4 26. g3 Bxg3 27. fxg3 Qxg3 28. Bd5 Ng4 29. Nd1 Qe1+ 30. Kg2 Qxd1 31. Qxd1 Ne3+ 32. Kf3 Nxd1 33. Rb3 a5 34. Rd3 Nb2 35. Rb3 Nxc4 36. Bxc4 a4 37. Rb7 Kg7 38. Ra7 Kh6 39. Rxa4 f5 40. Ra7 Rh8 41. Rc7 Kg5 42. Rxc5 Ra8 43. Rc6 Ra3+ 44. Kg2 Rc3 45. Bd5 Rxc6 46. Bxc6 Kf4 47. Kh3 g5 48. Be8 Kf3 49. Bd7 Kf4 50. Be8 h6 51. Bf7 Kf3 52. Bh5+ Kf2 53. Bd1 f4 54. Bh5 f3 55. Kh2 Ke3 56. Kg3 f2 1/2-1/2
+
+[Event "Troll Masters"]
+[Site "Gausdal"]
+[Date "1984.??.??"]
+[Round "3"]
+[White "McCambridge, Vincent"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2465"]
+[BlackElo "2465"]
+[ECO "D34"]
+
+1. d4 d5 2. c4 e6 3. Nc3 c5 4. cxd5 exd5 5. Nf3 Nc6 6. g3 Nf6 7. Bg2 Be7 8. O-O O-O 9. b3 Bg4 10. Bb2 cxd4 11. Nb5 Qb6 12. Nbxd4 Ne4 13. Nxc6 bxc6 14. Ne5 Bf6 15. Rc1 Bxe5 16. Bxe5 Rfe8 17. Bd4 c5 18. Bb2 Be6 19. e3 a5 20. Qh5 f6 21. Bxe4 dxe4 22. Qxc5 Qxc5 23. Rxc5 1/2-1/2
+
+[Event "Smederevska Palanka"]
+[Site "Smederevska Palanka"]
+[Date "1984.??.??"]
+[Round "?"]
+[White "Martinovic, Slobodan"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2460"]
+[BlackElo "2465"]
+[ECO "B50"]
+
+1. e4 c5 2. Nf3 d6 3. c3 Nf6 4. Bd3 Nc6 5. Bc2 Bg4 6. d3 g6 7. Nbd2 Bg7 8. h3 Bxf3 9. Nxf3 O-O 10. O-O Nd7 11. Be3 b5 12. d4 Rc8 13. a3 Qc7 14. Bd3 Rb8 15. Qe2 Qb7 16. b4 cxd4 17. cxd4 a6 18. Rac1 Rbc8 19. Rc2 e5 20. dxe5 Ndxe5 21. Nxe5 Nxe5 22. Rfc1 Rfe8 23. Rxc8 Rxc8 24. Rxc8+ Qxc8 25. Qc2 Qxc2 26. Bxc2 Nc4 27. Bc1 Kf8 28. Kf1 Ke7 29. Ke2 h5 30. g3 Ba1 31. f4 Ke6 32. Bb3 d5 33. exd5+ Kxd5 34. Kd3 f5 35. Be3 Bb2 36. a4 Bf6 37. Bc5 Bg7 38. a5 Bf6 39. h4 Bg7 40. Bf2 Bf6 41. Be1 1/2-1/2
+
+[Event "Gausdal zt playoff"]
+[Site "Reykjavik"]
+[Date "1985.??.??"]
+[Round "3"]
+[White "Agdestein, Simen"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2500"]
+[BlackElo "2535"]
+[ECO "E12"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. a3 Bb7 5. Nc3 d5 6. cxd5 Nxd5 7. Qa4+ Nd7 8. Nxd5 Bxd5 9. Bg5 Qc8 10. Rc1 Bd6 11. Nd2 c5 12. dxc5 bxc5 13. e4 Bc6 14. Qc2 Qc7 15. Bh4 O-O 16. Bg3 Rab8 17. Be2 a5 18. b3 Rfd8 19. O-O Bxg3 20. hxg3 Qb7 21. Rfd1 h6 22. Qc3 Qa8 23. a4 Rb4 24. Bc4 Nf6 25. f3 Qb8 26. g4 Rd4 27. Be2 Nd7 28. Qe3 Qa7 29. Kf2 Ne5 30. Rc3 Rb8 31. Rdc1 Rbd8 32. Nc4 Nd7 33. Na3 Qb6 34. R1c2 Nf6 35. Rxc5 Bxe4 36. R2c4 Rxc4 37. Nxc4 Qa7 38. Rxa5 Qxe3+ 39. Nxe3 Bb1 40. Ke1 Rb8 41. Rb5 1-0
+
+[Event "Gausdal zt"]
+[Site "Gausdal"]
+[Date "1985.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Hansen, Curt"]
+[Result "1/2-1/2"]
+[WhiteElo "2535"]
+[BlackElo "2505"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb4+ 6. Bd2 Be7 7. Nc3 c6 8. e4 d5 9. e5 Ne4 10. Bd3 Nxc3 11. Bxc3 Bb7 12. Qe2 c5 13. dxc5 bxc5 14. O-O d4 15. Bd2 O-O 16. Be4 Qc7 17. Rfe1 Nd7 18. Qd3 Bxe4 19. Rxe4 a5 20. Bg5 Rfe8 21. Bxe7 Rxe7 22. Rae1 a4 23. h4 axb3 24. axb3 Ra3 25. Nd2 Qb8 26. R4e2 Qb4 27. Rb1 Re8 28. Nf3 Rb8 29. Ng5 h6 30. Qh7+ Kf8 31. Nxe6+ fxe6 32. Re4 Nxe5 33. Rxe5 Rxb3 34. Rxb3 Qxb3 35. Re4 e5 36. Rxe5 Qb1+ 1/2-1/2
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1985.??.??"]
+[Round "11"]
+[White "Jussupow, Artur"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2590"]
+[BlackElo "2535"]
+[ECO "D34"]
+
+1. c4 e6 2. Nc3 d5 3. d4 c5 4. cxd5 exd5 5. Nf3 Nc6 6. g3 Nf6 7. Bg2 Be7 8. O-O O-O 9. dxc5 Bxc5 10. Bg5 d4 11. Bxf6 Qxf6 12. Nd5 Qd8 13. Nd2 Re8 14. Rc1 Bb6 15. Re1 Bg4 16. Nc4 Ba5 17. Nxa5 Qxa5 18. b4 Nxb4 19. Qd2 Nc6 20. Qxa5 Nxa5 21. f3 d3 22. Ra1 Bd7 1/2-1/2
+
+[Event "Biel Interzonal"]
+[Site "Biel"]
+[Date "1985.??.??"]
+[Round "8"]
+[White "Seirawan, Yasser"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2570"]
+[BlackElo "2550"]
+[ECO "D30"]
+
+1. d4 d5 2. c4 e6 3. Nf3 c5 4. cxd5 exd5 5. Bg5 Be7 6. Bxe7 Nxe7 7. dxc5 Na6 8. e3 Nxc5 9. Bb5+ Bd7 10. Bxd7+ Qxd7 11. Nc3 O-O 12. O-O Rac8 13. Qd4 Rfd8 14. Rfd1 b6 15. Rd2 Ne6 16. Qd3 Nc5 17. Qe2 Qf5 18. Rad1 Rd7 19. h3 Rcd8 20. Nd4 Qe5 21. Qg4 Rd6 22. Nf3 Qf6 23. Qh4 Qxh4 24. Nxh4 a6 25. Nf3 Nb7 26. Nd4 Na5 27. b3 f6 28. Nde2 Nac6 29. Nf4 d4 30. Kf1 Nf5 31. Ne4 R6d7 32. g4 Nd6 33. Ng3 Nb5 34. Ne6 Re8 35. Nxd4 Ncxd4 36. exd4 Nc3 37. Rc1 Nd5 38. h4 g6 39. Re2 Red8 40. Rd2 Nf4 41. Ne4 Kg7 42. Rc6 Rxd4 43. Rxd4 Rxd4 44. f3 Nd5 45. Ke1 Kf7 46. g5 fxg5 47. hxg5 a5 48. Nf6 Nxf6 49. Rxf6+ Ke7 50. Rxb6 a4 51. Ke2 Rh4 52. Ke3 Rh2 53. bxa4 Rxa2 54. Ra6 Ra1 55. Ke4 Re1+ 56. Kd5 Rd1+ 57. Ke5 Re1+ 58. Kf4 Rc1 59. a5 Rc5 60. Kg4 Kf7 61. Ra7+ Kg8 62. a6 Rc6 63. Kg3 Rb6 64. f4 Rc6 65. Kf2 Re6 66. Ra8+ Kg7 67. Kf3 h5 68. gxh6+ Kh7 69. Kf2 Re4 70. Rf8 Ra4 71. Rf6 Kxh6 72. Ke3 Kg7 73. Rc6 Kf7 74. Rc7+ Kf6 75. Rc6+ Kf7 76. Rb6 Kg7 77. Kf3 Kf7 78. Kg4 Kg7 79. Rc6 Kf7 80. Kf3 Kg7 81. Rd6 Kf7 82. Ke3 Kg7 83. Re6 Kf7 84. Rb6 Kg7 85. Rd6 Kf7 86. Kd3 Kg7 87. Rd7+ Kf6 88. a7 Kf5 89. Kc3 Ra1 90. Kb2 Ra6 91. Kb3 Ra1 92. Rc7 Ke6 93. Kc4 Kf5 94. Kb5 Ra2 95. Kb4 Ke6 96. Kb3 Ra1 97. Kc2 Kf5 98. Rf7+ Ke6 99. Rh7 Kf5 100. Rf7+ Ke6 101. Rh7 Kf5 102. Kb2 Ra6 103. Rf7+ Ke6 104. Rh7 Kf5 105. Kb3 Ra1 106. Rf7+ Ke6 107. Rc7 Kf5 108. Kb4 Kxf4 109. Rc4+ Ke5 110. Rc5+ Kd4 111. Rc4+ Ke5 112. Rc5+ Kd4 1/2-1/2
+
+[Event "Hastings 8586"]
+[Site "Hastings"]
+[Date "1985.??.??"]
+[Round "6"]
+[White "Petursson, Margeir"]
+[Black "Plaskett, H James"]
+[Result "1-0"]
+[WhiteElo "2535"]
+[BlackElo "2495"]
+[ECO "E15"]
+
+1. Nf3 b6 2. c4 Nf6 3. d4 e6 4. g3 Ba6 5. b3 d5 6. cxd5 exd5 7. Bg2 Bb4+ 8. Bd2 Bd6 9. O-O O-O 10. Nc3 Re8 11. Re1 Bb7 12. Qc2 Na6 13. Rad1 Ne4 14. Ne5 Nb4 15. Qb2 c5 16. Nxe4 dxe4 17. Bxb4 cxb4 18. Nc4 Bc7 19. d5 b5 20. Ne3 Be5 21. Qb1 Bc3 22. Bxe4 Bxe1 23. Rxe1 h6 24. Bf3 Qf6 25. Rd1 Red8 26. h4 Rac8 27. h5 a5 28. Kg2 Qe5 29. Ng4 Qc3 30. Qf5 Re8 31. Be4 Rcd8 32. Rd3 Qb2 33. Qh7+ Kf8 34. Re3 Qd4 35. Kh3 Rd6 36. Bf3 Rxe3 37. Nxe3 g6 38. Qxh6+ Qg7 39. Qf4 Qf6 40. hxg6 Qxf4 41. gxf4 Rxg6 42. f5 Rd6 43. Kg3 a4 44. Kf4 Ra6 45. Nc2 Ra8 46. Ke5 Rc8 47. Be4 f6+ 48. Kd6 Rc3 49. Nd4 Rc1 50. Nc2 Rb1 51. Kc7 Bxd5 52. Bxd5 Rb2 53. Nxb4 Rxe2 54. f3 Re5 55. Be4 axb3 56. axb3 Ke8 57. Nd5 1-0
+
+[Event "Hastings 8586"]
+[Site "Hastings"]
+[Date "1985.??.??"]
+[Round "12"]
+[White "Petursson, Margeir"]
+[Black "Hjartarson, Johann"]
+[Result "1/2-1/2"]
+[WhiteElo "2535"]
+[BlackElo "2530"]
+[ECO "D12"]
+
+1. Nf3 d5 2. d4 Nf6 3. c4 c6 4. e3 Bf5 5. Bd3 Bxd3 6. Qxd3 e6 7. Nc3 Nbd7 8. O-O Bd6 9. b3 O-O 10. Bb2 Qe7 11. e4 dxe4 12. Nxe4 Nxe4 13. Qxe4 Ba3 14. Bc3 Bb4 15. Bb2 Ba3 16. Bc3 Bb4 1/2-1/2
+
+[Event "Dubai ol (Men)"]
+[Site "Dubai"]
+[Date "1986.11.23"]
+[Round "8"]
+[White "Petursson, Margeir"]
+[Black "Speelman, Jonathan S"]
+[Result "0-1"]
+[WhiteElo "2510"]
+[BlackElo "2490"]
+[ECO "A54"]
+
+1. d4 Nc6 2. Nf3 d6 3. c4 e5 4. Nc3 g6 5. d5 Nce7 6. c5 Bg7 7. cxd6 cxd6 8. e4 Nf6 9. Qa4+ Nd7 10. h4 O-O 11. h5 Nc5 12. Qc2 f5 13. hxg6 Nxg6 14. Be3 fxe4 15. Nd2 Nd3+ 16. Bxd3 exd3 17. Qxd3 Bf5 18. Qe2 Nf4 19. Bxf4 exf4 20. O-O Qh4 21. Rfe1 Bg4 22. Qe7 Qh5 23. Nde4 h6 24. f3 Bd4+ 25. Nf2 Bxf3 26. gxf3 Rae8 27. Qxd6 Bxf2+ 28. Kxf2 Qh2+ 29. Kf1 Qh3+ 30. Kf2 Qg3+ 31. Kf1 Qxf3+ 32. Kg1 Qg3+ 33. Kf1 Re3 34. Ne4 Rf3+ 35. Ke2 Qg2+ 0-1
+
+[Event "Nordic-USA"]
+[Site "Reykjavik"]
+[Date "1986.??.??"]
+[Round "2"]
+[White "Petursson, Margeir"]
+[Black "Dlugy, Maxim"]
+[Result "0-1"]
+[WhiteElo "2520"]
+[BlackElo "2545"]
+[ECO "D06"]
+
+1. d4 d5 2. Nf3 c5 3. c4 cxd4 4. cxd5 Nf6 5. Qxd4 Qxd5 6. Nc3 Qxd4 7. Nxd4 Bd7 8. Bf4 a6 9. g3 Nc6 10. Nc2 e5 11. Bg5 Nb4 12. Nxb4 Bxb4 13. Bg2 Rc8 14. O-O Bxc3 15. bxc3 Bc6 16. Bxc6+ Rxc6 17. Rab1 b6 18. Rfd1 Ke7 19. f4 exf4 20. gxf4 h6 21. Bh4 g5 22. fxg5 Rg8 23. Rb4 hxg5 24. Bf2 Rb8 25. Rd3 Nd7 26. Bg3 Rbc8 27. Rd5 f6 28. Kf2 Rc4 29. Rd2 R8c6 30. h4 gxh4 31. Bxh4 a5 32. Rxc4 Rxc4 33. Rd4 Rxc3 34. a4 Ke6 35. Bg3 Ne5 36. Bxe5 fxe5 37. Rd8 Rb3 38. e3 Rb4 39. Rb8 Kd7 40. Kg3 Kc7 41. Re8 e4 42. Kf4 Rxa4 43. Ke5 Kc6 44. Rc8+ Kb5 45. Kd5 Rb4 46. Ra8 a4 47. Ra7 Rc4 0-1
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1986.??.??"]
+[Round "10"]
+[White "Petursson, Margeir"]
+[Black "Kudrin, Sergey"]
+[Result "1/2-1/2"]
+[WhiteElo "2520"]
+[BlackElo "2460"]
+[ECO "E20"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Nf3 c5 5. g3 b6 6. Bg2 Bb7 7. O-O Bxc3 8. bxc3 d6 9. d5 e5 10. Nh4 O-O 11. f4 e4 12. Nf5 Re8 13. Ne3 Bc8 14. h3 h5 15. Qe1 Nbd7 16. g4 Nf8 17. Qg3 Qd7 1/2-1/2
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1986.??.??"]
+[Round "11"]
+[White "Petursson, Margeir"]
+[Black "Dlugy, Maxim"]
+[Result "1/2-1/2"]
+[WhiteElo "2520"]
+[BlackElo "2545"]
+[ECO "D06"]
+
+1. d4 d5 2. Nf3 c5 3. c4 cxd4 4. cxd5 Nf6 5. Qxd4 Qxd5 6. Nc3 Qxd4 7. Nxd4 Bd7 8. g3 Nc6 9. Nc2 e5 10. Bg2 Nd4 11. Nxd4 exd4 12. Nd5 Nxd5 13. Bxd5 Bb4+ 14. Bd2 Bxd2+ 15. Kxd2 O-O-O 16. Rhc1+ Kb8 17. Rc5 b6 18. Rc4 Rhe8 19. Re1 Re5 20. Rxd4 Be6 21. e4 Bxd5 22. f4 Rh5 23. h4 Rd7 24. exd5 Rhxd5 25. Rxd5 Rxd5+ 26. Kc3 Kc7 27. Re7+ Rd7 28. Re8 Kd6 29. g4 Re7 30. Rxe7 Kxe7 31. Kc4 h5 32. gxh5 Ke6 33. Kb5 Kf5 34. a4 Kxf4 35. Ka6 f5 36. Kxa7 Kg4 37. Kxb6 f4 38. a5 f3 39. a6 f2 40. a7 f1=Q 41. a8=Q Qf2+ 42. Kc7 Qxb2 43. Qe4+ Kxh5 44. Qh7+ Kg4 45. Qe4+ Kh5 1/2-1/2
+
+[Event "New York op"]
+[Site "New York"]
+[Date "1986.??.??"]
+[Round "?"]
+[White "Abramovic, Bosko"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2490"]
+[BlackElo "2520"]
+[ECO "B70"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. g3 Nc6 7. Nde2 Bd7 8. Bg2 Qc8 9. h3 Bg7 10. Be3 O-O 11. Rc1 b5 12. b3 Rb8 13. Qd2 a5 14. Nd5 Nxd5 15. exd5 Nb4 16. c3 Na6 17. h4 h5 18. O-O Nc5 19. Nd4 b4 20. cxb4 axb4 21. Rc4 Qa6 22. Rfc1 Qa5 23. R1c2 Rfc8 24. Bg5 Re8 25. Be3 Rec8 26. Kh2 Bf6 27. Bg5 Bxg5 28. Qxg5 Qd8 29. Qd2 Qb6 30. Qh6 Qd8 31. Bh3 Bxh3 32. Kxh3 Qd7+ 33. Kh2 e6 34. dxe6 Nxe6 35. Nc6 Rxc6 36. Rxc6 Nd4 37. Qc1 Nxc6 38. Rxc6 Ra8 39. Rc2 d5 40. Qd2 Qd6 41. Qd4 Re8 42. Rc5 Qa6 43. Rc2 Re2 44. Rc7 Qe6 45. Rb7 Qd6 46. Ra7 Qe5 47. Qxe5 Rxe5 48. Kg2 Kg7 49. Ra5 f6 50. Kf3 g5 51. hxg5 fxg5 52. Rb5 g4+ 53. Kf4 Re2 54. Rxb4 Rxa2 55. Kg5 Rxf2 56. Rb7+ Kf8 57. Kxh5 d4 58. Kxg4 Rf6 59. Rd7 1/2-1/2
+
+[Event "Hastings 8687"]
+[Site "Hastings"]
+[Date "1986.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Kudrin, Sergey"]
+[Result "1-0"]
+[WhiteElo "2510"]
+[BlackElo "2495"]
+[ECO "D94"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. Nf3 Bg7 5. e3 O-O 6. b4 b6 7. Bb2 c5 8. bxc5 bxc5 9. Rc1 cxd4 10. Nxd4 e5 11. Nb3 d4 12. exd4 exd4 13. Qxd4 Qxd4 14. Nxd4 Bb7 15. f3 Na6 16. Be2 Rad8 17. Rd1 Nh5 18. Ncb5 Rfe8 19. Kf2 Nf4 20. Rhe1 Nb4 21. Ba3 Nxa2 22. Bd6 Nxe2 23. Nxe2 a6 24. Nc7 Rxe2+ 25. Rxe2 Nc3 26. Rd3 Nxe2 27. Kxe2 a5 28. Nb5 a4 29. Ba3 Re8+ 30. Re3 Rxe3+ 31. Kxe3 f5 32. Kd3 Ba6 33. Bc5 Kf7 34. Bd4 Bf8 35. Kc3 h5 36. Nc7 Bb7 37. c5 Ke7 38. Kb4 Bc6 39. Nb5 Ke6 40. Nc3 g5 1-0
+
+[Event "New York op"]
+[Site "New York"]
+[Date "1987.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Wolff, Patrick G"]
+[Result "0-1"]
+[WhiteElo "2535"]
+[BlackElo "2430"]
+[ECO "A57"]
+
+1. d4 Nf6 2. c4 c5 3. d5 b5 4. Nf3 b4 5. Nbd2 d6 6. a3 bxa3 7. Rxa3 e5 8. dxe6 fxe6 9. g3 Nc6 10. Bg2 Qc7 11. Ng5 Be7 12. Qa4 d5 13. Re3 O-O 14. Nxe6 Bxe6 15. Rxe6 Nd4 16. Ra6 Qe5 17. e3 Ng4 18. Bxd5+ Kh8 19. Ne4 Nf3+ 20. Ke2 Rae8 21. Qd7 Qh5 22. h3 Nfe5 23. Qe6 Nxf2+ 24. g4 Nfxg4 25. hxg4 Qxh1 26. Qxe5 Qxc1 27. g5 Rb8 28. Ra2 Qb1 29. Qxe7 Qxa2 30. Nd6 Rxb2+ 0-1
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1987.??.??"]
+[Round "2"]
+[White "Arnason, Jon L"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2535"]
+[ECO "B56"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 Nc6 6. Be3 Ng4 7. Bb5 Nxe3 8. fxe3 Bd7 9. O-O e6 10. Bxc6 bxc6 11. e5 dxe5 12. Qh5 Qe7 13. Qxe5 Qc5 14. Qg3 f5 15. Rad1 O-O-O 16. Rd3 h5 17. Rfd1 h4 18. Qf3 Be7 19. b4 Qc4 20. b5 Kc7 21. Qf4+ Kb7 22. bxc6+ Bxc6 23. Rb1+ Ka8 24. Qc7 Rxd4 25. exd4 Bf6 26. h3 Bxd4+ 27. Kh2 Bf6 28. Na4 Qe4 29. Nb6+ axb6 30. Ra3+ Ba4 31. Qxb6 1-0
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1987.??.??"]
+[Round "3"]
+[White "Petursson, Margeir"]
+[Black "Olafsson, Helgi"]
+[Result "1/2-1/2"]
+[WhiteElo "2535"]
+[BlackElo "2555"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb7 6. Bg2 Bb4+ 7. Bd2 a5 8. O-O O-O 9. Qc2 c5 10. Rd1 Be4 11. Qb2 Nc6 12. dxc5 Bxc5 13. Nc3 Qe7 14. Bg5 Bg6 15. e3 Rad8 16. Nd4 h6 17. Bh4 Bh5 18. Nxc6 dxc6 19. Rxd8 Rxd8 20. Ne4 e5 21. Nxf6+ gxf6 22. Bxc6 Qe6 23. Bg2 Bb4 24. Qc2 Rd2 25. Qe4 Bg6 26. Qa8+ Kg7 27. Be4 Qg4 28. Bf3 Qd7 29. a3 Bc3 30. Rf1 Bd3 31. Rd1 Rxd1+ 32. Bxd1 Bxc4 33. bxc4 Qxd1+ 34. Kg2 Qg4 35. h3 Qxc4 36. Qf3 Qe6 37. a4 e4 38. Qe2 Qd7 39. Qc4 Qd3 40. Qc6 Be5 41. Qxb6 Qd1 1/2-1/2
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1987.??.??"]
+[Round "4"]
+[White "Petursson, Margeir"]
+[Black "Short, Nigel D"]
+[Result "0-1"]
+[WhiteElo "2535"]
+[BlackElo "2615"]
+[ECO "A90"]
+
+1. d4 e6 2. c4 f5 3. Nf3 Nf6 4. g3 d5 5. Bg2 c6 6. O-O Bd6 7. b3 Qe7 8. Nbd2 b6 9. Ne5 Bb7 10. Bb2 O-O 11. Rc1 a5 12. e3 Na6 13. Qe2 Ne4 14. Rfd1 Nc7 15. f3 Nxd2 16. Qxd2 a4 17. e4 fxe4 18. fxe4 axb3 19. axb3 Bxe5 20. dxe5 Rad8 21. exd5 exd5 22. Qe3 c5 23. Qe2 Ba6 24. Ra1 d4 25. Bc1 b5 26. Bf4 Qe6 27. Qh5 bxc4 28. Bh3 Qb6 29. bxc4 Bxc4 30. Rdb1 Qc6 31. Ra7 Qe4 32. Rba1 Bd5 33. Rxc7 Qh1+ 34. Kf2 Rxf4+ 35. gxf4 Qxh2+ 36. Ke1 Qg3+ 37. Ke2 Bc4+ 38. Kd1 Qd3+ 0-1
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1987.??.??"]
+[Round "5"]
+[White "Timman, Jan H"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2590"]
+[BlackElo "2535"]
+[ECO "B51"]
+
+1. e4 c5 2. Nf3 Nc6 3. Bb5 d6 4. O-O Bd7 5. Re1 Nf6 6. c3 a6 7. Bf1 Bg4 8. h3 Bxf3 9. Qxf3 g6 10. Qd1 Qb6 11. Na3 Bg7 12. Nc4 Qc7 13. d3 O-O 14. Bg5 b5 15. Ne3 e6 16. Rc1 Rfc8 17. a3 Rab8 18. Bf4 a5 19. d4 Nxe4 20. d5 Ne5 21. dxe6 fxe6 22. Bxe5 dxe5 23. a4 bxa4 24. Qxa4 Nd6 25. Bc4 Re8 26. Rcd1 Kh8 27. Re2 Re7 28. Qa2 Nf5 29. Bxe6 Nxe3 30. Rxe3 Qb6 31. Bc4 e4 32. Re2 Qc7 33. Rde1 Qf4 34. Bd5 Rbe8 35. Bc6 Rf8 36. Bxe4 Rxe4 37. Rxe4 Qxf2+ 38. Kh1 Bxc3 39. R4e2 Bxe1 40. Rxf2 Bxf2 41. Qxa5 Bd4 42. Qb5 Kg7 43. b4 Rf5 44. g4 Re5 45. Qc4 h5 46. b5 hxg4 47. hxg4 Kf6 48. b6 Re8 49. b7 Be5 50. Qe4 Rh8+ 51. Kg2 Bb8 52. Qc6+ Kg7 53. Qd7+ Kf6 54. g5+ Kxg5 55. Qc8 Rh2+ 56. Kf3 1-0
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1987.??.??"]
+[Round "6"]
+[White "Petursson, Margeir"]
+[Black "Portisch, Lajos"]
+[Result "0-1"]
+[WhiteElo "2535"]
+[BlackElo "2610"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb4+ 6. Bd2 Be7 7. Bg2 c6 8. Bc3 d5 9. Ne5 Ne4 10. O-O Nxc3 11. Nxc3 O-O 12. e4 dxc4 13. Nxc4 b5 14. Ne3 Nd7 15. Rc1 Rc8 16. Re1 Qa5 17. Qc2 Ba3 18. Rb1 Nb6 19. Bf1 Rfd8 20. Red1 Bb7 21. Bg2 Nd7 22. e5 Qb6 23. Ne4 a5 24. Nc4 bxc4 25. bxc4 Qc7 26. c5 Bb4 27. Qb2 Ba6 28. a3 Bxc5 29. Nxc5 Nxc5 30. dxc5 Rxd1+ 31. Rxd1 Bc4 32. Qb6 Bd5 33. Qxc7 Rxc7 34. Rb1 Kf8 35. f4 Ke7 36. Rb8 a4 37. Ra8 Rb7 38. Bf1 Rb2 39. Ra7+ Kf8 40. Ra8+ Ke7 41. Ra7+ Kf8 42. Rxa4 g6 43. Ra5 Rc2 44. a4 Kg7 45. h4 Rc3 46. Be2 Rxg3+ 47. Kf2 Rg2+ 48. Ke3 Rh2 49. h5 gxh5 50. Ra7 h4 51. f5 exf5 52. Bh5 f4+ 53. Kd3 Rh3+ 54. Ke2 Re3+ 55. Kf2 h3 0-1
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1987.??.??"]
+[Round "7"]
+[White "Hjartarson, Johann"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2555"]
+[BlackElo "2535"]
+[ECO "D93"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Qc2 g6 5. Bf4 Bg7 6. e3 O-O 7. Nc3 Qa5 8. a3 c5 9. dxc5 Nc6 10. Rc1 dxc4 11. Bxc4 Qxc5 12. Nb5 Qh5 13. Nc7 Rb8 14. O-O Bg4 15. Nd4 Nxd4 16. exd4 Rbd8 17. d5 Bh6 18. Bxh6 Qxh6 19. Qb3 Bc8 20. Rfe1 a6 21. a4 Qd2 22. Qc3 Qxc3 23. Rxc3 Rd7 24. Bb3 Rfd8 25. a5 Kf8 26. h3 Rd6 27. Rce3 Bd7 28. Rc3 h5 29. Ba2 Bf5 30. b4 Be4 31. Rc5 Bxd5 32. Nxd5 Nxd5 33. b5 Nb4 34. Bc4 axb5 35. Rxb5 Nc2 36. Re4 f5 37. Re6 Na3 38. Rxd6 exd6 39. Rb4 Nxc4 40. Rxc4 Ke7 41. f4 Kd7 42. Kf2 Ra8 43. Rb4 Kc6 44. Rb6+ Kc7 45. Rb5 Ra6 46. Kg3 Kc6 47. Rb2 Rxa5 48. Kh4 d5 49. Kg5 d4 50. Kxg6 d3 51. Kxh5 Rd5 52. Rb1 d2 53. Rd1 Kc5 54. Kg6 Kc4 55. g4 fxg4 56. hxg4 Kd3 57. f5 Kc2 58. Rh1 d1=Q 59. Rxd1 Rxd1 60. f6 b5 61. g5 b4 62. f7 Rf1 0-1
+
+[Event "Moscow-A"]
+[Site "Moscow"]
+[Date "1987.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Dolmatov, Sergey"]
+[Result "1/2-1/2"]
+[WhiteElo "2535"]
+[BlackElo "2515"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb4+ 6. Bd2 Be7 7. Bg2 c6 8. Bc3 d5 9. Ne5 Ne4 10. O-O Nxc3 11. Nxc3 O-O 12. e4 dxc4 13. Nxc4 Bb4 14. Ne2 Bb7 15. e5 Nd7 16. a3 Be7 17. Nc3 b5 18. Ne3 Qb6 19. b4 Rfd8 20. Qg4 Nf8 21. Nc2 a5 22. Ne4 Bc8 23. Nc5 Bd7 24. Qe4 Be8 25. Ne3 f5 26. exf6 Bxf6 27. Rad1 axb4 28. axb4 Bh5 29. Rd2 Rd6 30. Ng4 Bxg4 31. Qxg4 Kh8 32. Rfd1 Rad8 33. h4 Qa7 34. Qf4 Bxd4 35. Ne4 R6d7 36. Kh2 e5 37. Qg4 h6 38. Qh5 Kg8 39. Qg4 Kh8 40. Qh5 Kg8 41. Qg4 1/2-1/2
+
+[Event "Moscow-A"]
+[Site "Moscow"]
+[Date "1987.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Malaniuk, Vladimir P"]
+[Result "1-0"]
+[WhiteElo "2535"]
+[BlackElo "2575"]
+[ECO "A53"]
+
+1. d4 Nf6 2. c4 d6 3. Nc3 Nbd7 4. e4 e5 5. d5 Nc5 6. f3 a5 7. Be3 Be7 8. Qd2 h6 9. O-O-O O-O 10. Kb1 Nh7 11. g4 Re8 12. h4 Nf8 13. g5 h5 14. Bh3 Nfd7 15. Nge2 g6 16. Nc1 Bf8 17. Nd3 Nb6 18. b3 Bxh3 19. Rxh3 a4 20. Bxc5 dxc5 21. f4 axb3 22. axb3 Ra3 23. Kb2 Qa8 24. Rhh1 exf4 25. Ra1 Rxa1 26. Rxa1 Qc8 27. Qxf4 Bg7 28. Rf1 Re7 29. Nxc5 Bd4 30. Nd3 Qh3 31. Rd1 Qg2+ 32. Rd2 Qxe4 33. Kc2 Bxc3 34. Qxe4 Rxe4 35. Kxc3 Nd7 36. Rh2 Kf8 37. b4 Nb6 38. Nb2 Nc8 39. c5 Ne7 40. Rd2 c6 41. dxc6 bxc6 42. Rd8+ Kg7 43. Rd4 Rxd4 44. Kxd4 Nf5+ 45. Ke5 Kf8 46. Nd3 Ke7 47. Ke4 f6 48. gxf6+ Kxf6 49. Ne5 1-0
+
+[Event "Nordic-ch"]
+[Site "Torshavn"]
+[Date "1987.??.??"]
+[Round "?"]
+[White "Hansen, Curt"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2490"]
+[ECO "D94"]
+
+1. d4 d5 2. c4 c6 3. Nc3 Nf6 4. e3 g6 5. Nf3 Bg7 6. Bd3 O-O 7. O-O Nbd7 8. Bd2 dxc4 9. Bxc4 c5 10. Qe2 a6 11. Ne5 Qc7 12. f4 b5 13. Bb3 Bb7 14. Rad1 Rad8 15. Be1 cxd4 16. exd4 Nb6 17. f5 Nbd5 18. Kh1 Nxc3 19. bxc3 Bd5 20. Rd3 Qb7 21. Re3 Bxb3 22. axb3 b4 23. c4 Rxd4 24. Nd3 Re4 25. Bxb4 Rxe3 26. Qxe3 Rd8 27. Ba5 Rc8 28. fxg6 1/2-1/2
+
+[Event "Nordic-ch"]
+[Site "Torshavn"]
+[Date "1987.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Tisdall, Jonathan D"]
+[Result "1/2-1/2"]
+[WhiteElo "2490"]
+[BlackElo "2450"]
+[ECO "E44"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. e3 b6 5. Ne2 Bb7 6. a3 Be7 7. d5 O-O 8. Ng3 Re8 9. Be2 exd5 10. cxd5 c5 11. e4 Bf8 12. O-O d6 13. Bb5 Nfd7 14. Nf5 a6 15. Bd3 Ne5 16. Bc2 b5 17. f4 Ng6 18. g4 Nd7 19. g5 b4 20. axb4 cxb4 21. Ne2 Nc5 22. Neg3 b3 23. Bb1 Qb6 24. Qd4 Ne7 25. Ne3 a5 26. Nc4 Qc7 27. Bd2 a4 28. Bc3 Ba6 29. Re1 Ne6 30. dxe6 Qxc4 31. Rxa4 Qxe6 32. f5 Qc8 33. f6 Nc6 34. Qe3 g6 35. Bd3 Bxd3 36. Rxa8 Qxa8 37. Qxd3 Ne5 38. Qd1 Qa6 39. Kg2 Nd3 40. Rf1 Nc5 41. Qd5 Qa4 42. Rf4 Ne6 43. Rf2 Nc5 44. Rf4 Ne6 1/2-1/2
+
+[Event "Nordic-ch"]
+[Site "Torshavn"]
+[Date "1987.??.??"]
+[Round "?"]
+[White "Schneider, Lars Ake"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2435"]
+[BlackElo "2490"]
+[ECO "B70"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Bc4 Bg7 7. h3 O-O 8. O-O a6 9. Re1 b5 10. Bb3 Bb7 11. Bg5 Nbd7 12. Nd5 e6 13. Nxf6+ Bxf6 14. Bxf6 Qxf6 15. c3 Rfd8 16. Qd2 Nc5 17. Bc2 e5 18. Nb3 Ne6 19. Na5 Rab8 20. Qe3 Ba8 21. b4 h5 22. Bb3 Nf4 23. Kh2 h4 24. Rad1 Kg7 25. a3 Rbc8 26. c4 Qg5 27. g3 Ne6 28. Rc1 hxg3+ 29. fxg3 Qxe3 30. Rxe3 Ng5 31. Rce1 f5 32. cxb5 axb5 33. Bd5 Nxe4 34. Bxa8 Rxa8 35. Rc1 Rdc8 36. Ree1 d5 37. Nc6 Kf6 38. Red1 Rxa3 39. Rxd5 Ra6 40. Rxe5 Raxc6 41. Rxc6+ Rxc6 0-1
+
+[Event "World Cup"]
+[Site "Reykjavik"]
+[Date "1988.10.??"]
+[Round "7"]
+[White "Ehlvest, Jaan"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2580"]
+[BlackElo "2530"]
+[ECO "A32"]
+
+1. d4 Nf6 2. c4 e6 3. g3 c5 4. Nf3 cxd4 5. Nxd4 Qb6 6. Nc3 Bc5 7. e3 d5 8. cxd5 Nxd5 9. Nxd5 exd5 10. Nb3 Bb4+ 11. Bd2 Nc6 12. Bg2 a5 13. Bxb4 Qxb4+ 14. Qd2 a4 15. Qxb4 Nxb4 16. Nd4 Nd3+ 17. Ke2 Nxb2 18. Bxd5 Ra5 19. Rhc1 Bg4+ 20. Bf3 Bxf3+ 21. Nxf3 O-O 22. a3 b5 23. Ne5 f6 24. Rab1 fxe5 25. Rxb2 Ra6 26. Rcc2 Rb6 27. Kd3 Kf7 28. Rc5 Ke6 29. Ke4 b4 30. Rxe5+ Kd6 31. Ra5 b3 32. Rxa4 Kc5 33. Kd3 Rxf2 34. Rxf2 b2 35. Rb4 b1=Q+ 36. Rxb1 Rxb1 37. Ra2 Kd5 38. e4+ Ke5 39. a4 Rd1+ 40. Ke2 Rh1 41. Kf3 Rf1+ 42. Ke2 Rh1 43. Kd3 Rd1+ 44. Kc2 Rd8 45. a5 Kxe4 46. a6 Kd5 47. a7 Ra8 48. Kd3 Kc6 49. Kd4 Kb7 50. Kd5 Rd8+ 51. Ke6 Ka8 52. Kf7 Rd7+ 53. Kg8 g5 54. Rf2 Rd4 55. Kxh7 1-0
+
+[Event "World Cup"]
+[Site "Reykjavik"]
+[Date "1988.10.??"]
+[Round "8"]
+[White "Petursson, Margeir"]
+[Black "Kasparov, Garry"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2760"]
+[ECO "E94"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 Nbd7 7. Qd2 c6 8. Nf3 e5 9. O-O exd4 10. Nxd4 Nc5 11. Qf4 Qe7 12. Rad1 Re8 13. Bf3 a5 14. Rfe1 a4 15. h3 Qe5 16. Qc1 Qe7 17. Qf4 Ncd7 18. Qd2 Qf8 19. Nc2 h6 20. Be3 Nh7 21. Bd4 Ng5 22. Bg4 Ne5 23. Be2 Ne6 24. Be3 Nd7 25. Bf1 Ndc5 26. Nd4 Ng5 1/2-1/2
+
+[Event "World Cup"]
+[Site "Reykjavik"]
+[Date "1988.10.??"]
+[Round "9"]
+[White "Nikolic, Predrag"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2585"]
+[BlackElo "2530"]
+[ECO "D17"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Nc3 dxc4 5. a4 Bf5 6. Ne5 e6 7. f3 Bb4 8. e4 Bxe4 9. fxe4 Nxe4 10. Bd2 Qxd4 11. Nxe4 Qxe4+ 12. Qe2 Bxd2+ 13. Kxd2 Qd5+ 14. Kc2 Na6 15. Nxc4 O-O-O 16. Qe5 Nb4+ 17. Kb3 c5 18. Rc1 Nc6 19. Qxg7 Rhg8 20. Qxf7 Rg4 21. Ka2 Ne5 22. Qh5 Re4 23. b3 Rf8 24. Nb2 Rf2 25. Qe8+ Kc7 26. Qe7+ Kb8 27. Qxc5 Qxc5 28. Rxc5 Re1 29. g3 Nf3 30. Rh5 e5 31. Rxh7 1/2-1/2
+
+[Event "Thessaloniki ol (Men)"]
+[Site "Thessaloniki"]
+[Date "1988.11.21"]
+[Round "8"]
+[White "Semkov, Semko"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2445"]
+[BlackElo "2530"]
+[ECO "E53"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. e3 O-O 5. Bd3 d5 6. Nf3 c5 7. O-O b6 8. cxd5 exd5 9. a3 Bxc3 10. bxc3 Ba6 11. Bxa6 Nxa6 12. Qa4 Qc8 13. Bb2 c4 14. Nd2 Re8 15. Rfe1 Ne4 16. Nf1 h5 17. f3 Nd6 18. Re2 Nc7 19. Qd1 Qe6 20. Qe1 Qg6 21. a4 f5 22. Ba3 Nf7 23. Qh4 Qg5 24. Qxg5 Nxg5 25. Bd6 Nce6 26. h4 Nf7 27. Bh2 Nf8 28. Rb2 Nd7 29. Rb5 Nf6 30. a5 bxa5 31. Rbxa5 Re7 32. Bf4 Rd7 33. Ra6 Rb7 34. Ng3 Rb3 35. Nxf5 Rxc3 36. Be5 Nd7 37. Ne7+ Kf8 38. Nxd5 Rd3 39. Nc7 Rc8 40. Ne6+ Kg8 41. Nf4 Nfxe5 42. dxe5 Rd2 43. e6 Nb6 44. Rxa7 c3 45. Kf1 c2 46. Ke1 Nc4 47. Rc1 Rb8 48. Ra2 Rd1+ 49. Rxd1 cxd1=Q+ 50. Kxd1 Nxe3+ 51. Ke2 Nf5 52. Ra5 g6 53. Nxg6 Nd4+ 54. Ke3 Nxe6 55. Rxh5 Rb3+ 56. Kf2 Kg7 57. Ne7 Rb2+ 58. Kf1 Rb1+ 59. Kf2 Rb2+ 60. Kg1 Rxg2+ 61. Kxg2 Nf4+ 62. Kg3 Nxh5+ 63. Kg4 Kh6 64. Nd5 Ng7 65. Ne3 Kg6 66. f4 Ne8 67. h5+ Kh6 68. Nf5+ Kh7 69. Kg5 Nc7 70. Nd4 Ne8 71. Nb5 Kg7 72. h6+ 1-0
+
+[Event "ISL-ch"]
+[Site "Iceland"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Thorsteins, Karl"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2430"]
+[ECO "D82"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. Bf4 Bg7 5. e3 c5 6. dxc5 Qa5 7. Rc1 Ne4 8. cxd5 Nxc3 9. Qd2 Qxa2 10. bxc3 Qa5 11. Bc4 Nd7 12. Nf3 Nxc5 13. O-O O-O 14. Be5 Bxe5 15. Nxe5 f6 16. d6+ Kg7 17. dxe7 Re8 18. Qd5 Be6 19. Qd6 Ne4 20. Qxe6 Qxe5 21. Qxe5 fxe5 22. Bd5 Nc5 23. Ra1 Rxe7 24. Ra5 Rc7 25. c4 a6 26. Rb1 Rd8 27. g4 b5 28. cxb5 Rxd5 29. b6 Rb7 30. Kg2 Kf6 31. Rc1 Rxb6 32. Raxc5 Rxc5 33. Rxc5 g5 34. Kg3 Re6 35. Rc8 Kf7 36. Rc7+ Re7 37. Rc5 Kf6 38. Kf3 e4+ 39. Kg3 Ra7 40. Ra5 Kg6 41. h4 gxh4+ 42. Kxh4 h6 43. Kg3 Ra8 44. Kg2 Ra7 45. Kf1 Ra8 46. Ke2 Ra7 47. Kd2 Rd7+ 48. Ke1 Ra7 49. Ke2 Ra8 50. Kf1 Ra7 51. Kg2 Ra8 52. Kg3 Ra7 53. Kh4 Ra8 54. g5 hxg5+ 55. Rxg5+ Kf6 56. Ra5 Ke6 57. Kg3 Rg8+ 58. Kh3 Rh8+ 59. Kg2 Rg8+ 60. Kf1 Ra8 61. Ke2 Ra7 62. Kd2 Rd7+ 63. Kc3 Rc7+ 64. Kd4 Rc2 65. Rxa6+ Ke7 66. Ke5 Rxf2 67. Ra7+ Kf8 68. Kxe4 Rb2 69. Kd5 Rb5+ 70. Kc4 Re5 71. Kd4 Rb5 72. e4 Ke8 73. e5 Rb4+ 74. Kc5 Rb1 75. Rh7 Ra1 76. Rb7 Ra5+ 77. Kd6 Ra6+ 78. Kd5 Kd8 79. Ke4 Ke8 80. Kf5 Rc6 1/2-1/2
+
+[Event "Saint John op-2"]
+[Site "Saint John"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Georgiev, Krum"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2490"]
+[BlackElo "2540"]
+[ECO "B50"]
+
+1. e4 c5 2. Nf3 d6 3. c3 Nf6 4. Be2 g6 5. O-O Bg7 6. d3 O-O 7. Nbd2 e5 8. a3 Nbd7 9. b4 d5 10. Qb3 dxe4 11. dxe4 Qc7 12. a4 b6 13. Bc4 Bh6 14. Re1 Bb7 15. a5 Rae8 16. h4 Re7 17. Ng5 Bg7 18. axb6 axb6 19. Ngf3 h6 20. Nh2 cxb4 21. cxb4 Nb8 22. Bb2 Nc6 23. Nhf3 Ng4 24. Rac1 Qb8 25. Qd1 Rd8 26. b5 Na5 27. Ba2 Red7 28. Qe2 Bf8 29. h5 gxh5 30. Nf1 Bb4 31. Bc3 Bc5 32. Nxe5 Nxf2 33. Qxh5 Ng4+ 34. Kh1 Nf2+ 35. Kh2 Qd6 36. Ng3 Rf8 37. Nf5 Qf6 38. Nxd7 1-0
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Schoen, Wolfram"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2450"]
+[BlackElo "2540"]
+[ECO "E58"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. e3 O-O 5. Bd3 d5 6. Nf3 c5 7. O-O Nc6 8. a3 Bxc3 9. bxc3 Qc7 10. h3 Rd8 11. Qc2 Na5 12. Ne5 dxc4 13. Nxc4 Nxc4 14. Bxc4 b6 15. Bd3 Bb7 16. Bb2 e5 17. Rfd1 Qc6 18. f3 e4 19. Bxe4 Nxe4 20. Qxe4 Qxe4 21. fxe4 Bxe4 22. Rd2 c4 23. Rf1 Rd5 24. Bc1 Re8 25. Rf4 Re6 26. Rdf2 f6 27. h4 Bd3 28. Rb2 Kf7 29. Rb4 a5 30. Rb2 Ke8 31. Rg4 Rf5 32. Bd2 g6 33. e4 Rf1+ 34. Kh2 Bxe4 35. Rf4 Rd1 36. d5 Bxd5 37. Rd4 Bb7 38. Be3 Rd3 39. Bf2 Rxc3 40. Rbd2 Rd3 41. R4xd3 cxd3 42. Rxd3 b5 43. Rb3 Bc6 44. Bb6 Re2 45. Rg3 f5 46. Bxa5 f4 47. Rg5 Ra2 48. Bb4 f3 49. Kg1 fxg2 50. Re5+ Kf7 51. Kh2 Rf2 52. Bc5 Rf1 53. Bg1 Rb1 54. Rc5 Be4 55. Re5 Ba8 56. h5 Kf6 57. hxg6 hxg6 58. Re8 Bd5 59. Rd8 Be4 60. Re8 Kf5 61. Rf8+ Kg4 62. Re8 Bd5 63. Re3 Rd1 64. Rg3+ Kf5 65. Rc3 g5 66. Rc8 g4 67. Rf8+ Kg6 68. Rd8 Rd3 69. Rd6+ Kf7 70. Rh6 Rxa3 71. Rh5 Rd3 72. Rh4 Bf3 73. Rh7+ Kg6 74. Rh8 Bd5 75. Rh4 Kg5 76. Rh7 b4 77. Rg7+ 0-1
+
+[Event "Akureyri"]
+[Site "Akureyri"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Gurevich, Mikhail"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2625"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb4+ 6. Bd2 Be7 7. Nc3 O-O 8. e4 d5 9. cxd5 Bxf1 10. Kxf1 exd5 11. e5 Ne4 12. Qe2 Nxc3 13. Bxc3 Qd7 14. Kg2 Nc6 15. Rhd1 Nd8 16. Rd3 Ne6 17. Rad1 Rae8 18. Bb2 Kh8 19. Bc1 c6 20. h4 f5 21. exf6 Bxf6 22. Re3 Nc7 23. Qd3 Rxe3 24. Bxe3 Ne6 25. Bg5 Qf7 26. Bxf6 Qxf6 27. Qe3 Nd8 28. Ne5 Qd6 29. Nd3 Qe6 30. Re1 Qxe3 31. Rxe3 Kg8 32. b4 Rf6 33. Ne5 h5 34. Ra3 Ne6 35. Rxa7 Nxd4 36. a4 c5 37. bxc5 bxc5 38. Rd7 Nc6 39. Rxd5 Nxe5 40. Rxe5 Rc6 41. Rxh5 c4 42. Re5 c3 43. Re1 Kf7 44. a5 Kf6 45. Kf3 Kf5 46. Ra1 c2 47. Rc1 Rc3+ 48. Ke2 Kg4 49. a6 Kh3 50. a7 Ra3 51. Rxc2 Rxa7 52. Ke3 Ra4 53. Rc7 Ra3+ 54. Kf4 Ra2 55. Rxg7 Rxf2+ 56. Ke3 Ra2 57. h5 Ra3+ 58. Kd4 Ra4+ 59. Kc3 Ra3+ 60. Kb4 Ra6 61. g4 1-0
+
+[Event "Akureyri"]
+[Site "Akureyri"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Tisdall, Jonathan D"]
+[Result "1/2-1/2"]
+[WhiteElo "2540"]
+[BlackElo "2425"]
+[ECO "A67"]
+
+1. d4 Nf6 2. c4 c5 3. d5 e6 4. Nc3 exd5 5. cxd5 d6 6. e4 g6 7. f4 Bg7 8. Bb5+ Nfd7 9. a4 O-O 10. Nf3 Na6 11. O-O Rb8 12. Re1 Nc7 13. Bf1 Re8 14. Be3 Bxc3 15. bxc3 Nf6 16. e5 Nfxd5 17. Bf2 dxe5 18. fxe5 b6 19. Bh4 Qd7 20. Bb5 Nxb5 21. axb5 Nf4 22. Qa4 Qg4 23. Bg3 c4 24. Qd1 Nd3 25. Rf1 Rb7 26. Qd2 Be6 27. Qh6 Bd5 28. Ng5 Qh5 29. Qxh5 gxh5 30. Rf5 h4 31. Bxh4 Rxe5 32. Raf1 Rxf5 33. Rxf5 Rd7 34. h3 h6 35. Nf3 Be4 36. Rf6 Kg7 37. Nd2 Bd5 38. Rf1 Rd6 39. Ra1 Re6 40. Rxa7 Re2 41. Nf3 Bxf3 42. gxf3 Rb2 43. Rc7 Ne5 44. Bf2 Nxf3+ 45. Kf1 Rxb5 46. Rc6 Rb3 47. Ke2 Ne5 48. Bd4 Rb5 49. Rxc4 f6 50. Rc7+ Kg6 51. Ke3 Rb1 52. Ke4 b5 53. Rb7 Nc4 54. Kd5 Na3 55. Kc5 Rf1 56. Kb4 Nc2+ 57. Kxb5 Nxd4+ 58. cxd4 Rc1 59. d5 f5 60. d6 Kf6 61. Rc7 Rd1 62. Kc6 f4 63. Rc8 Rc1+ 64. Kb7 Rd1 65. Kc7 Kg5 66. Rf8 Rc1+ 67. Kd8 Rc3 68. h4+ Kg4 69. d7 f3 70. Ke7 Re3+ 71. Kd6 Rd3+ 72. Kc6 Rc3+ 73. Kb6 Rd3 74. Kc7 Rc3+ 75. Kd6 Rd3+ 76. Kc6 h5 77. d8=Q Rxd8 78. Rxd8 Kxh4 1/2-1/2
+
+[Event "New York op"]
+[Site "New York"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Groszpeter, Attila"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2495"]
+[BlackElo "2540"]
+[ECO "E49"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. e3 O-O 5. Bd3 d5 6. Ne2 dxc4 7. Bxc4 c5 8. a3 Bxc3+ 9. bxc3 Qc7 10. Ba2 e5 11. O-O Rd8 12. f3 Be6 13. Bxe6 fxe6 14. Rb1 Rd7 15. Qb3 c4 16. Qb5 Nc6 17. dxe5 Nxe5 18. e4 Nd3 19. Be3 e5 20. a4 b6 21. a5 bxa5 22. Qa4 Nh5 23. Rb5 a6 24. Rb6 Rc8 25. Rxa6 Nhf4 26. Nxf4 exf4 27. Bd4 Rxd4 28. cxd4 c3 29. Rxa5 c2 30. Qb3+ Kh8 31. Qxd3 c1=Q 32. Rc5 Q7xc5 33. dxc5 Qxc5+ 34. Kh1 h6 35. h3 Rb8 36. Rd1 Rb2 37. Qd8+ Kh7 38. Qd5 Qb6 39. Qf5+ Qg6 40. Qxg6+ Kxg6 41. Rd6+ Kh5 42. Kh2 Re2 43. Kg1 Ra2 44. Kf1 Rb2 45. Kg1 Rc2 46. Kh2 Re2 47. Rc6 Re1 48. Rc5+ Kh4 49. Rc6 Kh5 50. Rc7 g5 51. Rc6 Re2 52. Rf6 Ra2 53. h4 g4 54. Rxf4 gxf3 55. Rxf3 Kxh4 56. Re3 Ra6 57. Kg1 Kg4 58. Kf2 h5 59. g3 h4 60. gxh4 Kxh4 61. Kf3 1/2-1/2
+
+[Event "New York op"]
+[Site "New York"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Ivkov, Borislav"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2460"]
+[ECO "A42"]
+
+1. d4 g6 2. e4 Bg7 3. c4 d6 4. Nc3 e5 5. dxe5 dxe5 6. Qxd8+ Kxd8 7. f4 Nc6 8. Nf3 h6 9. Be3 exf4 10. O-O-O+ Bd7 11. Bxf4 g5 12. Bg3 Nge7 13. Nd5 Rc8 14. e5 g4 15. Nf6 Bxf6 16. exf6 gxf3 17. fxe7+ Kxe7 18. Bh4+ f6 19. gxf3 Bf5 20. c5 Ne5 21. f4 Nf3 22. Bg3 Rcd8 23. Bg2 Nd4 24. Rhe1+ Kf7 25. Bxb7 Rd7 26. Bf2 Rhd8 27. Bxd4 Rxd4 28. b3 Rd3 29. Rxd3 Rxd3 30. Kb2 Rd2+ 31. Ka3 Rxh2 32. Bd5+ Kf8 33. Rg1 Bh7 34. Be6 Re2 35. Bg4 Re4 36. Rf1 f5 37. Bh3 Re3 38. Bg2 h5 39. Rh1 Bg6 40. Kb4 Re2 41. Bf3 Rf2 42. Bxh5 Rxf4+ 43. Kb5 Bh7 44. Rh2 Bg8 45. Kc6 a5 46. Kb5 Bd5 47. Kxa5 Rd4 48. Rf2 f4 49. Bf3 Bxf3 50. Rxf3 Ke7 51. b4 Ke6 52. b5 Kd5 53. Rc3 Re4 54. c6 Re3 55. Rc2 f3 56. Rf2 Kc5 57. a4 Ra3 58. Rh2 Rd3 59. Ka6 Rd4 60. a5 Rf4 61. Rc2+ Kd5 62. Rf2 Kc5 63. b6 Kxc6 64. b7 1-0
+
+[Event "Marseille"]
+[Site "Marseille"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Gurevich, Mikhail"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2630"]
+[ECO "E16"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Bb7 5. Bg2 c5 6. d5 exd5 7. Nh4 b5 8. cxd5 d6 9. a4 b4 10. Nf5 g6 11. Ne3 Bg7 12. Nc4 Ba6 13. Nbd2 O-O 14. O-O Re8 15. Re1 Qe7 16. Rb1 Nbd7 17. Qc2 Nb6 18. Ne3 Bb7 19. Ndc4 Nbxd5 20. Nxd5 Bxd5 21. Bxd5 Nxd5 22. Rd1 Nb6 23. Nxd6 Qxe2 24. Rd2 Qe1+ 25. Kg2 Re7 26. a5 Nd7 27. Rd1 Re2 28. Rxe1 Rxc2 29. Bf4 Nf6 30. Rec1 Rxc1 31. Rxc1 Nh5 32. Be3 Bxb2 33. Rxc5 a6 34. Rc6 Nf6 35. Nc4 Bc3 36. Nb6 Rb8 37. Bf4 Rd8 38. Na4 Nd5 39. Rxa6 Nxf4+ 40. gxf4 Bd2 41. Rb6 Rd5 42. a6 Ra5 43. Nb2 Ra2 44. Nd3 b3 45. Kf3 f5 46. Rb8+ Kg7 47. Rb7+ Kh6 48. a7 Bc3 49. Ne5 Bd4 50. Nc6 Bc5 51. Rxb3 Rxf2+ 52. Kg3 Ra2 53. Rb7 Ra3+ 54. Kg2 Be3 55. Rf7 Bc5 56. h3 Ra2+ 57. Kf1 Ra1+ 58. Ke2 Ra3 59. Kd2 Ra4 60. Kd3 Bg1 61. Ke2 1/2-1/2
+
+[Event "Marseille"]
+[Site "Marseille"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Todorcevic, Miodrag"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2525"]
+[BlackElo "2530"]
+[ECO "A08"]
+
+1. e4 c5 2. d3 Nc6 3. g3 d5 4. Nd2 Nf6 5. Bg2 g6 6. Ngf3 Bg7 7. O-O O-O 8. Re1 Qc7 9. c3 dxe4 10. dxe4 Ng4 11. Qc2 Rd8 12. Nf1 b6 13. Bf4 Nge5 14. Nxe5 Bxe5 15. Bxe5 Nxe5 16. Ne3 e6 17. f4 Nd3 18. Re2 c4 19. Qa4 Bb7 20. Qxc4 Qxc4 21. Nxc4 Ba6 22. b3 Bxc4 23. bxc4 Nc5 24. e5 Rac8 25. Bf1 Rc7 26. a4 Rcd7 27. a5 Nb3 28. Rb1 Nxa5 29. c5 Rd1 30. Rxd1 Rxd1 31. cxb6 axb6 32. Kf2 Rb1 33. Re4 Kf8 34. Rb4 Rxb4 35. cxb4 1/2-1/2
+
+[Event "Naestved op"]
+[Site "Naestved"]
+[Date "1988.??.??"]
+[Round "8"]
+[White "Jansa, Vlastimil"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2470"]
+[BlackElo "2530"]
+[ECO "B38"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Nf6 6. Nc3 d6 7. Be2 Bg7 8. Be3 O-O 9. O-O Bd7 10. Qd2 Nxd4 11. Bxd4 Bc6 12. f3 a5 13. b3 Nd7 14. Be3 Nc5 15. Rab1 Qb6 16. Nb5 Rfc8 17. Rfd1 Qd8 18. Nd4 Qf8 19. a3 Bd7 20. b4 axb4 21. axb4 Ne6 22. Ra1 Rxa1 23. Rxa1 Ra8 24. Rxa8 Qxa8 25. Nxe6 Bxe6 26. Bd4 Bxd4+ 27. Qxd4 Qa2 28. Kf2 h5 29. h3 b6 30. f4 Qc2 31. e5 dxe5 32. fxe5 Qf5+ 33. Kg3 h4+ 34. Kh2 Qc2 35. Bg4 Qxc4 36. Qd8+ Kg7 37. Qxe7 Qf4+ 38. Kg1 Qe3+ 39. Kh1 Qe1+ 40. Kh2 Qxe5+ 0-1
+
+[Event "Peer Gynt"]
+[Site "Gausdal"]
+[Date "1988.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Meduna, Eduard"]
+[Result "1-0"]
+[WhiteElo "2530"]
+[BlackElo "2460"]
+[ECO "D17"]
+
+1. d4 Nf6 2. c4 c6 3. Nc3 d5 4. Nf3 dxc4 5. a4 Bf5 6. Ne5 e6 7. f3 Bb4 8. e4 Bg6 9. Bxc4 Nbd7 10. h4 Qa5 11. Qb3 O-O-O 12. Bf4 Nxe5 13. Bxe5 h5 14. O-O Nd7 15. Bg3 Be7 16. Rac1 Qb6 17. Nb5 e5 18. Bxf7 Kb8 19. Bxg6 cxb5 20. Bf5 Qxd4+ 21. Kh2 1-0
+
+[Event "Lugano op"]
+[Site "Lugano"]
+[Date "1989.03.07"]
+[Round "5"]
+[White "Kortschnoj, Viktor Lvovich"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2610"]
+[BlackElo "2530"]
+[ECO "A29"]
+
+1. c4 Nf6 2. Nc3 e5 3. g3 d5 4. cxd5 Nxd5 5. Bg2 Nb6 6. Nf3 Nc6 7. O-O Be7 8. d3 O-O 9. a4 a5 10. Be3 Bg4 11. Rc1 Re8 12. Nd2 Rb8 13. Nb5 Bb4 14. Bxc6 bxc6 15. Na7 Bh3 16. Nxc6 Qd5 17. Nf3 Ra8 18. Nxb4 axb4 19. Re1 Nxa4 20. Rxc7 b3 21. Qd2 Rec8 22. Rxc8+ Rxc8 23. Rc1 Rxc1+ 24. Qxc1 h6 25. Ne1 Qa5 26. Bd2 Qd5 27. Bb4 e4 28. Ba3 exd3 29. exd3 Qh5 30. f3 Qe5 31. Kf2 Be6 32. Ng2 Bf5 33. Qe3 Nxb2 34. Qxe5 Nxd3+ 35. Ke2 Nxe5 36. Ne3 Bd7 37. f4 Bb5+ 38. Kd2 Nf3+ 39. Kc3 Nxh2 40. Kxb3 Kh7 41. Kc3 Nf3 42. Nc2 1/2-1/2
+
+[Event "EU-Cup"]
+[Site "Budapest"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Polgar, Judit"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2555"]
+[ECO "A37"]
+
+1. Nf3 c5 2. c4 Nc6 3. Nc3 e5 4. g3 g6 5. Bg2 Bg7 6. O-O Nge7 7. a3 a5 8. Ne1 d6 9. Nc2 Be6 10. Ne3 O-O 11. d3 Rb8 12. Ned5 h6 13. Rb1 f5 14. b4 axb4 15. axb4 cxb4 16. Nxe7+ Qxe7 17. Nd5 Qf7 18. Nxb4 Nxb4 19. Rxb4 d5 20. cxd5 Bxd5 21. Bxd5 Qxd5 22. Qb3 Qxb3 23. Rxb3 b5 24. Ba3 Rfc8 25. Rfb1 Rc2 26. Kf1 Ra8 27. Bb2 Rb8 28. Ke1 Kf7 29. Ba3 Ra2 30. Bc1 e4 31. dxe4 fxe4 32. Bf4 Rb7 33. Rxb5 Rxb5 34. Rxb5 Ra1+ 35. Kd2 Bd4 36. e3 Ra2+ 37. Ke1 Ra1+ 38. Kd2 Ra2+ 39. Kd1 Bg7 40. Rb7+ Kg8 41. Rb8+ Kf7 42. Rb7+ Kg8 43. g4 Ra1+ 44. Kd2 Ra2+ 45. Kd1 Ra1+ 46. Kd2 Ra2+ 47. Kc1 Ra1+ 48. Rb1 Rxb1+ 49. Kxb1 h5 50. gxh5 gxh5 51. Kc2 Kf7 52. Kb3 Ke6 53. Kc4 Bf6 54. Bc7 Bg7 55. Ba5 Bf6 56. Be1 Be5 57. h3 Bf6 58. Bb4 Bh4 59. Kd4 Kf5 60. Be1 Bf6+ 61. Kd5 Bh4 62. Kd6 Kf6 63. Kd5 1/2-1/2
+
+[Event "EU-Cup"]
+[Site "Budapest"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Polgar, Judit"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2555"]
+[BlackElo "2530"]
+[ECO "B53"]
+
+1. e4 c5 2. Nf3 Nc6 3. Bb5 d6 4. d4 cxd4 5. Qxd4 Bd7 6. Bxc6 Bxc6 7. Nc3 Nf6 8. Bg5 e6 9. O-O-O Be7 10. Rhe1 O-O 11. Qd2 Qc7 12. Nd4 Rfd8 13. f3 Rab8 14. g4 b5 15. Kb1 b4 16. Nce2 Be8 17. h4 a5 18. Bxf6 Bxf6 19. g5 Be7 20. h5 d5 21. g6 dxe4 22. Qe3 Bf6 23. Qxe4 Rd6 24. Rd3 Rc8 25. Rc1 fxg6 26. Nxe6 Qe7 27. Rxd6 Qxd6 28. N6f4 g5 29. Nd5 Bxh5 30. Nxf6+ Qxf6 31. Qd5+ Bf7 32. Qxa5 Qxf3 33. Nd4 Qd5 34. Qxd5 Bxd5 35. Rg1 h6 36. a3 bxa3 37. b3 Rf8 38. c4 Rf4 39. Nb5 Bf3 40. Nxa3 g4 41. c5 h5 42. Rc1 g3 43. c6 Bxc6 0-1
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Arnason, Jon L"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2530"]
+[ECO "B78"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Be3 Bg7 7. f3 Nc6 8. Qd2 O-O 9. Bc4 Bd7 10. h4 Rc8 11. Bb3 h5 12. O-O-O Ne5 13. Bh6 Bxh6 14. Qxh6 Rxc3 15. bxc3 Qc7 16. Kb1 Re8 17. g4 a5 18. gxh5 a4 19. Bd5 Nxd5 20. exd5 Qxc3 21. hxg6 1/2-1/2
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Hodgson, Julian M"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2545"]
+[BlackElo "2530"]
+[ECO "B23"]
+
+1. e4 c5 2. Nc3 Nc6 3. f4 g6 4. Nf3 Bg7 5. Bb5 Nd4 6. Nxd4 cxd4 7. Ne2 Nf6 8. Bd3 d6 9. c3 dxc3 10. bxc3 O-O 11. O-O b6 12. Bc2 Bb7 13. d3 Qc7 14. Kh1 Rac8 15. f5 d5 16. Bf4 Qc6 17. Ba4 b5 18. Nd4 Qc5 19. e5 bxa4 20. exf6 Bxf6 21. fxg6 hxg6 22. Qg4 Qxc3 23. Nf5 Qxd3 24. Nh6+ Kg7 25. Rad1 Qa3 26. Nf5+ Kg8 27. h4 Rc4 28. h5 g5 29. Rf3 Qb4 30. Rdf1 Bc8 31. Nh6+ Kh7 32. Qg3 Rxf4 33. Rxf4 gxf4 0-1
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Eingorn, Vereslav S"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2570"]
+[ECO "A40"]
+
+1. d4 e6 2. c4 Bb4+ 3. Bd2 a5 4. g3 d6 5. Bg2 e5 6. dxe5 dxe5 7. Nc3 Nf6 8. Nf3 Nc6 9. O-O O-O 10. Rc1 h6 11. a3 Be7 12. Qc2 Be6 13. Rfd1 Qc8 14. Nd5 Nxd5 15. cxd5 Bxd5 16. Bc3 Bxf3 17. Bxf3 Bd6 18. Qa4 Ra6 1/2-1/2
+
+[Event "New York op"]
+[Site "New York"]
+[Date "1989.??.??"]
+[Round "5"]
+[White "Petursson, Margeir"]
+[Black "Lobron, Eric"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2555"]
+[ECO "A90"]
+
+1. d4 e6 2. c4 f5 3. Nf3 Nf6 4. g3 c6 5. Bg2 d5 6. O-O Bd6 7. b3 Qe7 8. Nbd2 O-O 9. Ne5 b6 10. cxd5 cxd5 11. Ndc4 Bb7 12. Nxd6 Qxd6 13. Bf4 Qe7 14. Rc1 Na6 15. Qd3 Rfc8 16. Qb1 Nb4 17. Qb2 Nc6 18. Nxc6 Rxc6 19. Rxc6 Bxc6 20. Rc1 Rc8 21. e3 Qb7 22. Bf1 Bd7 23. Rc2 Rxc2 24. Qxc2 Kf7 25. f3 Qc8 26. Qxc8 Bxc8 27. Kf2 h6 28. h3 g5 29. Bb8 a6 30. g4 Ng8 31. a4 Nf6 32. Bd3 Nd7 33. Bc7 fxg4 34. hxg4 Ke7 35. Kg3 Bb7 36. Kf2 Bc8 37. Ke2 Bb7 38. Kd2 Bc8 39. Kc3 Bb7 40. Kb4 Bc8 41. a5 b5 42. Be5 Nxe5 43. dxe5 Bb7 44. Kc5 d4 45. e4 Kd7 46. Kb6 Bc8 47. b4 Kd8 48. Kc6 Bd7+ 49. Kd6 Bc8 50. Bb1 Bd7 51. Bc2 Bc8 52. Kc5 Kc7 53. Kxd4 Bd7 54. Bb3 Bc8 55. Kc5 Bd7 56. Ba2 Bc8 57. Bd5 exd5 58. exd5 Bb7 59. Kd4 Kd7 60. Ke4 Ke7 61. Kd4 Ba8 62. Kc5 Kd7 1/2-1/2
+
+[Event "Munich"]
+[Site "Munich"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Kindermann, Stefan"]
+[Result "1/2-1/2"]
+[WhiteElo "2530"]
+[BlackElo "2515"]
+[ECO "D85"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. cxd5 Nxd5 5. e4 Nxc3 6. bxc3 Bg7 7. Be3 c5 8. Qd2 Qa5 9. Nf3 Nc6 10. Rb1 a6 11. Rc1 cxd4 12. cxd4 Qxd2+ 13. Kxd2 f5 14. Bd3 Rf8 15. exf5 Bxf5 16. Rc5 Rd8 17. Bxa6 Nxd4 18. Bxd4 bxa6 19. Kc3 Bxd4+ 20. Nxd4 Rc8 21. Rxc8+ Bxc8 22. f3 Kd7 23. Re1 Kd6 24. Rb1 e5 25. Rb6+ Kd5 26. Nc2 e4 27. Nb4+ Ke5 28. fxe4 Kxe4 29. Rb8 Rd8 30. Ra8 Ke3 31. a4 Kf2 32. Nxa6 Kxg2 33. Nc5 Kxh2 34. a5 Rf8 35. Kd4 g5 36. a6 g4 37. Ne4 g3 38. Nxg3 Kxg3 39. a7 Rf4+ 40. Ke5 Re4+ 41. Kf6 Re6+ 42. Kf7 Ra6 43. Rxc8 Rxa7+ 44. Kf6 Kg4 45. Rc4+ Kh5 46. Rc5+ Kh6 47. Rc1 Ra6+ 48. Kf5 Rg6 49. Kf4 Kg7 1/2-1/2
+
+[Event "Munich"]
+[Site "Munich"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Schlosser, Philipp"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2420"]
+[BlackElo "2530"]
+[ECO "E11"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 Bb4+ 4. Nbd2 d5 5. Qa4+ Nc6 6. e3 O-O 7. a3 Bd6 8. Qc2 e5 9. cxd5 Nxd5 10. dxe5 Nxe5 11. Nxe5 Bxe5 12. Nc4 Bf6 13. Bd3 g6 14. O-O c6 15. e4 b5 16. exd5 bxc4 17. Qxc4 cxd5 18. Qc2 Qb6 19. Rb1 Ba6 20. Bxa6 Qxa6 21. Bf4 Rfe8 22. Rfe1 d4 23. h3 d3 24. Qd2 Qc4 25. Rec1 Qb3 26. Be3 a5 27. Rc6 Be5 28. Rd1 Red8 29. Rb6 Qc2 30. Rc1 Rac8 31. Rxc2 dxc2 32. Rc6 Rxc6 33. Qxd8+ Kg7 34. g3 c1=Q+ 35. Bxc1 Rxc1+ 36. Kg2 Bxb2 37. Qxa5 Rc2 38. Qb4 Be5 39. a4 Ra2 40. a5 h5 41. h4 Bf6 42. Qb6 Rd2 43. Qb4 Ra2 44. Kf3 Bd8 45. Qd4+ Bf6 46. Qb6 Rb2 47. Qxb2 Bxb2 48. Ke4 1-0
+
+[Event "Munich"]
+[Site "Munich"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Van der Sterren, Paul"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2500"]
+[BlackElo "2530"]
+[ECO "D39"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 d5 4. Nc3 dxc4 5. e4 Bb4 6. Bg5 c5 7. Bxc4 h6 8. Bxf6 Qxf6 9. O-O cxd4 10. e5 Qe7 11. Ne4 O-O 12. Qxd4 Nc6 13. Qe3 Bd7 14. Bd3 Ba5 15. a3 Bc7 16. Rac1 Rac8 17. Nc5 Be8 18. Qe4 f5 19. exf6 Rxf6 20. Qh7+ Kf8 21. Qh8+ Kf7 22. Rfe1 Rd8 23. Bc4 Bd7 24. Qh7 Rxf3 25. Nxe6 Bxe6 26. Rxe6 1-0
+
+[Event "Munich"]
+[Site "Munich"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Zueger, Beat"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2445"]
+[BlackElo "2530"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb7 6. Bg2 Bb4+ 7. Bd2 c5 8. dxc5 bxc5 9. O-O O-O 10. Nc3 d5 11. cxd5 exd5 12. Na4 Bxd2 13. Nxd2 Nbd7 14. Rc1 Rc8 15. Nc4 Nb6 16. Na5 Nxa4 17. Nxb7 Qd7 18. bxa4 Qxb7 19. Qb3 Qd7 20. Rfd1 c4 21. Qb4 Qe6 22. e3 Rc7 23. Rd4 Rd7 24. Rcd1 g6 25. h3 h5 26. Qd2 Rfd8 27. g4 hxg4 28. hxg4 Qc6 29. g5 c3 30. Qc2 Ne4 31. Bxe4 dxe4 32. Rxd7 Rxd7 33. Rxd7 Qxd7 34. Qxc3 Qxa4 35. Qd2 Qb5 36. Qd8+ Kh7 37. a3 Qe5 38. Kg2 a5 39. Kh3 Qa1 40. Qd6 Qf1+ 41. Kg4 Qe2+ 42. Kf4 Qxf2+ 43. Kxe4 Qf5+ 44. Kd4 Qxg5 45. Kd3 Qf5+ 46. Ke2 g5 47. Ke1 g4 48. Qh2+ Kg7 49. Qg3 Kg6 50. Qd6+ f6 51. Qb8 Qf3 52. Qg8+ Kh5 53. Qh7+ Kg5 54. Qg7+ Kh4 55. Qh7+ Kg3 56. Qh6 Kg2 57. Kd2 g3 58. Qh7 Kf2 0-1
+
+[Event "GMA op"]
+[Site "Moscow"]
+[Date "1989.??.??"]
+[Round "1"]
+[White "Petursson, Margeir"]
+[Black "Shamkovich, Leonid"]
+[Result "1-0"]
+[WhiteElo "2530"]
+[BlackElo "2450"]
+[ECO "D17"]
+
+1. d4 d5 2. c4 dxc4 3. Nf3 Nf6 4. Nc3 c6 5. a4 Bf5 6. Ne5 e6 7. f3 Bb4 8. e4 Nxe4 9. fxe4 Qh4+ 10. Ke2 Bg4+ 11. Nxg4 Qxg4+ 12. Kf2 Qh4+ 13. g3 Qf6+ 14. Kg2 O-O 15. Bxc4 Rd8 16. e5 Qe7 17. Ne4 Nd7 18. Bg5 f6 19. exf6 Nxf6 20. Rf1 Rf8 21. Bh4 Rae8 22. Rf4 b5 23. Ba2 Kh8 24. Nxf6 gxf6 25. Qf3 1-0
+
+[Event "Espoo zt"]
+[Site "Espoo"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Hansen, Curt"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2590"]
+[ECO "A28"]
+
+1. c4 Nf6 2. Nc3 e5 3. Nf3 Nc6 4. e3 Bb4 5. Qc2 Bxc3 6. Qxc3 Qe7 7. Be2 d5 8. d4 exd4 9. Nxd4 Nxd4 10. Qxd4 c5 11. Qh4 dxc4 12. Bxc4 O-O 13. O-O Rd8 14. b3 Qe5 15. Rb1 Qe4 16. Qxe4 Nxe4 17. Rb2 Be6 18. Bxe6 fxe6 19. f3 Nf6 20. e4 Rd7 21. Be3 b6 22. Kf2 Rad8 23. Ke2 Kf7 24. Rc1 a5 25. a3 Rd3 26. e5 Ng8 27. b4 Rxa3 28. bxc5 bxc5 29. Bxc5 Ra4 30. Rb7+ Kg6 31. g4 Ra2+ 32. Ke3 h5 33. Bb6 Ra3+ 34. Ke2 Ra2+ 35. Ke3 Ra3+ 36. Ke2 Ra2+ 37. Ke1 Rdd2 38. Rcc7 Re2+ 39. Kf1 hxg4 40. fxg4 Kg5 41. Rxg7+ Kf4 42. Rbf7+ Ke4 43. Bf2 Ne7 44. Kg2 Nf5 45. gxf5 Rxf2+ 46. Kg1 Rxf5 47. Rxf5 Kxf5 48. h4 Re2 49. h5 Rxe5 50. h6 1/2-1/2
+
+[Event "Espoo zt"]
+[Site "Espoo"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Arnason, Jon L"]
+[Result "1/2-1/2"]
+[WhiteElo "2590"]
+[BlackElo "2520"]
+[ECO "E32"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 O-O 5. a3 Bxc3+ 6. Qxc3 b6 7. Bg5 Bb7 8. f3 h6 9. Bh4 d5 10. e3 Nbd7 11. Nh3 Rc8 12. c5 c6 13. b4 e5 14. Bg3 Qe7 15. Kf2 Rce8 16. Re1 Nh5 17. Bd3 Qf6 18. Rhf1 Re7 19. Kg1 Nxg3 20. hxg3 Rfe8 21. Nf2 h5 22. f4 exd4 23. exd4 Rxe1 24. Rxe1 Rxe1+ 25. Qxe1 h4 26. Qe3 Nf8 27. f5 hxg3 28. Nh1 bxc5 29. bxc5 Bc8 30. Nxg3 Bd7 31. Qf4 Ne6 32. Qb8+ Nf8 33. Qf4 Ne6 34. Qb8+ Nf8 1/2-1/2
+
+[Event "Espoo zt"]
+[Site "Espoo"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Yrjola, Jouni"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2460"]
+[BlackElo "2590"]
+[ECO "E38"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 c5 5. dxc5 Bxc5 6. Nf3 Nc6 7. Bg5 Qa5 8. e3 Bb4 9. Bd3 Ne5 10. Nxe5 Qxe5 11. Bf4 Bxc3+ 12. Qxc3 Qxc3+ 13. bxc3 b6 14. c5 bxc5 15. Bd6 Bb7 16. f3 Nd5 17. Kd2 Rc8 18. Rhb1 Nb6 19. a4 c4 20. Bc2 Ra8 21. Bc5 Bc6 22. a5 Nc8 23. Ba4 Ne7 24. a6 d6 25. Bxa7 O-O 26. Bxc6 Nxc6 27. Bb6 Rfb8 28. e4 Kf8 29. Kc2 Ke7 30. a7 Rb7 31. Bf2 Rc7 32. Ra4 Kd7 33. Rxc4 d5 34. exd5 exd5 35. Ra4 d4 36. Bg3 Rcxa7 37. Rxa7+ Rxa7 38. cxd4 Nxd4+ 39. Kc3 1/2-1/2
+
+[Event "Holstebro playoff"]
+[Site "Holstebro"]
+[Date "1989.??.??"]
+[Round "1"]
+[White "Larsen, Bent"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2580"]
+[BlackElo "2530"]
+[ECO "D94"]
+
+1. Nf3 Nf6 2. c4 c6 3. Nc3 d5 4. e3 g6 5. Be2 Bg7 6. O-O O-O 7. d4 e6 8. b3 b6 9. Bb2 Bb7 10. Qc2 Nbd7 11. Rfd1 Qc7 12. cxd5 exd5 13. b4 Rac8 14. a4 c5 15. Nb5 Qb8 16. dxc5 bxc5 17. bxc5 a6 18. Bxf6 Bxf6 19. Nbd4 Nxc5 20. Rab1 Ne4 21. Qb2 Nc3 22. Qb6 Bxd4 23. Nxd4 Nxd1 24. Qf6 Rfe8 25. Rxd1 Qe5 26. Qb6 Qc7 27. Qf6 Qe7 28. Qb6 Qc7 29. Qf6 Qe7 30. Qb6 Rc7 31. g3 Rec8 32. Kg2 Rc1 33. Rd3 Qe4+ 34. Nf3 R8c7 35. h4 R1c2 36. Kf1 R2c6 37. Qb2 Rc1+ 38. Kg2 R1c2 39. Qf6 Qe7 40. Qxe7 Rxe7 41. Nd4 Ra2 42. Bd1 Rc7 43. Rb3 Bc8 44. Rb6 Rb7 45. Rd6 Kg7 46. Bb3 Rd2 47. Rc6 Bg4 48. Rc3 Bd1 49. Bxd5 Rbb2 50. g4 Rxf2+ 51. Kg3 Rf1 52. g5 Rg1+ 53. Kf4 Rh2 54. Ke5 Rxh4 55. e4 Rxg5+ 56. Kd6 Rf4 57. a5 h5 58. Rc7 Rf6+ 59. Kc5 h4 60. Nc6 Bf3 0-1
+
+[Event "Nordic-tt"]
+[Site "Aabybro"]
+[Date "1989.??.??"]
+[Round "?"]
+[White "Fries Nielsen, Jens Ove"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2425"]
+[BlackElo "2580"]
+[ECO "B51"]
+
+1. e4 c5 2. Nf3 d6 3. Bb5+ Nc6 4. O-O Bd7 5. c3 Nf6 6. Re1 a6 7. Bf1 Bg4 8. d3 e5 9. Nbd2 Be7 10. h3 Bh5 11. Nc4 O-O 12. Bg5 Ne8 13. Bxe7 Nxe7 14. Be2 b5 15. Ne3 Nc7 16. a4 Ne6 17. g3 Rb8 18. axb5 axb5 19. h4 f6 20. Nd2 Bf7 21. Bf3 Nc7 22. Ndf1 Qd7 23. d4 Qc6 24. b4 Qb6 25. d5 Ra8 26. Qd2 Ra7 27. h5 h6 28. g4 Rfa8 29. Rxa7 Rxa7 30. Ng3 Kh7 31. Be2 Ra3 32. Rb1 Be8 33. Qc1 Ra2 34. Ra1 Rxa1 35. Qxa1 Bd7 36. Qb2 Qa7 37. Nc2 Nc8 38. Ne3 Ne7 39. Kg2 Kg8 40. Nc2 Nc8 41. Ne3 Ne7 42. Kg1 1/2-1/2
+
+[Event "GMA Baleares op"]
+[Site "Palma de Mallorca"]
+[Date "1989.??.??"]
+[Round "7"]
+[White "Makarichev, Sergey"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2510"]
+[BlackElo "2590"]
+[ECO "A28"]
+
+1. c4 Nf6 2. Nc3 e5 3. Nf3 Nc6 4. e3 Bb4 5. Nd5 e4 6. Ng1 O-O 7. Qc2 Re8 8. Ne2 Bf8 9. a3 Ne5 10. Ng3 d6 11. Nxf6+ Qxf6 12. Qxe4 Bd7 13. Qc2 g6 14. d4 Ng4 15. h3 Nh6 16. Be2 Nf5 17. Nxf5 Bxf5 18. Qd1 c5 19. O-O h5 20. Bf3 Rab8 21. b3 Be4 22. Bxe4 Rxe4 23. Bb2 Bg7 24. Ra2 Qe6 25. dxc5 dxc5 26. a4 a6 27. Bxg7 Kxg7 28. Rd2 b5 29. Rd6 Qe5 30. Rd5 Qc3 31. Rd7 Re6 32. axb5 axb5 33. cxb5 Reb6 34. Qd5 Qf6 35. Rc1 Rxb5 36. Rc4 Rb4 37. Qxc5 R4b5 38. Qe7 1-0
+
+[Event "GMA Baleares op"]
+[Site "Palma de Mallorca"]
+[Date "1989.??.??"]
+[Round "9"]
+[White "Arnason, Jon L"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2520"]
+[BlackElo "2590"]
+[ECO "B76"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Be3 Bg7 7. f3 O-O 8. Bc4 Nc6 9. Qe2 Na5 10. Bd3 e5 11. Nb3 Be6 12. O-O a6 13. Qf2 Nd7 14. Rfd1 b5 15. Nxa5 Qxa5 16. Bf1 Rfc8 17. a4 b4 18. Nd5 Bxd5 19. Rxd5 Qc7 20. a5 Nf8 21. Qd2 Ne6 22. Rxd6 Nd4 23. Rxa6 Rab8 24. Bd3 Rd8 25. Rb6 b3 26. Bxd4 exd4 27. Rxb3 Rxb3 28. cxb3 Bf8 29. b4 1-0
+
+[Event "Reggio Emilia-A 8990 32nd"]
+[Site "Reggio Emilia"]
+[Date "1989.??.??"]
+[Round "3"]
+[White "Petursson, Margeir"]
+[Black "Ivanchuk, Vassily"]
+[Result "0-1"]
+[WhiteElo "2530"]
+[BlackElo "2635"]
+[ECO "D93"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. Bf4 Bg7 5. e3 c5 6. dxc5 Qa5 7. Rc1 dxc4 8. Bxc4 O-O 9. Nf3 Qxc5 10. Bb3 Nc6 11. O-O Qa5 12. h3 Bf5 13. Nd4 Bd7 14. Qe2 Nxd4 15. exd4 e6 16. Be5 Bc6 17. Rfd1 Rfd8 18. Qe3 Rd7 19. Qg5 Qd8 20. Na4 h6 21. Qg3 Nh5 22. Qe3 Qh4 23. Nc5 Bxe5 24. dxe5 Rxd1+ 25. Bxd1 Nf4 26. g3 Qxh3 27. Bf3 Nd5 28. Qd4 Qf5 29. Bg2 Qg5 30. Rd1 Qe7 31. Ne4 Qb4 32. Nf6+ Kg7 33. Bxd5 Qxd4 34. Rxd4 Bxd5 35. Nxd5 Rd8 36. Rb4 Rxd5 37. Rxb7 a5 38. f4 g5 39. Kf2 g4 40. Ke2 h5 41. b3 Rc5 42. Kd2 h4 43. gxh4 g3 44. Ke2 Rc2+ 45. Kf1 Kg6 46. a4 Kf5 47. Kg1 Kg4 48. Rd7 Kh3 49. Rd1 Kxh4 50. Rd8 Kh3 51. Rh8+ Kg4 52. Rd8 Rb2 0-1
+
+[Event "Hoogovens"]
+[Site "Wijk aan Zee"]
+[Date "1990.01.??"]
+[Round "2"]
+[White "Petursson, Margeir"]
+[Black "Dlugy, Maxim"]
+[Result "1/2-1/2"]
+[WhiteElo "2555"]
+[BlackElo "2525"]
+[ECO "D20"]
+
+1. d4 d5 2. c4 dxc4 3. e4 e5 4. Nf3 Bb4+ 5. Bd2 Bxd2+ 6. Qxd2 exd4 7. Qxd4 Nf6 8. Qxd8+ Kxd8 9. Nc3 Be6 10. Nd4 Nc6 11. Nxc6+ bxc6 12. f4 g6 13. O-O-O+ Ke7 14. Re1 Kf8 15. g3 Nd7 16. Rd1 Rd8 17. Be2 Ke7 18. g4 f6 19. h4 Nc5 20. f5 Bf7 21. g5 Rd6 22. Rhf1 Nd7 23. Rf4 h6 24. fxg6 hxg5 25. hxg5 Rxd1+ 26. Kxd1 Bxg6 27. gxf6+ Nxf6 28. Bxc4 Rh2 29. b3 Nd7 30. Be2 Ne5 31. Kd2 Bf7 32. Ke3 Rh3+ 33. Kd4 Kd6 34. Rf6+ Be6 35. b4 a5 36. a3 axb4 37. axb4 Rg3 38. Na4 Rg6 39. Rf8 Nd7 40. Rh8 Rg2 41. Bd3 Rg5 42. Rh6 Ke7 43. Ba6 Nf8 44. Nc5 Rg6 45. Rh8 Bf7 46. Be2 Rg2 47. Bd3 Rg5 48. Rh1 Ne6+ 49. Nxe6 Bxe6 50. Rh7+ Kd6 51. Rh6 Kd7 52. Be2 Rg2 53. Rh7+ Kd8 54. Bd3 Rb2 55. Rh8+ Ke7 56. Rh7+ Kd8 57. Ke5 Ba2 58. Rh8+ Ke7 59. Rh7+ Kd8 60. Kf6 Rf2+ 61. Kg5 Rg2+ 62. Kf4 Rf2+ 63. Kg5 1/2-1/2
+
+[Event "Hoogovens"]
+[Site "Wijk aan Zee"]
+[Date "1990.01.??"]
+[Round "11"]
+[White "Petursson, Margeir"]
+[Black "Piket, Jeroen"]
+[Result "1/2-1/2"]
+[WhiteElo "2555"]
+[BlackElo "2495"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 h6 7. Be3 c5 8. e5 dxe5 9. dxe5 Qxd1+ 10. Rxd1 Ng4 11. Bxc5 Nxe5 12. Nd5 Nbc6 13. Nf3 Be6 14. b3 Rfd8 15. O-O Rd7 16. Nf4 Bf5 17. Nxe5 Bxe5 18. Rxd7 Bxd7 19. Rd1 Rd8 20. Nd5 Kf8 21. Rd3 b6 22. Ba3 Ke8 23. f4 Bd4+ 24. Kf1 Bf5 25. Rd1 Bc2 26. Rd2 Be4 27. Bd3 Bxd3+ 28. Rxd3 Bc5 29. Bxc5 bxc5 30. Nc7+ Kf8 31. Rxd8+ Nxd8 32. Ke2 e6 33. Na6 Nb7 34. a3 Ke7 35. b4 Kd6 36. Kd3 f6 37. h4 h5 38. g3 Kc6 39. b5+ Kd6 40. Nb8 Na5 41. Kc3 Kc7 42. Na6+ Kd6 43. Nb8 1/2-1/2
+
+[Event "Brocco op"]
+[Site "Brocco"]
+[Date "1990.??.??"]
+[Round "8"]
+[White "Vogt, Lothar"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2505"]
+[BlackElo "2550"]
+[ECO "A08"]
+
+1. e4 c5 2. Nf3 Nc6 3. d3 Nf6 4. g3 d5 5. Nbd2 g6 6. Bg2 Bg7 7. O-O O-O 8. c3 dxe4 9. dxe4 Qc7 10. Re1 Rd8 11. Qe2 Ng4 12. Nc4 b6 13. Bf4 Nge5 14. Nfxe5 Nxe5 15. Ne3 e6 16. Bg5 Rd7 17. f4 h6 18. Bh4 Nd3 19. Red1 Ba6 20. c4 Ne5 21. fxe5 Rxd1+ 22. Rxd1 g5 23. Bxg5 hxg5 24. Ng4 Rd8 25. Nf6+ Kf8 26. b3 Ke7 27. Ng4 Rxd1+ 28. Qxd1 Bxe5 29. Nxe5 Qxe5 30. Qd2 Bb7 31. Kf2 f6 32. h4 gxh4 33. gxh4 Bxe4 34. Bxe4 Qxe4 35. Qh6 Kf7 36. h5 e5 37. Qh8 Qf5+ 38. Ke1 Qb1+ 39. Kd2 Qxa2+ 40. Kc3 Qb1 41. h6 Qc1+ 0-1
+
+[Event "Brocco op"]
+[Site "Brocco"]
+[Date "1990.??.??"]
+[Round "9"]
+[White "Petursson, Margeir"]
+[Black "Gallagher, Joseph G"]
+[Result "1-0"]
+[WhiteElo "2550"]
+[BlackElo "2495"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 h6 7. Be3 e5 8. d5 c6 9. Qd2 h5 10. f3 cxd5 11. cxd5 Bd7 12. Bd3 Na6 13. Nge2 Nc5 14. Bc2 a5 15. a4 Ne8 16. O-O Nc7 17. Ra3 N7a6 18. Nb5 Qb6 19. Bd3 Nc7 20. Nec3 Rac8 21. Kh1 Nxb5 22. Bxb5 Bxb5 23. Nxb5 Qa6 24. Rc1 f5 25. exf5 gxf5 26. Rac3 b6 27. Bh6 f4 28. Bxg7 Kxg7 29. Nxd6 Rcd8 30. Ne4 Ne6 31. Rc4 Rd7 32. h3 Rfd8 33. d6 Qb7 34. Qf2 Rxd6 35. Nxd6 Rxd6 36. Re1 Qd5 37. Qh4 Kg6 38. Rce4 1-0
+
+[Event "Reykjavik Summit"]
+[Site "Reykjavik"]
+[Date "1990.??.??"]
+[Round "?"]
+[White "Nunn, John DM"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2600"]
+[BlackElo "2555"]
+[ECO "B36"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Nf6 6. Nc3 d6 7. Be2 Nxd4 8. Qxd4 Bg7 9. Bg5 O-O 10. Qd2 Be6 11. Rc1 a6 12. O-O Qa5 13. Rfd1 Rfc8 14. Bxf6 Bxf6 15. Nd5 Qxd2 16. Nxf6+ exf6 17. Rxd2 b5 18. Rxd6 bxc4 19. f4 Rd8 20. Rcd1 Rdb8 21. R1d2 Rb4 22. Kf2 Rab8 23. Rd8+ Rxd8 24. Rxd8+ Kg7 25. Rd2 Ra4 26. Ke3 Rxa2 27. Kd4 Ra4 28. Kc3 h5 29. f5 gxf5 30. exf5 Bxf5 31. Bxh5 Be6 32. Be2 f5 33. Rd4 Ra1 34. Bxc4 Rc1+ 35. Kd3 1/2-1/2
+
+[Event "Reykjavik Summit"]
+[Site "Reykjavik"]
+[Date "1990.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Fedorowicz, John P"]
+[Result "0-1"]
+[WhiteElo "2555"]
+[BlackElo "2560"]
+[ECO "A57"]
+
+1. d4 Nf6 2. c4 c5 3. d5 b5 4. cxb5 a6 5. e3 g6 6. Nc3 Bg7 7. Nf3 O-O 8. a4 Bb7 9. Ra3 axb5 10. Bxb5 e6 11. dxe6 fxe6 12. Qd6 Bxf3 13. gxf3 Qc8 14. O-O Ne8 15. Qg3 Nc6 16. Ne4 Ne5 17. f4 Nf7 18. Ng5 d5 19. e4 Ned6 20. exd5 exd5 21. Qd3 Nxg5 22. fxg5 Bd4 23. Kg2 Qg4+ 24. Qg3 Qe4+ 25. f3 Qc2+ 26. Kh1 Nxb5 27. axb5 Rxa3 28. bxa3 Qd3 29. Qg2 Qxb5 30. f4 Qd7 31. Bb2 Bxb2 32. Qxb2 d4 33. Qb3+ Qf7 34. Qxf7+ Rxf7 35. Kg2 c4 36. Kf3 Re7 37. Rd1 d3 38. a4 Ra7 39. Ke4 Rxa4 40. Kd4 Kf7 41. Re1 d2 42. Rd1 Ke6 43. Rxd2 Kf5 44. Rf2 c3+ 45. Kxc3 Rxf4 46. Rg2 Rg4 47. Rf2+ Kxg5 48. Kd2 Re4 49. Kd3 Re7 50. Rf3 Kh4 51. Kd2 g5 52. Ra3 h5 53. Rb3 Re5 54. Ra3 g4 55. Rb3 {Hertneck} 55... Ra5 0-1
+
+[Event "Reykjavik Summit"]
+[Site "Reykjavik"]
+[Date "1990.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Nunn, John DM"]
+[Result "1-0"]
+[WhiteElo "2555"]
+[BlackElo "2600"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 Na6 7. Qd2 e5 8. d5 c6 9. Bd3 Nc5 10. Bc2 Qb6 11. Rb1 Qb4 12. Nge2 a5 13. a3 Qxc4 14. Bxf6 Bxf6 15. b4 axb4 16. axb4 cxd5 17. bxc5 d4 18. Nd5 Bd8 19. Bb3 Qa6 20. O-O dxc5 21. Rfc1 Qd6 22. Bc4 Kg7 23. f4 exf4 24. Nexf4 Re8 25. Qc2 Ra5 26. Rf1 Qc6 27. Nd3 f6 28. N5f4 b6 29. Rbe1 Qd6 30. Qf2 Ra7 31. e5 fxe5 32. Nxe5 Rae7 33. Nf7 Rxf7 34. Rxe8 1-0
+
+[Event "Reykjavik Summit"]
+[Site "Reykjavik"]
+[Date "1990.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Vaganian, Rafael A"]
+[Result "1/2-1/2"]
+[WhiteElo "2555"]
+[BlackElo "2605"]
+[ECO "E32"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 O-O 5. a3 Bxc3+ 6. Qxc3 b6 7. Bg5 Bb7 8. Nh3 d6 9. f3 h6 10. Bh4 c5 11. dxc5 bxc5 12. O-O-O Nc6 13. Bxf6 Qxf6 14. Qxf6 gxf6 15. Rxd6 Rfd8 16. Rxd8+ Rxd8 17. e3 Na5 18. Nf4 Ba6 19. Be2 Bxc4 20. Rd1 Rb8 21. e4 Bxe2 22. Nxe2 Nc4 23. Nf4 Rxb2 24. Rd8+ Kh7 25. Rd7 e5 26. Nd5 Rxg2 27. Rxf7+ Kg6 28. Rxf6+ Kg5 29. Rf7 Rxh2 30. Rxa7 h5 31. Rg7+ Kh6 32. Rg8 Rf2 33. Rc8 Rf1+ 34. Kc2 Rxf3 35. Rxc5 Nxa3+ 36. Kd2 Kg5 37. Rc8 Nb5 38. Re8 Nd4 39. Rxe5+ Kg6 40. Re8 1/2-1/2
+
+[Event "Reykjavik Summit"]
+[Site "Reykjavik"]
+[Date "1990.??.??"]
+[Round "?"]
+[White "Vaganian, Rafael A"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2605"]
+[BlackElo "2555"]
+[ECO "A29"]
+
+1. c4 Nf6 2. Nc3 e5 3. Nf3 Nc6 4. g3 d5 5. cxd5 Nxd5 6. Bg2 Nb6 7. a3 Be6 8. d3 Be7 9. O-O O-O 10. Be3 Kh8 11. b4 f5 12. Rc1 a6 13. Bc5 Bg8 14. e4 f4 15. Re1 Bd6 16. Bxb6 cxb6 17. Nd5 fxg3 18. hxg3 a5 19. d4 exd4 20. Nxd4 axb4 21. axb4 Nxb4 22. Re2 Nxd5 23. exd5 Qf6 24. Ne6 Rfe8 25. Rb1 Bf7 26. Re3 Bxe6 27. Rxe6 Rxe6 28. dxe6 Bc5 29. Qe2 Rf8 1/2-1/2
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1990.??.??"]
+[Round "6"]
+[White "Nijboer, Friso"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2485"]
+[BlackElo "2555"]
+[ECO "B37"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Bg7 6. Nc2 Nf6 7. Nc3 d6 8. Be2 Nd7 9. Bd2 a5 10. O-O Nc5 11. Qc1 O-O 12. Bh6 b6 13. Bxg7 Kxg7 14. Qe3 Ra7 15. f4 f6 16. b3 Rd7 17. Rab1 e5 18. f5 Ne7 19. g4 Bb7 20. a3 Bc6 21. Rf2 gxf5 22. gxf5 Kh8 23. Nd5 Nxd5 24. cxd5 Rg7+ 25. Rg2 Rxg2+ 26. Kxg2 Be8 27. b4 axb4 28. axb4 Na4 29. Na3 Qe7 30. Rc1 Rg8+ 31. Kh1 Qg7 32. Rg1 Qxg1+ 33. Qxg1 Rxg1+ 34. Kxg1 Nc3 35. Bd3 Na2 36. Bb5 Bxb5 37. Nxb5 Kg7 38. Nxd6 Nxb4 39. Nc8 Nd3 40. Nxb6 Nc5 41. d6 Kf7 42. Nd5 Kg7 43. Kg2 Kf7 44. Kf3 Nd7 45. Ke3 Kf8 46. h4 Kf7 47. h5 Ke8 48. Kf3 Kd8 49. Ne7 Nb6 50. Ke2 Nc4 51. Nd5 Nxd6 52. Nxf6 Ke7 53. Nd5+ Kf7 54. Kf3 Kg7 55. Ne3 Kh6 56. Ng4+ Kxh5 57. Nf6+ Kh6 58. Ke3 Nf7 59. Nd7 Kg5 60. Kf3 Kh4 61. Nc5 Ng5+ 62. Ke3 h5 63. Nd7 Nf7 64. Kf3 Kh3 65. Nxe5 Nxe5+ 66. Kf4 Nd3+ 67. Kg5 h4 68. f6 Kg3 69. f7 Nc5 70. Kf5 Nd7 71. e5 h3 72. e6 h2 73. exd7 h1=Q 74. d8=Q Qh7+ 75. Ke6 Qe4+ 76. Kd7 Qd5+ 77. Ke8 Qe6+ 78. Kf8 Qh6+ 79. Ke7 Qg5+ 80. Ke8 Qe5+ 1/2-1/2
+
+[Event "Arnold Cup"]
+[Site "Gausdal"]
+[Date "1990.??.??"]
+[Round "2"]
+[White "Petursson, Margeir"]
+[Black "Reeh, Oliver"]
+[Result "1-0"]
+[WhiteElo "2555"]
+[BlackElo "2425"]
+[ECO "E33"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 Nc6 5. Nf3 d5 6. Bg5 h6 7. Bxf6 Qxf6 8. e3 dxc4 9. Bxc4 O-O 10. O-O Bd6 11. Rad1 Re8 12. Bb5 Bd7 13. e4 Qg6 14. Qe2 e5 15. dxe5 Nxe5 16. Bxd7 Nxd7 17. Nh4 Qe6 18. Nf5 Nf6 19. Nxd6 cxd6 20. Rfe1 Rad8 21. Qd2 a6 22. Re3 Qe5 23. f3 Qc5 24. Kh1 b5 25. Rd3 Re6 26. h3 Qg5 27. Qf2 Rc8 28. a3 Qf4 29. Qd2 Qxd2 30. R3xd2 Ne8 31. Nd5 Kf8 32. Kh2 Rc6 33. g4 a5 34. Kg3 g6 35. h4 Kg7 36. h5 Rc5 37. hxg6 fxg6 38. Rh2 a4 39. Rdh1 g5 40. Ne3 Nf6 41. Nf5+ 1-0
+
+[Event "Manila Interzonal"]
+[Site "Manila"]
+[Date "1990.??.??"]
+[Round "12"]
+[White "Petursson, Margeir"]
+[Black "Arencibia Rodriguez, Walter"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2555"]
+[ECO "D33"]
+
+1. d4 d5 2. c4 e6 3. Nc3 c5 4. cxd5 exd5 5. Nf3 Nc6 6. g3 c4 7. Bg2 Bb4 8. O-O Nge7 9. a3 Ba5 10. e4 O-O 11. Nd2 Be6 12. exd5 Nxd5 13. Nde4 Bb6 14. Be3 h6 15. Qh5 Nxe3 16. fxe3 f5 17. Qg6 Qe7 18. Bh3 Bxd4 19. exd4 Nxd4 20. Bg2 Rad8 21. Rae1 fxe4 22. Bxe4 Nf5 23. Rf2 Rf6 24. Qh5 Qc5 25. Bg2 Bf7 26. Qe2 Nd6 27. Qe3 Qxe3 28. Rxe3 Rxf2 29. Kxf2 Kf8 30. Re5 b6 31. Ke3 Bg6 32. g4 Bd3 33. Rd5 Ke7 34. h4 Rf8 35. Bf3 Ke6 36. Rd4 b5 37. b3 a6 38. Bc6 Bf1 39. b4 Rc8 40. Bf3 Bd3 41. Nd5 g5 42. hxg5 hxg5 43. Nc3 Rh8 44. Rd5 Nf7 45. Rc5 Ne5 46. Bb7 Nxg4+ 47. Kd4 Nh2 48. Rxg5 Bf5 49. Rg2 Kd6 50. Be4 Ke6 51. Bb7 {Ftacnik,L} 51... Kd6 1/2-1/2
+
+[Event "Manila Interzonal"]
+[Site "Manila"]
+[Date "1990.??.??"]
+[Round "13"]
+[White "Juarez Flores, Carlos Armando"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2425"]
+[BlackElo "2550"]
+[ECO "B08"]
+
+1. e4 g6 2. d4 Bg7 3. Nf3 d6 4. Nc3 Nf6 5. h3 O-O 6. Be3 c6 7. a4 d5 8. e5 Ne4 9. Nxe4 dxe4 10. Nd2 c5 11. Nxe4 cxd4 12. Qxd4 Bf5 13. Bd3 Qxd4 14. Bxd4 Nc6 15. Bc3 Nxe5 16. Bxe5 Bxe5 17. O-O-O Rac8 18. Rhe1 Rc7 19. Kb1 Rfc8 20. Re2 Rd8 21. Rde1 Bg7 22. f3 a6 23. Nf2 Be6 24. Ng4 Kf8 25. Ne5 Rd4 26. Re4 Bxe5 27. Rxe5 Rxa4 28. b3 Rd4 29. Kb2 Rd6 30. h4 Bd5 31. h5 e6 32. Rh1 Kg7 33. Rh4 f5 34. hxg6 hxg6 35. Re2 Kf6 36. f4 Rg7 37. Rh6 Rdd7 38. Rh8 Rh7 39. Rf8+ Rdf7 40. Re8 Re7 41. Rf8+ Kg7 42. Rd8 Kf7 43. g3 Re8 44. Rd6 Re7 45. Kc3 Rh3 46. Re3 g5 47. Kd4 gxf4 48. gxf4 Rxe3 49. Kxe3 Kf6 50. Rd8 Rh7 51. Rf8+ Ke7 52. Rc8 Rh4 53. Rb8 Kd6 54. Rd8+ Ke7 55. Rc8 Bc6 56. Rg8 Kd6 57. b4 Rh3+ 58. Kd4 Rf3 59. Rd8+ Bd7 60. b5 Rxf4+ 0-1
+
+[Event "Novi Sad ol (Men)"]
+[Site "Novi Sad"]
+[Date "1990.??.??"]
+[Round "8"]
+[White "Petursson, Margeir"]
+[Black "Xu, Jun"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2520"]
+[ECO "E38"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 c5 5. dxc5 Nc6 6. Nf3 Bxc5 7. Bg5 Qa5 8. Rd1 Ng4 9. e3 Bb4 10. Be2 Nge5 11. Bf4 Bxc3+ 12. bxc3 Nxf3+ 13. gxf3 e5 14. Bg3 O-O 15. Rd5 Qc7 16. f4 d6 17. Qd2 Be6 18. Rxd6 Na5 19. c5 Qxc5 20. fxe5 Rac8 21. O-O Nc4 22. Bxc4 Qxc4 23. f4 Qxc3 24. f5 Qxd2 25. Rxd2 Bc4 26. Rf4 b5 27. Rfd4 a5 28. Rd7 a4 29. Bh4 b4 30. Be7 Rfe8 31. Bxb4 Rxe5 32. Rc7 Rce8 33. e4 f6 34. a3 Bb3 35. Rd4 h5 1/2-1/2
+
+[Event "Novi Sad ol (Men)"]
+[Site "Novi Sad"]
+[Date "1990.??.??"]
+[Round "12"]
+[White "Petursson, Margeir"]
+[Black "Antunes, Antonio"]
+[Result "1-0"]
+[WhiteElo "2550"]
+[BlackElo "2450"]
+[ECO "A13"]
+
+1. c4 e6 2. g3 d5 3. Bg2 Nf6 4. Nf3 dxc4 5. Qa4+ Nbd7 6. Qxc4 a6 7. Qb3 Be7 8. O-O O-O 9. d4 Rb8 10. Rd1 c6 11. Nc3 Qb6 12. Qc2 a5 13. e4 Re8 14. Bf4 Ra8 15. Rac1 Nf8 16. h3 Qa6 17. a4 b6 18. Ne5 Bb7 19. Qb3 Ng6 20. Be3 Rab8 21. Kh2 Ba8 22. f4 Nf8 23. Rd2 b5 24. Qc2 b4 25. Ne2 Rbc8 26. g4 h6 27. Ng3 Bb7 28. Rf2 N6d7 29. Nd3 Qa8 30. Re2 c5 31. dxc5 Nxc5 32. Nxc5 Bxc5 33. Bxc5 Nd7 34. Qb1 Nxc5 35. b3 e5 36. f5 Ba6 37. Rd2 Rc7 38. Rcd1 Bb7 39. Rd6 Rc6 40. Rxc6 Bxc6 41. Qc2 Nd7 42. Rc1 Bb7 43. Qd2 Nf6 44. Rc7 Rd8 45. Qc2 Rc8 46. Qc5 Re8 47. Qb5 Bc8 48. Rc5 Bd7 49. Qxa5 Qxa5 50. Rxa5 Rc8 51. Rxe5 Rc3 52. Ra5 Rxb3 53. e5 Ne8 54. Ra7 Rd3 55. Ne4 Bc6 56. Nf6+ Nxf6 57. Bxc6 Nd5 58. Rd7 Rd2+ 59. Kg3 Rd3+ 60. Kf2 Nf4 61. Rxd3 1-0
+
+[Event "ISL-ch"]
+[Site "Gardabaer"]
+[Date "1991.??.??"]
+[Round "4"]
+[White "Petursson, Margeir"]
+[Black "Thorsteins, Karl"]
+[Result "0-1"]
+[WhiteElo "2515"]
+[BlackElo "2480"]
+[ECO "D47"]
+
+1. d4 d5 2. c4 c6 3. Nc3 Nf6 4. e3 e6 5. Nf3 Nbd7 6. Bd3 dxc4 7. Bxc4 b5 8. Bb3 b4 9. Ne2 Bb7 10. O-O Bd6 11. Nf4 O-O 12. Re1 c5 13. d5 exd5 14. Nxd5 Ne5 15. e4 Nxd5 16. Bxd5 Bxd5 17. exd5 Re8 18. Be3 Qf6 19. b3 Nxf3+ 20. Qxf3 Qxf3 21. gxf3 a5 22. Rac1 a4 23. Kf1 axb3 24. axb3 Rec8 25. Rc4 f6 26. Rec1 Ra5 27. Ke2 Rd8 28. Bxc5 Bxc5 29. Rxc5 Rxd5 30. Rxa5 Rxa5 31. Rc4 Rb5 32. Kd3 Kf7 33. Kd4 Rh5 34. Rxb4 Rh4+ 35. Kc5 Rxh2 36. Rc4 Rxf2 37. Rc3 h5 38. b4 h4 39. b5 h3 40. f4 h2 41. Rh3 g5 42. fxg5 fxg5 43. b6 g4 44. b7 gxh3 45. b8=Q Rf5+ 46. Kd6 Rf6+ 47. Kd7 h1=Q 48. Qb3+ Kg7 49. Qg3+ Rg6 50. Qe5+ Kg8 0-1
+
+[Event "ISL-ch playoff"]
+[Site "Grundarfjordur"]
+[Date "1991.??.??"]
+[Round "5"]
+[White "Petursson, Margeir"]
+[Black "Thorsteins, Karl"]
+[Result "1-0"]
+[WhiteElo "2515"]
+[BlackElo "2480"]
+[ECO "E04"]
+
+1. d4 d5 2. c4 e6 3. Nf3 Nf6 4. g3 Bb4+ 5. Nbd2 dxc4 6. Qc2 Nc6 7. Bg2 O-O 8. Qxc4 Qd5 9. O-O Bxd2 10. Qxd5 exd5 11. Bxd2 Re8 12. e3 Bf5 13. Rfc1 Be4 14. b4 Rac8 15. b5 Ne7 16. Bb4 c6 17. a4 g6 18. Rc3 cxb5 19. Rxc8 Nxc8 20. axb5 Bd3 21. Bf1 Bxf1 22. Kxf1 Ne4 23. Ne5 Rd8 24. Rc1 f6 25. Nd3 Ncd6 26. Rc7 Rb8 27. Bxd6 Nxd6 28. Rc5 Kf7 29. Nf4 g5 30. Rc7+ Kg8 31. Nxd5 Rf8 32. Rd7 Nxb5 33. Rxb7 Nd6 34. Rxa7 Ne4 35. f3 Nd6 36. Ke2 Rf7 37. Ra6 Ne8 38. Ra8 Kf8 39. g4 h6 40. Kd3 f5 41. gxf5 1-0
+
+[Event "St Martin op"]
+[Site "St Martin"]
+[Date "1991.??.??"]
+[Round "5"]
+[White "Petursson, Margeir"]
+[Black "Gurevich, Dmitry"]
+[Result "1-0"]
+[WhiteElo "2515"]
+[BlackElo "2460"]
+[ECO "A43"]
+
+1. d4 g6 2. e4 Bg7 3. c4 c5 4. d5 d6 5. Nc3 e6 6. Nf3 Ne7 7. Bd3 exd5 8. cxd5 O-O 9. Bf4 Bg4 10. h3 Bxf3 11. Qxf3 f5 12. O-O a6 13. Rae1 fxe4 14. Qxe4 Nc8 15. Bg3 Nd7 16. Qe6+ Rf7 17. Ne4 Nf8 18. Qg4 Bxb2 19. Ng5 Rg7 20. Re2 h5 21. Qf4 Be5 22. Rxe5 dxe5 23. Qxe5 b5 24. Ne4 c4 25. Bb1 Qe7 26. Qd4 Qa7 27. Nf6+ Kh8 28. Qf4 Nh7 29. Qh6 Ne7 30. Be5 Ng8 31. Nxg8 Kxg8 32. Bxg6 Rd7 33. Bxh7+ 1-0
+
+[Event "St Martin op"]
+[Site "St Martin"]
+[Date "1991.??.??"]
+[Round "8"]
+[White "Browne, Walter S"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2520"]
+[BlackElo "2515"]
+[ECO "D39"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 d5 4. Nc3 dxc4 5. e4 Bb4 6. Bg5 c5 7. Bxc4 cxd4 8. Nxd4 Bxc3+ 9. bxc3 Qa5 10. Bb5+ Nbd7 11. Bxf6 Qxc3+ 12. Kf1 gxf6 13. h4 a6 14. Rh3 Qa5 15. Be2 Ke7 16. Rc1 Rd8 17. Qc2 Ne5 18. Qb2 Rd6 19. Rb3 b5 20. f4 Nc4 21. Bxc4 bxc4 22. e5 fxe5 23. fxe5 Rxd4 24. Qxd4 cxb3 25. Qd6+ Ke8 26. Qc6+ Ke7 27. Qd6+ Ke8 28. Qc6+ Ke7 29. Qd6+ 1/2-1/2
+
+[Event "New York op"]
+[Site "New York"]
+[Date "1991.??.??"]
+[Round "5"]
+[White "Ivanov, Alexander"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2525"]
+[BlackElo "2515"]
+[ECO "B36"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Nf6 6. Nc3 d6 7. Be2 Nxd4 8. Qxd4 Bg7 9. Bg5 O-O 10. Qe3 Be6 11. O-O Qb6 12. Rab1 Rfc8 13. b3 Qxe3 14. Bxe3 a6 15. Na4 Rab8 16. Nb6 Rc7 17. Bf3 Nd7 18. a4 Bc3 19. Rfd1 Nxb6 1/2-1/2
+
+[Event "New York op"]
+[Site "New York"]
+[Date "1991.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Gulko, Boris F"]
+[Result "1-0"]
+[WhiteElo "2515"]
+[BlackElo "2575"]
+[ECO "E39"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 c5 5. dxc5 O-O 6. a3 Bxc5 7. Nf3 b6 8. Bg5 Bb7 9. e4 Be7 10. Rd1 Nc6 11. Be2 a6 12. O-O Qc7 13. Nd5 exd5 14. cxd5 Rac8 15. dxc6 dxc6 16. e5 Nd5 17. Qe4 Rfe8 18. Bc4 Bf8 19. Rfe1 h6 20. Bc1 Rcd8 21. Nd4 c5 22. Nf5 Nf6 23. Nxh6+ gxh6 24. Qg6+ Kh8 25. Qxf6+ Bg7 26. Qxf7 Qxf7 27. Bxf7 Rxd1 28. Rxd1 Rxe5 29. Rd8+ Kh7 30. Bg8+ Kg6 31. Rd6+ Bf6 32. Bd2 Re8 33. Bc3 Rxg8 34. Rxf6+ Kh5 {Ftacnik,L} 35. f3 1-0
+
+[Event "Torcy op-A"]
+[Site "Torcy"]
+[Date "1991.??.??"]
+[Round "?"]
+[White "Luce, Sebastien"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2420"]
+[BlackElo "2515"]
+[ECO "E38"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 O-O 5. Nf3 c5 6. a3 Bxc3+ 7. Qxc3 cxd4 8. Nxd4 d5 9. Bg5 e5 10. Nc2 d4 11. Qd3 Nc6 12. e4 a5 13. Qf3 Re8 14. Bxf6 Qxf6 15. Qxf6 gxf6 16. Bd3 Be6 17. b3 Rec8 18. a4 Nb8 19. Ke2 Na6 20. Ne1 Nc5 21. Bc2 b5 22. axb5 a4 23. bxa4 Bxc4+ 24. Nd3 Nxe4 25. Rhc1 Nc5 26. f3 f5 27. Kd2 Bxd3 28. Bxd3 Nb3+ 29. Kd1 Rxc1+ 0-1
+
+[Event "National op"]
+[Site "Chicago"]
+[Date "1991.??.??"]
+[Round "5"]
+[White "Browne, Walter S"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2520"]
+[BlackElo "2515"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. Nbd2 Bb7 6. Bg2 c5 7. e4 cxd4 8. Nxd4 Bc5 9. Nc2 Qc7 10. O-O Nc6 11. Qe2 d6 12. Nb3 O-O 13. Bg5 Nd7 14. Rad1 Rfe8 15. Nxc5 dxc5 16. Qd2 Rf8 17. Qe1 1/2-1/2
+
+[Event "Andorra op 9th"]
+[Site "Andorra"]
+[Date "1991.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Sadler, Matthew D"]
+[Result "1-0"]
+[WhiteElo "2515"]
+[BlackElo "2440"]
+[ECO "D20"]
+
+1. d4 d5 2. c4 dxc4 3. e4 Nc6 4. Be3 Nf6 5. Nc3 e5 6. d5 Ne7 7. Bxc4 Ng6 8. Bb5+ Nd7 9. g3 Bd6 10. h4 h6 11. Nf3 a6 12. Be2 Nf6 13. Nd2 O-O 14. a3 Re8 15. Rc1 Bd7 16. Nc4 b5 17. Nxd6 cxd6 18. h5 Ne7 19. f3 Qb8 20. Kf2 Nc8 21. Na2 a5 22. Qc2 Nb6 23. Qc7 Nc4 24. Qxb8 Rexb8 25. Bxc4 bxc4 26. Rc2 Ne8 27. g4 Ba4 28. Re2 f6 29. Nc3 Bb3 30. Rc1 Nc7 31. Nb1 Nb5 32. Nd2 a4 33. Nxb3 cxb3 34. Ree1 Rc8 35. Ke2 Rcb8 36. Kd3 Kf7 37. Rc6 Ke7 38. Bb6 Rb7 39. Rec1 Kd7 40. Be3 Rbb8 41. R6c4 Rc8 42. Rb4 Rxc1 43. Bxc1 Nd4 44. Rb7+ Kd8 45. Rxg7 1-0
+
+[Event "Bad Woerishofen op 7th"]
+[Site "Bad Woerishofen"]
+[Date "1991.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Wojtkiewicz, Aleksander"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2510"]
+[ECO "E73"]
+
+1. c4 g6 2. e4 Bg7 3. d4 d6 4. Nc3 Nf6 5. Be2 O-O 6. Bg5 Na6 7. Qd2 e5 8. d5 c6 9. Bd1 cxd5 10. cxd5 b5 11. a3 Nc5 12. f3 a5 13. Nxb5 Ba6 14. a4 Rb8 15. Ne2 Bxb5 16. axb5 Rxb5 17. Ra2 Qb6 18. Nc3 Rb4 19. Be3 Nfd7 20. Ba4 Qa6 21. Bxd7 Nxd7 22. Qe2 Qxe2+ 23. Kxe2 Rfb8 24. Rb1 Bf6 25. Nd1 Bd8 26. Rc1 Kf8 27. Rc6 Ke7 28. Ra6 R4b5 29. Bd2 Nc5 30. Ra7+ Nb7 31. Nc3 Rb3 32. Na4 Ke8 33. Ra3 Rb5 34. Rc3 Rb4 35. b3 Nc5 36. Nxc5 Bb6 37. Rxf7 Kxf7 38. Na6 Ra8 39. Nxb4 axb4 40. Rc6 Bc5 41. Rc7+ Kg8 42. Kd3 Ra2 43. Bh6 Rb2 44. Rg7+ Kf8 45. Rxg6+ Kf7 46. Rg7+ Ke8 47. Kc4 Rc2+ 48. Kb5 Rb2 49. f4 exf4 50. e5 Bd4 51. Rg8+ Kf7 52. Rf8+ Ke7 53. e6 Rc2 54. Kxb4 Rc5 55. Rf7+ Ke8 56. Ka4 Rxd5 57. b4 Bc3 58. Kb3 Bd2 59. Bxf4 Bxf4 60. Rxf4 Rh5 61. Rf7 Rxh2 62. b5 Rh1 63. Kb4 Rb1+ 64. Ka5 1-0
+
+[Event "Bad Woerishofen op 7th"]
+[Site "Bad Woerishofen"]
+[Date "1991.??.??"]
+[Round "6"]
+[White "Boensch, Uwe"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2535"]
+[BlackElo "2515"]
+[ECO "D12"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. e3 Bf5 5. cxd5 cxd5 6. Qb3 Qc7 7. Bd2 Nc6 8. Bb5 Bd7 9. O-O e6 10. Rc1 Bd6 11. Bxc6 Bxc6 12. Bb4 O-O 13. Nc3 Bxb4 14. Qxb4 Nd7 15. a4 a5 16. Qa3 Qb6 17. b3 Rac8 18. h3 Nb8 19. Ne5 Na6 20. Na2 Rc7 21. Rab1 Rd8 22. b4 axb4 23. Nxb4 Nxb4 24. Rxb4 Qa5 25. Rc5 Qa6 26. a5 Ra8 27. Rb6 Qe2 28. a6 h5 29. Qc1 1-0
+
+[Event "Manila ol (Men) 30th"]
+[Site "Manila"]
+[Date "1992.06.20"]
+[Round "11.2"]
+[White "Petursson, Margeir"]
+[Black "Khalifman, Alexander"]
+[Result "1/2-1/2"]
+[WhiteElo "2555"]
+[BlackElo "2625"]
+[ECO "E73"]
+
+1. c4 Nf6 2. Nc3 g6 3. d4 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 h6 7. Be3 c5 8. dxc5 Qa5 9. Bd2 Qxc5 10. Nf3 Bg4 11. Be3 Qa5 12. O-O Nc6 13. Nd2 Bxe2 14. Qxe2 a6 15. Rac1 Rfc8 16. Nb3 Qb4 17. f4 e6 18. Rfd1 a5 19. Na1 Ne7 20. b3 a4 21. Bd2 Qb6+ 22. Kh1 axb3 23. axb3 d5 24. e5 Nd7 25. Be3 Qa5 26. Nb5 Nf6 1/2-1/2
+
+[Event "Interpolis"]
+[Site "Tilburg"]
+[Date "1992.10.14"]
+[Round "3.1"]
+[White "Short, Nigel D"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2680"]
+[BlackElo "2565"]
+[ECO "B38"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Nf6 6. Nc3 d6 7. Be2 Bg7 8. Be3 O-O 9. O-O Bd7 10. Nc2 a6 11. f3 Rc8 12. a4 Be6 13. Nd5 Nd7 14. Rb1 a5 15. b4 axb4 16. Ncxb4 Na5 17. Bd4 Bxd4+ 18. Qxd4 Nc6 19. Qe3 Ra8 20. Nd3 Rxa4 21. Rxb7 Ra3 22. Qd2 Bxd5 23. cxd5 Nd4 24. Rfb1 1/2-1/2
+
+[Event "Interpolis"]
+[Site "Tilburg"]
+[Date "1992.10.16"]
+[Round "3.5"]
+[White "Short, Nigel D"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2680"]
+[BlackElo "2565"]
+[ECO "B51"]
+
+1. e4 c5 2. Nf3 Nc6 3. Bb5 d6 4. O-O Bd7 5. Re1 Nf6 6. h3 Nd4 7. Bxd7+ Qxd7 8. Nxd4 cxd4 9. c3 dxc3 10. Nxc3 e6 11. d4 Be7 12. Bg5 O-O 13. Qf3 Rfc8 14. Rad1 Ne8 15. Be3 b5 16. d5 e5 17. Rc1 Bd8 18. Qd1 Rc4 19. b3 Rcc8 20. Qd3 Ba5 21. Red1 a6 22. Ne2 h6 23. Ng3 Rxc1 24. Rxc1 Rc8 25. Rxc8 Qxc8 26. Nf5 Bd8 27. Bd2 Qc5 28. h4 Bb6 29. Ne7+ Kf8 30. Be3 Qc7 31. Nc6 Nf6 32. f3 Nh5 33. Kf2 Nf4 34. Qd2 f5 35. g3 Bxe3+ 36. Qxe3 Nh5 37. exf5 Nf6 38. Qd2 Qb6+ 39. Kg2 Qc5 40. Nd8 Qxd5 41. Ne6+ Kf7 42. Qc3 Kg8 43. Qc8+ Kh7 44. Nf8+ Kg8 45. Ng6+ 1-0
+
+[Event "Interpolis"]
+[Site "Tilburg"]
+[Date "1992.10.16"]
+[Round "3.6"]
+[White "Petursson, Margeir"]
+[Black "Short, Nigel D"]
+[Result "1/2-1/2"]
+[WhiteElo "2565"]
+[BlackElo "2680"]
+[ECO "E06"]
+
+1. d4 d5 2. Nf3 Nf6 3. c4 e6 4. g3 Be7 5. Bg2 O-O 6. Nbd2 b6 7. cxd5 exd5 8. O-O Bb7 9. Ne5 Nbd7 10. Ndf3 c5 11. Bg5 Re8 12. Qa4 Nxe5 13. Nxe5 Ne4 14. Bxe7 Qxe7 15. e3 f6 16. Nd3 c4 17. Nf4 a6 18. h4 b5 19. Qa5 Rad8 20. Bh3 Rd6 21. Kh2 g5 22. Ng2 Rc6 23. a4 h5 24. Bf5 Nd6 25. Bg6 Rb8 26. Bxh5 Bc8 27. Bf3 Be6 28. Qb4 Rb7 29. a5 Kg7 30. Rac1 Bf7 31. b3 Nf5 32. Qxe7 Nxe7 33. b4 Bg6 34. Rc3 Rd6 35. h5 Bh7 36. Bg4 Nc6 37. f4 Nxb4 38. fxg5 fxg5 39. Bf5 Rf7 40. g4 1/2-1/2
+
+[Event "EU-chT (Men) 10th"]
+[Site "Debrecen"]
+[Date "1992.11.??"]
+[Round "5.1"]
+[White "Petursson, Margeir"]
+[Black "Lanka, Zigurds"]
+[Result "1-0"]
+[WhiteElo "2555"]
+[BlackElo "2490"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 h6 7. Be3 Nbd7 8. Qd2 c5 9. d5 Kh7 10. h3 b5 11. cxb5 a6 12. Nf3 Qa5 13. b6 Nxb6 14. O-O Na4 15. Qc2 Nxc3 16. bxc3 e6 17. c4 exd5 18. cxd5 Bd7 19. a4 Nh5 20. Ra2 f5 21. Nh4 Qd8 22. Nxg6 Kxg6 23. exf5+ Bxf5 24. Bxh5+ Kh7 25. Qc4 Ra7 26. Bg4 Qe8 27. Bxf5+ Rxf5 28. Rb1 Be5 29. f4 Bd4 30. Bxd4 Qe4 31. Rd1 Rxf4 32. Re2 Qf5 33. Re6 Rf7 34. Rxh6+ Kxh6 35. Be3 Kg7 36. Bxf4 Qxf4 37. Qc3+ Rf6 38. a5 Kh7 39. Qd3+ Rg6 40. Rf1 Qg5 41. Qe4 c4 42. Rf5 Qg3 43. Rh5+ Kg8 44. Qe8+ Kg7 45. Qh8+ Kf7 46. Rf5+ 1-0
+
+[Event "Bern op"]
+[Site "Bern"]
+[Date "1992.??.??"]
+[Round "5"]
+[White "Petursson, Margeir"]
+[Black "Ward, Christopher"]
+[Result "1/2-1/2"]
+[WhiteElo "2555"]
+[BlackElo "2455"]
+[ECO "D30"]
+
+1. d4 d5 2. c4 e6 3. Nf3 c6 4. g3 dxc4 5. Bg2 b5 6. O-O Bb7 7. a4 Nd7 8. e4 Ngf6 9. e5 Nd5 10. Ng5 Be7 11. Qh5 Bxg5 12. Bxg5 Qb6 13. Nc3 Nxc3 14. bxc3 c5 15. d5 Nxe5 16. Rfe1 Ng6 17. dxe6 O-O 18. Bxb7 Qxb7 19. axb5 Qxb5 20. e7 Rfe8 21. Qf3 h6 22. Rab1 Qa6 23. Bc1 Qd6 24. Rb7 Ne5 25. Qe4 Nd3 26. Bf4 Nxf4 27. gxf4 1/2-1/2
+
+[Event "Hafnarfirdi"]
+[Site "Hafnarfirdi"]
+[Date "1992.??.??"]
+[Round "2"]
+[White "Petursson, Margeir"]
+[Black "Motwani, Paul"]
+[Result "1-0"]
+[WhiteElo "2555"]
+[BlackElo "2455"]
+[ECO "A29"]
+
+1. c4 e5 2. Nc3 Nf6 3. Nf3 Nc6 4. g3 d5 5. cxd5 Nxd5 6. Bg2 Nb6 7. O-O Be7 8. a3 Be6 9. b4 a5 10. b5 Nd4 11. Rb1 f6 12. Nxd4 exd4 13. Na4 Bd5 14. Nxb6 cxb6 15. e4 dxe3 16. dxe3 Bxg2 17. Kxg2 Qxd1 18. Rxd1 a4 19. Bb2 Bc5 20. Rbc1 Ke7 21. Rc4 Rhd8 22. Re4+ Kf7 23. Rc1 Ra5 24. Bc3 Rxb5 25. Rxa4 Rb3 26. Bd4 Bd6 27. Ra7 Rd7 28. a4 Ke6 29. g4 Be5 30. Bxe5 fxe5 31. Ra8 Rb2 32. Re8+ Kf7 33. Rxe5 Rb4 34. Kg3 Rxa4 35. Rb5 Ra6 36. Rc4 g6 37. h4 Kg7 38. h5 Rf7 39. Re4 Ra1 40. hxg6 hxg6 41. Rf4 Ra6 42. Rxf7+ Kxf7 43. Kf4 Ke6 44. e4 Kf6 45. e5+ Kf7 46. Rd5 Ke7 47. Kg5 Ra5 48. Rd4 Rxe5+ 49. Kxg6 1-0
+
+[Event "Hafnarfirdi"]
+[Site "Hafnarfirdi"]
+[Date "1992.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Jonsson, Bjorgvin"]
+[Result "1/2-1/2"]
+[WhiteElo "2555"]
+[BlackElo "2420"]
+[ECO "D30"]
+
+1. c4 c6 2. Nf3 d5 3. e3 Nf6 4. d4 e6 5. Bd3 Nbd7 6. O-O dxc4 7. Bxc4 b5 8. Bd3 a6 9. a4 Bb7 10. e4 Be7 11. Bg5 h6 12. Bh4 O-O 13. Nbd2 bxa4 14. Bb1 c5 15. Qxa4 cxd4 16. Qxd4 Rc8 17. e5 Nd5 18. Bxe7 Nxe7 19. Qd3 Ng6 20. Ra3 Qe7 21. Rc3 Rxc3 22. bxc3 Rd8 23. Qc2 Nc5 24. Nd4 Qg5 25. N2f3 Qg4 26. h3 Qe4 27. Qb2 Qd5 28. Re1 Nf4 29. Qd2 Ng6 30. h4 a5 31. h5 Nf8 32. c4 Qxc4 33. Rc1 Qd5 34. Qxa5 Na6 35. Qb6 Qd7 36. Ba2 Rc8 37. Rb1 Rb8 38. Qd6 Bxf3 39. Nxf3 Rxb1+ 40. Bxb1 Qa4 41. Bd3 Nb4 42. Be4 Nd5 43. Bxd5 Qd1+ 44. Kh2 Qxd5 45. Qxd5 exd5 46. Kg3 Ne6 47. Ne1 Kf8 48. Nc2 Nc5 49. Kg4 Ke7 50. f4 Ne4 51. Nd4 g6 52. f5 Nf2+ 53. Kf3 Nd3 54. Nc6+ Kf8 55. Ke3 Ne1 56. g3 gxf5 57. Nd4 f4+ 58. gxf4 Ng2+ 59. Kf3 Ne1+ 60. Ke3 Ng2+ 61. Kf3 Ne1+ 62. Kg4 Nd3 63. Nf5 f6 64. e6 Nc5 65. Nd4 Ke7 66. Kf5 Nd3 67. Nb5 Nb4 68. Kg6 Kxe6 69. Kxh6 Kf7 70. Nd6+ Kg8 71. Kg6 Nd3 72. Kf5 Kg7 73. Kg4 Kh6 74. Nf5+ Kh7 75. Ne3 Nb4 1/2-1/2
+
+[Event "Hafnarfirdi"]
+[Site "Hafnarfirdi"]
+[Date "1992.??.??"]
+[Round "9"]
+[White "Petursson, Margeir"]
+[Black "Thorhallsson, Throstur"]
+[Result "1-0"]
+[WhiteElo "2555"]
+[BlackElo "2425"]
+[ECO "D30"]
+
+1. c4 c6 2. Nf3 d5 3. e3 Nf6 4. d4 e6 5. Bd3 dxc4 6. Bxc4 b5 7. Bd3 Bb7 8. O-O Nbd7 9. e4 a6 10. a4 Be7 11. Bg5 O-O 12. Qe2 Re8 13. Nbd2 e5 14. dxe5 Ng4 15. e6 fxe6 16. Bxe7 Rxe7 17. Bc2 Qc7 18. Rae1 Rd8 19. Bb3 Nc5 20. Bc2 e5 21. Rd1 Nf6 22. b4 Nxa4 23. Bxa4 bxa4 24. Rc1 Qb6 25. Nc4 Qxb4 26. Rb1 Qc3 27. Ncxe5 Kf8 28. Rfc1 Qa5 29. Qe3 Qc7 30. h3 Ba8 31. Rc5 Rb8 32. Rbc1 Rb3 33. Qd4 Qb6 34. Qxa4 Rb4 35. Qd1 Rxe4 36. Nxc6 Bxc6 37. Rxc6 Qb5 38. R6c5 Qd7 39. Rc8+ Re8 40. Qxd7 Nxd7 41. Ng5 Re5 42. Nxh7+ Ke7 43. R8c7 Kd8 44. Kh2 R8e6 45. f4 Rd5 46. Ng5 Re2 47. Rc8+ Ke7 48. Rg8 Rdd2 49. Rxg7+ Kd6 50. Nf3 Rd3 51. Nh4 Re4 52. Nf5+ Ke6 53. Rc6+ 1-0
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1992.??.??"]
+[Round "5"]
+[White "Hjartarson, Johann"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2580"]
+[BlackElo "2555"]
+[ECO "B24"]
+
+1. e4 c5 2. Nc3 Nc6 3. g3 g6 4. Bg2 Bg7 5. d3 e6 6. Be3 Nd4 7. Nce2 d6 8. c3 Nc6 9. f4 Nge7 10. Nf3 b6 11. O-O O-O 12. Qd2 Bb7 13. g4 f5 14. gxf5 exf5 15. Ng3 Qd7 16. Rad1 Rad8 17. Qf2 Kh8 18. Bc1 Rde8 19. Rfe1 Nd8 20. h4 Nf7 21. Ng5 Nh6 22. Bf3 Ng4 23. Qg2 h6 24. exf5 hxg5 25. Bxb7 gxh4 26. fxg6 hxg3 27. Qh3+ Bh6 28. Bf3 Nxg6 29. Bxg4 Rxe1+ 30. Rxe1 Qh7 31. f5 Nh4 32. Bxh6 Qxh6 33. Qxg3 Nxf5 34. Bxf5 Rxf5 35. Re8+ Rf8 36. Rxf8+ Qxf8 37. Qh3+ Kg7 38. Qg4+ 1/2-1/2
+
+[Event "Reykjavik"]
+[Site "Reykjavik"]
+[Date "1992.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Stefansson, Hannes"]
+[Result "0-1"]
+[WhiteElo "2555"]
+[BlackElo "2455"]
+[ECO "A25"]
+
+1. c4 e5 2. Nc3 Nc6 3. g3 f5 4. Bg2 Nf6 5. e3 g6 6. d4 d6 7. Bxc6+ bxc6 8. dxe5 dxe5 9. Qxd8+ Kxd8 10. b3 Bd6 11. Bb2 Re8 12. Rd1 Bd7 13. f3 Kc8 14. Nh3 Bc5 15. Ke2 f4 16. Ng5 Bxe3 17. Nce4 Nxe4 18. Nxe4 Bf5 19. Nf6 Re6 20. Nxh7 Bc2 21. Rd2 Bxd2 22. Kxd2 Bf5 23. g4 Rd6+ 24. Kc1 Bd3 25. Bxe5 Re6 26. Re1 Kb7 27. Nf6 Re7 28. h4 Rd8 29. Kb2 Bf1 30. Re4 Bd3 31. Re1 Bf1 32. Re4 Rd2+ 33. Kc1 Rxa2 34. Bxf4 Rf7 35. Be5 Rf2 36. Re3 Be2 37. f4 Rg2 38. g5 Bg4 39. Nxg4 Rxg4 40. Rh3 Rh7 41. Kd2 Rgxh4 42. Rf3 Rh3 43. Ke3 Kc8 44. f5 gxf5 45. Bg3 Rg7 46. Kf4 Rh5 47. Bf2 Rgxg5 48. Bxa7 Rg4+ 49. Ke5 f4+ 50. Ke4 c5 0-1
+
+[Event "New York op"]
+[Site "New York"]
+[Date "1992.??.??"]
+[Round "4"]
+[White "Petursson, Margeir"]
+[Black "Lobron, Eric"]
+[Result "0-1"]
+[WhiteElo "2555"]
+[BlackElo "2575"]
+[ECO "A29"]
+
+1. c4 e5 2. Nc3 Nf6 3. Nf3 Nc6 4. g3 Bb4 5. Nd5 Be7 6. d3 Nxd5 7. cxd5 Nd4 8. Nxd4 exd4 9. Bg2 c5 10. O-O O-O 11. a3 a5 12. b3 d6 13. Bb2 Bg4 14. h3 Bh5 15. g4 Bg6 16. e4 dxe3 17. fxe3 Qb6 18. Qc2 Bh4 19. Kh1 Rfe8 20. Qc3 f6 21. e4 a4 22. bxa4 Rxa4 23. Qc2 Qa6 24. Rad1 h6 25. Bc1 b5 26. Bb2 Kh7 27. Bc1 Rc8 28. Bb2 c4 29. d4 c3 30. Bc1 Rcc4 31. Rf3 Qa5 32. Bf4 Rxa3 33. Bxd6 b4 34. Qe2 c2 35. Rc1 Rxf3 36. Qxc4 Qa3 37. Qxc2 Rxh3+ 38. Bh2 Rc3 0-1
+
+[Event "San Bernardino op"]
+[Site "San Bernardino"]
+[Date "1992.??.??"]
+[Round "7"]
+[White "Van der Sterren, Paul"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2530"]
+[BlackElo "2565"]
+[ECO "D17"]
+
+1. d4 d5 2. c4 c6 3. Nc3 Nf6 4. Nf3 dxc4 5. a4 Bf5 6. Ne5 e6 7. f3 c5 8. e4 cxd4 9. exf5 Nc6 10. Nxc6 bxc6 11. fxe6 fxe6 12. Bxc4 dxc3 13. bxc3 Qa5 14. Qe2 Qxc3+ 15. Kf1 Qxa1 16. Qxe6+ Kd8 17. Ke2 Qxa4 18. Rd1+ Qxd1+ 19. Kxd1 Bc5 20. Qf7 Re8 21. Qxg7 Nd7 22. Bf7 Rf8 23. Be6 Nf6 24. Qb7 Re8 25. Qxa8+ Kc7 26. Bf4+ 1-0
+
+[Event "ISL-FRA"]
+[Site "Reykjavik"]
+[Date "1993.??.??"]
+[Round "1"]
+[White "Petursson, Margeir"]
+[Black "Dorfman, Josif D"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2580"]
+[ECO "A84"]
+
+1. d4 d5 2. c4 e6 3. Nf3 c6 4. e3 Nd7 5. Bd3 Bd6 6. Nc3 f5 7. Bd2 Ne7 8. h3 O-O 9. g4 Nf6 10. Ne5 Bxe5 11. dxe5 Nd7 12. f4 Nc5 13. Be2 dxc4 14. Bxc4 Nd5 1/2-1/2
+
+[Event "ISL-FRA"]
+[Site "Reykjavik"]
+[Date "1993.??.??"]
+[Round "4"]
+[White "Koch, Jean Rene"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2450"]
+[BlackElo "2560"]
+[ECO "B06"]
+
+1. e4 g6 2. d4 Bg7 3. Nc3 d6 4. Be3 a6 5. h3 b5 6. Bd3 Nd7 7. a4 b4 8. Nce2 Ngf6 9. Nf3 Bb7 10. Ng3 c5 11. c3 Qa5 12. cxb4 Qxb4+ 13. Bd2 Qb6 14. Bc3 cxd4 15. Bxd4 Qa5+ 16. Bc3 Qd8 17. O-O O-O 18. b4 e5 19. Re1 Rc8 20. Rc1 d5 21. Qe2 Qb6 22. a5 Qd6 23. Red1 Rc7 24. Bd2 Rfc8 25. Rxc7 Rxc7 26. exd5 h6 27. h4 1/2-1/2
+
+[Event "ISL-FRA"]
+[Site "Reykjavik"]
+[Date "1993.??.??"]
+[Round "5"]
+[White "Petursson, Margeir"]
+[Black "Hauchard, Arnaud"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2450"]
+[ECO "D80"]
+
+1. c4 Nf6 2. Nc3 g6 3. d4 d5 4. Bg5 Ne4 5. Bf4 Nxc3 6. bxc3 Bg7 7. e3 O-O 8. Nf3 c5 9. Rb1 cxd4 10. cxd4 Nc6 11. Be2 dxc4 12. Bxc4 Qa5+ 13. Qd2 Qxd2+ 14. Kxd2 b6 15. Rhc1 Bb7 16. Bb5 Rfc8 17. d5 Nd8 18. e4 e6 19. Bc4 exd5 20. exd5 Rc5 21. Bb3 Ra5 22. Re1 Bxd5 23. Re8+ Bf8 24. Bxd5 Rxd5+ 25. Ke1 Kg7 26. Be5+ f6 1/2-1/2
+
+[Event "ISL-FRA"]
+[Site "Reykjavik"]
+[Date "1993.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Prie, Eric"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2470"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 Na6 7. Qd2 e5 8. d5 Qe8 9. Bd1 Bd7 10. Nge2 h5 11. O-O Nc5 12. Bc2 a5 13. Rae1 Ra6 14. b3 c6 15. dxc6 Bxc6 16. f3 b5 17. cxb5 Bxb5 18. Rb1 Bxe2 19. Nxe2 Qa8 20. Rfd1 Rc8 21. Rbc1 Ne6 22. Be3 Rac6 23. Bd3 Rxc1 24. Nxc1 d5 25. exd5 Nxd5 26. Be4 Nd4 27. Bxd4 exd4 28. Qg5 f5 29. Bxd5+ Qxd5 30. Qxg6 Qe5 31. Qg5 Qe3+ 32. Qxe3 dxe3 33. Ne2 Rc2 34. Kf1 Rxa2 35. g3 Rd2 1/2-1/2
+
+[Event "Oviedo rapid"]
+[Site "Oviedo"]
+[Date "1993.??.??"]
+[Round "6"]
+[White "Petursson, Margeir"]
+[Black "Polgar, Judit"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2595"]
+[ECO "E73"]
+
+1. c4 g6 2. d4 Bg7 3. e4 d6 4. Nc3 Nf6 5. Be2 O-O 6. Bg5 Na6 7. Qd2 e5 8. d5 c6 9. f3 cxd5 10. cxd5 Bd7 11. h4 Qa5 12. g4 Rab8 13. Nh3 b5 14. Nd1 Qa4 15. Nc3 Qa5 16. Nd1 b4 17. Ne3 Nc5 18. Nc4 Qc7 19. Nf2 Rfc8 20. Rc1 Bb5 21. Kf1 Nfd7 22. h5 f6 23. Be3 g5 24. Kg2 Bf8 25. Rhd1 a5 26. Nh1 Qa7 27. Ng3 Qa6 28. Nf5 b3 29. a3 h6 30. Bf2 Rc7 31. Re1 Rbc8 32. Ncxd6 Bxe2 33. Nxc8 Rxc8 1/2-1/2
+
+[Event "Oviedo rapid"]
+[Site "Oviedo"]
+[Date "1993.??.??"]
+[Round "10"]
+[White "Petursson, Margeir"]
+[Black "Suba, Mihai"]
+[Result "1-0"]
+[WhiteElo "2560"]
+[BlackElo "2520"]
+[ECO "A32"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 c5 4. g3 cxd4 5. Nxd4 Bb4+ 6. Bd2 Be7 7. Bg2 O-O 8. O-O Nc6 9. Nc2 d5 10. cxd5 exd5 11. Be3 Ne4 12. Nc3 Nxc3 13. bxc3 Qa5 14. Nd4 Nxd4 15. Bxd4 Be6 16. Qb3 b6 17. a4 Bc5 18. Qb5 Bxd4 19. cxd4 Rfc8 20. Qxa5 bxa5 21. Rfc1 Kf8 22. Bf3 Rab8 23. e3 Rxc1+ 24. Rxc1 Rb4 25. Kg2 Ke7 26. Rc5 Rxa4 27. Bxd5 Bxd5+ 28. Rxd5 a6 29. g4 h6 30. h4 Ra1 31. Kf3 Ra2 32. h5 Ra1 33. Ke4 Ra2 34. f3 Ra1 35. Kf4 Ra2 36. e4 Ra3 37. Rc5 Kd7 38. g5 Ra1 39. gxh6 gxh6 40. d5 a4 41. Rc6 a5 42. Rxh6 Kc7 43. Rf6 a3 44. Ra6 a2 45. Rxa5 Kb6 46. Ra8 1-0
+
+[Event "Oviedo rapid"]
+[Site "Oviedo"]
+[Date "1993.??.??"]
+[Round "12"]
+[White "Petursson, Margeir"]
+[Black "Zarnicki, Pablo"]
+[Result "0-1"]
+[WhiteElo "2560"]
+[BlackElo "2470"]
+[ECO "E20"]
+
+1. c4 e6 2. g3 d5 3. Bg2 Nf6 4. Nf3 Be7 5. O-O O-O 6. d4 dxc4 7. Nc3 Nc6 8. Bg5 h6 9. Bxf6 Bxf6 10. e3 e5 11. d5 Nb4 12. Nd2 c6 13. dxc6 bxc6 14. Nxc4 Ba6 15. Qg4 Nd3 16. Rfd1 Bxc4 17. Qxc4 Nxb2 18. Rxd8 Nxc4 19. Rxa8 Rxa8 20. Rc1 Na5 21. Ne4 Be7 22. Nc5 Rd8 23. Be4 g6 24. Nb3 Nxb3 25. axb3 c5 26. Ra1 Rd7 27. Bc6 Rc7 28. Bb5 Rb7 29. Bc4 Rd7 30. h4 Bd8 31. Bb5 Rb7 32. Bc4 Rd7 33. Kg2 Bb6 34. Ra2 Kg7 35. Kf3 f5 36. g4 Kf6 37. gxf5 gxf5 38. Ke2 e4 39. Ra1 Bd8 40. Rg1 Ke5 41. h5 Bg5 42. Ra1 Bd8 43. Bg8 Rg7 44. Bc4 0-1
+
+[Event "Aarhus"]
+[Site "Aarhus"]
+[Date "1993.??.??"]
+[Round "2"]
+[White "Hector, Jonny"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2470"]
+[BlackElo "2560"]
+[ECO "B15"]
+
+1. e4 g6 2. d4 Bg7 3. Nc3 c6 4. f4 d5 5. e5 h5 6. Be3 Nh6 7. Nge2 Bg4 8. Qd2 Nd7 9. Nc1 h4 10. h3 Bh5 11. Bd3 e6 12. O-O Bf8 13. Nb3 Be7 14. a4 b6 15. Na2 Nf5 16. Bxf5 gxf5 17. Rac1 Rc8 18. c4 O-O 19. Rc2 dxc4 20. Rxc4 a5 21. Rfc1 Nb8 22. Qf2 Qd5 23. Nd2 Na6 24. Nc3 Qd8 25. d5 exd5 26. Bxb6 Qd7 27. Rd4 Rb8 28. Bxa5 Rxb2 29. Kh2 Nc5 30. Nd1 Ra2 31. Nc3 Rxd2 32. Rxd2 Nb3 33. g4 Bg6 34. Ne2 Nxa5 35. gxf5 Qxf5 36. Nd4 Qh5 37. f5 c5 38. fxg6 fxg6 39. Qg2 cxd4 40. Qxd5+ Kh8 41. Qxa5 Bg5 42. Re1 Bf4+ 43. Kg1 Qf3 44. Rg2 Qxh3 45. Qc5 Be3+ 46. Rxe3 Qxe3+ 47. Kh2 Rb8 48. Qc2 Qxe5+ 49. Kh3 g5 50. Qg6 Rb3+ 51. Kg4 Rg3+ 52. Rxg3 Qf4+ 53. Kh5 hxg3 54. Qh6+ Kg8 55. Qg6+ Kf8 56. Qc6 d3 57. Qc8+ Ke7 58. Qc5+ Kf7 59. Qa7+ Kf6 60. Qb6+ Ke5 61. Qb5+ Ke4 62. a5 Qf3+ 63. Kxg5 d2 0-1
+
+[Event "Aarhus"]
+[Site "Aarhus"]
+[Date "1993.??.??"]
+[Round "5"]
+[White "Petursson, Margeir"]
+[Black "Polgar, Sofia"]
+[Result "1-0"]
+[WhiteElo "2560"]
+[BlackElo "2415"]
+[ECO "E04"]
+
+1. d4 d5 2. c4 e6 3. Nf3 Nf6 4. g3 dxc4 5. Bg2 Bd7 6. Ne5 Bc6 7. Nxc6 Nxc6 8. O-O Qd7 9. e3 Rb8 10. Qe2 b5 11. b3 cxb3 12. axb3 Rb6 13. Rd1 a6 14. Nc3 Be7 15. Bb2 Nb4 16. e4 O-O 17. Bh3 Qe8 18. Na2 Nd7 19. Bc3 Nxa2 20. Rxa2 c5 21. d5 exd5 22. exd5 Nf6 23. Ba5 Rd6 24. Re1 Nxd5 25. Rd2 b4 26. Qf3 Qc6 27. Bg2 Re6 28. Qd1 Qb5 29. Bxd5 Qxa5 30. Bxe6 fxe6 31. Rd7 Bf6 32. Qd6 e5 33. Rc7 Qa2 34. Qe6+ Kh8 35. Rc8 Bd8 36. Qf7 1-0
+
+[Event "St Martin op"]
+[Site "St Martin"]
+[Date "1993.??.??"]
+[Round "6"]
+[White "Petursson, Margeir"]
+[Black "Gurevich, Dmitry"]
+[Result "1-0"]
+[WhiteElo "2560"]
+[BlackElo "2495"]
+[ECO "A57"]
+
+1. d4 Nf6 2. c4 c5 3. d5 b5 4. cxb5 a6 5. f3 e6 6. e4 exd5 7. e5 Qe7 8. Qe2 Ng8 9. Nh3 Qd8 10. Nc3 Bb7 11. Nf4 Ne7 12. Kf2 c4 13. Be3 Nf5 14. Nfxd5 Bxd5 15. Nxd5 Nxe3 16. Qxe3 axb5 17. Nf6+ gxf6 18. exf6+ Be7 19. fxe7 Qc7 20. b3 d5 21. a4 Nc6 22. Be2 d4 23. Qe4 f5 24. Qe6 d3 25. axb5 Qb6+ 26. Qe3 Qxe3+ 27. Kxe3 Rxa1 28. Rxa1 dxe2 29. bxc6 cxb3 30. Kxe2 Kxe7 31. Ra7+ Kd6 32. Rb7 Kxc6 33. Rxb3 Kd6 34. Ke3 Re8+ 35. Kf4 Re2 36. Rd3+ Kc5 37. g3 Rxh2 38. Kxf5 h5 39. f4 Kc4 40. Rd8 Rg2 41. Rh8 Rxg3 42. Rxh5 Kd5 43. Kf6+ Ke4 44. f5 Ra3 45. Rh1 Ra2 46. Rb1 Ra3 47. Rb4+ Kd5 48. Kf7 1-0
+
+[Event "Malmo"]
+[Site "Malmo"]
+[Date "1993.??.??"]
+[Round "1"]
+[White "Petursson, Margeir"]
+[Black "Hansen, Lars Bo"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2545"]
+[ECO "A90"]
+
+1. d4 e6 2. c4 f5 3. g3 Nf6 4. Bg2 c6 5. Nf3 d5 6. O-O Bd6 7. b3 Qe7 8. Ne5 O-O 9. Nd2 Bd7 10. Ndf3 Be8 11. Nd3 Nbd7 12. Nfe5 Kh8 13. Bf4 Rd8 14. Qc1 h6 15. Nxd7 Nxd7 16. Bxd6 Qxd6 17. Qf4 Qxf4 18. Nxf4 Bf7 19. cxd5 cxd5 20. Rfc1 Rc8 21. e3 g5 22. Nd3 Kg7 23. Kf1 Kf6 24. Ke2 Ke7 25. Kd2 Bh5 26. Bf1 Nf6 27. Ke1 Rfd8 28. a3 Be8 29. a4 Ne4 30. f3 Nd6 31. Kd2 Bh5 32. Ne5 Nf7 33. Nxf7 Bxf7 34. a5 Rxc1 35. Rxc1 Kd6 36. Bd3 Bh5 37. Be2 Be8 38. Rh1 Bf7 39. h4 gxh4 40. Rxh4 h5 41. b4 Rg8 42. Rh3 a6 43. Bd3 Bg6 44. Ke2 Bf7 45. Kf2 Rc8 46. Rh1 Rc3 47. Ke2 Be8 48. Ra1 Rb3 49. Rb1 Ra3 50. Rb2 Bc6 51. f4 Bd7 52. Kd2 Ra1 53. Ke2 Ra3 54. Kd2 Ra1 1/2-1/2
+
+[Event "Katerini GP"]
+[Site "Katerini"]
+[Date "1993.??.??"]
+[Round "8"]
+[White "Petursson, Margeir"]
+[Black "Grivas, Efstratios"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2505"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 Na6 7. Qd2 e5 8. d5 Qe8 9. Bd1 Nh5 10. Bxh5 gxh5 11. Nge2 f6 12. Bh6 Bxh6 13. Qxh6 Qg6 14. Qd2 f5 15. f3 b6 16. exf5 Bxf5 17. Ng3 Bd7 18. O-O h4 19. Nge4 Nc5 20. Qg5 Qxg5 21. Nxg5 a5 22. Rad1 Rf4 23. Nge4 Raf8 24. h3 Nxe4 25. fxe4 Kg7 26. Rxf4 Rxf4 27. Rf1 Rxf1+ 28. Kxf1 Kf6 29. Kf2 Kg5 30. Ke3 Be8 31. b3 Bd7 32. Nd1 Be8 33. Nf2 Bd7 34. Nd3 Be8 35. b4 axb4 36. Nxb4 Kf6 37. Na6 c5 38. dxc6 Bxc6 39. Nb4 Bb7 40. a4 Kg5 41. Kf3 Kf6 42. Nc2 Bc8 43. Ke3 Be6 44. Na3 Ke7 45. Kd3 Kd7 46. Nb1 Kc6 47. Nd2 Kc5 48. Kc3 Bf7 49. Nb3+ Kc6 50. a5 bxa5 51. Nxa5+ Kb6 52. Nb3 Bg6 53. Kd3 Kc6 54. Nd2 Kc5 55. Nf3 Bf7 56. Nxh4 Bxc4+ 57. Ke3 d5 58. exd5 1/2-1/2
+
+[Event "Komotini GP"]
+[Site "Komotini"]
+[Date "1993.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Wojtkiewicz, Aleksander"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2570"]
+[ECO "E74"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 c5 7. dxc5 Qa5 8. Bd2 Qxc5 9. Nf3 Bg4 10. O-O Bxf3 11. Bxf3 Nc6 12. Be2 Qd4 13. Be3 Qxd1 14. Rfxd1 Nd7 15. Rac1 Nc5 16. f3 Rfc8 17. b3 Kf8 18. Bf1 Ne6 19. Kf2 Bd4 20. g3 Bxe3+ 21. Kxe3 Nc5 22. Rd2 a5 23. Rb1 Rd8 24. Nb5 Na7 25. Nc3 e6 26. f4 Ke7 27. a3 Nc6 28. Nb5 Rd7 29. b4 axb4 30. axb4 Na6 31. Ra2 Rdd8 32. Ra4 e5 33. Be2 f6 34. h4 h6 35. Bd1 Rg8 36. Nc3 Nc7 37. Rb2 Rxa4 38. Bxa4 Nd4 39. c5 Rc8 40. Bb3 Ra8 41. Ba4 Ke6 42. Ra2 Ke7 43. Rb2 Nde6 44. Rd2 Nd4 45. Rb2 Nde6 46. Rd2 1/2-1/2
+
+[Event "WchT 3rd"]
+[Site "Luzern"]
+[Date "1993.??.??"]
+[Round "3"]
+[White "Petursson, Margeir"]
+[Black "Dolmatov, Sergey"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2630"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 Na6 7. Qd2 e5 8. d5 c6 9. f3 cxd5 10. cxd5 Bd7 11. Bb5 Bxb5 12. Nxb5 Qb6 13. Nc3 Nc5 14. b3 Nh5 15. Be3 Nf4 16. g3 Nfd3+ 17. Kf1 Qa6 18. Kg2 b5 19. Nh3 b4 20. Nd1 f5 21. Ndf2 fxe4 22. Nxe4 Nxe4 23. fxe4 Rac8 24. Rhf1 Rc3 25. Rxf8+ Bxf8 26. Rf1 Qc8 27. Qd1 Nc5 28. Bxc5 Qxc5 29. Qg4 Qc8 30. Qh4 Rc2+ 31. Rf2 Rxf2+ 32. Nxf2 Qc2 33. Qf6 Qxa2 34. Qe6+ Kg7 35. Qd7+ Kg8 36. Qe6+ Kg7 37. Qd7+ Kg8 1/2-1/2
+
+[Event "WchT 3rd"]
+[Site "Luzern"]
+[Date "1993.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Lin, Weiguo"]
+[Result "1-0"]
+[WhiteElo "2560"]
+[BlackElo "2540"]
+[ECO "D85"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. cxd5 Nxd5 5. e4 Nxc3 6. bxc3 Bg7 7. Nf3 O-O 8. Be2 c5 9. O-O cxd4 10. cxd4 b6 11. Bg5 Bb7 12. Qd3 Ba6 13. Qe3 Bxe2 14. Qxe2 Nc6 15. Rad1 h6 16. Bh4 Qd7 17. d5 Na5 18. Nd4 Rac8 19. f4 e5 20. fxe5 Bxe5 21. Nf3 Bg7 22. e5 Rfe8 23. Rfe1 Qa4 24. e6 fxe6 25. d6 Qd7 26. Be7 Nc6 27. Qxe6+ Qxe6 28. Rxe6 Kf7 29. Ree1 Ra8 30. Bh4 g5 31. Rf1 Kg8 32. Bg3 Rad8 33. Rd2 g4 34. Rc1 gxf3 35. Rxc6 Re6 36. gxf3 Be5 37. Bxe5 Rxe5 38. Rc7 Re6 39. d7 Kf7 40. Rxa7 Ke7 41. Rb7 Rd6 42. Rxd6 Kxd6 43. Rxb6+ Kxd7 44. a4 Ra8 45. Rb4 Ke6 46. Kf2 Kf5 47. Rb5+ Kf6 48. a5 Ra7 49. h4 Ra8 50. Rb6+ Kf5 51. Rxh6 Rxa5 52. Rb6 Ra1 53. Kg2 Kf4 54. Rf6+ Ke5 55. Rf8 Ke6 56. Kh3 Ra4 57. Kg3 Rb4 58. h5 Rb1 59. Kh4 Rg1 60. h6 Ke7 61. Rf4 Rh1+ 62. Kg5 Rh3 63. Rh4 Rg3+ 64. Kf4 Rg8 65. h7 Rh8 66. Kg5 Kf7 67. Kh6 1-0
+
+[Event "Tilburg"]
+[Site "Tilburg"]
+[Date "1993.??.??"]
+[Round "2"]
+[White "Petursson, Margeir"]
+[Black "Timman, Jan H"]
+[Result "1/2-1/2"]
+[WhiteElo "2560"]
+[BlackElo "2620"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb4+ 6. Bd2 Be7 7. Bg2 d5 8. cxd5 exd5 9. O-O O-O 10. Nc3 Bb7 11. Rc1 Na6 12. Ne5 c5 13. Bf4 Re8 14. dxc5 Bxc5 15. Nd3 Ba3 16. Rc2 Qd7 17. Be5 Ne4 18. Bd4 Rac8 19. e3 Nb4 20. Nxb4 Bxb4 21. Nxe4 dxe4 22. Rxc8 Rxc8 23. Qh5 Qd5 24. Qxd5 Bxd5 25. Rd1 Bb7 26. Bb2 Bc6 27. Bh3 Re8 28. Bf1 Bc5 29. Ba6 Kf8 30. a3 Re6 31. b4 Be7 32. Rc1 Bf6 33. Bxf6 Rxf6 34. b5 Bd7 35. Rc4 Rd6 36. Rxe4 Bh3 37. Rd4 Rxd4 38. exd4 Ke7 39. f3 Be6 40. Kf2 Bc4 41. Ke3 Kd6 42. f4 f6 1/2-1/2
+
+[Event "Moscow ol (Men)"]
+[Site "Moscow"]
+[Date "1994.12.02"]
+[Round "2.2"]
+[White "Petursson, Margeir"]
+[Black "Brestian, Egon"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2445"]
+[ECO "A52"]
+
+1. d4 Nf6 2. c4 e5 3. dxe5 Ng4 4. Bf4 Nc6 5. Nf3 Bb4+ 6. Nbd2 Qe7 7. e3 Ngxe5 8. Nxe5 Nxe5 9. Be2 O-O 10. O-O Ng6 11. Bg3 Bd6 12. Bxd6 Qxd6 13. Ne4 Qe7 14. Nc3 c6 15. Qd4 d6 16. Rad1 Rd8 17. f4 f5 18. e4 fxe4 19. f5 Nh4 20. f6 gxf6 21. Nxe4 Nf5 22. Qxf6 Qxf6 23. Nxf6+ Kg7 24. Nh5+ Kh6 25. Nf4 Re8 26. Bf3 Be6 27. Kf2 Rad8 28. g4 Nh4 1-0
+
+[Event "Moscow ol (Men)"]
+[Site "Moscow"]
+[Date "1994.12.08"]
+[Round "7.4"]
+[White "Romanishin, Oleg M"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2605"]
+[BlackElo "2540"]
+[ECO "D15"]
+
+1. d4 Nf6 2. Nf3 d5 3. c4 c6 4. Nc3 dxc4 5. Ne5 Nbd7 6. f4 e6 7. e3 c5 8. Bxc4 cxd4 9. exd4 Be7 10. O-O O-O 11. Bb3 Nb6 12. Kh1 Bd7 13. Qf3 Bc6 14. Nxc6 bxc6 15. Be3 Nbd5 16. Bg1 g6 17. Rac1 Rc8 18. g4 Nxc3 19. bxc3 c5 20. f5 c4 21. Bc2 Qd5 22. Rce1 Rc6 23. Bd1 Rd8 24. Re5 Qxf3+ 25. Bxf3 Nd5 26. fxe6 fxe6 27. g5 Ba3 28. Rb1 Nxc3 29. Bxc6 Nxb1 30. Rxe6 Nd2 31. Ba4 Nf3 32. Rc6 Nxg1 33. Kxg1 Rxd4 34. Rxc4 1/2-1/2
+
+[Event "Catania op"]
+[Site "Cattolica"]
+[Date "1994.??.??"]
+[Round "8"]
+[White "Petursson, Margeir"]
+[Black "Rausis, Igors"]
+[Result "1/2-1/2"]
+[WhiteElo "2540"]
+[BlackElo "2485"]
+[ECO "D02"]
+
+1. d4 d5 2. c4 Bf5 3. Nc3 e6 4. Nf3 c6 5. Bf4 Bd6 6. Bxd6 Qxd6 7. e3 Nf6 8. Qb3 Qc7 9. Be2 O-O 10. O-O Nbd7 11. Rac1 Qb6 12. Qa3 Bg4 13. b3 Ne4 14. Qb2 f5 15. Nxe4 fxe4 16. Ne1 Bxe2 17. Qxe2 Rf5 18. f4 Raf8 19. g4 R5f7 20. Ng2 h6 21. Nh4 Rf6 22. f5 exf5 23. gxf5 Qd8 24. Qg4 R6f7 25. cxd5 Nf6 26. Qh3 Nxd5 27. Rce1 Qg5+ 28. Kh1 Ne7 29. Rg1 Qh5 30. Qg4 Qxg4 31. Rxg4 Nxf5 32. Nxf5 Rxf5 33. Reg1 R8f7 34. Rxe4 Rf2 35. Re8+ Rf8 36. Re7 R8f7 37. Re8+ Kh7 38. Rg2 Rf1+ 39. Rg1 R1f2 40. Rg2 Rf1+ 41. Rg1 R1f2 1/2-1/2
+
+[Event "Valby"]
+[Site "Valby"]
+[Date "1994.??.??"]
+[Round "1"]
+[White "Petursson, Margeir"]
+[Black "Nielsen, Peter Heine"]
+[Result "1-0"]
+[WhiteElo "2550"]
+[BlackElo "2475"]
+[ECO "D41"]
+
+1. c4 Nf6 2. Nc3 c5 3. Nf3 e6 4. g3 d5 5. cxd5 Nxd5 6. Bg2 Nc6 7. O-O Be7 8. d4 O-O 9. Nxd5 exd5 10. dxc5 Bxc5 11. Bg5 Qb6 12. Ne1 h6 13. Bd2 Be6 14. Nd3 Bd6 15. Qa4 Rfd8 16. Rac1 Rac8 17. Rfe1 d4 18. b4 Ne5 19. Nxe5 Bxe5 20. b5 Rxc1 21. Rxc1 Rc8 22. Rxc8+ Bxc8 23. Qc4 Qc7 24. Bd5 Qxc4 25. Bxc4 g5 26. Bb4 Kg7 27. Bc5 b6 28. Be7 Kg6 29. Kf1 Be6 30. Bxe6 fxe6 31. h3 Kf5 32. g4+ Ke4 33. Bf8 Bf6 34. Bxh6 Be7 35. Ke1 e5 36. Kd2 Kd5 37. f3 Bd8 38. Kd3 Be7 39. Bg7 Bd8 40. Bf8 Bf6 41. Bb4 Bd8 42. Ba3 Bf6 43. Bf8 Bd8 44. Kd2 Bf6 45. Bh6 Be7 46. Ke1 Bd8 47. Kf2 Be7 48. Kg2 Bd8 49. h4 gxh4 50. g5 e4 51. g6 exf3+ 52. Kxf3 Bf6 53. Kg4 Ke6 54. Bf8 h3 55. Kxh3 Kf5 56. Bd6 Kxg6 57. Kg4 Bd8 58. Be5 Bg5 59. Bb8 Bd8 60. Be5 Bg5 61. Bxd4 Bh6 62. Be5 Bd2 63. Bb8 Kf6 64. Bxa7 Ba5 65. Kf4 Ke6 66. a4 Kd5 67. Kf5 Kc5 68. Ke6 Bd2 69. Kd7 Bf4 70. Kc8 1-0
+
+[Event "Valby"]
+[Site "Valby"]
+[Date "1994.??.??"]
+[Round "6"]
+[White "Petursson, Margeir"]
+[Black "Sahl, Bjarke"]
+[Result "1/2-1/2"]
+[WhiteElo "2550"]
+[BlackElo "2465"]
+[ECO "A25"]
+
+1. c4 e5 2. Nc3 Nc6 3. g3 g6 4. Bg2 Bg7 5. e3 Nge7 6. Rb1 O-O 7. b4 a6 8. d3 d6 9. Nge2 Bg4 10. a4 Qc8 11. h3 Bd7 12. Ba3 Re8 13. Qb3 b6 14. Rc1 Rb8 15. Nd5 a5 16. b5 Nd8 17. Nec3 Nb7 18. Ne4 Nxd5 19. cxd5 Nc5 20. Qc4 h6 21. h4 Kh7 22. Kf1 Re7 23. Kg1 f5 24. Nd2 Qf8 25. Rf1 Rbe8 26. Kh2 Bc8 27. Qc2 1/2-1/2
+
+[Event "Valby"]
+[Site "Valby"]
+[Date "1994.??.??"]
+[Round "7"]
+[White "Sax, Gyula"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2520"]
+[BlackElo "2550"]
+[ECO "B36"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Nf6 6. Nc3 d6 7. Be2 Nxd4 8. Qxd4 Bg7 9. O-O O-O 10. Qe3 Be6 11. Rb1 Qb6 12. Qd3 Rfc8 13. b3 a6 14. Be3 Qa5 15. Bd2 Qb6 16. Kh1 Bd7 17. f4 Bc6 18. Qe3 Nd7 19. Bg4 e6 20. Bf3 1/2-1/2
+
+[Event "Valby"]
+[Site "Valby"]
+[Date "1994.??.??"]
+[Round "8"]
+[White "Petursson, Margeir"]
+[Black "Mortensen, Erling"]
+[Result "1-0"]
+[WhiteElo "2550"]
+[BlackElo "2470"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 Na6 7. h4 e5 8. d5 c6 9. h5 cxd5 10. cxd5 Bd7 11. Qd2 Nc5 12. f3 a5 13. g4 b5 14. Nh3 b4 15. Nd1 Bxg4 16. fxg4 Ncxe4 17. Qe3 Nxg5 18. Qxg5 Rc8 19. hxg6 hxg6 20. Ne3 Qb6 21. Nf2 Qd4 22. Rd1 Qxb2 23. Rh3 Rfe8 24. Qh4 e4 25. g5 Nd7 26. Bb5 Re7 27. Nxe4 Rce8 28. Bxd7 Rxe4 29. Qh7+ Kf8 30. Bxe8 Rf4 31. Rh2 Bc3+ 32. Rhd2 Kxe8 33. Qg8+ Ke7 34. Qc8 Bxd2+ 35. Rxd2 Qe5 36. Rc2 Qxe3+ 37. Re2 Qxe2+ 38. Kxe2 Rf5 1-0
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1994.??.??"]
+[Round "6"]
+[White "Thorhallsson, Throstur"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2470"]
+[BlackElo "2550"]
+[ECO "B70"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. Be2 Bg7 6. Nb3 Nf6 7. Nc3 O-O 8. O-O d6 9. Bg5 a6 10. a4 Be6 11. Kh1 Rc8 12. f4 Na5 13. Nxa5 Qxa5 14. Bd3 Bc4 15. Qf3 Qb4 16. Rab1 b5 17. axb5 axb5 18. Bxc4 Qxc4 19. Bxf6 Bxf6 20. Nd5 Qxc2 21. e5 dxe5 22. fxe5 Bg5 23. Qg3 Rcd8 24. Rbd1 e6 25. Qxg5 Rxd5 26. Rxd5 exd5 27. e6 Qe4 28. exf7+ Rxf7 29. Rd1 Qf5 30. Qc1 d4 31. h3 Qd5 32. Kg1 d3 33. Qe3 Rd7 34. Rd2 Kg7 35. Kh1 h5 36. Kh2 Qd4 37. Qe1 h4 38. Qc1 Qe3 39. Qc3+ Kh7 40. Rd1 Qf4+ 41. Kh1 d2 42. Qc5 Rc7 43. Qxb5 Rc1 44. Qd7+ Kh6 45. Qxd2 Qxd2 0-1
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1994.??.??"]
+[Round "8"]
+[White "Van der Sterren, Paul"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2605"]
+[BlackElo "2550"]
+[ECO "E11"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 Bb4+ 4. Bd2 c5 5. Bxb4 cxb4 6. g3 O-O 7. Bg2 d6 8. O-O Nc6 9. a3 bxa3 10. Nxa3 e5 11. Nb5 a6 12. dxe5 dxe5 13. c5 Bh3 14. Bxh3 axb5 15. Rxa8 Qxa8 16. e3 Qa2 17. Qe2 Qd5 18. Rc1 Rd8 19. Ne1 b4 20. Bf1 e4 21. Qc4 b3 22. Qc3 Qd2 23. Bc4 Ng4 24. Qxd2 Rxd2 25. Bxb3 Rxb2 26. Bd5 Nxf2 27. Rc2 Rxc2 28. Nxc2 Nd3 29. Bxe4 Nxc5 1/2-1/2
+
+[Event "CAN-op"]
+[Site "Winnipeg"]
+[Date "1994.??.??"]
+[Round "8"]
+[White "Hergott, Deen"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2430"]
+[BlackElo "2550"]
+[ECO "A11"]
+
+1. Nf3 d5 2. g3 c6 3. Bg2 Bg4 4. c4 Nf6 5. Ne5 Be6 6. cxd5 Bxd5 7. Nf3 g6 8. Nc3 Bg7 9. O-O O-O 10. Re1 Ne4 11. Qc2 Nxc3 12. bxc3 c5 13. e4 Be6 14. Rb1 Qc8 15. Qb2 Nc6 16. Qxb7 Bxa2 17. Qxc8 Rfxc8 18. Rb5 c4 19. e5 Rab8 20. Rxb8 Rxb8 21. e6 f5 22. Ba3 Bf6 23. Ra1 Bb3 24. Ne1 Rc8 25. Bc5 a5 26. Bxc6 Rxc6 27. Rxa5 Rxe6 28. Kf1 Rc6 29. f4 Rc7 30. Nf3 Bc2 31. Bd4 Be4 1/2-1/2
+
+[Event "CAN-op"]
+[Site "Winnipeg"]
+[Date "1994.??.??"]
+[Round "10"]
+[White "Tukmakov, Vladimir B"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2570"]
+[BlackElo "2550"]
+[ECO "D19"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Nc3 dxc4 5. a4 Bf5 6. e3 e6 7. Bxc4 Bb4 8. O-O O-O 9. Qe2 Ne4 10. Bd3 Bxc3 11. bxc3 Nxc3 12. Qc2 Bxd3 13. Qxd3 Nd5 14. Rb1 b6 15. Ba3 Re8 16. Rfc1 a5 17. Ne5 Qc7 18. e4 Nb4 19. Bxb4 axb4 20. Rxb4 c5 21. Qb1 Nc6 22. Nxc6 cxb4 23. Qxb4 Qf4 24. Re1 h5 25. g3 Qf3 26. Ne5 Qf6 27. Re3 Qe7 28. Qb5 Qa7 29. Kg2 Qxa4 30. Qxb6 Qd1 31. Rf3 Ra1 32. Qb5 Rf8 33. Rf4 Qh1+ 34. Kh3 Rg1 35. Nf3 Qg2+ 36. Kh4 Rh1 37. Qxh5 f6 38. Kg4 Qxf2 39. d5 e5 40. Nxe5 Qe2+ 41. Nf3 Rf1 42. Qg6 Rf7 43. d6 Qd1 44. Rf5 Qe2 45. Rf4 Qd1 46. Rf5 Rf8 47. h4 Qxd6 48. h5 Rh1 49. Rd5 Qe7 50. Qf5 Re8 51. Rd4 Rc1 52. Qd5+ Qf7 1/2-1/2
+
+[Event "Horgen SKA"]
+[Site "Horgen"]
+[Date "1994.??.??"]
+[Round "5"]
+[White "Petursson, Margeir"]
+[Black "Godena, Michele"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2485"]
+[ECO "E08"]
+
+1. c4 e6 2. g3 Nf6 3. Bg2 d5 4. Nf3 Be7 5. O-O O-O 6. d4 c6 7. Qc2 b6 8. b3 Bb7 9. Nc3 Nbd7 10. Rd1 Rc8 11. e4 c5 12. exd5 exd5 13. Bb2 dxc4 14. d5 cxb3 15. axb3 Ne8 16. Rxa7 Nd6 17. Ne4 Rc7 18. Nfg5 Bxg5 19. Nxd6 Qb8 20. Nb5 Bf6 21. Rda1 Bxb2 22. Qxb2 Rcc8 23. Rxb7 Qxb7 24. Ra7 Qb8 25. Rxd7 Rce8 26. Qa1 Qc8 27. Bh3 Qb8 28. Nc7 Re2 29. Ne6 1-0
+
+[Event "Horgen SKA"]
+[Site "Horgen"]
+[Date "1994.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Brunner, Lucas"]
+[Result "1/2-1/2"]
+[WhiteElo "2540"]
+[BlackElo "2525"]
+[ECO "D41"]
+
+1. c4 c5 2. Nf3 Nf6 3. Nc3 e6 4. g3 d5 5. cxd5 Nxd5 6. Bg2 Nc6 7. O-O Be7 8. d4 O-O 9. Nxd5 exd5 10. dxc5 Bxc5 11. Bg5 f6 12. Bd2 Qe7 13. Bc3 Rd8 14. e3 Bf5 15. Qa4 Be4 16. Rac1 Bb6 17. Rfe1 Re8 18. Nh4 Qf7 19. Rcd1 Rad8 20. Bxe4 Rxe4 21. Qc2 Rde8 22. Nf3 d4 23. exd4 Rxe1+ 24. Rxe1 Rxe1+ 25. Nxe1 Qd5 26. Qe2 Kf8 27. Nc2 Qxa2 28. Qd3 Qd5 29. Ne3 Qf3 30. d5 Bxe3 31. fxe3 Ne5 32. Bxe5 fxe5 33. d6 e4 34. Qd4 Ke8 35. Qe5+ Kd7 36. Qe7+ Kc6 37. Qc7+ Kd5 38. Qxb7+ Kxd6 39. Qa6+ Ke5 40. Qb5+ Kf6 41. Qc6+ Kg5 42. Qc5+ 1/2-1/2
+
+[Event "Horgen SKA"]
+[Site "Horgen"]
+[Date "1994.??.??"]
+[Round "10"]
+[White "Petursson, Margeir"]
+[Black "Fioramonti, Hung"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2415"]
+[ECO "A41"]
+
+1. c4 e5 2. Nc3 g6 3. d4 d6 4. dxe5 dxe5 5. Qxd8+ Kxd8 6. f4 Be6 7. Nf3 Nd7 8. fxe5 Bxc4 9. Bf4 Bb4 10. e4 Be6 11. Nd4 Bxc3+ 12. bxc3 Nc5 13. O-O-O Kc8 14. Be3 Bg4 15. Nf3 Nd7 16. Bb5 h6 17. Rhf1 Ne7 18. h3 a6 19. Be2 Be6 20. Nd4 Nxe5 21. Nxe6 fxe6 22. Rf6 N5c6 23. Bxh6 b6 24. Bg5 e5 25. Rf7 Re8 26. Bg4+ Kb7 27. Rd7 1-0
+
+[Event "Horgen SKA"]
+[Site "Horgen"]
+[Date "1994.??.??"]
+[Round "11"]
+[White "Schlosser, Philipp"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2510"]
+[BlackElo "2540"]
+[ECO "B70"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Be2 Bg7 7. O-O O-O 8. Nb3 Nc6 9. Re1 a6 10. Bf1 b5 11. Nd5 Nxd5 12. exd5 Ne5 13. c3 Bd7 14. Be3 Qc7 15. Bd4 Rfe8 16. f4 Ng4 17. Be2 Bxd4+ 18. Qxd4 Nf6 19. Bf3 a5 20. Re3 a4 21. Nc1 Rac8 22. h3 Qc4 23. Qxc4 bxc4 24. b4 axb3 25. axb3 cxb3 26. Nxb3 e5 27. dxe6 Rxe6 28. Rd3 Bb5 29. Rd2 Be8 30. Nd4 Re7 31. Ra6 1/2-1/2
+
+[Event "ISL-chT"]
+[Site "Iceland"]
+[Date "1995.??.??"]
+[Round "?"]
+[White "Gretarsson, Helgi Ass"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2450"]
+[BlackElo "2540"]
+[ECO "E11"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 Bb4+ 4. Bd2 c5 5. a3 Bxd2+ 6. Qxd2 cxd4 7. Nxd4 O-O 8. Nc3 d5 9. e3 dxc4 10. Bxc4 a6 11. O-O b5 12. Be2 Bb7 13. Rfd1 Nbd7 14. b4 Qe7 15. a4 Qxb4 16. Rab1 Qe7 17. axb5 axb5 18. Ndxb5 Nc5 19. Qd6 Qxd6 20. Nxd6 Ba6 21. Bf3 Rab8 22. Rxb8 Rxb8 23. Nde4 1/2-1/2
+
+[Event "ISL-chT"]
+[Site "Iceland"]
+[Date "1995.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Sigurjonsson, Gudmundur"]
+[Result "1-0"]
+[WhiteElo "2540"]
+[BlackElo "2465"]
+[ECO "E07"]
+
+1. c4 e6 2. Nc3 d5 3. d4 Be7 4. Nf3 Nf6 5. g3 O-O 6. Bg2 Nbd7 7. Qd3 c6 8. O-O b6 9. e4 Ba6 10. b3 Rc8 11. Rd1 c5 12. exd5 exd5 13. Nb5 cxd4 14. Nfxd4 Bc5 15. Nxa7 dxc4 16. Qf1 b5 17. Nxc8 Qxc8 18. Bf4 Re8 19. a4 bxa4 20. bxc4 Nb6 21. Nb5 Ng4 22. Nd6 Bxd6 23. Rxd6 Bxc4 24. Qb1 Bb3 25. Rxb6 Qc5 26. Be3 Nxe3 27. Rc6 Qd4 28. fxe3 Rxe3 29. Kh1 g6 30. Qg1 Qd2 31. Rd6 Qc3 32. Rc6 Qe5 33. Rcc1 Re2 34. Re1 1-0
+
+[Event "Linares Anibal op 02nd"]
+[Site "Linares"]
+[Date "1995.??.??"]
+[Round "?"]
+[White "Kaminski, Marcin"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2455"]
+[BlackElo "2535"]
+[ECO "B38"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. c4 Nf6 6. Nc3 d6 7. Be2 Bg7 8. Be3 O-O 9. O-O Bd7 10. Qd2 Nxd4 11. Bxd4 Bc6 12. f3 a5 13. b3 Nd7 14. Be3 Nc5 15. Rab1 Qb6 16. Rfc1 Rfc8 17. Rc2 Qd8 18. Bf1 Qf8 19. Nd5 Qd8 20. Bg5 Bxd5 21. cxd5 Qb6 22. Be3 Qb4 23. Qxb4 axb4 24. Bd2 Bd4+ 25. Kh1 Rc7 26. Rbc1 Rac8 27. Rc4 Bb2 28. R1c2 Ba3 29. Kg1 Ra8 30. Rd4 Nxb3 31. Rxc7 Nxd4 32. Be3 e5 33. dxe6 Nxe6 34. Rxb7 Rc8 35. h4 h5 36. Bd2 Rc2 37. Bxb4 Bxb4 38. Rxb4 Rxa2 1/2-1/2
+
+[Event "Linares Anibal op 02nd"]
+[Site "Linares"]
+[Date "1995.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Spangenberg, Hugo"]
+[Result "0-1"]
+[WhiteElo "2535"]
+[BlackElo "2500"]
+[ECO "D20"]
+
+1. d4 d5 2. c4 dxc4 3. e4 e5 4. Nf3 exd4 5. Bxc4 Bb4+ 6. Nbd2 Nc6 7. O-O Nf6 8. e5 Nd5 9. Nb3 Nb6 10. Bg5 Be7 11. Bxe7 Qxe7 12. Bb5 Bd7 13. Bxc6 Bxc6 14. Nfxd4 Bd5 15. Qg4 g6 16. Rfe1 O-O 17. Nf5 Qd7 18. Nh6+ Kh8 19. Qf4 f5 20. e6 Qg7 21. Nf7+ Kg8 22. Nh6+ Kh8 23. Nf7+ Kg8 24. Nc5 Rae8 25. Nh6+ Kh8 26. Nf7+ Kg8 27. Rad1 Re7 28. Nh6+ Kh8 29. Nf7+ Kg8 30. Re5 c6 31. Nh6+ Kh8 32. Nf7+ Kg8 33. b3 Rfe8 34. Nh6+ Kh8 35. Nf7+ Kg8 36. Rde1 Nc8 37. Nh6+ Kh8 38. Nf7+ Kg8 39. h4 b6 0-1
+
+[Event "Copenhagen K41"]
+[Site "Copenhagen"]
+[Date "1995.??.??"]
+[Round "4"]
+[White "Danielsen, Henrik"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2430"]
+[BlackElo "2535"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 Bb7 6. Bg2 Bb4+ 7. Bd2 c5 8. O-O O-O 9. Bc3 Na6 10. Bb2 cxd4 11. Qxd4 Bc5 12. Qf4 Be7 13. Rd1 Nc5 14. Nc3 d6 15. Ne1 Bxg2 16. Nxg2 a6 17. Ne3 Qb8 18. b4 Ncd7 19. Ne4 Nxe4 20. Qxe4 Nf6 21. Qf4 b5 22. Rab1 Rc8 23. Rdc1 bxc4 24. Nxc4 Nd5 25. Qg4 Nf6 26. Qf4 Nd5 27. Qg4 Nf6 28. Qf4 1/2-1/2
+
+[Event "Gausdal Int"]
+[Site "Gausdal"]
+[Date "1995.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Kotronias, Vasilios"]
+[Result "0-1"]
+[WhiteElo "2535"]
+[BlackElo "2570"]
+[ECO "E73"]
+
+1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 h6 7. Be3 c5 8. e5 dxe5 9. dxe5 Qxd1+ 10. Rxd1 Ng4 11. Bxc5 Nxe5 12. Bxe7 Re8 13. Nd5 Be6 14. Ba3 Na6 15. Kf1 Rad8 16. f4 Nxc4 17. Bxc4 Nc7 18. Ne7+ Kh7 19. Rc1 Bxc4+ 20. Rxc4 Nb5 21. Bb4 Rd1+ 22. Ke2 Rb1 23. a4 a5 24. Bc5 b6 25. Be3 Rxe7 26. axb5 Rxb2+ 27. Kf3 Rb3 28. Re4 Rxe4 29. Kxe4 f5+ 30. Kd5 Rxe3 31. Nf3 a4 32. Ne5 g5 33. g3 gxf4 34. gxf4 Re4 35. Rf1 a3 36. Ra1 Rxf4 37. Rxa3 Rb4 38. Nd7 Rxb5+ 39. Ke6 f4 40. Ra4 f3 41. Rf4 Rb3 42. Kf7 Rd3 43. Nxb6 Rd8 44. Ke6 Rf8 45. Rxf8 Bxf8 46. Nc4 f2 47. Nd2 Bb4 48. Nf1 Kg6 49. Ng3 Ba5 50. h4 h5 51. Nf1 Bc7 52. Ne3 Bb8 53. Nf1 Bf4 54. Kd5 Kf5 55. Kd4 Kg4 56. Ke4 Bh6 0-1
+
+[Event "Reykjavik Olafsson"]
+[Site "Reykjavik"]
+[Date "1995.??.??"]
+[Round "1"]
+[White "Gligoric, Svetozar"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2455"]
+[BlackElo "2565"]
+[ECO "D19"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Nc3 dxc4 5. a4 Bf5 6. e3 e6 7. Bxc4 Bb4 8. O-O O-O 9. Qe2 Ne4 10. Bd3 Bxc3 11. bxc3 Nxc3 12. Qc2 Bxd3 13. Qxd3 Nd5 14. Ba3 Re8 15. Rab1 b6 16. Rfc1 a5 17. Ne5 Qc7 18. e4 Nb4 19. Bxb4 axb4 20. Rxb4 c5 21. Qb5 Nc6 22. Qxb6 Qxb6 23. Rxb6 Nxe5 1/2-1/2
+
+[Event "Reykjavik Olafsson"]
+[Site "Reykjavik"]
+[Date "1995.??.??"]
+[Round "6"]
+[White "Smyslov, Vassily"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2565"]
+[BlackElo "2565"]
+[ECO "B70"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Bg5 Bg7 7. Be2 Nc6 8. Nb3 O-O 9. O-O a6 10. Qd2 b5 11. f3 Bb7 12. a4 b4 13. Nd5 Nxd5 14. exd5 Ne5 15. a5 Qc7 16. Ra4 Nc4 17. Bxc4 Qxc4 18. Bxe7 Rfc8 19. Rxb4 Qxd5 20. Rd1 Qxd2 21. Rxd2 Ra7 22. c3 Bxf3 23. Bxd6 Bc6 24. Bc5 Raa8 25. Rb6 Bb5 26. Bf2 h5 27. Nd4 Be8 28. Nf3 Bb5 29. Bd4 Bh6 30. Rd1 Re8 31. Re1 Rxe1+ 32. Nxe1 Bf4 33. Rf6 Re8 34. Nf3 g5 35. h4 Re2 36. hxg5 Bg3 37. g6 Be8 38. gxf7+ Bxf7 39. Rf5 h4 40. Rg5+ Kf8 41. Be5 Bf2+ 42. Kh2 Rxb2 43. Bd6+ Ke8 44. Re5+ Kd7 45. Re7+ Kxd6 46. Rxf7 Ke6 47. Rh7 Ra2 48. Rh6+ Kf5 49. Kh3 Ra1 50. Nxh4+ Bxh4 51. Rxh4 Kg5 52. Rg4+ Kh5 53. Rc4 Rxa5 54. Rc8 Ra1 55. c4 a5 56. c5 Rc1 57. c6 Kg6 1/2-1/2
+
+[Event "Reykjavik Olafsson"]
+[Site "Reykjavik"]
+[Date "1995.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Stefansson, Hannes"]
+[Result "1/2-1/2"]
+[WhiteElo "2565"]
+[BlackElo "2520"]
+[ECO "A21"]
+
+1. c4 e5 2. Nc3 d6 3. g3 g6 4. Bg2 Bg7 5. e3 f5 6. Nge2 Nf6 7. d3 a5 8. O-O O-O 9. b3 c6 10. Bb2 Na6 11. Qd2 Be6 12. Rae1 d5 13. cxd5 Nxd5 14. Rd1 Nac7 15. Rfe1 Qd6 16. Qc1 Nxc3 17. Nxc3 b5 18. Nb1 Nd5 19. e4 Ne7 20. exf5 gxf5 21. Nd2 Bd5 22. Nc4 bxc4 23. dxc4 e4 24. Ba3 Qe6 25. cxd5 cxd5 26. Bxe7 Qxe7 27. Rxd5 a4 28. Qf4 axb3 29. axb3 Qe6 30. Bf1 Kh8 31. Bc4 Qf6 32. Red1 Rae8 33. Rd7 e3 34. fxe3 Re4 35. Qf3 Bh6 36. Rc7 Bxe3+ 37. Kh1 Bb6 38. Rb7 Bc5 39. Rc7 Bb6 40. Rcd7 Bc5 41. Rf1 Re3 42. Qb7 Be7 43. Qd5 Re5 44. Qf3 Bc5 45. Rd5 Bd6 46. Rd3 Qe7 47. Qc6 Rf6 48. Rdf3 Kg7 49. Bd3 Qf7 50. Bc4 Qe7 51. Qa8 Rf8 52. Qa1 Qb7 53. Qa6 Qxa6 54. Bxa6 h5 55. Bd3 Kg6 56. Rc1 Kg5 57. Rc4 Rc5 58. h4+ Kg6 59. Ra4 Rd5 60. b4 Rf6 61. Ra5 Re5 62. Rxe5 Bxe5 63. Kg2 Bd6 64. b5 Bc7 65. Bc2 Bb6 66. Kf1 Bc7 67. Kf2 Bb6+ 68. Kg2 Bc7 69. Rc3 Bb6 70. Kf3 Bd4 71. Rc8 Rb6 72. Bd3 Re6 73. Kg2 Bg7 74. Rc5 Be5 75. b6 Kf6 76. Rb5 Rd6 77. Bb1 Rd2+ 78. Kf3 Rb2 79. Bd3 Rxb5 80. Bxb5 1/2-1/2
+
+[Event "Reykjavik Olafsson"]
+[Site "Reykjavik"]
+[Date "1995.??.??"]
+[Round "8"]
+[White "Olafsson, Helgi"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2470"]
+[BlackElo "2565"]
+[ECO "B76"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Be3 Bg7 7. f3 Nc6 8. Qd2 O-O 9. O-O-O d5 10. exd5 Nxd5 11. Nxc6 bxc6 12. Bd4 e5 13. Bc5 Be6 14. Ne4 Re8 15. h4 Nf4 16. g3 Qxd2+ 17. Rxd2 Nh5 18. g4 Nf6 19. Bd3 Bd5 20. Re1 Rad8 21. a4 Nxe4 22. Bxe4 Bxe4 23. fxe4 Bf8 24. Be3 Rxd2 25. Kxd2 Kg7 26. c3 a6 27. Kd3 Be7 28. h5 Kf6 29. Rh1 Ke6 30. hxg6 hxg6 31. Kc4 Rd8 32. b4 Bf6 33. g5 Be7 34. Rf1 Rd7 35. Bc5 Bd8 36. Be3 Be7 37. Bc5 Bd8 38. Be3 1/2-1/2
+
+[Event "Deildakeppni 9596"]
+[Site "Gardaboer"]
+[Date "1996.03.??"]
+[Round "?"]
+[White "Hjartarson, Johann"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2570"]
+[BlackElo "2585"]
+[ECO "A38"]
+
+1. Nf3 c5 2. c4 g6 3. Nc3 Bg7 4. g3 Nc6 5. Bg2 d6 6. O-O Nf6 7. d4 cxd4 8. Nxd4 Bd7 9. Nc2 O-O 10. b3 Qa5 11. Bd2 Rfc8 12. h3 Rab8 13. Rc1 a6 14. e4 b5 15. Nd5 Qd8 16. cxb5 Rxb5 17. Nce3 Nxd5 18. Nxd5 Rc5 19. Rxc5 dxc5 20. Re1 e6 21. Ne3 Nb4 22. Nc4 Bb5 23. Bxb4 Qxd1 24. Rxd1 cxb4 25. Bf1 1/2-1/2
+
+[Event "Yerevan ol (Men)"]
+[Site "Yerevan"]
+[Date "1996.09.18"]
+[Round "3.1"]
+[White "Petursson, Margeir"]
+[Black "Mirumian, Vigen"]
+[Result "1/2-1/2"]
+[WhiteElo "2570"]
+[BlackElo "2430"]
+[ECO "A29"]
+
+1. c4 e5 2. Nc3 Nf6 3. Nf3 Nc6 4. g3 Bb4 5. Nd5 Nxd5 6. cxd5 Nd4 7. Nxd4 exd4 8. Qc2 Qe7 9. Bg2 Ba5 10. b4 Bb6 11. Qc4 O-O 12. O-O a5 13. bxa5 Rxa5 14. Bb2 Qc5 15. Rfc1 d6 16. Qb3 Qb5 17. Rc4 Bd7 18. Bxd4 Bxd4 19. Qxb5 Bxb5 20. Rxd4 Bxe2 21. d3 f5 22. a4 Rfa8 23. h3 Bh5 24. Rc1 Rc5 25. Rxc5 dxc5 26. Rc4 Ra5 27. d4 cxd4 28. Rxd4 Be8 1/2-1/2
+
+[Event "Yerevan ol (Men)"]
+[Site "Yerevan"]
+[Date "1996.09.25"]
+[Round "9.1"]
+[White "Zapata, Alonso"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2525"]
+[BlackElo "2570"]
+[ECO "B78"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 g6 5. Nc3 Bg7 6. Be3 Nf6 7. Bc4 O-O 8. Bb3 d6 9. f3 Bd7 10. Qd2 Rc8 11. O-O-O Ne5 12. Bg5 Nc4 13. Bxc4 Rxc4 14. e5 dxe5 15. Nde2 Rc7 16. Bxf6 exf6 17. Nb5 Rc5 18. Nec3 a6 19. Qxd7 Qxd7 20. Rxd7 axb5 21. Rxb7 Ra8 22. Rd1 f5 23. Nxb5 e4 24. f4 Bh6 25. g3 g5 26. fxg5 Bxg5+ 27. Kb1 e3 28. Re1 f4 29. Nd4 Rd8 30. Nf3 fxg3 31. hxg3 e2 32. c3 Rf5 33. Rxe2 Rxf3 34. Rg2 Ra8 35. a3 Kg7 36. Rc2 h5 37. Rb5 Kg6 38. Rb3 Be3 39. Rh2 f5 40. a4 Rxg3 41. a5 Rg5 42. Rb5 f4 43. Rb6+ Kf7 44. a6 f3 45. Rh3 0-1
+
+[Event "Yerevan ol (Men)"]
+[Site "Yerevan"]
+[Date "1996.09.27"]
+[Round "11.1"]
+[White "Petursson, Margeir"]
+[Black "Jussupow, Artur"]
+[Result "1/2-1/2"]
+[WhiteElo "2570"]
+[BlackElo "2665"]
+[ECO "A10"]
+
+1. c4 f5 2. g3 Nf6 3. Bg2 e6 4. Nf3 c6 5. O-O d5 6. d3 Bc5 7. b3 Qe7 8. Bb2 Nbd7 9. Nbd2 O-O 10. Qc2 Ng4 11. e4 dxe4 12. dxe4 f4 13. e5 fxg3 14. hxg3 Qf7 15. Rae1 Qh5 16. Bc3 b6 17. b4 Be7 18. Re4 Bb7 19. c5 Rf7 20. Qd1 Nh6 21. Nc4 Rd8 22. Nd6 Bxd6 23. Rh4 Qf5 24. Nd4 Qxe5 25. Nb5 cxb5 26. Bxe5 Bxg2 27. Kxg2 Bxe5 28. c6 Bf6 29. Rxh6 Ne5 30. Rxf6 Rxd1 31. Rxf7 Rxf1 32. Rxa7 Nxc6 33. Ra8+ Kf7 34. Kxf1 Nxb4 35. Ke2 h5 36. Ke3 Kf6 37. Ke4 Nd5 38. Kd4 g6 39. Rf8+ Ke7 40. Rf3 Kd6 41. a3 b4 42. axb4 Nxb4 43. Rf8 Ke7 44. Ra8 Kf6 45. Ke4 Nd5 46. Rf8+ Ke7 47. Rb8 Kf6 48. Kd4 Kf5 49. f3 1/2-1/2
+
+[Event "Bern Cup"]
+[Site "Bern"]
+[Date "1996.??.??"]
+[Round "4"]
+[White "Petursson, Margeir"]
+[Black "Cramling, Pia"]
+[Result "1/2-1/2"]
+[WhiteElo "2585"]
+[BlackElo "2525"]
+[ECO "A29"]
+
+1. c4 e5 2. Nc3 Nf6 3. Nf3 Nc6 4. g3 Bb4 5. Bg2 O-O 6. O-O d6 7. d3 h6 8. Bd2 a5 9. a3 Bc5 10. Rb1 Be6 11. Na4 Ba7 12. Rc1 Qd7 13. b4 axb4 14. axb4 e4 15. dxe4 Nxe4 16. b5 Nxd2 17. Nxd2 Na5 18. Qc2 Rfd8 19. Rfd1 d5 20. cxd5 Bxd5 21. Bxd5 Qxd5 22. Ne4 Qxb5 23. Rxd8+ Rxd8 24. Qxc7 Rd7 25. Qc8+ Kh7 26. Qc2 Kg8 27. Qc8+ Kh7 28. Nac5 Bxc5 29. Nxc5 Re7 30. Qf5+ 1/2-1/2
+
+[Event "ISL-chT"]
+[Site "Reykjavik"]
+[Date "1996.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Arnason, Jon L"]
+[Result "0-1"]
+[WhiteElo "2585"]
+[BlackElo "2535"]
+[ECO "A35"]
+
+1. c4 c5 2. Nf3 Nc6 3. Nc3 Nd4 4. e3 Nxf3+ 5. Qxf3 g6 6. d4 Bg7 7. d5 d6 8. Bd3 Nf6 9. e4 e6 10. O-O exd5 11. cxd5 Nd7 12. Qg3 a6 13. Bg5 Qb6 14. Rab1 Ne5 15. Be2 f5 16. Be3 Qa5 17. Rbd1 O-O 18. a3 Bd7 19. f4 Nf7 20. e5 dxe5 21. d6 Rae8 22. Bc4 exf4 23. Bxf4 b5 24. Ba2 c4 25. Rfe1 Qd8 26. Nd5 Bxb2 27. Ne7+ Kg7 28. Bb1 Bf6 29. Bxf5 Bxf5 30. Nxf5+ Kh8 31. Ne7 Qd7 32. Nd5 Rxe1+ 33. Qxe1 Re8 34. Qf2 Bg7 35. Nc7 Re4 36. h3 c3 37. Bg3 Rc4 38. Qc2 a5 39. Kh2 b4 40. axb4 axb4 41. Nd5 Qf5 42. Qa2 c2 43. Re1 c1=Q 44. Re8+ Bf8 45. Ne3 Qd7 46. Rxf8+ Kg7 47. Ra8 Rc3 48. Ng4 Rxg3 49. Rg8+ Kxg8 50. Nf6+ Kg7 51. Nxd7 Qf4 0-1
+
+[Event "Troll Masters"]
+[Site "Gausdal"]
+[Date "1996.??.??"]
+[Round "6"]
+[White "Rogers, Ian"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2580"]
+[BlackElo "2585"]
+[ECO "D58"]
+
+1. d4 Nf6 2. Nf3 e6 3. Bg5 c5 4. e3 Be7 5. Bd3 b6 6. O-O Bb7 7. c4 O-O 8. Nc3 h6 9. Bh4 cxd4 10. exd4 d5 11. Re1 dxc4 12. Bxc4 Nc6 13. a3 Nh5 14. d5 Bxh4 15. dxc6 Bxc6 16. Ne5 Qxd1 17. Raxd1 Be8 18. Be2 g6 19. Bf3 Rd8 20. g3 Rxd1 21. Rxd1 Bf6 22. Nd7 Bxd7 23. Rxd7 a5 24. Rb7 Bd4 25. Ne2 Bxb2 26. a4 Rd8 27. Rxb6 Ba3 28. Rb5 Bb4 29. Bxh5 gxh5 30. Rxh5 Rd2 31. Nf4 Ra2 32. Nd3 Rxa4 33. Nxb4 axb4 34. Rb5 Ra1+ 35. Kg2 Rb1 36. Kf3 Kg7 37. h4 b3 38. Kf4 Rb2 39. Kf3 Rb1 40. Kg4 Rb2 41. Kf3 f5 42. g4 fxg4+ 43. Kxg4 Rxf2 44. Rxb3 Rf5 45. h5 Kf6 46. Rb8 Rg5+ 47. Kh4 Rg1 48. Rh8 Kg7 49. Re8 Re1 50. Kg4 Re4+ 51. Kf3 Re5 52. Kg4 Re4+ 53. Kf3 Re1 54. Kg4 Rg1+ 55. Kh4 Kf6 56. Rh8 1/2-1/2
+
+[Event "Troll Masters"]
+[Site "Gausdal"]
+[Date "1996.??.??"]
+[Round "7"]
+[White "Petursson, Margeir"]
+[Black "Gausel, Einar"]
+[Result "1/2-1/2"]
+[WhiteElo "2585"]
+[BlackElo "2515"]
+[ECO "A29"]
+
+1. c4 Nf6 2. Nc3 e5 3. Nf3 Nc6 4. g3 g6 5. d4 exd4 6. Nxd4 Bg7 7. Bg2 O-O 8. O-O Ng4 9. Nc2 d6 10. Bd2 a5 11. Rb1 f5 12. h3 Nf6 13. Kh2 Be6 14. Ne3 Qd7 15. Ned5 Rae8 16. b3 Nb4 17. Nxf6+ Bxf6 18. e3 Bg7 19. a3 Nc6 20. Nd5 b6 21. Rc1 Ne5 22. Bc3 Qd8 23. Qc2 Nd7 24. b4 axb4 25. axb4 Bxc3 26. Qxc3 g5 27. Qd4 Nf6 28. Ra1 c5 29. bxc5 dxc5 30. Qb2 Bxd5 31. Rfd1 Qc7 32. Rxd5 Qg7 33. Rd2 Ne4 34. Qxg7+ Kxg7 35. Rb2 Re6 36. Ra6 1/2-1/2
+
+[Event "Reykjavik op"]
+[Site "Reykjavik"]
+[Date "1996.??.??"]
+[Round "9"]
+[White "Petursson, Margeir"]
+[Black "Lyrberg, Patrik"]
+[Result "1-0"]
+[WhiteElo "2585"]
+[BlackElo "2425"]
+[ECO "E74"]
+
+1. c4 Nf6 2. Nc3 g6 3. d4 Bg7 4. e4 d6 5. Be2 O-O 6. Bg5 c5 7. dxc5 Qa5 8. Bd2 Qxc5 9. Nf3 Bg4 10. O-O Nc6 11. Be3 Qa5 12. Nd2 Bxe2 13. Qxe2 Rfc8 14. Rfc1 Nd7 15. Rab1 a6 16. Kh1 e6 17. Nb3 Qd8 18. f4 Rab8 19. Rd1 Bf8 20. Rd2 Qc7 21. Rbd1 Nd8 22. c5 Nxc5 23. Nxc5 dxc5 24. Rd7 Qb6 25. f5 exf5 26. exf5 Qf6 27. Bf4 Ra8 28. Nd5 Qxf5 29. Bh6 Qe6 30. Qxe6 Nxe6 31. Nf6+ Kh8 32. Rxf7 Bg7 33. Bxg7+ Nxg7 34. Rdd7 Rf8 35. Rxb7 Rxf7 36. Rxf7 1-0
+
+[Event "Politiken Cup 18th"]
+[Site "Copenhagen"]
+[Date "1996.??.??"]
+[Round "3"]
+[White "Petursson, Margeir"]
+[Black "Liss, Eran"]
+[Result "1/2-1/2"]
+[WhiteElo "2585"]
+[BlackElo "2480"]
+[ECO "A34"]
+
+1. c4 c5 2. Nf3 Nf6 3. Nc3 Nc6 4. g3 d5 5. cxd5 Nxd5 6. Bg2 Nc7 7. d3 e5 8. Nd2 Bd7 9. O-O Be7 10. Nc4 f6 11. a4 O-O 12. Bd2 Kh8 13. Nb5 Ne6 14. e3 Be8 15. Bc3 Rb8 16. Nba3 Nb4 17. Qg4 Bd7 18. Qd1 Bc6 19. Bxc6 Nxc6 20. Nc2 Qd7 21. Qe2 b6 22. b3 a6 23. e4 Ncd4 24. Nxd4 cxd4 25. Bd2 Nc5 26. Rab1 b5 27. axb5 axb5 28. Na5 Rbc8 29. Rfc1 Na6 30. Qe1 Nc5 31. Qe2 Na6 32. Qe1 Qg4 33. b4 Nb8 34. Kg2 Qe6 35. Qd1 g6 36. Rxc8 Rxc8 37. Rc1 Kg7 38. Rxc8 Qxc8 39. Qb3 Qd7 40. Qc2 Na6 {41...£xc6 42.¤xc6 ¢f7 43.f4 ¥d6 oder ¢e6 führt zur gleichen Stellung. Ribli} 41. Qc6 1/2-1/2
+
+[Event "Politiken Cup 18th"]
+[Site "Copenhagen"]
+[Date "1996.??.??"]
+[Round "5"]
+[White "Petursson, Margeir"]
+[Black "Antonsen, Mikkel"]
+[Result "1-0"]
+[WhiteElo "2585"]
+[BlackElo "2410"]
+[ECO "E73"]
+
+1. c4 g6 2. e4 Bg7 3. d4 d6 4. Nc3 Nf6 5. Be2 O-O 6. Bg5 c6 7. Qd2 a6 8. Rd1 b5 9. a3 Qc7 10. Nf3 e5 11. d5 bxc4 12. dxc6 Qxc6 13. Qxd6 Qxd6 14. Rxd6 Be6 15. O-O Nbd7 16. Be3 h6 17. Rb1 Rfe8 18. Ne1 Bf8 19. Rdd1 Ng4 20. Bxg4 Bxg4 21. Nf3 f6 22. Rbc1 Rab8 23. Na4 Be6 24. Rd2 Kf7 25. Rdc2 f5 26. exf5 gxf5 27. Rd1 Kf6 28. Re2 Rb3 29. Nxe5 Kxe5 30. Bg5+ 1-0
+
+[Event "Gausdal Eikrem Memorial"]
+[Site "Gausdal"]
+[Date "1996.??.??"]
+[Round "6"]
+[White "Petursson, Margeir"]
+[Black "Ivanov, Mikhail M"]
+[Result "1-0"]
+[WhiteElo "2570"]
+[BlackElo "2465"]
+[ECO "E71"]
+
+1. c4 g6 2. d4 Bg7 3. e4 d6 4. Nc3 Nf6 5. h3 O-O 6. Bg5 a6 7. Qd2 c5 8. d5 b5 9. cxb5 Qa5 10. bxa6 Nbd7 11. Be2 Bxa6 12. Bxa6 Rxa6 13. Nge2 Rb8 14. Rb1 Ne5 15. b3 Rb4 16. f3 Ne8 17. O-O Nc7 18. Bxe7 f6 19. f4 Nf7 20. e5 fxe5 21. f5 Nb5 22. fxg6 hxg6 23. Qd3 Nxc3 24. Nxc3 e4 25. Nxe4 Ne5 26. Qe3 Rxe4 27. Qxe4 Qxa2 28. Bf6 Qd2 29. Bxe5 dxe5 30. Rbd1 Qb4 31. Qxb4 1-0
+
+[Event "Politiken zt"]
+[Site "Munkebo"]
+[Date "1998.09.13"]
+[Round "2.1"]
+[White "Akesson, Ralf"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2510"]
+[BlackElo "2555"]
+[ECO "E14"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 Bb4+ 4. Nbd2 b6 5. a3 Bxd2+ 6. Qxd2 Bb7 7. e3 O-O 8. Be2 a5 9. b3 d5 10. O-O Nbd7 11. Bb2 c5 12. Rfd1 Qe7 13. Rab1 Rac8 14. dxc5 Nxc5 15. Bd4 Ncd7 16. cxd5 Bxd5 17. Qb2 Rc7 18. Rbc1 Rfc8 19. Rxc7 Rxc7 20. Ne5 Nc5 21. Nc4 Nfd7 22. f3 f5 23. Rc1 h6 24. Ne5 Qg5 25. Rc3 Nxe5 26. Bxe5 Rf7 27. b4 axb4 28. Qxb4 Nd7 29. Bg3 Qf6 30. h3 e5 31. e4 fxe4 32. fxe4 Be6 33. Rc6 Qg6 34. Bg4 Rf6 35. Bh4 Bxg4 36. Bxf6 Nxf6 37. hxg4 Qxg4 38. Qb3+ Kh8 39. Rxb6 Qh4 40. Rb8+ Kh7 41. Qf3 Qe1+ 42. Qf1 Qe3+ 43. Kh1 Ng8 44. Qf5+ Kh8 45. Kh2 Qe1 46. Qg4 Qf2 47. a4 Qf6 48. a5 g5 49. Qf5 1-0
+
+[Event "Politiken zt"]
+[Site "Munkebo"]
+[Date "1998.09.14"]
+[Round "2.2"]
+[White "Petursson, Margeir"]
+[Black "Akesson, Ralf"]
+[Result "1/2-1/2"]
+[WhiteElo "2555"]
+[BlackElo "2510"]
+[ECO "A30"]
+
+1. c4 c5 2. Nf3 Nf6 3. Nc3 e6 4. g3 b6 5. Bg2 Bb7 6. O-O Be7 7. Re1 Ne4 8. d4 Nxc3 9. bxc3 Be4 10. Bh3 Bxf3 11. exf3 cxd4 12. cxd4 O-O 13. f4 Nc6 14. Be3 Na5 15. Rc1 Rc8 16. Qa4 g6 17. Bg2 Qc7 18. c5 d5 19. cxd6 Qxd6 20. Qb5 Qb4 21. Qd7 Nc4 22. Rb1 Qa3 23. Bc1 Qxa2 24. Rb5 a6 25. Qxe7 axb5 26. f5 Rfe8 27. Qf6 Nd2 28. fxg6 hxg6 29. h4 Rc2 30. d5 Rxc1 31. Rxc1 exd5 32. Rc7 d4 33. Qxd4 Qb1+ 34. Kh2 Nc4 35. Bc6 Ne5 36. Qf4 Qc2 37. Kg2 Qc5 38. Qf6 Rf8 39. Kg1 Ng4 40. Qf4 Ne5 41. Qf6 Ng4 42. Qf3 Ne5 43. Qf6 1/2-1/2
+
+[Event "Reykjavik zt 1.3"]
+[Site "Reykjavik"]
+[Date "2000.09.10"]
+[Round "2.3"]
+[White "Petursson, Margeir"]
+[Black "Hansen, Curt"]
+[Result "1/2-1/2"]
+[WhiteElo "2544"]
+[BlackElo "2613"]
+[ECO "E67"]
+
+1. c4 e5 2. g3 d6 3. Bg2 g6 4. d4 Nd7 5. Nf3 Bg7 6. O-O Ngf6 7. Nc3 O-O 8. Qc2 exd4 9. Nxd4 Nb6 10. b3 c5 11. Ndb5 a6 12. Na3 Bf5 13. e4 Nxe4 14. Bxe4 Bxe4 15. Nxe4 Bxa1 16. Bg5 f6 17. Bh6 Be5 18. Bxf8 Qxf8 19. Qd2 Qe7 20. Nc2 Rd8 21. Qa5 Na8 22. Re1 f5 23. Nxc5 b6 24. Qd2 bxc5 25. f4 Nc7 26. fxe5 dxe5 27. Rxe5 Rxd2 28. Rxe7 Rxc2 29. Rxc7 Rxa2 30. Rxc5 Rb2 31. Ra5 Rxb3 1/2-1/2
+
+[Event "ISL-chT 0001"]
+[Site "Reykjavik"]
+[Date "2001.??.??"]
+[Round "?"]
+[White "Petursson, Margeir"]
+[Black "Hjartarson, Johann"]
+[Result "1/2-1/2"]
+[WhiteElo "2543"]
+[BlackElo "2633"]
+[ECO "E15"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. g3 Ba6 5. b3 d5 6. cxd5 exd5 7. Bg2 Bb4+ 8. Bd2 Bd6 9. O-O O-O 10. Ne5 Re8 11. Bf4 Bb7 12. Nc3 Na6 13. Rc1 c5 14. Nd3 h6 15. Re1 Qe7 16. e3 Qe6 17. a4 Be7 18. Be5 Qf5 19. h3 Red8 20. Nb5 Ne4 21. dxc5 bxc5 22. Ba1 Bf8 23. Rc2 Qd7 24. Qh5 Ng5 25. h4 Qf5 26. Qd1 Ne6 27. Rd2 Nac7 28. Nxc7 Nxc7 29. Nf4 Be7 30. Bc3 a5 31. Qa1 g5 32. hxg5 hxg5 33. Nd3 Ne6 34. Red1 Ra7 35. Ne5 g4 36. Qb1 Qxb1 37. Rxb1 d4 38. exd4 cxd4 39. Bb2 Bb4 40. Rd3 f5 41. Bxb7 Rxb7 42. Rbd1 Rd5 43. f4 1/2-1/2
+
+[Event "Reykjavik Blitz"]
+[Site "Reykjavik"]
+[Date "2004.03.17"]
+[Round "1"]
+[White "Aronian, Levon"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2648"]
+[BlackElo "2540"]
+[ECO "E34"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 d5 5. cxd5 Qxd5 6. Nf3 Qf5 7. Qd1 c5 8. e3 Nc6 9. Bd3 Qh5 10. O-O O-O 11. Ne2 cxd4 12. exd4 Bd6 13. a3 b6 14. Bf4 Bxf4 15. Nxf4 Qh6 16. Ne2 Bb7 17. Qa4 Rfd8 18. Ba6 Bxa6 19. Qxa6 Ne7 20. Rac1 Ned5 21. Rc2 Nh5 22. Rfc1 Nhf4 23. g3 Qh5 24. Ne5 Ng6 25. Rc8 Raxc8 26. Rxc8 1-0
+
+[Event "Wch Rapid"]
+[Site "Berlin"]
+[Date "2015.10.10"]
+[Round "1"]
+[White "Ivanisevic, Ivan"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2653"]
+[BlackElo "2520"]
+[ECO "D11"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. g3 Bf5 5. Nc3 e6 6. Nh4 Be4 7. f3 Bg6 8. Qb3 Qc8 9. e4 dxe4 10. Nxg6 hxg6 11. fxe4 e5 12. dxe5 Ng4 13. e6 Qxe6 14. Qxb7 Bd6 15. Qxa8 Nxh2 16. Rxh2 Rxh2 17. Bf4 Bxf4 18. gxf4 Qd6 19. Rd1 Qxf4 20. Ne2 Qc7 21. Rd3 Ke7 22. Ra3 a6 23. Rb3 Qa5+ 24. Kd1 Rf2 25. Qa7+ 1-0
+
+[Event "Wch Rapid"]
+[Site "Berlin"]
+[Date "2015.10.10"]
+[Round "2"]
+[White "Petursson, Margeir"]
+[Black "Borisek, Jure"]
+[Result "0-1"]
+[WhiteElo "2520"]
+[BlackElo "2565"]
+[ECO "D85"]
+
+1. c4 g6 2. d4 Nf6 3. Nc3 d5 4. Nf3 Bg7 5. cxd5 Nxd5 6. e4 Nxc3 7. bxc3 c5 8. h3 O-O 9. Be3 Qa5 10. Qd2 Nc6 11. Rc1 cxd4 12. cxd4 Qxd2+ 13. Kxd2 Rd8 14. Rc4 Nxd4 15. Bxd4 e5 16. Rc7 exd4 17. Bc4 Rd7 18. Rc5 Re7 19. Bd5 Be6 20. Bxe6 Rxe6 21. Rc7 Ra6 22. Rc2 Ra3 23. e5 Bh6+ 24. Kd1 d3 0-1
+
+[Event "Wch Rapid"]
+[Site "Berlin"]
+[Date "2015.10.12"]
+[Round "11"]
+[White "Petursson, Margeir"]
+[Black "Thiede, Lars"]
+[Result "1-0"]
+[WhiteElo "2520"]
+[BlackElo "2437"]
+[ECO "E74"]
+
+1. c4 Nf6 2. Nc3 g6 3. e4 d6 4. d4 Bg7 5. Be2 O-O 6. Bg5 c5 7. dxc5 Qa5 8. Bd2 dxc5 9. e5 Nfd7 10. f4 Nc6 11. Nf3 f6 12. exf6 Nxf6 13. O-O Qc7 14. Nd5 Qd6 15. Bc3 Rd8 16. Be5 Qd7 17. Qc2 Nxe5 18. Nxe5 Qd6 19. Rad1 Bf5 20. Bd3 Be6 21. Nxf6+ exf6 22. Bxg6 fxe5 23. Rxd6 Rxd6 24. Bxh7+ Kh8 25. Qg6 exf4 26. Qh5 Bg4 27. Qxg4 Kxh7 28. Qxf4 Rg6 29. Qe4 Rd8 30. Qh4+ 1-0
+
+[Event "Wch Rapid"]
+[Site "Berlin"]
+[Date "2015.10.12"]
+[Round "15"]
+[White "Petursson, Margeir"]
+[Black "Pavlovic, Milos"]
+[Result "0-1"]
+[WhiteElo "2520"]
+[BlackElo "2481"]
+[ECO "E05"]
+
+1. c4 e6 2. g3 d5 3. Bg2 Nf6 4. Nf3 Be7 5. O-O O-O 6. d4 dxc4 7. Ne5 Nc6 8. Nxc6 bxc6 9. Na3 Bxa3 10. bxa3 Ba6 11. Qa4 Bb5 12. Qc2 Qxd4 13. Bb2 Qc5 14. a4 Ba6 15. Qc3 Rfd8 16. Ba3 Nd5 17. Qxg7+ Kxg7 18. Bxc5 Rab8 19. Rfc1 e5 20. Rc2 Rb7 21. e3 Rdb8 22. Bf1 Rb1 23. Rxb1 Rxb1 24. Kg2 Nb4 25. Bxb4 Rxb4 26. a5 Bb5 27. g4 Kf6 28. h4 Ke6 29. Kg3 Kd6 30. g5 Kc5 31. Bd3 Ba4 32. Rc1 Bd1 33. Bxh7 Bh5 34. f4 exf4+ 35. exf4 Kd4 36. f5 c3 37. g6 Kd3 38. g7 Rg4+ 39. Kf2 Rxg7 0-1
+
+[Event "Wch Blitz 9th"]
+[Site "Berlin"]
+[Date "2015.10.14"]
+[Round "15"]
+[White "Rakhmanov, Alexander"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2637"]
+[BlackElo "2520"]
+[ECO "A27"]
+
+1. c4 e5 2. Nf3 Nc6 3. d4 e4 4. Nfd2 f5 5. e3 Nf6 6. Nc3 Bb4 7. Qc2 O-O 8. d5 Ne5 9. a3 Be7 10. b4 a5 11. Rb1 d6 12. h3 c6 13. dxc6 bxc6 14. Be2 axb4 15. axb4 Be6 16. O-O d5 17. c5 d4 18. exd4 Qxd4 19. Nb3 Qd8 20. Rd1 Qb8 21. Nd4 Qc8 22. Bf4 Ng6 23. Bh2 Bd5 24. b5 Bxc5 25. bxc6 Bxc6 26. Bc4+ Kh8 27. Ne6 Ba7 28. Nxf8 Qxf8 29. Bd5 Nxd5 30. Nxd5 Rc8 31. Qe2 Re8 32. Nf4 e3 33. f3 Ne5 34. Nd3 Nxf3+ 35. gxf3 Bxf3 36. Qxf3 e2+ 37. Kg2 exd1=Q 38. Rxd1 Qa3 39. Rd2 h6 40. Nf4 Qc5 41. Re2 Rc8 42. Qg3 Qd4 43. Ng6+ Kh7 44. Ne7 Re8 45. Qg6+ Kh8 46. Qxe8+ Kh7 47. Qg8# 1-0
+
+[Event "EU-chT (Men) 20th"]
+[Site "Reykjavik"]
+[Date "2015.11.21"]
+[Round "8.4"]
+[White "Kjartansson, Gudmundur"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2475"]
+[BlackElo "2520"]
+[ECO "B38"]
+
+1. e4 c5 2. Nf3 g6 3. c4 Bg7 4. d4 cxd4 5. Nxd4 Nf6 6. Nc3 O-O 7. Be2 Nc6 8. Be3 d6 9. O-O Bd7 10. f3 Nxd4 11. Bxd4 Bc6 12. b4 b6 13. Qd2 a5 14. a3 Nd7 15. Bxg7 Kxg7 16. Qd4+ Kg8 17. Nd5 e5 18. Qd2 Bxd5 19. Qxd5 Nf6 20. Qc6 Rc8 21. Qb5 Qc7 22. Rfd1 Rfd8 23. Bf1 Nh5 24. g3 Nf6 25. Ra2 Ra8 26. Rdd2 Kg7 27. h4 h5 28. Kh2 Ng8 29. Rac2 axb4 30. axb4 Ne7 31. c5 dxc5 32. Rxd8 Qxd8 33. bxc5 Qd1 34. Qd3 Qxd3 35. Bxd3 Ra3 36. Bb5 Ra5 37. Rb2 bxc5 38. Kg2 Ra7 39. Bc4 Ra4 40. Rc2 Ra7 41. f4 exf4 42. gxf4 Ra4 43. Kf2 Nc8 44. Bd5 Nd6 45. Kf3 c4 46. f5 gxf5 47. e5 Ne4 48. Kf4 c3 49. Bxe4 Rxe4+ 50. Kxf5 Rc4 51. Kg5 Rc5 52. Kf4 Kg6 53. Rg2+ Kh6 54. Rc2 Rc4+ 55. Kf5 Rc6 56. Ke4 Rc4+ 57. Kf5 Kg7 58. Kg5 Rc5 59. Kf4 Kf8 60. Ke4 Ke7 61. Kd4 Rc8 62. Kd5 Rc7 63. Kd4 Ke6 64. Ke4 Rc4+ 65. Kd3 Kd5 66. Ke3 Kxe5 67. Kd3 Kd5 68. Ke3 Rxh4 0-1
+
+[Event "Puhajarve rap op 16th"]
+[Site "Puhajarve"]
+[Date "2015.11.27"]
+[Round "3"]
+[White "Sepp, Olav"]
+[Black "Petursson, Margeir"]
+[Result "1/2-1/2"]
+[WhiteElo "2431"]
+[BlackElo "2520"]
+[ECO "A38"]
+
+1. Nf3 c5 2. g3 g6 3. Bg2 Bg7 4. O-O Nc6 5. c4 d6 6. Nc3 Nf6 7. d3 O-O 8. a3 a6 9. Rb1 Rb8 10. b4 cxb4 11. axb4 b5 12. cxb5 axb5 13. Bd2 Bd7 14. e3 Qb6 15. d4 Be6 16. Re1 Bc4 17. Ng5 Rfc8 18. Nge4 Nd7 19. h4 h6 20. h5 g5 21. f4 f5 22. Nf2 g4 23. Kh2 Nf6 24. e4 Qxd4 25. Re3 e6 26. Qc2 Ne7 27. Rd1 fxe4 28. Nfxe4 Nfd5 29. Nxd5 Bxd5 30. Qb1 Nf5 31. Ree1 Bxe4 32. Rxe4 Qf2 33. Be1 Qc2 34. Rxe6 Qxb1 35. Rxb1 Rc2 36. Kg1 Bd4+ 37. Kh1 Bf2 38. Rg6+ Kf7 39. Rxg4 Re8 40. Bxf2 Rxf2 41. Bd5+ Ke7 42. Re1+ Kd8 43. Rxe8+ Kxe8 44. Be4 Nd4 45. Rg6 Ne2 46. Bd3 Nd4 47. Rxd6 Nf3 48. Re6+ Kf7 49. Re2 Rxe2 50. Bxe2 Nd4 51. Bd3 Kf6 52. Kg2 Nc6 53. Bxb5 Nxb4 54. Kf3 Nd5 55. g4 Ne7 56. Bc4 Nc6 57. Ke4 Ne7 58. Bd5 Nc8 59. Kf3 Nd6 1/2-1/2
+
+[Event "Puhajarve rap op 16th"]
+[Site "Puhajarve"]
+[Date "2015.11.28"]
+[Round "20"]
+[White "Nyback, Tomi"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2594"]
+[BlackElo "2520"]
+[ECO "D94"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. e3 g6 5. Nc3 Bg7 6. Be2 O-O 7. O-O e6 8. b3 Nbd7 9. Bb2 b6 10. Qc2 Bb7 11. Rad1 Qe7 12. Rfe1 Rac8 13. e4 dxe4 14. Nxe4 c5 15. Nxf6+ Bxf6 16. dxc5 Bxb2 17. Qxb2 Nxc5 18. Nd4 Rfd8 19. Nb5 a6 20. Nc3 Qg5 21. g3 Qf6 22. Qc1 Rd4 23. Rxd4 Qxd4 24. Rd1 Qe5 25. Qd2 Ne4 26. Nxe4 Qxe4 27. f3 Qe5 28. Kf2 Qh5 29. h4 Qc5+ 30. Qe3 Qc6 31. Qe5 h5 32. Rd2 a5 33. Qd6 Qxd6 34. Rxd6 Bc6 35. f4 Kf8 36. Bf3 Bxf3 37. Kxf3 Rb8 38. Rd7 a4 39. Ke4 axb3 40. axb3 Rc8 41. Rd6 b5 42. cxb5 Rc5 43. Kd4 Rxb5 44. Kc4 Ra5 45. b4 Ra1 46. Rd3 Ke7 47. b5 Rc1+ 48. Rc3 Rb1 49. Kc5 f6 50. Kc6 e5 51. fxe5 fxe5 52. b6 Ke6 53. b7 e4 54. Kc7 Kd5 55. b8=Q Rxb8 56. Kxb8 Kd4 57. Rc6 e3 58. Rxg6 Ke4 59. Kc7 e2 60. Re6+ Kf3 61. Kd6 Kxg3 62. Rxe2 Kxh4 63. Ke5 Kg3 64. Re3+ Kg2 65. Kf4 h4 66. Re2+ Kh3 67. Kg5 Kg3 68. Re3+ Kf2 69. Ra3 1-0
+
+[Event "Puhajarve rap op 16th"]
+[Site "Puhajarve"]
+[Date "2015.11.28"]
+[Round "21"]
+[White "Petursson, Margeir"]
+[Black "Seeman, Tarvo"]
+[Result "1-0"]
+[WhiteElo "2520"]
+[BlackElo "2408"]
+[ECO "E73"]
+
+1. c4 g6 2. d4 Bg7 3. Nc3 Nf6 4. e4 d6 5. Be2 O-O 6. Bg5 Na6 7. Qd2 e5 8. d5 c6 9. Bd3 Nc5 10. Bc2 a5 11. Nge2 cxd5 12. Nxd5 Ne6 13. Bh4 h6 14. Nxf6+ Bxf6 15. Bxf6 Qxf6 16. Qxh6 Nf4 17. Nxf4 exf4 18. O-O-O a4 19. a3 Be6 20. h4 Rac8 21. h5 Qg7 22. hxg6 Qxh6 23. Rxh6 Bxc4 24. gxf7+ Rxf7 25. Rhxd6 Rcc7 26. Kd2 Rg7 27. Rd8+ Kf7 28. Ke1 Bb3 29. Bxb3+ axb3 30. R1d7+ Ke6 31. Rxg7 Rxg7 32. Rd3 Rxg2 33. Rxb3 Rg7 34. Ke2 Rh7 35. Rb5 Kd6 36. a4 Kc6 37. b3 Rh3 38. e5 Rc3 39. e6 Kd6 40. Rxb7 Kxe6 41. a5 Ke5 42. a6 Rc2+ 43. Kf3 Ra2 44. a7 Ra3 45. Kg4 Ke4 46. b4 f3 47. b5 1-0
+
+[Event "Puhajarve rap op 16th"]
+[Site "Puhajarve"]
+[Date "2015.11.29"]
+[Round "30"]
+[White "Huebner, Robert"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2588"]
+[BlackElo "2520"]
+[ECO "D13"]
+
+1. d4 d5 2. Nf3 Nf6 3. c4 c6 4. cxd5 cxd5 5. Nc3 Nc6 6. Bf4 e6 7. e3 Be7 8. Bd3 Nh5 9. Be5 Nf6 10. O-O Nxe5 11. Nxe5 Nd7 12. Rc1 Nxe5 13. dxe5 O-O 14. Nb5 Bd7 15. Nd4 Qb6 16. Qd2 Rac8 17. a3 Rxc1 18. Rxc1 Rc8 19. Rxc8+ Bxc8 20. Qc2 Bd7 21. Bxh7+ Kh8 22. Bd3 Qc5 23. Qxc5 Bxc5 24. f4 f6 25. Kf2 fxe5 26. fxe5 Bb6 27. Kf3 Bc7 28. Kf4 Kg8 29. Bg6 Ba5 30. h4 Bd2 31. b3 b5 32. g4 Bc1 33. Nc2 d4 34. Nxd4 Bxa3 35. h5 a5 36. Bd3 a4 37. Bxb5 1-0
+
+[Event "WchT Seniors 50"]
+[Site "Radebeul"]
+[Date "2016.06.30"]
+[Round "5.3"]
+[White "Petursson, Margeir"]
+[Black "Movsziszian, Karen"]
+[Result "1/2-1/2"]
+[WhiteElo "2509"]
+[BlackElo "2488"]
+[ECO "A21"]
+
+1. c4 d6 2. Nc3 e5 3. g3 g6 4. Bg2 Bg7 5. e3 c6 6. d4 Qe7 7. Nge2 Nf6 8. b3 O-O 9. Bb2 Re8 10. Qd2 Na6 11. h3 h5 12. d5 Bd7 13. Rd1 c5 14. e4 h4 15. O-O hxg3 16. fxg3 Nh7 17. g4 Bf6 18. Bc1 Bg5 19. Qe1 Nc7 20. a4 b6 21. Bxg5 Qxg5 22. Qd2 Qh4 23. Qe1 Qxe1 24. Rfxe1 Kf8 25. Ra1 Ke7 26. Ng3 a6 27. Ra2 Rh8 28. Kf2 Ng5 29. Rh1 Rh4 30. Nce2 Rah8 31. Ng1 Ne8 32. Ke3 Ng7 33. Rf2 b5 34. axb5 axb5 35. Nf3 Nxf3 36. Rxf3 Ra8 37. Rhf1 Be8 38. cxb5 Ra3 39. Rb1 Bxb5 40. Kf2 Rh8 41. b4 Ra2+ 42. Kg1 c4 43. Bf1 Rha8 44. Rc3 R2a3 45. Rbc1 Rxc3 46. Rxc3 Ne8 47. Kf2 Nf6 48. Rc2 Ra4 49. Bxc4 Rxb4 50. Bxb5 Rxb5 51. Rc7+ Kf8 52. Rc8+ Ke7 53. Rc3 Rb2+ 54. Kf3 Rh2 55. g5 Nd7 56. Kg4 Rf2 57. Rf3 Rxf3 58. Kxf3 1/2-1/2
+
+[Event "52. Rilton Cup 2024-25"]
+[Site "Stockholm SWE"]
+[Date "2025.01.03"]
+[Round "7.16"]
+[White "Petursson, Margeir"]
+[Black "Rakshitta Ravi"]
+[Result "0-1"]
+[WhiteElo "2386"]
+[BlackElo "2320"]
+[ECO "A34"]
+
+1. Nf3 Nf6 2. c4 c5 3. Nc3 d5 4. cxd5 Nxd5 5. d4 Nxc3 6. bxc3 e6 7. Rb1 Qa5 8. Bd2 Qxa2 9. e4 Be7 10. Ne5 O-O 11. Nc4 Qa6 12. Nb6 Qxb6 13. Rxb6 axb6 14. Bb5 Rd8 15. O-O cxd4 16. cxd4 Nc6 17. Bf4 Rxd4 18. Qc2 Bd7 19. Be3 Rb4 20. Be2 Bf6 21. Rd1 Rb2 22. Qxb2 Bxb2 23. Rxd7 Ra1+ 24. Bf1 h6 25. g3 Ne5 26. Rd8+ Kh7 27. Kg2 Ng4 28. Bxb6 Bf6 29. Rd7 Rb1 30. Ba7 Rb2 31. h3 Ne5 32. Rd1 Nc6 33. Be3 b5 34. Bc1 Rb3 35. Rd3 Rb1 36. Be3 Ne5 37. Rd2 Nc4 38. Bxc4 bxc4 39. Rc2 c3 40. Re2 Rb2 41. Kf1 Rb4 42. f3 g5 43. Bc1 Rb1 44. Rc2 Rb2 45. Re2 Rb7 46. Rc2 Be5 47. Ke2 Kg6 48. g4 Kf6 49. Kd3 Rb1 50. h4 Rb8 51. hxg5+ hxg5 52. Be3 Rd8+ 53. Ke2 Rh8 54. Kd3 Kg6 55. Bb6 Ra8 56. Be3 f6 57. Bc5 Rd8+ 58. Ke2 Rb8 59. Be3 Kf7 60. Kd3 Rb1 61. Rc1 Rb3 62. Rc2 Ke7 63. Bc5+ Kd7 64. Bd4 Bxd4 65. Kxd4 Kd6 66. Kc4 Rb7 67. Rxc3 Rc7+ 68. Kd4 Rxc3 69. Kxc3 Ke5 70. Kd3 Kf4 71. Ke2 Kg3 72. Ke3 e5 73. Ke2 Kg2 0-1
+
+[Event "52. Rilton Cup 2024-25"]
+[Site "Stockholm SWE"]
+[Date "2025.01.04"]
+[Round "8.54"]
+[White "Kazarian, Anna-Maja"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2206"]
+[BlackElo "2386"]
+[ECO "B27k"]
+
+1. e4 c5 2. Nf3 g6 3. d4 cxd4 4. Qxd4 Nf6 5. Nc3 Nc6 6. Qa4 d6 7. e5 dxe5 8. Nxe5 Bg7 9. Bb5 O-O 10. Nxc6 bxc6 11. Bxc6 Bd7 12. O-O Rc8 13. Bxd7 Qxd7 14. Qxd7 Nxd7 15. Rd1 Nb6 16. Bd2 e6 17. Rab1 Rc6 18. Kf1 a6 19. Ke2 Nc4 20. Na4 Nxd2 21. Kxd2 Bh6+ 22. Ke1 Rxc2 23. Rd6 Rb8 24. Rxa6 Rb5 25. Kf1 Rf5 26. f3 Be3 27. b4 Rd5 28. Nb2 Rf2+ 29. Ke1 Rxg2 30. Nd1 Bf4 31. b5 Rxh2 32. Kf1 Rdd2 33. Kg1 Rhe2 34. Kf1 Bg3 35. Nc3 Rh2 36. Kg1 Rdg2+ 37. Kf1 Rc2 0-1
+
+[Event "52. Rilton Cup 2024-25"]
+[Site "Stockholm SWE"]
+[Date "2025.01.05"]
+[Round "9.19"]
+[White "Petursson, Margeir"]
+[Black "Del Rey, Diego"]
+[Result "1-0"]
+[WhiteElo "2386"]
+[BlackElo "2275"]
+[ECO "D15d"]
+
+1. d4 d5 2. c4 c6 3. Nf3 Nf6 4. Nc3 a6 5. g3 Bf5 6. Bg2 e6 7. Nh4 Be4 8. f3 Bg6 9. O-O Nbd7 10. e4 dxe4 11. fxe4 e5 12. d5 Bc5+ 13. Kh1 O-O 14. Nf5 cxd5 15. exd5 b5 16. cxb5 axb5 17. Nxb5 Bh5 18. Qe1 e4 19. b4 Qb6 20. a4 Rxa4 21. Rxa4 Qxb5 22. bxc5 Qxa4 23. Qc3 Be2 24. Re1 Qc4 25. Qxc4 Bxc4 26. Ne7+ Kh8 27. c6 Ne5 28. d6 Nd3 29. Rf1 Be6 30. Bg5 Ng4 31. Kg1 e3 32. Bf3 Nde5 33. Bxg4 Nxg4 34. Re1 f6 35. Bxe3 Ne5 36. Rb1 g6 37. Rb7 Rd8 38. Bc5 Ra8 39. Ba7 Nf7 40. Rb8+ Rxb8 41. Bxb8 Kg7 42. d7 f5 43. Bc7 1-0
+
+[Event "FIDE World Senior Team Championships 2026 - Senior 65+"]
+[Site "Lichess"]
+[Date "2026.04.18"]
+[Round "3.2"]
+[White "Ortega, Lexy"]
+[Black "Petursson, Margeir"]
+[Result "1-0"]
+[WhiteElo "2323"]
+[BlackElo "2387"]
+[ECO "D38"]
+
+1. d4 {[%clk 1:30:58]} 1... Nf6 {[%clk 1:30:44]} 2. Nf3 {[%clk 1:31:25]} 2... d5 {[%clk 1:31:02]} 3. c4 {[%clk 1:31:31]} 3... e6 {[%clk 1:31:26]} 4. Nc3 {[%clk 1:31:03]} 4... Bb4 {[%clk 1:31:41]} 5. Qa4+ {[%clk 1:31:27]} 5... Nc6 {[%clk 1:32:06]} 6. e3 {[%clk 1:31:52]} 6... O-O {[%clk 1:31:58]} 7. Bd2 {[%clk 1:32:18]} 7... dxc4 {[%clk 1:25:45]} 8. Bxc4 {[%clk 1:32:17]} 8... Bd6 {[%clk 1:25:56]} 9. h3 {[%clk 1:08:11]} 9... e5 {[%clk 1:15:19]} 10. d5 {[%clk 0:56:33]} 10... Ne7 {[%clk 1:11:15]} 11. e4 {[%clk 0:56:47]} 11... a6 {[%clk 1:08:02]} 12. Qc2 {[%clk 0:55:11]} 12... c6 $6 {Inaccuracy. b5 was  best.[%clk 0:58:42]} 13. Bg5 $6 {Inaccuracy. dxc6 was best.[%clk 0:54:16]} 13... cxd5 {[%clk 0:57:07]} 14. Bxf6 {[%clk 0:42:52]} 14... dxc4 {[%clk  0:56:04]} 15. Bxe5 {[%clk 0:42:22]} 15... Bxe5 {[%clk 0:55:34]} 16. Nxe5 {[%clk 0:42:51]} 16... b5 {[%clk 0:53:06]} 17. O-O {[%clk 0:41:51]} 17... Qc7 {[%clk 0:53:05]} 18. Ng4 {[%clk 0:32:07]} 18... Bxg4 {[%clk 0:51:48]} 19. hxg4 {[%clk 0:32:36]} 19... Rad8 {[%clk 0:50:17]} 20. Rfd1 {[%clk 0:32:16]} 20... h6 {[%clk 0:50:00]} 21. Rxd8 {[%clk 0:30:44]} 21... Rxd8 {[%clk  0:49:24]} 22. Rd1 {[%clk 0:31:09]} 22... Rxd1+ {[%clk 0:41:27]} 23. Qxd1 {[%clk 0:31:34]} 23... Qe5 $6 {Inaccuracy. Ng6 was best.[%clk 0:36:50]} 24. a3 {[%clk 0:28:15]} 24... Nc6 {[%clk 0:28:45]} 25. f3 {[%clk 0:07:21]} 25... Nd4 {[%clk 0:22:07]} 26. f4 {[%clk 0:06:08]} 26... Qc5 {[%clk 0:22:19]} 27. Kh2 {[%clk 0:05:47]} 27... a5 {[%clk 0:14:51]} 28. Nd5 {[%clk 0:04:59]} 28... Ne6 {[%clk 0:12:58]} 29. Qd2 {[%clk 0:04:46]} 29... Qa7 {[%clk 0:09:35]} 30. g3 {[%clk 0:04:12]} 30... Nd4 {[%clk 0:08:54]} 31. Kg2 {[%clk 0:02:25]} 31... Nb3 {[%clk 0:08:57]} 32. Qc3 {[%clk 0:02:12]} 32... Qc5 {[%clk 0:07:56]} 33. Qe5 {[%clk 0:02:27]} 33... g6 $4 {Blunder. Qd4 was best.[%clk 0:05:41]} 34. Qe8+ {[%clk 0:02:15]} 34... Kg7 $2 {Mistake. Qf8 was best.[%clk  0:04:03]} 35. Ne7 {[%clk 0:01:06]} 35... Qd4 {[%clk 0:02:58]} 36. Qg8+ {[%clk 0:01:16]} 36... Kf6 {[%clk 0:04:09]} 37. Nd5+ {[%clk 0:01:37]} 37... Ke6 $2 {Checkmate is now unavoidable. Qxd5 was best.[%clk 0:04:21]} 38. Qc8+ {[%clk 0:01:48]} 1-0
+
+[Event "FIDE World Senior Team Championships 2026 - Senior 65+"]
+[Site "Lichess"]
+[Date "2026.04.27"]
+[Round "8.2"]
+[White "Petursson, Margeir"]
+[Black "Raetsky, Alexander"]
+[Result "1-0"]
+[WhiteElo "2387"]
+[BlackElo "2282"]
+[ECO "D25"]
+
+1. d4 {[%clk 1:30:51]} 1... d5 {[%clk 1:30:39]} 2. c4 {[%clk 1:31:14]} 2... dxc4 {[%clk 1:30:33]} 3. Nf3 {[%clk 1:31:37]} 3... Nf6 {[%clk 1:27:54]} 4. e3 {[%clk 1:31:18]} 4... Bg4 {[%clk 1:28:08]} 5. Bxc4 {[%clk 1:30:27]} 5... e6 {[%clk 1:28:30]} 6. O-O {[%clk 1:22:18]} 6... Nc6 {[%clk 1:27:45]} 7. h3 {[%clk 1:20:47]} 7... Bh5 {[%clk 1:28:04]} 8. Nc3 {[%clk 1:17:16]} 8... Bd6 {[%clk 1:26:49]} 9. Be2 {[%clk 1:16:54]} 9... O-O {[%clk 1:26:53]} 10. b3 {[%clk 1:15:50]} 10... a6 {[%clk 1:09:56]} 11. Bb2 {[%clk 1:14:00]} 11... Qe7 {[%clk 1:08:36]} 12. a3 {[%clk 0:50:28]} 12... Nd5 {[%clk 0:54:32]} 13. Ne4 {[%clk 0:45:29]} 13... f5 {[%clk 0:54:37]} 14. Ned2 {[%clk 0:43:12]} 14... Rad8 {[%clk 0:45:18]} 15. b4 {[%clk 0:41:36]} 15... Qf6 {[%clk 0:41:45]} 16. Nc4 {[%clk 0:38:20]} 16... g5 {[%clk 0:31:27]} 17. Ne1 {[%clk 0:31:05]} 17... Be8 {[%clk 0:23:19]} 18. Nd3 {[%clk 0:26:24]} 18... Qg6 {[%clk 0:23:19]} 19. Bf3 {[%clk 0:18:02]} 19... h5 {[%clk 0:19:19]} 20. g3 {[%clk 0:17:28]} 20... Kh7 $6 {Inaccuracy. Qh7 was best.[%clk 0:17:08]} 21. Qe2 {[%clk  0:14:45]} 21... Nf6 {[%clk 0:12:27]} 22. Nc5 $6 {Inaccuracy. a4 was  best.[%clk 0:13:32]} 22... Bxc5 {[%clk 0:06:39]} 23. dxc5 {[%clk 0:13:54]} 23... Ne4 $6 {Inaccuracy. g4 was best.[%clk 0:06:35]} 24. Bg2 {[%clk  0:09:13]} 24... Bf7 $6 {Inaccuracy. h4 was best.[%clk 0:03:57]} 25. Rad1 {[%clk 0:06:46]} 25... Rd5 {[%clk 0:04:14]} 26. Rxd5 $6 {Inaccuracy. Nd2 was  best.[%clk 0:04:31]} 26... exd5 {[%clk 0:04:37]} 27. Ne5 {[%clk 0:04:31]} 27... Nxe5 {[%clk 0:04:41]} 28. Bxe5 {[%clk 0:04:54]} 28... Be8 {[%clk  0:04:15]} 29. Re1 {[%clk 0:03:23]} 29... Bb5 {[%clk 0:04:25]} 30. Qc2 {[%clk  0:02:50]} 30... c6 {[%clk 0:04:28]} 31. Kh2 {[%clk 0:02:25]} 31... Qe6 {[%clk 0:03:45]} 32. Ba1 {[%clk 0:02:03]} 32... Nf6 {[%clk 0:00:52]} 33. Qd1 {[%clk  0:01:36]} 33... Kg6 {[%clk 0:00:45]} 34. Qd4 {[%clk 0:01:18]} 34... Rf7 {[%clk 0:01:05]} 35. Kg1 {[%clk 0:01:21]} 35... Ba4 $6 {Inaccuracy. Ne4 was  best.[%clk 0:01:01]} 36. h4 {[%clk 0:01:16]} 36... Bc2 $4 {Blunder. g4 was  best.[%clk 0:00:47]} 37. hxg5 $2 {Mistake. Qd2 was best.[%clk 0:01:01]} 37... Kxg5 $4 {Blunder. Ne4 was best.[%clk 0:01:16]} 38. Qh4+ $2 {Mistake.  Qd2 was best.[%clk 0:00:45]} 38... Kg6 {[%clk 0:01:41]} 39. Bf3 {[%clk  0:00:57]} 39... Rh7 $6 {Inaccuracy. Ng4 was best.[%clk 0:00:46]} 40. Qf4 {[%clk 0:00:37]} 40... Be4 $2 {Mistake. Qe7 was best.[%clk 0:00:37]} 41. Be2 {[%clk 0:00:44]} 41... Bc2 {[%clk 0:00:40]} 42. Rc1 {[%clk 0:25:59]} 42... Ba4 {[%clk 0:30:21]} 43. Bd3 {[%clk 0:24:42]} 43... Bb5 {[%clk 0:29:13]} 44. Bc2 {[%clk 0:24:32]} 44... Ne4 {[%clk 0:15:12]} 45. Re1 $6 {Inaccuracy. Kg2  was best.[%clk 0:22:38]} 45... Bc4 $2 {Mistake. h4 was best.[%clk 0:09:37]} 46. Bd4 $2 {Mistake. Kg2 was best.[%clk 0:20:37]} 46... Rf7 $4 {Blunder. h4  was best.[%clk 0:07:14]} 47. Kg2 {[%clk 0:19:19]} 47... Bb5 {[%clk 0:07:02]} 48. Qb8 $6 {Inaccuracy. f3 was best.[%clk 0:12:51]} 48... Rh7 {[%clk  0:07:03]} 49. Qd8 {[%clk 0:10:16]} 49... Bc4 {[%clk 0:07:11]} 50. Qh4 {[%clk  0:09:49]} 50... Ng5 {[%clk 0:04:29]} 51. f3 {[%clk 0:08:39]} 51... Ba2 $6 {Inaccuracy. Rh6 was best.[%clk 0:02:31]} 52. Kf2 $2 {Mistake. Rh1 was  best.[%clk 0:08:06]} 52... Bc4 $2 {Mistake. Qe7 was best.[%clk 0:02:32]} 53. Rh1 {[%clk 0:07:49]} 53... Bb5 {[%clk 0:02:14]} 54. Qf4 {[%clk 0:07:40]} 54... Bc4 $6 {Inaccuracy. Ba4 was best.[%clk 0:02:37]} 55. g4 {[%clk  0:06:50]} 55... hxg4 {[%clk 0:02:50]} 56. Rxh7 {[%clk 0:07:03]} 1-0
+
+[Event "European Senior Chess Championship 2026 | 65+"]
+[Site "Lichess"]
+[Date "2026.06.01"]
+[Round "2"]
+[White "Jaderberg, Bjorn"]
+[Black "Petursson, Margeir"]
+[Result "0-1"]
+[WhiteElo "2074"]
+[BlackElo "2393"]
+[ECO "A30"]
+
+1. c4 {[%clk 1:30:56]} 1... c5 {[%clk 1:29:58]} 2. Nf3 {[%clk 1:31:10]} 2... g6 {[%clk 1:29:14]} 3. g3 {[%clk 1:31:19]} 3... Bg7 {[%clk 1:29:23]} 4. Bg2 {[%clk 1:31:34]} 4... Nc6 {[%clk 1:29:22]} 5. O-O {[%clk 1:31:27]} 5... Rb8 {[%clk 1:26:10]} 6. Nc3 {[%clk 1:30:15]} 6... a6 {[%clk 1:23:41]} 7. d3 {[%clk 1:23:14]} 7... d6 {[%clk 1:22:28]} 8. e3 {[%clk 1:15:53]} 8... Nf6 {[%clk 1:17:29]} 9. d4 {[%clk 1:11:23]} 9... O-O {[%clk 1:16:50]} 10. dxc5 {[%clk 1:05:34]} 10... dxc5 {[%clk 1:16:59]} 11. Qe2 {[%clk 1:05:43]} 11... b5 {[%clk 1:01:34]} 12. Rd1 {[%clk 0:58:22]} 12... Qa5 {[%clk 0:57:23]} 13. Nd2 $6 {Inaccuracy. Bd2 was best.[%clk 0:56:09]} 13... Bg4 {[%clk 0:53:01]} 14. f3 {[%clk 0:50:37]} 14... Be6 {[%clk 0:50:18]} 15. cxb5 $6 {Inaccuracy. f4 was best.[%clk 0:41:30]} 15... axb5 {[%clk 0:50:13]} 16. Nde4 {[%clk 0:41:35]} 16... Nxe4 {[%clk 0:42:21]} 17. Nxe4 {[%clk 0:41:45]} 17... Qb6 {[%clk 0:42:04]} 18. Qc2 {[%clk 0:38:00]} 18... Bc4 {[%clk 0:37:44]} 19. Bd2 {[%clk 0:33:18]} 19... Rfd8 {[%clk 0:34:22]} 20. Nf2 {[%clk 0:30:04]} 20... Nb4 {[%clk 0:32:08]} 21. Bxb4 {[%clk 0:23:07]} 21... cxb4 {[%clk 0:32:33]} 22. Rxd8+ {[%clk 0:19:40]} 22... Rxd8 {[%clk 0:32:58]} 23. Rd1 {[%clk 0:19:52]} 23... Rc8 $2 {Mistake. Rxd1+ was best.[%clk 0:30:55]} 24. Qd2 $4 {Blunder. b3 was best.[%clk 0:18:20]} 24... Bxa2 {[%clk 0:26:23]} 25. Bf1 {[%clk 0:16:03]} 25... Bb3 {[%clk 0:14:49]} 26. Rc1 $2 {Mistake. Re1 was best.[%clk 0:15:57]} 26... Rxc1 {[%clk 0:13:19]} 27. Qxc1 {[%clk 0:16:18]} 27... Be6 {[%clk 0:13:15]} 28. Bd3 {[%clk 0:14:04]} 28... Qd6 $6 {Inaccuracy. Bc4 was best.[%clk 0:10:13]} 29. Kg2 {[%clk 0:09:13]} 29... Qe5 {[%clk 0:10:01]} 30. Nd1 {[%clk 0:09:35]} 30... h5 {[%clk 0:09:49]} 31. Qc6 {[%clk 0:09:28]} 31... Bb3 {[%clk 0:09:33]} 32. Bc2 {[%clk 0:09:19]} 32... Bd5 {[%clk 0:09:49]} 33. Qc8+ {[%clk 0:08:55]} 33... Kh7 {[%clk 0:10:03]} 34. Kf2 $4 {Blunder. Qd7 was best.[%clk 0:06:11]} 34... Qd6 {[%clk 0:10:01]} 35. Ke2 {[%clk 0:02:14]} 35... Bc4+ {[%clk 0:09:59]} 36. Ke1 {[%clk 0:02:32]} 36... b3 {[%clk 0:10:12]} 0-1
+
+[Event "European Senior Chess Championship 2026 | 65+"]
+[Site "Lichess"]
+[Date "2026.06.02"]
+[Round "1"]
+[White "Petursson, Margeir"]
+[Black "Germes, Alain"]
+[Result "1-0"]
+[WhiteElo "2393"]
+[BlackElo "1912"]
+[ECO "A10"]
+
+1. c4 {[%clk 1:30:53]} 1... b6 {[%clk 1:30:23]} 2. Nc3 {[%clk 1:31:10]} 2... Bb7 {[%clk 1:30:09]} 3. e4 {[%clk 1:30:54]} 3... e6 {[%clk 1:29:46]} 4. Nf3 {[%clk 1:28:35]} 4... Bb4 {[%clk 1:27:49]} 5. d3 {[%clk  1:21:47]} 5... Ne7 {[%clk 1:23:41]} 6. Bd2 {[%clk 1:16:45]} 6... O-O {[%clk  1:20:26]} 7. a3 {[%clk 1:15:24]} 7... Bxc3 {[%clk 1:20:37]} 8. Bxc3 {[%clk  1:15:43]} 8... f5 {[%clk 1:16:51]} 9. g3 {[%clk 1:06:39]} 9... Qe8 {[%clk 1:07:53]} 10. Bg2 {[%clk 1:04:41]} 10... Qh5 {[%clk 0:54:02]} 11. Qe2 {[%clk 1:00:17]} 11... Na6 {[%clk 0:50:38]} 12. b4 {[%clk  0:59:36]} 12... fxe4 {[%clk 0:48:13]} 13. dxe4 {[%clk 0:59:39]} 13... c5 {[%clk 0:44:44]} 14. O-O {[%clk 0:54:40]} 14... Rad8 {[%clk 0:37:41]} 15. Rad1 {[%clk 0:49:01]} 15... d6 {[%clk 0:31:32]} 16. Rd2 {[%clk 0:47:56]} 16... Qg4 {[%clk 0:26:56]} 17. Re1 {[%clk  0:46:56]} 17... Nc7 {[%clk 0:25:18]} 18. Qe3 {[%clk 0:44:08]} 18... Nc8 {[%clk 0:18:38]} 19. h3 {[%clk 0:41:14]} 19... Qg6 {[%clk 0:18:19]} 20. Rd3 {[%clk 0:36:45]} 20... e5 {[%clk 0:13:54]} 21. Nh4 {[%clk  0:29:34]} 21... Qf7 {[%clk 0:13:48]} 22. Nf5 {[%clk 0:26:19]} 22... Ne6 {[%clk 0:12:15]} 23. Rc1 {[%clk 0:20:18]} 23... Nd4 {[%clk 0:11:44]} 24. Bxd4 {[%clk 0:19:19]} 24... exd4 {[%clk 0:11:34]} 25. Qg5 {[%clk 0:15:33]} 25... Qf6 {[%clk 0:09:55]} 26. h4 {[%clk 0:15:25]} 26... Rde8 {[%clk 0:09:05]} 27. f3 {[%clk 0:15:32]} 27... Ne7 {[%clk 0:07:36]} 28. Qxf6 {[%clk 0:10:28]} 28... Rxf6 {[%clk 0:07:50]} 29. Nxe7+ {[%clk 0:10:18]} 29... Rxe7 {[%clk 0:08:09]} 30. Bf1 {[%clk 0:09:23]} 30... Rf8 {[%clk 0:07:07]} 31. Be2 {[%clk 0:09:14]} 31... Rc8 {[%clk 0:05:56]} 32. Rd2 {[%clk 0:08:04]} 32... Bc6 {[%clk 0:05:21]} 33. Bd3 {[%clk 0:07:57]} 33... Rf8 {[%clk 0:05:34]} 34. Kg2 {[%clk  0:08:06]} 34... Be8 {[%clk 0:04:56]} 35. Rb2 {[%clk 0:06:24]} 35... Bh5 {[%clk 0:04:20]} 36. Rf1 {[%clk 0:06:38]} 36... h6 {[%clk 0:04:22]} 37. a4 {[%clk 0:06:23]} 37... cxb4 {[%clk 0:04:09]} 38. Rxb4 {[%clk 0:06:32]} 38... Rc7 {[%clk 0:04:14]} 39. Be2 {[%clk 0:03:03]} 39... Rc5 {[%clk 0:01:47]} 40. Rd1 {[%clk 0:02:53]} 40... Ra5 {[%clk 0:01:30]} 41. Rxd4 {[%clk 0:03:03]} 41... Rf6 {[%clk 0:29:15]} 42. Rb5 {[%clk 0:28:00]} 1-0
+
