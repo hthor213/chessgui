@@ -2,8 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-// The board is a next/dynamic({ ssr: false }) import; stub it so the intro screen
-// renders without pulling in Chessground. (The intro phase shows no board anyway.)
+// The board is a next/dynamic({ ssr: false }) import; stub it so the roster
+// screen renders without pulling in Chessground (neither the roster nor the
+// config screen shows a board anyway).
 vi.mock("next/dynamic", () => ({
   default: () => () => null,
 }));
@@ -11,23 +12,31 @@ vi.mock("next/dynamic", () => ({
 import { SparTab } from "@/components/spar-tab";
 
 describe("SparTab entry point renders", () => {
-  it("renders the intro screen with the honest label and controls", () => {
-    // Effects don't run under renderToStaticMarkup, so the book stays unloaded
-    // and we see the initial intro screen — exactly the entry point.
+  it("renders the roster (Play vs Bot) as the initial screen", () => {
+    // Effects don't run under renderToStaticMarkup, so the rival book stays
+    // unloaded and the private rival's card is absent (spec 214 hard rule:
+    // his entry appears only once the local book has loaded) — this render
+    // shows Fischer, Kasparov, and the Maia strength bands.
     const html = renderToStaticMarkup(createElement(SparTab));
-    expect(html).toContain("Spar vs Dad (beta)");
-    expect(html).toContain('data-testid="spar-intro"');
-    expect(html).toContain('data-testid="spar-start"');
-    expect(html).toContain('data-testid="spar-side-either"');
-    expect(html).toContain('data-testid="spar-side-white"');
-    expect(html).toContain('data-testid="spar-side-black"');
-    // Adjustable strength selector, defaulting to 1700 (spec 214 calibration).
-    expect(html).toContain('data-testid="spar-level-1500"');
-    expect(html).toContain('data-testid="spar-level-1700"');
-    expect(html).toContain('data-testid="spar-level-1900"');
-    // Honest strength labelling (spec 214: no unmeasured realism claims).
-    expect(html).toContain("~1700");
-    // Start is disabled until the book loads (an effect that hasn't run here).
-    expect(html).toContain("Loading rival book");
+    expect(html).toContain('data-testid="spar-roster"');
+    expect(html).toContain("Play vs Bot");
+    expect(html).toContain('data-testid="roster-grid"');
+
+    // Fischer/Kasparov: honest approximation labels (spec 216/214 hard rule
+    // — no unmeasured realism claims), Play only (no Improve profile).
+    expect(html).toContain('data-testid="roster-card-fischer"');
+    expect(html).toContain('data-testid="roster-play-fischer"');
+    expect(html).not.toContain('data-testid="roster-improve-fischer"');
+    expect(html).toContain("approximation");
+    expect(html).toContain("full persona pending");
+
+    // Maia strength bands as generic bots, full 1100-1900 set.
+    expect(html).toContain('data-testid="roster-card-maia-1100"');
+    expect(html).toContain('data-testid="roster-card-maia-1900"');
+    expect(html).toContain("Bot 1500");
+
+    // The private rival's card is NOT present in this unloaded-book render.
+    expect(html).not.toContain('data-testid="roster-card-rival"');
+    expect(html).not.toContain("Spar vs Dad");
   });
 });

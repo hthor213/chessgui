@@ -21,11 +21,17 @@ import { Chess } from "chessops/chess"
 import { parseFen } from "chessops/fen"
 import { chessgroundDests } from "chessops/compat"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   personaMove,
   DEFAULT_PERSONA_PARAMS,
   type PersonaDecision,
 } from "@/lib/persona"
+import {
+  buildRoster,
+  initialsFor,
+  type Participant,
+} from "@/lib/roster"
 import {
   loadRivalBook,
   pickBookEntry,
@@ -61,10 +67,13 @@ const Board = dynamic(() => import("@/components/board").then((m) => ({ default:
 // number honestly. 100-Elo Maia bands; all are published nets.
 const DEFAULT_LEVEL = 1700
 const LEVEL_OPTIONS = [1500, 1600, 1700, 1800, 1900] as const
-const RIVAL_LABEL = "Dad"
 
 type SideChoice = "white" | "black" | "either"
-type Phase = "intro" | "playing"
+// Roster (spec 218 "Roster" checklist item): "roster" is the card browser
+// that replaced the old single-rival "intro" screen; "config" is the
+// per-participant options screen (side/level/opening/mode) that used to BE
+// "intro", now parameterized by whichever roster entry was picked.
+type Phase = "roster" | "config" | "playing"
 
 // Move-by-move rival book (spec 214, "Move-by-move rival book" checklist item,
 // supersedes drop-into-line as the default): the game starts at move 1 (or the
@@ -186,16 +195,36 @@ function legalDests(fen: string): Map<Key, Key[]> {
 }
 
 export function SparTab() {
-  const [phase, setPhase] = useState<Phase>("intro")
+  const [phase, setPhase] = useState<Phase>("roster")
   const [book, setBook] = useState<RivalBook | null>(null)
   const [bookError, setBookError] = useState<string | null>(null)
+  // The roster entry picked from the card browser (spec 218 "Roster"
+  // checklist item) — null only while phase === "roster". Fixed for the
+  // duration of a game, same as everything below it.
+  const [participant, setParticipant] = useState<Participant | null>(null)
   const [side, setSide] = useState<SideChoice>("either")
-  // Opponent strength; set on the intro screen, fixed for the duration of a game.
+  // Opponent strength; set on the config screen, fixed for the duration of a
+  // game. Only meaningful (and only shown) for participants with a dial-able
+  // policy backend — in v1 that's the private rival; every other roster
+  // entry carries its own fixed level in personaConfig.
   const [level, setLevel] = useState<number>(DEFAULT_LEVEL)
   // Move-by-move book vs. drop-into-line, and Serious vs. probe — both picked
-  // on the intro screen, fixed for the duration of a game.
+  // on the config screen, fixed for the duration of a game.
   const [bookStartMode, setBookStartMode] = useState<BookStartMode>(DEFAULT_BOOK_START_MODE)
   const [sparMode, setSparMode] = useState<SparGameMode>(DEFAULT_SPAR_MODE)
+
+  // Roster (spec 218 decision 4): built from the local rival book's load
+  // state — his entry exists only when the book actually loaded, no error
+  // state for its absence (spec 214 hard rule: his data stays local). Fischer,
+  // Kasparov, and the Maia bands are always present.
+  const roster = useMemo(() => buildRoster(book), [book])
+  // Only the private rival has a move-by-move book and a dial-able level in
+  // v1 — every other entry starts from the standard position at its own
+  // fixed personaConfig.level (spec 218 decision 4).
+  const hasBook = participant?.personaConfig?.book === "rival"
+  const effectiveLevel = hasBook ? level : participant?.personaConfig?.level ?? DEFAULT_LEVEL
+  const opponentLabel = participant?.displayName ?? "Opponent"
+  const canImprove = !!participant?.actions.includes("improve")
 
   const [entry, setEntry] = useState<RivalBookEntry | null>(null)
   const [userColor, setUserColor] = useState<SparColor>("white")
@@ -319,17 +348,20 @@ export function SparTab() {
 
   // Move-by-move rival book (spec 214): the position->reply lookup, one map
   // per rival colour, precomputed once when the book loads (not per game
-  // start, and not per move).
+  // start, and not per move). Gated on hasBook so a non-rival roster entry
+  // never plays from the rival's book even though `book` stays loaded in
+  // state for roster-membership purposes.
   const moveMaps = useMemo(() => {
-    if (!book) return null
+    if (!hasBook || !book) return null
     return {
       white: buildRivalMoveMap(book.entries, "white"),
       black: buildRivalMoveMap(book.entries, "black"),
     }
-  }, [book])
+  }, [hasBook, book])
 
   const startGame = useCallback(() => {
-    if (!book) return
+    if (!participant) return
+    if (hasBook && !book) return
     pendingFenRef.current = null
     setThinking(false)
     setMoveError(null)
@@ -341,7 +373,10 @@ export function SparTab() {
     setReviewCursor(null)
     setGameSeed(newGameSeed())
 
-    if (bookStartMode === "movebymove") {
+    // Non-book roster entries (every bot but the private rival, spec 218
+    // decision 4) always start at move 1 with no book — the same code path
+    // "movebymove" already falls into once moveMaps is null.
+    if (!hasBook || bookStartMode === "movebymove") {
       // Spec 214 "Move-by-move rival book": start at move 1. If the user's
       // requested side would put the rival on White, his own first move
       // fires immediately once phase flips to "playing" (the rival-turn
@@ -359,8 +394,9 @@ export function SparTab() {
       return
     }
 
-    // Drop-into-line (the original behavior, kept as a secondary option).
-    const picked = pickBookEntry(book.entries, Math.random, {
+    // Drop-into-line (rival only, the original behavior, kept as a secondary
+    // option).
+    const picked = pickBookEntry(book!.entries, Math.random, {
       userColor: side === "either" ? undefined : side,
     })
     if (!picked) {
@@ -374,7 +410,7 @@ export function SparTab() {
     setPlies([])
     setBoardNonce((n) => n + 1)
     setPhase("playing")
-  }, [book, side, bookStartMode])
+  }, [participant, hasBook, book, side, bookStartMode])
 
   // Drive the rival's reply whenever it's their turn at the live tip: an
   // exact-position book lookup first (move-by-move mode only), Maia otherwise
@@ -416,7 +452,7 @@ export function SparTab() {
     const movePly = plies.length
     personaMove(fen, {
       ...DEFAULT_PERSONA_PARAMS,
-      level,
+      level: effectiveLevel,
       seed: gameSeed,
       ply: movePly,
     })
@@ -432,8 +468,8 @@ export function SparTab() {
         // 9) — best-effort, never blocks the move.
         appendDecisionLog({
           at: new Date().toISOString(),
-          rival: RIVAL_LABEL,
-          level,
+          rival: opponentLabel,
+          level: effectiveLevel,
           ply: movePly,
           seed: gameSeed,
           fen,
@@ -453,7 +489,19 @@ export function SparTab() {
     return () => {
       live = false
     }
-  }, [phase, fen, rivalColor, level, frozen, bookStartMode, moveMaps, gameSeed, plies.length, sparMode])
+  }, [
+    phase,
+    fen,
+    rivalColor,
+    effectiveLevel,
+    opponentLabel,
+    frozen,
+    bookStartMode,
+    moveMaps,
+    gameSeed,
+    plies.length,
+    sparMode,
+  ])
 
   const userToMove = phase === "playing" && !!fen && turnOf(fen) === userColor && !frozen
   const legalMoves = useMemo(
@@ -558,8 +606,8 @@ export function SparTab() {
     if (feedbackOpen === "did_not_feel_like" && !note) return // required for the negative
     appendPersonaFeedback({
       at: new Date().toISOString(),
-      rival: RIVAL_LABEL,
-      level,
+      rival: opponentLabel,
+      level: effectiveLevel,
       verdict: feedbackOpen,
       confidence: feedbackConfidence,
       note,
@@ -573,7 +621,7 @@ export function SparTab() {
     setFeedbackConfirm(true)
     clearTimeout(feedbackConfirmTimer.current)
     feedbackConfirmTimer.current = setTimeout(() => setFeedbackConfirm(false), 2000)
-  }, [feedbackOpen, feedbackNote, feedbackConfidence, level, plies, startFen, sparMode])
+  }, [feedbackOpen, feedbackNote, feedbackConfidence, opponentLabel, effectiveLevel, plies, startFen, sparMode])
 
   const lastShape = useMemo<DrawShape[]>(() => {
     if (reviewing || plies.length === 0) return []
@@ -581,9 +629,33 @@ export function SparTab() {
     return [{ orig: uci.slice(0, 2) as Key, dest: uci.slice(2, 4) as Key, brush: "green" }]
   }, [plies, reviewing])
 
-  if (phase === "intro") {
+  // Roster card browser (spec 218 "Roster" checklist item, decision 5: the
+  // card-style browser with avatars belongs here, not the tournament tab).
+  if (phase === "roster") {
     return (
-      <SparIntro
+      <RosterScreen
+        roster={roster}
+        onPick={(p, action) => {
+          setParticipant(p)
+          setSparMode(action === "improve" ? "probe" : "serious")
+          setLevel(DEFAULT_LEVEL)
+          setBookStartMode(DEFAULT_BOOK_START_MODE)
+          setSide("either")
+          setPhase("config")
+        }}
+      />
+    )
+  }
+
+  // Per-participant options screen (was "intro" when the rival was the only
+  // possible opponent) — side, opening, level, and mode, scoped to whichever
+  // roster entry was picked.
+  if (phase === "config") {
+    if (!participant) return null // unreachable: set together with phase above
+    return (
+      <SparConfig
+        participant={participant}
+        hasBook={hasBook}
         side={side}
         setSide={setSide}
         level={level}
@@ -592,10 +664,12 @@ export function SparTab() {
         setBookStartMode={setBookStartMode}
         sparMode={sparMode}
         setSparMode={setSparMode}
+        canImprove={canImprove}
         onStart={startGame}
-        canStart={!!book}
-        bookError={bookError}
-        book={book}
+        onBack={() => setPhase("roster")}
+        canStart={hasBook ? !!book : true}
+        bookError={hasBook ? bookError : null}
+        book={hasBook ? book : null}
       />
     )
   }
@@ -604,9 +678,15 @@ export function SparTab() {
     <div className="h-full flex flex-col" data-testid="spar-playing">
       <div className="px-6 py-3 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">Sparring</span>
+          <Avatar className="h-6 w-6" data-testid="spar-opponent-avatar">
+            {participant?.avatar && <AvatarImage src={participant.avatar} alt={opponentLabel} />}
+            <AvatarFallback className="text-[10px]">{initialsFor(opponentLabel)}</AvatarFallback>
+          </Avatar>
+          <span className="text-sm font-medium">{opponentLabel}</span>
           <span className="text-xs text-muted-foreground" data-testid="spar-label">
-            a ~{level} playing {RIVAL_LABEL.toLowerCase()}&apos;s openings
+            {hasBook
+              ? `a ~${effectiveLevel} playing ${opponentLabel.toLowerCase()}'s openings`
+              : participant?.strengthLabel}
           </span>
           {sparMode === "probe" && (
             <span
@@ -619,7 +699,7 @@ export function SparTab() {
           )}
           {bookStartMode === "movebymove" && bookStatus && (
             <span className="text-[11px] text-muted-foreground" data-testid="spar-book-status">
-              {bookStatus === "book" ? "in book" : `out of book — playing like a ~${level}`}
+              {bookStatus === "book" ? "in book" : `out of book — playing like a ~${effectiveLevel}`}
             </span>
           )}
         </div>
@@ -687,7 +767,7 @@ export function SparTab() {
         <div className="w-72 shrink-0 flex flex-col gap-4 overflow-auto">
           {entry && (
             <div className="text-sm">
-              <div className="text-muted-foreground">Opening (from {RIVAL_LABEL.toLowerCase()}&apos;s games)</div>
+              <div className="text-muted-foreground">Opening (from {opponentLabel.toLowerCase()}&apos;s games)</div>
               <div className="font-mono text-foreground mt-0.5" data-testid="spar-line">
                 {entry.line}
               </div>
@@ -707,7 +787,7 @@ export function SparTab() {
               </span>
             ) : thinking ? (
               <span className="text-muted-foreground" data-testid="spar-thinking">
-                {RIVAL_LABEL} is thinking…
+                {opponentLabel} is thinking…
               </span>
             ) : userToMove ? (
               <span className="text-emerald-300">Your move.</span>
@@ -718,7 +798,7 @@ export function SparTab() {
 
           {drawDeclinedNote && (
             <p className="text-xs text-muted-foreground" data-testid="spar-draw-declined">
-              {RIVAL_LABEL} declined the draw offer.
+              {opponentLabel} declined the draw offer.
             </p>
           )}
 
@@ -726,7 +806,7 @@ export function SparTab() {
             plies={plies}
             userColor={userColor}
             startFen={startFen}
-            rivalLabel={RIVAL_LABEL}
+            rivalLabel={opponentLabel}
             reviewCursor={reviewCursor}
             onSelectPly={setReviewCursor}
           />
@@ -1013,7 +1093,84 @@ function MoveList({
   )
 }
 
-function SparIntro({
+// Roster card browser (spec 218 "Roster" checklist item, decision 5: the
+// card-style browser with avatars belongs to Play vs Bot, not the tournament
+// tab's dropdown). Every card shows an avatar (initials fallback — spec 218
+// "Avatars" checklist item, ships with zero art in v1), the honest strength
+// label (spec 216: no unmeasured realism claims), and its action set: Play
+// for everyone, Improve profile only where the participant carries it (the
+// private rival, v1's only two-action entry).
+function RosterScreen({
+  roster,
+  onPick,
+}: {
+  roster: Participant[]
+  onPick: (p: Participant, action: "play" | "improve") => void
+}) {
+  return (
+    <div className="flex-1 min-h-0 overflow-auto p-6" data-testid="spar-roster">
+      <div className="max-w-3xl mx-auto space-y-5">
+        <div>
+          <h1 className="text-2xl font-bold">Play vs Bot</h1>
+          <p className="text-muted-foreground mt-1">
+            Pick an opponent. Every card states its honest strength — nothing here
+            claims to BE the person it&apos;s modeled on.
+          </p>
+        </div>
+
+        {roster.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Loading roster…</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="roster-grid">
+            {roster.map((p) => (
+              <div
+                key={p.id}
+                className="rounded-lg border border-white/10 bg-white/[0.03] p-4 flex flex-col gap-3"
+                data-testid={`roster-card-${p.id}`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Avatar className="h-10 w-10 shrink-0">
+                    {p.avatar && <AvatarImage src={p.avatar} alt={p.displayName} />}
+                    <AvatarFallback>{initialsFor(p.displayName)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{p.displayName}</div>
+                    <div className="text-xs text-muted-foreground">{p.strengthLabel}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-auto">
+                  <Button size="sm" onClick={() => onPick(p, "play")} data-testid={`roster-play-${p.id}`}>
+                    Play
+                  </Button>
+                  {p.actions.includes("improve") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onPick(p, "improve")}
+                      data-testid={`roster-improve-${p.id}`}
+                    >
+                      Improve profile
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Per-participant options screen — was SparIntro when the private rival was
+// the only possible opponent; now parameterized by whichever roster entry
+// was picked. hasBook (only the private rival in v1) gates the level dial
+// and the opening-source picker; canImprove (same entry) gates the
+// serious/probe mode picker — everyone else plays one fixed-strength,
+// book-less, serious-only game (spec 218 decision 4).
+function SparConfig({
+  participant,
+  hasBook,
   side,
   setSide,
   level,
@@ -1022,11 +1179,15 @@ function SparIntro({
   setBookStartMode,
   sparMode,
   setSparMode,
+  canImprove,
   onStart,
+  onBack,
   canStart,
   bookError,
   book,
 }: {
+  participant: Participant
+  hasBook: boolean
   side: SideChoice
   setSide: (s: SideChoice) => void
   level: number
@@ -1035,7 +1196,9 @@ function SparIntro({
   setBookStartMode: (m: BookStartMode) => void
   sparMode: SparGameMode
   setSparMode: (m: SparGameMode) => void
+  canImprove: boolean
   onStart: () => void
+  onBack: () => void
   canStart: boolean
   bookError: string | null
   book: RivalBook | null
@@ -1045,17 +1208,32 @@ function SparIntro({
     { id: "white", label: "White" },
     { id: "black", label: "Black" },
   ]
+  const opponentLabel = participant.displayName
   return (
-    <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6" data-testid="spar-intro">
+    <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6" data-testid="spar-config">
       <div className="max-w-xl w-full space-y-5">
         <div>
-          <h1 className="text-2xl font-bold">Spar vs {RIVAL_LABEL} (beta)</h1>
+          <button
+            onClick={onBack}
+            className="text-xs text-muted-foreground hover:text-foreground"
+            data-testid="spar-config-back"
+          >
+            ‹ Roster
+          </button>
+          <h1 className="text-2xl font-bold mt-1">Play vs {opponentLabel}</h1>
           <p className="text-muted-foreground mt-1">
-            Play a full game against <span className="text-foreground">a ~{level}</span>{" "}
-            playing {RIVAL_LABEL.toLowerCase()}&apos;s lines — from move 1 with his real
-            recorded replies, or dropped into one of his openings. The opponent
-            isn&apos;t {RIVAL_LABEL.toLowerCase()} — it&apos;s a Maia human-move model at that
-            strength, opening the way he does.
+            {hasBook ? (
+              <>
+                Play a full game against <span className="text-foreground">a ~{level}</span>{" "}
+                playing {opponentLabel.toLowerCase()}&apos;s lines — from move 1 with his real
+                recorded replies, or dropped into one of his openings. The opponent
+                isn&apos;t {opponentLabel.toLowerCase()}
+                {" "}— it&apos;s a Maia human-move model at that strength, opening the way he
+                does.
+              </>
+            ) : (
+              participant.strengthLabel
+            )}
           </p>
         </div>
 
@@ -1079,80 +1257,91 @@ function SparIntro({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">Strength:</span>
-          <div className="flex gap-1">
-            {LEVEL_OPTIONS.map((n) => (
-              <button
-                key={n}
-                data-testid={`spar-level-${n}`}
-                onClick={() => setLevel(n)}
-                className={`px-3 py-1.5 text-sm rounded-md border transition-colors tabular-nums ${
-                  level === n
-                    ? "border-white/30 bg-white/10 text-foreground"
-                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
-                }`}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground -mt-2">
-          Dad&apos;s FIDE-listed standard is ~1591; family lore says higher. Start at{" "}
-          {DEFAULT_LEVEL} and dial to match what you see over a few games.
-        </p>
+        {hasBook ? (
+          <>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">Strength:</span>
+              <div className="flex gap-1">
+                {LEVEL_OPTIONS.map((n) => (
+                  <button
+                    key={n}
+                    data-testid={`spar-level-${n}`}
+                    onClick={() => setLevel(n)}
+                    className={`px-3 py-1.5 text-sm rounded-md border transition-colors tabular-nums ${
+                      level === n
+                        ? "border-white/30 bg-white/10 text-foreground"
+                        : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">
+              His FIDE-listed rating is below family lore&apos;s estimate, so the level is
+              dial-able. Start at {DEFAULT_LEVEL} and dial to match what you see over a few
+              games.
+            </p>
 
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">Opening:</span>
-          <div className="flex gap-1">
-            {(
-              [
-                ["movebymove", "From move 1 (his book, move by move)"],
-                ["dropin", "Drop into one of his lines"],
-              ] as [BookStartMode, string][]
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                data-testid={`spar-book-mode-${id}`}
-                onClick={() => setBookStartMode(id)}
-                className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                  bookStartMode === id
-                    ? "border-white/30 bg-white/10 text-foreground"
-                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">Opening:</span>
+              <div className="flex gap-1">
+                {(
+                  [
+                    ["movebymove", "From move 1 (his book, move by move)"],
+                    ["dropin", "Drop into one of his lines"],
+                  ] as [BookStartMode, string][]
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    data-testid={`spar-book-mode-${id}`}
+                    onClick={() => setBookStartMode(id)}
+                    className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                      bookStartMode === id
+                        ? "border-white/30 bg-white/10 text-foreground"
+                        : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground" data-testid="spar-fixed-strength">
+            Fixed strength: {participant.strengthLabel}
+          </p>
+        )}
 
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">Mode:</span>
-          <div className="flex gap-1">
-            {(
-              [
-                ["serious", "Serious spar"],
-                ["probe", "Improve his personality"],
-              ] as [SparGameMode, string][]
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                data-testid={`spar-game-mode-${id}`}
-                onClick={() => setSparMode(id)}
-                className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                  sparMode === id
-                    ? "border-white/30 bg-white/10 text-foreground"
-                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+        {canImprove && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">Mode:</span>
+            <div className="flex gap-1">
+              {(
+                [
+                  ["serious", "Serious spar"],
+                  ["probe", "Improve his personality"],
+                ] as [SparGameMode, string][]
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  data-testid={`spar-game-mode-${id}`}
+                  onClick={() => setSparMode(id)}
+                  className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                    sparMode === id
+                      ? "border-white/30 bg-white/10 text-foreground"
+                      : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-        {sparMode === "probe" && (
+        )}
+        {canImprove && sparMode === "probe" && (
           <p className="text-xs text-muted-foreground -mt-2">
             Probe mode adds an End game button to stop, give feedback, and try again — feedback
             tunes the NEXT persona iteration, not this game.
@@ -1160,15 +1349,15 @@ function SparIntro({
         )}
 
         <Button onClick={onStart} size="lg" className="w-full" disabled={!canStart} data-testid="spar-start">
-          {canStart ? "Start sparring game" : "Loading rival book…"}
+          {canStart ? "Start game" : "Loading rival book…"}
         </Button>
 
-        {book?.stats?.positions != null && (
+        {hasBook && book?.stats?.positions != null && (
           <p className="text-xs text-muted-foreground text-center">
-            {book.stats.positions} book positions from {RIVAL_LABEL.toLowerCase()}&apos;s games.
+            {book.stats.positions} book positions from {opponentLabel.toLowerCase()}&apos;s games.
           </p>
         )}
-        {bookError && (
+        {hasBook && bookError && (
           <p className="text-sm text-red-400" data-testid="spar-book-error">
             {bookError}
           </p>

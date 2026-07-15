@@ -575,7 +575,7 @@ export default function Home() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Spar vs Dad (beta)
+                Play vs Bot
               </button>
               <button
                 data-testid="learn-sub-training"

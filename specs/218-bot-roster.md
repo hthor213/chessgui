@@ -122,15 +122,24 @@ strength (spec:216 curve) — no unmeasured realism claims.
 
 ### Roster
 
-- [ ] Play vs Bot rename + roster: "Spar vs Dad" → "Play vs Bot"; a roster of
-      Participants replaces the hardcoded rival label/book; per-entry action set
-      (private rival = Play + Improve profile; all others = Play only). v1 contents
-      per decision 4: everything modeled so far.
-- [ ] Participant config + loader (spec:214's persona config is the `persona`
-      payload; `uci` entries are named binary paths)
-- [ ] Avatars: avatar field + initials fallback first (ships with zero art), then
-      the caricature pipeline per decision 1 — public reference photos →
-      recognizable caricature portraits; private entries' art local-only.
+- [x] Play vs Bot rename + roster (2026-07-15): "Spar vs Dad" → "Play vs Bot"
+      (app/page.tsx Learn sub-tab + spar-tab.tsx headings); a roster of
+      Participants (lib/roster.ts) replaces the hardcoded RIVAL_LABEL/book —
+      the old single-rival "intro" screen is now a card-style roster picker,
+      per-entry action set wired (private rival = Play + Improve profile; all
+      others = Play only). v1 contents per decision 4: the private rival
+      (local book, appears only when it loaded), Fischer, Kasparov, and the
+      full Maia 1100-1900 band set. (headless-verified, user eyeball pending)
+- [x] Participant config + loader (2026-07-15, lib/roster.ts `buildRoster` +
+      the `Participant`/`PersonaConfig` types matching spec:214's `persona`
+      payload shape; no `uci`-kind entries populated in v1, the type supports
+      them for the later exhibition/tournament item). (headless-verified,
+      user eyeball pending)
+- [x] Avatars (2026-07-15): avatar field + initials/monogram fallback
+      (components/ui/avatar.tsx, `initialsFor()`) rendering on roster cards
+      and in-game (opponent header); every v1 entry ships with zero art, as
+      the item specifies — the caricature pipeline per decision 1 remains a
+      later item, unstarted. (headless-verified, user eyeball pending)
 
 ### Exhibition & tournament
 
