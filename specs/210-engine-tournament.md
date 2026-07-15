@@ -164,10 +164,48 @@ codebase area; the spec text lives in 218.
 
 - [ ] Add-engine UI: user can register any UCI binary as a named engine (a spec:218
       Participant of kind `uci`)
-- [ ] Round-robin tournament: N engines, each pair plays M games, full cross-table;
+- [x] Round-robin tournament: N engines, each pair plays M games, full cross-table;
       persona entries appear in standings with spec:216 honest-strength labels
-- [ ] Elo estimation from match results (BayesElo-style or simple logistic)
-- [ ] Tournament result persistence: save/load past tournament results to disk
+      (closed 2026-07-15 — participants are the spec-218 dropdown roster, engines
+      AND personas: `buildRoundRobinSpecs` (`lib/tournament.ts`) schedules every
+      unordered pair × M color-alternating games as ONE flat `GameSpec[]` batch
+      through the existing `play_batch` runner + concurrency cap (no round-robin
+      Rust code); `buildCrossTable`/`buildStandings` aggregate W/D/L + points per
+      directed pairing, live off the `BatchProgress` channel. `RoundRobinSection`
+      in `tournament-tab.tsx` (participant checkboxes, games/pairing, book/normal
+      openings, live cross-table + standings); persona rows keep their honest
+      roster labels ("bot: kasparov (BT3, 64% move-match)") in standings and in
+      the saved result. Unit-tested (`__tests__/tournament-round-robin.test.ts`:
+      pairing counts/color-flip/odd-M/seed-cycling, cross-table math incl.
+      flipped mapping and aborted/Err exclusion); config UI Playwright-verified
+      headless (defaults, totals readout, run-button gating, honest labels). An
+      actual multi-engine run still needs the Tauri app (play_batch is IPC).
+- [x] Elo estimation from match results (BayesElo-style or simple logistic)
+      (closed 2026-07-15 — `estimateElo` (`lib/tournament.ts`): Bradley–Terry
+      logistic MLE over the cross-table (the exact Elo expected-score curve,
+      γ = 10^(R/400)), draws as half-wins, fitted with the convergent MM
+      iteration; BayesElo-style prior of 1 virtual draw per pairing keeps clean
+      sweeps finite (opt-out `priorDraws: 0` for the raw MLE); anchored to a
+      named participant = 0. ± is the Fisher-information standard error from
+      REAL games only, reported as "± N (from N games)" in the standings — the
+      honesty labeling the box asks for. Validated against known answers in
+      `__tests__/tournament-round-robin.test.ts`: 75%/100 games = ±190.85
+      (textbook 400·log10(3)), 50% = 0 under any prior, three players generated
+      from the model recovered transitively (±5 Elo), SE ≈ 40 at n=100/p=0.75
+      and halves at 4× games, anchor-invariance of pairwise gaps.)
+- [x] Tournament result persistence: save/load past tournament results to disk
+      (closed 2026-07-15 — `save_tournament_result`/`list_tournament_results`/
+      `load_tournament_result` commands (`match_runner.rs`) persist the
+      frontend-owned `RoundRobinResultExport` JSON (camelCase + ISO
+      `completedAt`, following Phase 5's export shape, plus `version`/`kind`)
+      under `<app_data_dir>/tournaments/`, calibration.rs's artifact pattern;
+      load key is a bare file name (traversal rejected). Tab UI: "Save result"
+      after a run + a "Saved tournaments" list with per-row Load that re-renders
+      the cross-table/standings/Elo from disk. Rust round-trip unit test
+      (`tournament_persistence_round_trip`: save→list→load byte-identical,
+      same-ms collision bump, corrupt-file skip, traversal guard); TS shape
+      round-trip incl. Infinity-SE→null JSON mapping. In-Tauri save/load click
+      still pending a live-app check, same as the runner itself.)
 - [ ] Deeper UHO integration: filter by ECO code, opening family, or custom FEN lists
 - [ ] Concurrency settings exposed in UI (max parallel games, engine thread count per game)
 

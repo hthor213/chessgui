@@ -193,6 +193,10 @@ async fn run_rung(engine: &str, rung: &Rung, games: usize) -> RungResult {
                 white_inc_ms: Some(wi),
                 black_base_ms: Some(bb),
                 black_inc_ms: Some(bi),
+                // Spec-218 participant fields (persona arm) are unused by this
+                // pure-UCI ladder; Default keeps the example compiling as
+                // GameSpec grows.
+                ..Default::default()
             });
             id += 1;
         }

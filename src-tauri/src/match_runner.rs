@@ -1922,6 +1922,146 @@ pub async fn engine_id(path: String) -> Result<String, String> {
     name.ok_or_else(|| "no id name in UCI output".to_string())
 }
 
+// ============================================================================
+// Phase 6 — tournament result persistence (spec 210)
+// ============================================================================
+//
+// Completed tournament results (the frontend's `RoundRobinResultExport` JSON,
+// built in lib/tournament.ts) are saved under `<app_data_dir>/tournaments/`,
+// one file per result — the same app-data JSON-artifact pattern
+// calibration.rs uses for its sessions/results. The payload is stored as an
+// opaque `serde_json::Value` so the on-disk schema is owned by the frontend
+// (versioned there via `version`/`kind`); only the few fields the saved-
+// results list renders are picked out here, with safe defaults.
+
+/// Metadata for one saved tournament result file, for the saved-results list.
+/// Field names are snake_case on the wire (no `rename_all`), mirrored by
+/// lib/tournament.ts's `SavedTournamentMeta`.
+#[derive(Serialize, Debug, Clone)]
+pub struct SavedTournamentMeta {
+    /// Bare file name (never a path) — the load key.
+    pub file: String,
+    pub name: String,
+    pub completed_at: String,
+    pub total_games: u64,
+    pub kind: String,
+}
+
+/// Write `result` to `dir/tournament-<unix_ms>.json`, returning the file name.
+/// Pure-ish core (no AppHandle) so the round-trip is unit-testable.
+pub fn save_tournament_result_in(
+    dir: &std::path::Path,
+    result: &serde_json::Value,
+) -> Result<String, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    // Millisecond names could collide under a same-ms double-save; bump until free.
+    let mut name = format!("tournament-{ms}.json");
+    let mut bump = 0u32;
+    while dir.join(&name).exists() {
+        bump += 1;
+        name = format!("tournament-{ms}-{bump}.json");
+    }
+    let json = serde_json::to_string_pretty(result).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(&name), json).map_err(|e| e.to_string())?;
+    Ok(name)
+}
+
+/// List saved results in `dir`, newest first (by file name, which embeds the
+/// save timestamp). Unreadable/non-JSON files are skipped, not errors — one
+/// corrupt file must not hide the rest.
+pub fn list_tournament_results_in(
+    dir: &std::path::Path,
+) -> Result<Vec<SavedTournamentMeta>, String> {
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        // No directory yet = nothing saved yet.
+        Err(_) => return Ok(out),
+    };
+    for entry in entries.flatten() {
+        let file = entry.file_name().to_string_lossy().into_owned();
+        if !file.ends_with(".json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let str_of = |key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        out.push(SavedTournamentMeta {
+            file,
+            name: str_of("name"),
+            completed_at: str_of("completedAt"),
+            total_games: v.get("totalGames").and_then(|x| x.as_u64()).unwrap_or(0),
+            kind: str_of("kind"),
+        });
+    }
+    out.sort_by(|a, b| b.file.cmp(&a.file));
+    Ok(out)
+}
+
+/// Read one saved result back. `file` must be a bare name from the listing —
+/// separators/`..` are rejected so the command can't be steered outside the
+/// tournaments directory.
+pub fn load_tournament_result_in(
+    dir: &std::path::Path,
+    file: &str,
+) -> Result<serde_json::Value, String> {
+    if file.contains('/') || file.contains('\\') || file.contains("..") {
+        return Err(format!("Invalid result file name: {file}"));
+    }
+    let path = dir.join(file);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+    serde_json::from_str(&text).map_err(|e| format!("Corrupt result file {file}: {e}"))
+}
+
+/// `<app_data_dir>/tournaments`, created if absent (same layout as
+/// calibration.rs's `calibration_dir`).
+fn tournaments_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("tournaments");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Tauri command: persist a completed tournament result. Returns the file name
+/// (the key `load_tournament_result` takes).
+#[tauri::command]
+pub fn save_tournament_result(
+    app: tauri::AppHandle,
+    result: serde_json::Value,
+) -> Result<String, String> {
+    save_tournament_result_in(&tournaments_dir(&app)?, &result)
+}
+
+/// Tauri command: list saved tournament results, newest first.
+#[tauri::command]
+pub fn list_tournament_results(
+    app: tauri::AppHandle,
+) -> Result<Vec<SavedTournamentMeta>, String> {
+    list_tournament_results_in(&tournaments_dir(&app)?)
+}
+
+/// Tauri command: load one saved tournament result by file name.
+#[tauri::command]
+pub fn load_tournament_result(
+    app: tauri::AppHandle,
+    file: String,
+) -> Result<serde_json::Value, String> {
+    load_tournament_result_in(&tournaments_dir(&app)?, &file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2368,5 +2508,64 @@ mod tests {
             entry.decision.reason
         );
         assert!(!entry.decision.candidates.is_empty(), "candidates are logged");
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 6 — tournament result persistence
+    // -----------------------------------------------------------------------
+
+    /// Save -> list -> load round-trip against a scratch directory, plus the
+    /// path-traversal guard on the load key.
+    #[test]
+    fn tournament_persistence_round_trip() {
+        let dir = std::env::temp_dir().join(format!(
+            "chessgui-tournament-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        // Empty (nonexistent) dir lists as empty, not an error.
+        assert_eq!(list_tournament_results_in(&dir).unwrap().len(), 0);
+
+        let result = serde_json::json!({
+            "version": 1,
+            "kind": "round-robin",
+            "name": "Test RR",
+            "completedAt": "2026-07-15T12:00:00.000Z",
+            "gamesPerPairing": 2,
+            "totalGames": 6,
+            "participants": [{ "id": "engine-stockfish", "label": "engine: stockfish" }],
+            "crossTable": [[null]],
+            "elo": [],
+        });
+        let file = save_tournament_result_in(&dir, &result).expect("save succeeds");
+        assert!(file.starts_with("tournament-") && file.ends_with(".json"));
+
+        // A same-ms second save must not clobber the first.
+        let file2 = save_tournament_result_in(&dir, &result).expect("second save succeeds");
+        assert_ne!(file, file2);
+
+        let list = list_tournament_results_in(&dir).expect("list succeeds");
+        assert_eq!(list.len(), 2);
+        let meta = list.iter().find(|m| m.file == file).expect("saved file listed");
+        assert_eq!(meta.name, "Test RR");
+        assert_eq!(meta.kind, "round-robin");
+        assert_eq!(meta.total_games, 6);
+        assert_eq!(meta.completed_at, "2026-07-15T12:00:00.000Z");
+
+        let loaded = load_tournament_result_in(&dir, &file).expect("load succeeds");
+        assert_eq!(loaded, result, "loaded JSON is byte-for-byte the saved value");
+
+        // Path traversal is rejected.
+        assert!(load_tournament_result_in(&dir, "../secrets.json").is_err());
+        assert!(load_tournament_result_in(&dir, "a/b.json").is_err());
+
+        // A corrupt sidecar file is skipped by the listing, not fatal.
+        std::fs::write(dir.join("garbage.json"), "{not json").unwrap();
+        assert_eq!(list_tournament_results_in(&dir).unwrap().len(), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

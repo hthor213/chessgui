@@ -15,6 +15,12 @@ import {
   buildEngineCurves,
   buildEngineWDL,
   buildTournamentResultExport,
+  buildRoundRobinSpecs,
+  roundRobinGameCount,
+  buildCrossTable,
+  buildStandings,
+  estimateElo,
+  buildRoundRobinExport,
   eloDelta,
   gameResult,
   gameError,
@@ -45,6 +51,11 @@ import {
   type Participant,
   type PersonaLogEntry,
   type Seed,
+  type CrossTable,
+  type EloEstimate,
+  type RoundRobinResultExport,
+  type SavedTournamentMeta,
+  type PairCell,
 } from "@/lib/tournament"
 import { replayFens, movesToPgn, sansFromUci, numberMoves, type NumberedPly } from "@/lib/game-replay"
 import { buildTournamentRoster, type TournamentRosterEntry, type EngineOption } from "@/lib/tournament-roster"
@@ -281,6 +292,11 @@ export function TournamentTab({
   const [rkVersion, setRkVersion] = useState<string | null>(null)
 
   const [running, setRunning] = useState(false)
+  // Round-robin run state, lifted here so the head-to-head Run / exhibition
+  // buttons and the round-robin Run button mutually exclude — the runner's
+  // BatchControl is one shared managed state, so two concurrent batches would
+  // steer each other's cancel/pause.
+  const [rrRunning, setRrRunning] = useState(false)
   const [tally, setTally] = useState<RunningTally | null>(null)
   const [report, setReport] = useState<BatchReport | null>(null)
   // The two sides' display labels AS OF the run that produced `report`/`tally`
@@ -1024,7 +1040,7 @@ export function TournamentTab({
               variant="outline"
               size="sm"
               onClick={runExhibition}
-              disabled={running || exhibitionRunning}
+              disabled={running || exhibitionRunning || rrRunning}
             >
               {exhibitionRunning ? "Watching…" : "Watch two bots play"}
             </Button>
@@ -1447,7 +1463,7 @@ export function TournamentTab({
           </div>
 
           <div className="flex items-center gap-3">
-            <Button onClick={run} disabled={running}>
+            <Button onClick={run} disabled={running || rrRunning}>
               {running ? "Running…" : "Run Tournament"}
             </Button>
             {running && (
@@ -1616,6 +1632,21 @@ export function TournamentTab({
             </Button>
           </section>
         )}
+
+        {/* Round-robin tournament (spec 210 Phase 6): N participants, each
+            pair plays M color-flipped games, full cross-table + standings +
+            Elo estimates, with save/load persistence. Scheduled as ONE flat
+            batch through the same play_batch runner as everything above. */}
+        <RoundRobinSection
+          roster={roster}
+          baseMs={effectiveBaseMs}
+          incMs={effectiveIncMs}
+          concurrency={Math.max(0, Math.round(Number(concurrency) || 0))}
+          adjudicateTb={adjudicateTb}
+          otherRunActive={running || exhibitionRunning}
+          running={rrRunning}
+          onRunningChange={setRrRunning}
+        />
       </div>
     </div>
   )
@@ -2640,5 +2671,518 @@ function ExhibitionView({
         <PersonaLogPanel logs={outcome.persona_logs} whiteLabel={whiteLabel} blackLabel={blackLabel} />
       )}
     </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Round-robin tournament (spec 210 Phase 6)
+// ---------------------------------------------------------------------------
+
+/** Everything the cross-table/standings/Elo views need to render one
+ *  round-robin result — shared by the live run and a loaded saved result. */
+type RoundRobinDisplay = {
+  /** id+label per participant, snapshotted at run start (like reportLabels)
+   *  so post-run roster/selection changes never relabel a finished result. */
+  participants: { id: string; label: string }[]
+  labels: string[]
+  table: CrossTable
+  estimates: EloEstimate[]
+  gamesPerPairing: number
+  timeControl: { baseMs: number; incMs: number }
+  completedAt?: string
+  name?: string
+}
+
+/** Turn a persisted result back into the display shape. Standings/Elo could
+ *  be recomputed from the crossTable (buildStandings is), but the saved elo
+ *  rows are kept verbatim — they record what was reported at save time. */
+function displayFromSaved(saved: RoundRobinResultExport): RoundRobinDisplay {
+  return {
+    participants: saved.participants,
+    labels: saved.participants.map((p) => p.label),
+    table: { n: saved.participants.length, cells: saved.crossTable },
+    estimates: saved.elo.map((e, idx) => ({
+      idx,
+      elo: e.elo,
+      se: e.se ?? Infinity,
+      games: e.games,
+      anchored: e.anchored,
+    })),
+    gamesPerPairing: saved.gamesPerPairing,
+    timeControl: saved.timeControl,
+    completedAt: saved.completedAt,
+    name: saved.name,
+  }
+}
+
+function RoundRobinSection({
+  roster,
+  baseMs,
+  incMs,
+  concurrency,
+  adjudicateTb,
+  otherRunActive,
+  running,
+  onRunningChange,
+}: {
+  roster: TournamentRosterEntry[]
+  baseMs: number
+  incMs: number
+  concurrency: number
+  adjudicateTb: boolean
+  /** A head-to-head batch or exhibition is running (shared BatchControl). */
+  otherRunActive: boolean
+  running: boolean
+  onRunningChange: (running: boolean) => void
+}) {
+  // Selected roster entry ids, in roster order. Default: the two MVP engines.
+  const [selectedIds, setSelectedIds] = useState<string[]>([
+    "engine-stockfish",
+    "engine-reckless",
+  ])
+  const [gamesPerPairing, setGamesPerPairing] = useState("2")
+  // Opening variety: "book" seeds each color-flipped pair from a different
+  // roughly-balanced tagged position; "normal" plays every game from the
+  // standard start (deterministic engines will repeat games — personas won't).
+  const [openings, setOpenings] = useState<"book" | "normal">("book")
+
+  const [error, setError] = useState<string | null>(null)
+  const [tally, setTallyRR] = useState<{ completed: number; total: number } | null>(null)
+  const [display, setDisplay] = useState<RoundRobinDisplay | null>(null)
+  const [isLoadedResult, setIsLoadedResult] = useState(false)
+
+  // Persistence: saved-results list + save feedback.
+  const [savedList, setSavedList] = useState<SavedTournamentMeta[]>([])
+  const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  const [canSaveCurrent, setCanSaveCurrent] = useState(false)
+
+  const refreshSaved = useCallback(async () => {
+    try {
+      const list = await invoke<SavedTournamentMeta[]>("list_tournament_results")
+      setSavedList(list.filter((m) => m.kind === "round-robin"))
+    } catch {
+      // Not fatal (e.g. plain-browser dev without Tauri): the list stays empty.
+    }
+  }, [])
+  useEffect(() => { void refreshSaved() }, [refreshSaved])
+
+  const selected = useMemo(
+    () => roster.filter((e) => selectedIds.includes(e.participant.id)),
+    [roster, selectedIds],
+  )
+  const mNum = Math.max(1, Math.min(100, Math.round(Number(gamesPerPairing) || 2)))
+  const totalScheduled = roundRobinGameCount(selected.length, mNum)
+
+  const toggle = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
+
+  const runRR = useCallback(async () => {
+    setError(null)
+    setSaveMsg(null)
+    setDisplay(null)
+    setIsLoadedResult(false)
+    setCanSaveCurrent(false)
+    onRunningChange(true)
+    try {
+      const entries = roster.filter((e) => selectedIds.includes(e.participant.id))
+      if (entries.length < 2) throw new Error("Pick at least two participants.")
+      // Snapshot labels/participants at run start (same reportLabels pattern
+      // as the head-to-head run) — persona sides get a fresh per-run seed.
+      const labels = entries.map((e) => e.label)
+      const savedParticipants = entries.map((e) => ({ id: e.participant.id, label: e.label }))
+      const participants = entries.map((e) => withFreshSeed(e.participant))
+
+      // One seed per color-flipped pair per pairing.
+      const nPairs = (participants.length * (participants.length - 1)) / 2
+      const seedsNeeded = nPairs * Math.ceil(mNum / 2)
+      const positions = openings === "book" ? await loadPositions() : []
+      const seeds = buildSeeds(openings, seedsNeeded, positions)
+
+      const { specs, pairingById } = buildRoundRobinSpecs(
+        participants,
+        mNum,
+        seeds,
+        baseMs,
+        incMs,
+        MAX_PLIES,
+        adjudicateTb,
+      )
+      setTallyRR({ completed: 0, total: specs.length })
+
+      // Live cross-table/standings/Elo: recompute from every completed game
+      // as each BatchProgress event lands (cheap at these sizes).
+      const accumulated: GameOutcome[] = []
+      const recompute = () => {
+        const table = buildCrossTable(participants.length, accumulated, pairingById)
+        setDisplay({
+          participants: savedParticipants,
+          labels,
+          table,
+          estimates: estimateElo(table, 0),
+          gamesPerPairing: mNum,
+          timeControl: { baseMs, incMs },
+        })
+      }
+      const channel = new Channel<BatchProgress>()
+      channel.onmessage = (p: BatchProgress) => {
+        accumulated.push(p.last)
+        setTallyRR({ completed: p.completed, total: p.total })
+        recompute()
+      }
+      // The round-robin view is stats-only: no live board, no evaluator.
+      const moveChannel = new Channel<MoveEvent>()
+      const evalChannel = new Channel<EvalEvent>()
+
+      const result = await invoke<BatchReport>("play_batch", {
+        specs: specs as GameSpec[],
+        concurrency,
+        onProgress: channel,
+        onMove: moveChannel,
+        onEval: evalChannel,
+        evalPath: null,
+        evalMovetimeMs: null,
+        autoStart: true,
+        moveDelayMs: 0,
+      })
+
+      // Authoritative final recompute from the full report.
+      accumulated.length = 0
+      accumulated.push(...result.outcomes)
+      recompute()
+      setCanSaveCurrent(true)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      onRunningChange(false)
+    }
+  }, [roster, selectedIds, mNum, openings, baseMs, incMs, concurrency, adjudicateTb, onRunningChange])
+
+  const cancelRR = useCallback(async () => {
+    try { await invoke("cancel_batch") } catch (e) { setError(String(e)) }
+  }, [])
+
+  const saveResult = useCallback(async () => {
+    if (!display) return
+    try {
+      const name = `Round-robin — ${display.labels.length} participants, ${display.gamesPerPairing} games/pairing`
+      const exported = buildRoundRobinExport(
+        name,
+        display.participants,
+        display.gamesPerPairing,
+        display.timeControl,
+        display.table,
+        display.estimates,
+      )
+      const file = await invoke<string>("save_tournament_result", { result: exported })
+      setSaveMsg(`Saved as ${file}`)
+      setCanSaveCurrent(false)
+      void refreshSaved()
+    } catch (e) {
+      setError(String(e))
+    }
+  }, [display, refreshSaved])
+
+  const loadResult = useCallback(async (file: string) => {
+    setError(null)
+    try {
+      const v = await invoke<RoundRobinResultExport>("load_tournament_result", { file })
+      if (v?.kind !== "round-robin" || !Array.isArray(v.participants)) {
+        throw new Error(`Not a round-robin result: ${file}`)
+      }
+      setDisplay(displayFromSaved(v))
+      setIsLoadedResult(true)
+      setCanSaveCurrent(false)
+      setTallyRR(null)
+      setSaveMsg(null)
+    } catch (e) {
+      setError(String(e))
+    }
+  }, [])
+
+  const pct = tally && tally.total > 0 ? (tally.completed / tally.total) * 100 : 0
+
+  return (
+    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
+      <div>
+        <h2 className="text-sm font-semibold text-foreground">Round-robin tournament</h2>
+        <p className="text-xs text-muted-foreground">
+          Every pair of participants plays {mNum} game{mNum === 1 ? "" : "s"} (colors
+          flip within each pairing). Uses the time control, concurrency and
+          adjudication configured above; bot entries keep their honest strength labels.
+        </p>
+      </div>
+
+      {/* Participant multi-select */}
+      <div className="flex flex-col gap-1">
+        <span className="text-xs text-muted-foreground">
+          Participants ({selected.length} selected)
+        </span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 max-h-48 overflow-y-auto border border-white/10 rounded-md p-2">
+          {roster.map((e) => (
+            <label
+              key={e.participant.id}
+              className={`flex items-center gap-2 text-sm cursor-pointer select-none ${e.disabled ? "opacity-50" : ""}`}
+            >
+              <input
+                type="checkbox"
+                data-testid={`rr-participant-${e.participant.id}`}
+                className="accent-green-600"
+                checked={selectedIds.includes(e.participant.id)}
+                onChange={() => toggle(e.participant.id)}
+                disabled={running || Boolean(e.disabled)}
+              />
+              <span className="text-foreground truncate">{e.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Games per pairing</span>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            data-testid="rr-games-per-pairing"
+            className="w-28 bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+            value={gamesPerPairing}
+            onChange={(e) => setGamesPerPairing(e.target.value)}
+            disabled={running}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Openings</span>
+          <select
+            data-testid="rr-openings"
+            className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+            value={openings}
+            onChange={(e) => setOpenings(e.target.value as "book" | "normal")}
+            disabled={running}
+          >
+            <option value="book">Varied balanced openings</option>
+            <option value="normal">Standard start every game</option>
+          </select>
+        </label>
+        <span className="text-xs text-muted-foreground pb-2" data-testid="rr-total-games">
+          {selected.length >= 2
+            ? `${totalScheduled} games total (${selected.length} participants, ${(selected.length * (selected.length - 1)) / 2} pairings)`
+            : "Pick at least two participants."}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button
+          data-testid="rr-run"
+          onClick={runRR}
+          disabled={running || otherRunActive || selected.length < 2}
+        >
+          {running ? "Running…" : "Run Round-robin"}
+        </Button>
+        {running && (
+          <Button variant="destructive" onClick={cancelRR}>
+            Cancel
+          </Button>
+        )}
+        {tally && (
+          <span className="text-xs text-muted-foreground font-mono">
+            {tally.completed} / {tally.total}
+          </span>
+        )}
+      </div>
+      {running && tally && <Progress value={pct} />}
+
+      {error && (
+        <div className="bg-red-900/40 border border-red-700/50 text-red-100 rounded-md px-3 py-2 text-sm">
+          {error}
+        </div>
+      )}
+
+      {display && (
+        <>
+          {isLoadedResult && (
+            <div className="text-xs text-muted-foreground">
+              Loaded saved result{display.name ? `: ${display.name}` : ""}
+              {display.completedAt ? ` (${formatMeasuredDate(display.completedAt)})` : ""}
+            </div>
+          )}
+          <StandingsView
+            labels={display.labels}
+            table={display.table}
+            estimates={display.estimates}
+          />
+          <CrossTableView labels={display.labels} cells={display.table.cells} />
+          {canSaveCurrent && (
+            <div className="flex items-center gap-3">
+              <Button size="sm" variant="outline" data-testid="rr-save" onClick={saveResult}>
+                Save result
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Writes the cross-table + Elo estimates to this app&apos;s data folder.
+              </span>
+            </div>
+          )}
+          {saveMsg && <span className="text-xs text-green-400 font-mono">{saveMsg}</span>}
+        </>
+      )}
+
+      {/* Saved results (spec 210 Phase 6 persistence checklist item) */}
+      {savedList.length > 0 && (
+        <div className="flex flex-col gap-1 border-t border-white/10 pt-3" data-testid="rr-saved-list">
+          <span className="text-xs font-semibold text-foreground">Saved tournaments</span>
+          {savedList.map((m) => (
+            <div key={m.file} className="flex items-center gap-2 text-xs">
+              <button
+                data-testid={`rr-load-${m.file}`}
+                onClick={() => loadResult(m.file)}
+                disabled={running}
+                className="px-2 py-0.5 rounded-md border border-input text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors disabled:opacity-50"
+              >
+                Load
+              </button>
+              <span className="text-foreground truncate">{m.name || m.file}</span>
+              <span className="text-muted-foreground font-mono shrink-0">
+                {m.total_games} games
+                {m.completed_at ? ` · ${formatMeasuredDate(m.completed_at)}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Standings + Elo estimates for one round-robin (live or loaded). */
+function StandingsView({
+  labels,
+  table,
+  estimates,
+}: {
+  labels: string[]
+  table: CrossTable
+  estimates: EloEstimate[]
+}) {
+  const rows = buildStandings(table)
+  const eloByIdx = new Map(estimates.map((e) => [e.idx, e]))
+  const anchorLabel = labels[estimates.find((e) => e.anchored)?.idx ?? 0] ?? "?"
+  const fmtElo = (e: EloEstimate) => {
+    const sign = e.elo >= 0 ? "+" : ""
+    const pm = Number.isFinite(e.se) ? ` ± ${Math.round(e.se)}` : ""
+    return `${sign}${Math.round(e.elo)}${pm}`
+  }
+  return (
+    <div className="flex flex-col gap-1" data-testid="rr-standings">
+      <span className="text-xs text-muted-foreground">Standings</span>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs font-mono">
+          <thead>
+            <tr className="text-muted-foreground text-left">
+              <th className="pr-3 py-1">#</th>
+              <th className="pr-3 py-1">participant</th>
+              <th className="pr-3 py-1 text-right">games</th>
+              <th className="pr-3 py-1 text-right">+ / = / −</th>
+              <th className="pr-3 py-1 text-right">points</th>
+              <th className="pr-3 py-1 text-right">Elo est.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, rank) => {
+              const e = eloByIdx.get(r.idx)
+              return (
+                <tr key={r.idx} className="border-t border-white/5">
+                  <td className="pr-3 py-1 text-muted-foreground">{rank + 1}</td>
+                  <td className="pr-3 py-1 text-foreground">{labels[r.idx] ?? `#${r.idx}`}</td>
+                  <td className="pr-3 py-1 text-right">{r.games}</td>
+                  <td className="pr-3 py-1 text-right">
+                    {r.wins} / {r.draws} / {r.losses}
+                  </td>
+                  <td className="pr-3 py-1 text-right text-foreground">{r.points}</td>
+                  <td className="pr-3 py-1 text-right">
+                    {e
+                      ? e.anchored
+                        ? "0 (anchor)"
+                        : e.games > 0
+                          ? `${fmtElo(e)} (from ${e.games} games)`
+                          : "no games"
+                      : "—"}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <span className="text-[10px] text-muted-foreground">
+        Elo: logistic (Bradley–Terry) maximum likelihood over the cross-table,
+        anchored to {anchorLabel} = 0. ± is an approximate standard error from
+        each participant&apos;s own game count; a 1-virtual-draw-per-pairing prior
+        keeps clean sweeps finite. Small samples stay honest: the ± says so.
+      </span>
+    </div>
+  )
+}
+
+/** The full cross-table: cells[i][j] = row participant's record vs column. */
+function CrossTableView({
+  labels,
+  cells,
+}: {
+  labels: string[]
+  cells: (PairCell | null)[][]
+}) {
+  // Short column headers: index numbers keyed to the row labels.
+  return (
+    <div className="flex flex-col gap-1" data-testid="rr-cross-table">
+      <span className="text-xs text-muted-foreground">
+        Cross-table (row vs column: +wins =draws −losses, points)
+      </span>
+      <div className="overflow-x-auto">
+        <table className="text-xs font-mono border-collapse">
+          <thead>
+            <tr className="text-muted-foreground text-left">
+              <th className="pr-3 py-1" />
+              {labels.map((_, j) => (
+                <th key={j} className="px-2 py-1 text-center">{j + 1}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {labels.map((label, i) => (
+              <tr key={i} className="border-t border-white/5">
+                <td className="pr-3 py-1 text-foreground whitespace-nowrap">
+                  <span className="text-muted-foreground">{i + 1}.</span> {label}
+                </td>
+                {labels.map((_, j) => {
+                  const c = cells[i]?.[j]
+                  if (i === j || !c) {
+                    return (
+                      <td key={j} className="px-2 py-1 text-center text-muted-foreground">
+                        {i === j ? "×" : "—"}
+                      </td>
+                    )
+                  }
+                  return (
+                    <td
+                      key={j}
+                      className="px-2 py-1 text-center whitespace-nowrap"
+                      title={`${label} vs ${labels[j]}: ${c.wins} wins, ${c.draws} draws, ${c.losses} losses (${c.games} games)`}
+                    >
+                      <span className="text-green-400">+{c.wins}</span>{" "}
+                      <span className="text-muted-foreground">={c.draws}</span>{" "}
+                      <span className="text-red-400">−{c.losses}</span>{" "}
+                      <span className="text-foreground">({c.points})</span>
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }

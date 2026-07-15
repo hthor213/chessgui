@@ -1152,3 +1152,379 @@ export function buildTournamentResultExport(
     completedAt,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Round-robin tournament (spec 210 Phase 6)
+// ---------------------------------------------------------------------------
+//
+// N participants (engines OR personas — the spec-218 dropdown roster), each
+// unordered pair plays M games with color flip. The pairing logic lives here
+// (like buildSpecs does) and emits ONE flat GameSpec[] batch — the existing
+// runner's batch machinery + concurrency cap schedules it; nothing round-robin-
+// specific exists on the Rust side.
+
+/** Which round-robin pairing a game id belongs to: indices into the
+ *  participants array. `a` is the pairing's FIRST participant; a spec's
+ *  `flipped` means "participant `a` is Black" (mirrors buildSpecs' "engine A
+ *  is Black" convention, per pairing). */
+export type RoundRobinPairing = { a: number; b: number }
+
+export type RoundRobinBatch = {
+  specs: GameSpec[]
+  evalById: EvalMap
+  /** game id -> its pairing, for cross-table scoring. */
+  pairingById: Map<number, RoundRobinPairing>
+}
+
+/**
+ * Schedule a full round-robin: every unordered pair (i<j) of `participants`
+ * plays `gamesPerPairing` games, colors alternating within the pairing
+ * (game 1: i White, game 2: j White, ...). Seeds are drawn sequentially from
+ * `seeds` (cycled if the pool is short — same reuse rule as buildSeeds); each
+ * seed covers one color-flipped pair of games, so an odd `gamesPerPairing`
+ * leaves its last seed half-used (participant i gets the extra White).
+ * ids are assigned sequentially across the whole flat batch.
+ */
+export function buildRoundRobinSpecs(
+  participants: Participant[],
+  gamesPerPairing: number,
+  seeds: Seed[],
+  baseMs: number,
+  incMs: number,
+  maxPlies: number,
+  adjudicateTb: boolean,
+): RoundRobinBatch {
+  const specs: GameSpec[] = []
+  const evalById: EvalMap = new Map()
+  const pairingById = new Map<number, RoundRobinPairing>()
+  if (participants.length < 2 || gamesPerPairing <= 0) {
+    return { specs, evalById, pairingById }
+  }
+  let id = 0
+  let seedCursor = 0
+  const nextSeed = (): Seed =>
+    seeds.length > 0 ? seeds[seedCursor++ % seeds.length] : { fen: null, eval: 0 }
+
+  for (let i = 0; i < participants.length; i++) {
+    for (let j = i + 1; j < participants.length; j++) {
+      for (let g = 0; g < gamesPerPairing; g += 2) {
+        const seed = nextSeed()
+        const gamesFromSeed = Math.min(2, gamesPerPairing - g)
+        for (let k = 0; k < gamesFromSeed; k++) {
+          const flipped = k === 1 // second game of the seed: i plays Black
+          const white = flipped ? participants[j] : participants[i]
+          const black = flipped ? participants[i] : participants[j]
+          const spec: GameSpec = {
+            id,
+            white_path: white.kind === "uci" ? (white.enginePath ?? "") : "",
+            black_path: black.kind === "uci" ? (black.enginePath ?? "") : "",
+            start_fen: seed.fen,
+            base_ms: baseMs,
+            inc_ms: incMs,
+            max_plies: maxPlies,
+            flipped,
+            adjudicate_tb: adjudicateTb,
+            white,
+            black,
+          }
+          evalById.set(id, { eval: seed.eval })
+          pairingById.set(id, { a: i, b: j })
+          specs.push(spec)
+          id++
+        }
+      }
+    }
+  }
+  return { specs, evalById, pairingById }
+}
+
+/** Total games a full round-robin schedules. */
+export function roundRobinGameCount(nParticipants: number, gamesPerPairing: number): number {
+  if (nParticipants < 2 || gamesPerPairing <= 0) return 0
+  return ((nParticipants * (nParticipants - 1)) / 2) * gamesPerPairing
+}
+
+/** One directed cross-table cell: participant i's record against j. */
+export type PairCell = {
+  wins: number
+  draws: number
+  losses: number
+  games: number
+  /** wins + draws/2 */
+  points: number
+}
+
+/** Full cross-table: `cells[i][j]` is i's record vs j (null on the diagonal).
+ *  Symmetric by construction: cells[j][i] mirrors wins/losses. */
+export type CrossTable = {
+  n: number
+  cells: (PairCell | null)[][]
+}
+
+function emptyCell(): PairCell {
+  return { wins: 0, draws: 0, losses: 0, games: 0, points: 0 }
+}
+
+/**
+ * Aggregate completed outcomes into the cross-table. Err games and aborted
+ * games are excluded (consistent with every other stat in this module);
+ * `flipped` means the pairing's first participant played Black.
+ */
+export function buildCrossTable(
+  nParticipants: number,
+  outcomes: GameOutcome[],
+  pairingById: Map<number, RoundRobinPairing>,
+): CrossTable {
+  const cells: (PairCell | null)[][] = Array.from({ length: nParticipants }, (_, i) =>
+    Array.from({ length: nParticipants }, (_, j) => (i === j ? null : emptyCell())),
+  )
+  for (const o of outcomes) {
+    if (o.aborted) continue
+    const g = gameResult(o)
+    if (!g) continue
+    const pairing = pairingById.get(o.id)
+    if (!pairing) continue
+    const { a, b } = pairing
+    const ca = cells[a]?.[b]
+    const cb = cells[b]?.[a]
+    if (!ca || !cb) continue
+    ca.games++
+    cb.games++
+    if (g.result === "1/2-1/2") {
+      ca.draws++
+      cb.draws++
+    } else {
+      // a is White unless flipped.
+      const aWon = (g.result === "1-0") === !o.flipped
+      if (aWon) {
+        ca.wins++
+        cb.losses++
+      } else {
+        ca.losses++
+        cb.wins++
+      }
+    }
+    ca.points = ca.wins + ca.draws / 2
+    cb.points = cb.wins + cb.draws / 2
+  }
+  return { n: nParticipants, cells }
+}
+
+/** One standings row (totals across all of a participant's pairings). */
+export type StandingRow = {
+  idx: number
+  games: number
+  wins: number
+  draws: number
+  losses: number
+  points: number
+}
+
+/** Standings from the cross-table, sorted by points desc, then wins desc,
+ *  then index asc (stable for ties). */
+export function buildStandings(table: CrossTable): StandingRow[] {
+  const rows: StandingRow[] = []
+  for (let i = 0; i < table.n; i++) {
+    const row: StandingRow = { idx: i, games: 0, wins: 0, draws: 0, losses: 0, points: 0 }
+    for (let j = 0; j < table.n; j++) {
+      const c = table.cells[i][j]
+      if (!c) continue
+      row.games += c.games
+      row.wins += c.wins
+      row.draws += c.draws
+      row.losses += c.losses
+    }
+    row.points = row.wins + row.draws / 2
+    rows.push(row)
+  }
+  rows.sort((a, b) => b.points - a.points || b.wins - a.wins || a.idx - b.idx)
+  return rows
+}
+
+/** One participant's Elo estimate relative to the anchor. */
+export type EloEstimate = {
+  idx: number
+  /** Rating relative to the anchor participant (anchor = 0 by definition). */
+  elo: number
+  /** Approximate standard error (Elo). Infinity when the participant has no
+   *  scored games; 0 for the anchor (fixed by definition). Ignores rating
+   *  covariance, so it slightly understates joint uncertainty — labelled
+   *  "approximate" wherever shown. */
+  se: number
+  /** Real games underlying the estimate (prior games not counted). */
+  games: number
+  anchored: boolean
+}
+
+/**
+ * Maximum-likelihood Elo estimates over a cross-table, anchored to one named
+ * participant (its rating is 0 by definition; every other rating is relative).
+ *
+ * Model: Bradley–Terry, which IS the Elo logistic — participant i beats j with
+ * probability g_i/(g_i+g_j) where g = 10^(R/400). Draws count as half a win
+ * for each side (the classical Elostat treatment; no separate draw parameter).
+ * Fitted with the standard MM (minorization–maximization) iteration, which is
+ * guaranteed to converge for this likelihood:
+ *
+ *     g_i <- W_i / sum_j n_ij / (g_i + g_j)
+ *
+ * where W_i is i's total points and n_ij the games between i and j.
+ *
+ * A BayesElo-style prior of `priorDraws` virtual draws is added to EVERY
+ * pairing (default 1): it keeps a 100%-sweep finite and the player graph
+ * connected, at the cost of shrinking extreme results slightly toward 0 —
+ * set priorDraws: 0 for the raw MLE. Standard errors come from the Fisher
+ * information of the REAL games only (evaluated at the fitted ratings), so
+ * the ± honestly reflects the actual sample size.
+ */
+export function estimateElo(
+  table: CrossTable,
+  anchorIdx = 0,
+  opts: { priorDraws?: number; maxIter?: number } = {},
+): EloEstimate[] {
+  const n = table.n
+  const priorDraws = opts.priorDraws ?? 1
+  const maxIter = opts.maxIter ?? 500
+  if (n === 0) return []
+
+  // Symmetric game counts and per-participant points, prior folded in.
+  const games = (i: number, j: number) =>
+    (table.cells[i][j]?.games ?? 0) + (i !== j ? priorDraws : 0)
+  const points = (i: number, j: number) =>
+    (table.cells[i][j]?.points ?? 0) + (i !== j ? priorDraws / 2 : 0)
+
+  let gamma = Array.from({ length: n }, () => 1)
+  for (let iter = 0; iter < maxIter; iter++) {
+    const next = gamma.slice()
+    let maxDelta = 0
+    for (let i = 0; i < n; i++) {
+      let w = 0
+      let denom = 0
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue
+        w += points(i, j)
+        denom += games(i, j) / (gamma[i] + gamma[j])
+      }
+      if (denom > 0) {
+        // Clamp so a 100% sweep with priorDraws:0 stays finite (±2400 Elo).
+        next[i] = Math.min(1e6, Math.max(1e-6, w / denom))
+      }
+      maxDelta = Math.max(maxDelta, Math.abs(Math.log(next[i]) - Math.log(gamma[i])))
+    }
+    // Renormalize (geometric mean 1) so the free overall scale can't drift.
+    const meanLog = next.reduce((s, g) => s + Math.log(g), 0) / n
+    gamma = next.map((g) => g / Math.exp(meanLog))
+    if (maxDelta < 1e-12) break
+  }
+
+  const toElo = (g: number) => (400 / Math.LN10) * Math.log(g)
+  const anchorElo = toElo(gamma[Math.min(anchorIdx, n - 1)])
+  const k = Math.LN10 / 400 // dP/dR slope factor of the Elo logistic
+
+  return gamma.map((g, i) => {
+    let info = 0
+    let realGames = 0
+    for (let j = 0; j < n; j++) {
+      if (j === i) continue
+      const nij = table.cells[i][j]?.games ?? 0
+      if (nij === 0) continue
+      realGames += nij
+      const e = g / (g + gamma[j])
+      info += k * k * nij * e * (1 - e)
+    }
+    const anchored = i === anchorIdx
+    return {
+      idx: i,
+      elo: toElo(g) - anchorElo,
+      se: anchored ? 0 : info > 0 ? 1 / Math.sqrt(info) : Infinity,
+      games: realGames,
+      anchored,
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Round-robin result persistence (spec 210 Phase 6 checklist item)
+// ---------------------------------------------------------------------------
+
+/** One participant as recorded in a saved result: stable id + the honest
+ *  roster label ("engine: stockfish 18", "bot: kasparov (BT3, 64%
+ *  move-match)") — persona entries keep their spec-216/218 strength labels
+ *  in saved standings, same as live. */
+export type SavedParticipant = { id: string; label: string }
+
+/** One saved Elo row (fitted at save time; recomputable from crossTable). */
+export type SavedEloRow = {
+  id: string
+  label: string
+  elo: number
+  /** Approximate ± (see EloEstimate.se); null when it was Infinity (no games)
+   *  — JSON has no Infinity. */
+  se: number | null
+  games: number
+  anchored: boolean
+}
+
+/**
+ * A completed round-robin, shaped for JSON persistence. Follows the
+ * spec-210-Phase-5 export conventions from `buildTournamentResultExport`
+ * (camelCase fields, ISO `completedAt`), with `version`/`kind` so the
+ * saved-results list can grow other shapes later without guessing.
+ */
+export type RoundRobinResultExport = {
+  version: 1
+  kind: "round-robin"
+  name: string
+  completedAt: string
+  gamesPerPairing: number
+  /** Games actually counted (completed, non-aborted). */
+  totalGames: number
+  timeControl: { baseMs: number; incMs: number }
+  participants: SavedParticipant[]
+  /** cells[i][j] = participants[i]'s record vs participants[j]. */
+  crossTable: (PairCell | null)[][]
+  elo: SavedEloRow[]
+}
+
+/** Shape a completed round-robin for persistence. Pure — the tab hands the
+ *  result to the `save_tournament_result` Tauri command. */
+export function buildRoundRobinExport(
+  name: string,
+  participants: SavedParticipant[],
+  gamesPerPairing: number,
+  timeControl: { baseMs: number; incMs: number },
+  table: CrossTable,
+  estimates: EloEstimate[],
+  completedAt: string = new Date().toISOString(),
+): RoundRobinResultExport {
+  const totalGames = buildStandings(table).reduce((s, r) => s + r.games, 0) / 2
+  return {
+    version: 1,
+    kind: "round-robin",
+    name,
+    completedAt,
+    gamesPerPairing,
+    totalGames,
+    timeControl,
+    participants,
+    crossTable: table.cells,
+    elo: estimates.map((e) => ({
+      id: participants[e.idx]?.id ?? String(e.idx),
+      label: participants[e.idx]?.label ?? `#${e.idx}`,
+      elo: e.elo,
+      se: Number.isFinite(e.se) ? e.se : null,
+      games: e.games,
+      anchored: e.anchored,
+    })),
+  }
+}
+
+/** Metadata row for one saved result file. Mirrors Rust `SavedTournamentMeta`
+ *  (snake_case, no rename — matches the module's other event structs). */
+export type SavedTournamentMeta = {
+  file: string
+  name: string
+  completed_at: string
+  total_games: number
+  kind: string
+}
