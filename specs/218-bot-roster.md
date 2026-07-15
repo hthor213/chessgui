@@ -103,12 +103,13 @@ strength (spec:216 curve) — no unmeasured realism claims.
 
 ### Ship-now polish (no roster dependency)
 
-- [ ] Move numbers in the spar/Play-vs-Bot move list (2026-07-15, user request):
+- [x] Move numbers in the spar/Play-vs-Bot move list (2026-07-15, user request):
       numbered move pairs, so realism-feedback notes can cite "12.Nxe5" instead of
       prose — strengthens the shipped feedback ground-truth stream (spec:214).
-      Later: the same fix in the tournament live viewer (today it shows only
-      "game #N · move M"), landing with the exhibition viewer work below.
-- [ ] Back/forward review during a live game (2026-07-15, user request — "he
+      (headless-verified, user eyeball pending) Later: the same fix in the
+      tournament live viewer (today it shows only "game #N · move M"), landing
+      with the exhibition viewer work below.
+- [x] Back/forward review during a live game (2026-07-15, user request — "he
       captured with the knight on e5 and I think he captured my knight (I know he
       did), but it helps to have back/forward to see better what he's planning...
       similar to how one might ask in a friendly game 'wait, what did you do'"):
@@ -117,6 +118,7 @@ strength (spec:216 curve) — no unmeasured realism claims.
       mutates the live game; board interaction suppressed while browsing; snaps
       back to live on the opponent's move or "go live". Explicitly NOT takeback
       (the destructive control / spec:010 undo is a different mechanic).
+      (headless-verified, user eyeball pending)
 
 ### Roster
 

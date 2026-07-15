@@ -193,6 +193,64 @@ export function SparTab() {
   // a take-back / new game) is discarded instead of applied to a moved board.
   const pendingFenRef = useRef<string | null>(null)
 
+  // Back/forward review (spec 218 ship-now polish, user request — "wait, what
+  // did you do"): review-only, NEVER mutates the live game. null = live (board
+  // shows `fen`); -1 = the start position; i = the position after plies[i].
+  // Board interaction and the live rival-turn effect key off `fen`/`userToMove`
+  // only, so a review cursor can never itself trigger a rival move.
+  const [reviewCursor, setReviewCursor] = useState<number | null>(null)
+  const reviewing = reviewCursor !== null
+  const derivedFen =
+    reviewCursor === null ? fen : reviewCursor === -1 ? startFen : plies[reviewCursor]?.fen ?? fen
+
+  // Snap back to live automatically whenever the ply history changes — the
+  // opponent's move landing, the user's own move, or a take-back all mean the
+  // reviewed position may no longer be the tip (or may no longer exist).
+  const priorPliesLengthRef = useRef(plies.length)
+  useEffect(() => {
+    if (plies.length !== priorPliesLengthRef.current) {
+      priorPliesLengthRef.current = plies.length
+      setReviewCursor(null)
+    }
+  }, [plies.length])
+
+  // Step the review cursor by one ply in either direction. Live (null) is
+  // treated as sitting at the last ply for stepping purposes; stepping past
+  // the last ply snaps back to live rather than going out of range.
+  const stepReview = useCallback(
+    (delta: number) => {
+      if (plies.length === 0) return
+      const currentIndex = reviewCursor === null ? plies.length - 1 : reviewCursor
+      const next = currentIndex + delta
+      if (next >= plies.length - 1) setReviewCursor(null)
+      else if (next < -1) setReviewCursor(-1)
+      else setReviewCursor(next)
+    },
+    [plies.length, reviewCursor],
+  )
+  const goLive = useCallback(() => setReviewCursor(null), [])
+
+  // Arrow-key review stepping. Guarded like the main board's key handler
+  // (app/page.tsx): never intercept typing in an editable element (the
+  // realism-feedback textarea lives on this same screen).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) {
+        return
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault()
+        stepReview(-1)
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault()
+        stepReview(1)
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [stepReview])
+
   const rivalColor: SparColor = userColor === "white" ? "black" : "white"
   // A manual end (resign / draw agreed) overrides the position-derived status;
   // a probe abort freezes the board without claiming any result at all.
@@ -234,6 +292,7 @@ export function SparTab() {
     setManualEnd(null)
     setLastDrawOfferPly(null)
     setDrawDeclinedNote(false)
+    setReviewCursor(null)
 
     if (bookStartMode === "movebymove") {
       // Spec 214 "Move-by-move rival book": start at move 1. If the user's
@@ -331,20 +390,20 @@ export function SparTab() {
 
   const userToMove = phase === "playing" && !!fen && turnOf(fen) === userColor && !frozen
   const legalMoves = useMemo(
-    () => (userToMove && !thinking ? legalDests(fen) : new Map<Key, Key[]>()),
-    [userToMove, thinking, fen],
+    () => (userToMove && !thinking && !reviewing ? legalDests(fen) : new Map<Key, Key[]>()),
+    [userToMove, thinking, fen, reviewing],
   )
 
   const onBoardMove = useCallback(
     (from: Key, to: Key) => {
-      if (!userToMove || thinking) return
+      if (!userToMove || thinking || reviewing) return
       const uci = dragToUci(fen, from as string, to as string)
       const ply = applyUci(fen, uci)
       if (!ply) return
       setPlies((prev) => [...prev, ply])
       setFen(ply.fen)
     },
-    [userToMove, thinking, fen],
+    [userToMove, thinking, reviewing, fen],
   )
 
   // Take back to the user's previous turn: drop the rival's reply and the
@@ -450,10 +509,10 @@ export function SparTab() {
   }, [feedbackOpen, feedbackNote, feedbackConfidence, level, plies, startFen, sparMode])
 
   const lastShape = useMemo<DrawShape[]>(() => {
-    if (plies.length === 0) return []
+    if (reviewing || plies.length === 0) return []
     const uci = plies[plies.length - 1].uci
     return [{ orig: uci.slice(0, 2) as Key, dest: uci.slice(2, 4) as Key, brush: "green" }]
-  }, [plies])
+  }, [plies, reviewing])
 
   if (phase === "intro") {
     return (
@@ -509,17 +568,53 @@ export function SparTab() {
       </div>
 
       <div className="flex-1 min-h-0 flex gap-8 p-6">
-        <div className="flex-1 min-w-0 flex items-center justify-center" data-testid="spar-board">
+        <div className="flex-1 min-w-0 flex flex-col items-center justify-center gap-3" data-testid="spar-board">
           <Board
             key={boardNonce}
-            fen={fen}
+            fen={derivedFen}
             orientation={userColor}
             movableColor={userColor}
             onMove={onBoardMove}
             legalMoves={legalMoves}
             autoShapes={lastShape}
-            viewOnly={!userToMove}
+            viewOnly={!userToMove || reviewing}
           />
+
+          <div className="flex items-center gap-2 h-7">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => stepReview(-1)}
+              disabled={plies.length === 0}
+              title="Step back one ply (←)"
+              data-testid="spar-review-back"
+            >
+              ← Back
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => stepReview(1)}
+              disabled={plies.length === 0}
+              title="Step forward one ply (→)"
+              data-testid="spar-review-forward"
+            >
+              Forward →
+            </Button>
+            {reviewing && (
+              <>
+                <span
+                  className="text-xs px-2 py-1 rounded-md bg-amber-400/10 text-amber-300 border border-amber-400/30"
+                  data-testid="spar-review-pill"
+                >
+                  Reviewing move {reviewCursor === -1 ? 0 : reviewCursor! + 1} of {plies.length} —{" "}
+                  <button className="underline hover:text-amber-200" onClick={goLive} data-testid="spar-review-live">
+                    Live
+                  </button>
+                </span>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="w-72 shrink-0 flex flex-col gap-4 overflow-auto">
@@ -560,7 +655,14 @@ export function SparTab() {
             </p>
           )}
 
-          <MoveList plies={plies} userColor={userColor} startFen={startFen} rivalLabel={RIVAL_LABEL} />
+          <MoveList
+            plies={plies}
+            userColor={userColor}
+            startFen={startFen}
+            rivalLabel={RIVAL_LABEL}
+            reviewCursor={reviewCursor}
+            onSelectPly={setReviewCursor}
+          />
 
           {moveError && (
             <p className="text-xs text-red-400" data-testid="spar-error">
@@ -713,11 +815,81 @@ export function SparTab() {
   )
 }
 
+// A move-number row (spec 218 ship-now polish, user request — "for easier
+// reference in 'didn't feel like him'", e.g. "12.Nxe5" instead of prose),
+// matching the numbered-pairs pattern in components/move-list.tsx (the main
+// analysis board's move list). Honors a start FEN that's already mid-game
+// (drop-into-line, or a move-by-move start with the rival on White) the same
+// way sanMoveText() above does.
+interface MoveRow {
+  number: number
+  white?: { ply: SparPly; index: number }
+  black?: { ply: SparPly; index: number }
+}
+
+function buildMoveRows(startFen: string, plies: SparPly[]): MoveRow[] {
+  const fields = startFen.split(" ")
+  let toMove: SparColor = fields[1] === "b" ? "black" : "white"
+  let moveNum = parseInt(fields[5] ?? "1", 10) || 1
+  const rows: MoveRow[] = []
+  let current: MoveRow | null = null
+  for (let i = 0; i < plies.length; i++) {
+    const p = plies[i]
+    if (toMove === "white") {
+      current = { number: moveNum, white: { ply: p, index: i } }
+      rows.push(current)
+    } else {
+      if (!current || current.number !== moveNum) {
+        current = { number: moveNum }
+        rows.push(current)
+      }
+      current.black = { ply: p, index: i }
+      moveNum += 1
+    }
+    toMove = toMove === "white" ? "black" : "white"
+  }
+  return rows
+}
+
+function MoveEntry({
+  ply,
+  index,
+  isUserPly,
+  isCurrent,
+  who,
+  onSelectPly,
+}: {
+  ply: SparPly
+  index: number
+  isUserPly: boolean
+  isCurrent: boolean
+  who: string
+  onSelectPly: (i: number) => void
+}) {
+  return (
+    <span
+      title={who}
+      onClick={() => onSelectPly(index)}
+      className={`font-mono px-1 py-px rounded-sm cursor-pointer ${
+        isCurrent
+          ? "font-bold text-white bg-amber-400/25"
+          : isUserPly
+            ? "text-foreground hover:bg-white/5"
+            : "text-sky-300/90 hover:bg-white/5"
+      }`}
+    >
+      {ply.san}
+    </span>
+  )
+}
+
 function MoveList({
   plies,
   userColor,
   startFen,
   rivalLabel,
+  reviewCursor,
+  onSelectPly,
 }: {
   plies: SparPly[]
   userColor: SparColor
@@ -726,27 +898,48 @@ function MoveList({
    *  start with the rival on White does NOT (his own first move goes first). */
   startFen: string
   rivalLabel: string
+  /** Back/forward review (spec 218): null = live, -1 = start position, i =
+   *  the position after plies[i] — highlights the reviewed ply and, when
+   *  clicked, jumps the review cursor there without touching the live game. */
+  reviewCursor: number | null
+  onSelectPly: (i: number) => void
 }) {
   const userMovesFirst = turnOf(startFen) === userColor
+  const rows = useMemo(() => buildMoveRows(startFen, plies), [startFen, plies])
+  const whoFor = (i: number) => ((userMovesFirst ? i % 2 === 0 : i % 2 === 1) ? "You" : rivalLabel)
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 flex-1 min-h-0 overflow-auto">
       <div className="text-xs font-semibold text-muted-foreground mb-2">Moves</div>
       {plies.length === 0 ? (
         <p className="text-xs text-muted-foreground">No moves yet — make yours.</p>
       ) : (
-        <ol className="space-y-0.5 text-sm" data-testid="spar-movelist">
-          {plies.map((p, i) => {
-            const isUserPly = userMovesFirst ? i % 2 === 0 : i % 2 === 1
-            const who = isUserPly ? "You" : rivalLabel
-            const color = isUserPly ? "text-foreground" : "text-sky-300/90"
-            return (
-              <li key={i} className="flex items-baseline gap-2">
-                <span className={`w-10 shrink-0 text-xs ${color}`}>{who}</span>
-                <span className="font-mono">{p.san}</span>
-              </li>
-            )
-          })}
-        </ol>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm" data-testid="spar-movelist">
+          {rows.map((row) => (
+            <div key={row.number} className="flex items-baseline gap-1">
+              <span className="text-xs text-muted-foreground font-mono select-none">{row.number}.</span>
+              {row.white && (
+                <MoveEntry
+                  ply={row.white.ply}
+                  index={row.white.index}
+                  isUserPly={userMovesFirst ? row.white.index % 2 === 0 : row.white.index % 2 === 1}
+                  isCurrent={reviewCursor === row.white.index}
+                  who={whoFor(row.white.index)}
+                  onSelectPly={onSelectPly}
+                />
+              )}
+              {row.black && (
+                <MoveEntry
+                  ply={row.black.ply}
+                  index={row.black.index}
+                  isUserPly={userMovesFirst ? row.black.index % 2 === 0 : row.black.index % 2 === 1}
+                  isCurrent={reviewCursor === row.black.index}
+                  who={whoFor(row.black.index)}
+                  onSelectPly={onSelectPly}
+                />
+              )}
+            </div>
+          ))}
+        </div>
       )}
       <span className="sr-only">{userColor}</span>
     </div>
