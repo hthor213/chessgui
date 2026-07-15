@@ -43,6 +43,21 @@ import {
   type MetricPoint,
   type TrainingOverlay,
 } from "@/lib/training-program"
+import {
+  mergeMetricPoints,
+  parseMeasurementJson,
+  sparScorePoint,
+} from "@/lib/training-measure"
+import { projectMetric, winsPerTen, type Projection } from "@/lib/training-projection"
+import {
+  ANOMALY_LABELS,
+  loadSparResults,
+  persistSparResults,
+  setCountsToward,
+  sparScore,
+  SPAR_SCORE_WINDOW_DAYS,
+  type SparResultEntry,
+} from "@/lib/spar-results"
 
 /** Which Learn feature a block launches into, when one exists today. */
 export type LearnLaunch = "calibrate" | "spar"
@@ -82,6 +97,10 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   const [overlay, setOverlay] = useState<TrainingOverlay | null>(null)
   const [log, setLog] = useState<LogByDate>({})
   const [metrics, setMetrics] = useState<MetricPoint[]>(DEFAULT_METRICS)
+  // Locally recorded spar games (written by the spar screen via
+  // hooks/use-spar-results) — read here for the spar-score refresh and the
+  // per-game counts-toward-training reclassification (spec 215 Tier 1).
+  const [sparResults, setSparResults] = useState<SparResultEntry[]>([])
   const [now] = useState(() => Date.now())
 
   // Hydrate from localStorage once, on the client.
@@ -101,6 +120,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     } catch {
       /* malformed storage — fall back to defaults already in state */
     }
+    setSparResults(loadSparResults())
   }, [])
 
   const write = useCallback((key: string, value: unknown) => {
@@ -163,6 +183,61 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     [write],
   )
 
+  // Merge points keyed by (at, metric) — refreshes and file imports are
+  // idempotent, unlike the manual appendMetric entry above.
+  const [measureMsg, setMeasureMsg] = useState<string | null>(null)
+  const mergePoints = useCallback(
+    (points: MetricPoint[]) => {
+      const res = mergeMetricPoints(metrics, points)
+      setMetrics(res.merged)
+      write(STORAGE_KEYS.metrics, res.merged)
+      return res
+    },
+    [metrics, write],
+  )
+
+  // In-app refresh: recompute this month's spar score from the stored games.
+  const refreshSparScore = useCallback(() => {
+    const results = loadSparResults() // re-read: the spar screen appends independently
+    setSparResults(results)
+    const point = sparScorePoint(results)
+    if (!point) {
+      setMeasureMsg(
+        `No counting spar games in the last ${SPAR_SCORE_WINDOW_DAYS} days — play a serious game first.`,
+      )
+      return
+    }
+    mergePoints([point])
+    setMeasureMsg(`Spar score refreshed: ${METRIC_META.spar_score.format(point.value)} (${point.note}).`)
+  }, [mergePoints])
+
+  // Script-produced measurement file import (scripts/measure_monthly.py →
+  // data/rivals/training_metrics.json) — the Tier-2 monthly path.
+  const importMeasurementText = useCallback(
+    (text: string) => {
+      try {
+        const points = parseMeasurementJson(text)
+        const res = mergePoints(points)
+        setMeasureMsg(
+          `Imported ${points.length} point${points.length === 1 ? "" : "s"}: ${res.added} new, ${res.replaced} updated, ${res.unchanged} unchanged.`,
+        )
+      } catch (e) {
+        setMeasureMsg(`Import failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
+    [mergePoints],
+  )
+
+  // Reclassify one spar game's counts-toward-training intent (flag, never
+  // silently drop — the user decides, and probe can never be flipped on).
+  const reclassifySpar = useCallback((id: string, counts: boolean) => {
+    setSparResults((prev) => {
+      const next = setCountsToward(prev, id, counts)
+      persistSparResults(next)
+      return next
+    })
+  }, [])
+
   const latestMaia = latestMetric(metrics, "maia_rapid")
   const rivalLabel = overlay?.rivalLabel?.trim() || "your rival"
   const checkedToday = log[todayISO] ?? {}
@@ -201,6 +276,8 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
             now={now}
             onSaveOverlay={saveOverlay}
           />
+
+          <TrajectoryCard metrics={metrics} overlay={overlay} rivalLabel={rivalLabel} />
 
           {startISO == null ? (
             <StartCard onStart={startProgram} rivalLabel={rivalLabel} />
@@ -252,7 +329,15 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
             ))}
           </div>
 
-          <MetricsPanel metrics={metrics} onAdd={addMetric} />
+          <MetricsPanel
+            metrics={metrics}
+            onAdd={addMetric}
+            onRefreshSpar={refreshSparScore}
+            onImportText={importMeasurementText}
+            measureMsg={measureMsg}
+          />
+
+          <SparGamesCard results={sparResults} onReclassify={reclassifySpar} now={now} />
         </div>
       </div>
     </div>
@@ -435,7 +520,8 @@ function MilestoneCard({
   )
 }
 
-/** Honest one-liner — no projection math in Tier 0, just the measured gap. */
+/** Honest one-liner — the MEASURED gap; the projection lives in the
+ *  trajectory card below and is labeled as a projection there. */
 function milestoneStatus(
   days: number | null,
   maiaVal: number | null,
@@ -451,7 +537,204 @@ function milestoneStatus(
   }
   const gapStr = gap != null ? `${gap} points below` : "short of"
   const when = days == null ? "" : days >= 0 ? ` with ${days} days to go` : " — the date has passed"
-  return `${gapStr} the ${MILESTONE_MAIA_TARGET} target${when}. Real numbers, no projection yet.`
+  return `${gapStr} the ${MILESTONE_MAIA_TARGET} target${when}. Measured — the projection is below.`
+}
+
+// ---------------------------------------------------------------------------
+// Trajectory card — measured points + labeled projection (spec 215, Tier 2)
+// ---------------------------------------------------------------------------
+
+const CHART_W = 560
+const CHART_H = 190
+const CHART_PAD = { top: 18, right: 76, bottom: 24, left: 44 }
+/** Series hue (emerald-600) — validated ≥3:1 against the dark surface. */
+const CHART_LINE = "#059669"
+const CHART_INK_MUTED = "rgba(255,255,255,0.55)"
+const CHART_GRID = "rgba(255,255,255,0.08)"
+
+function TrajectoryCard({
+  metrics,
+  overlay,
+  rivalLabel,
+}: {
+  metrics: MetricPoint[]
+  overlay: TrainingOverlay | null
+  rivalLabel: string
+}) {
+  const projection = useMemo(
+    () => projectMetric(metrics, "maia_rapid", overlay?.milestoneDate ?? null),
+    [metrics, overlay?.milestoneDate],
+  )
+  return (
+    <div
+      data-testid="training-trajectory"
+      className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2"
+    >
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-bold text-sm">Maia rapid — trajectory</h2>
+        <span className="text-[11px] text-muted-foreground">
+          measured monthly · dashed = projection
+        </span>
+      </div>
+      <TrajectoryChart projection={projection} />
+      <p className="text-xs text-muted-foreground" data-testid="training-projection-status">
+        {projectionStatus(projection, rivalLabel)}
+      </p>
+    </div>
+  )
+}
+
+/** Plain-language projection line — always labeled a projection, with its
+ *  model stated (linear fit + Elo expected-score curve), never a promise. */
+function projectionStatus(p: Projection, rivalLabel: string): string {
+  const rival = rivalLabel.trim() || "your rival"
+  if (p.measured.length < 2) {
+    return "Projection needs at least two dated measurements — add this month's number and the next one draws the line."
+  }
+  if (p.targetT === null) {
+    return "Set a milestone date above to project toward it."
+  }
+  if (p.trend === null || p.projected === null) {
+    return "The measurements share one date — nothing to project yet."
+  }
+  const projected = Math.round(p.projected)
+  const dateStr = new Date(p.targetT).toISOString().slice(0, 10)
+  const pace =
+    p.trend.slopePerDay <= 0
+      ? "Current pace is flat or declining — the linear fit projects "
+      : `Linear fit through ${p.trend.n} measurements projects `
+  const wins = winsPerTen(p.projected, MILESTONE_MAIA_TARGET)
+  return (
+    `${pace}~${projected} by ${dateStr}. At that level vs ${rival} at ${MILESTONE_MAIA_TARGET}: ` +
+    `${wins}/10 expected (Elo curve). A projection, not a promise.`
+  )
+}
+
+function TrajectoryChart({ projection }: { projection: Projection }) {
+  const { measured, targetT, projected } = projection
+  if (measured.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground italic" data-testid="training-trajectory-empty">
+        No dated Maia-rapid measurements yet.
+      </p>
+    )
+  }
+
+  // Domain: measured extent, stretched to the milestone when one is set.
+  const t0 = measured[0].t
+  const t1 = Math.max(measured[measured.length - 1].t, targetT ?? -Infinity)
+  const tSpan = Math.max(t1 - t0, 1)
+  const values = [
+    ...measured.map((p) => p.v),
+    MILESTONE_MAIA_TARGET,
+    ...(projected !== null ? [projected] : []),
+  ]
+  const vMin = Math.min(...values)
+  const vMax = Math.max(...values)
+  const vPad = Math.max((vMax - vMin) * 0.12, 20)
+  const y0 = vMin - vPad
+  const y1 = vMax + vPad
+
+  const iw = CHART_W - CHART_PAD.left - CHART_PAD.right
+  const ih = CHART_H - CHART_PAD.top - CHART_PAD.bottom
+  const x = (t: number) => CHART_PAD.left + ((t - t0) / tSpan) * iw
+  const y = (v: number) => CHART_PAD.top + (1 - (v - y0) / (y1 - y0)) * ih
+
+  const last = measured[measured.length - 1]
+  const monthOf = (t: number) => new Date(t).toISOString().slice(0, 7)
+  const targetY = y(MILESTONE_MAIA_TARGET)
+  const gridVals = [y0 + (y1 - y0) * 0.25, y0 + (y1 - y0) * 0.5, y0 + (y1 - y0) * 0.75]
+
+  return (
+    <svg
+      viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+      className="w-full h-auto"
+      role="img"
+      aria-label="Maia rapid measurements over time with a dashed linear projection to the milestone date"
+      data-testid="training-trajectory-chart"
+    >
+      {/* Recessive grid */}
+      {gridVals.map((v, i) => (
+        <line key={i} x1={CHART_PAD.left} x2={CHART_W - CHART_PAD.right} y1={y(v)} y2={y(v)} stroke={CHART_GRID} strokeWidth={1} />
+      ))}
+
+      {/* Target hairline — a reference, not a series */}
+      <line
+        x1={CHART_PAD.left}
+        x2={CHART_W - CHART_PAD.right}
+        y1={targetY}
+        y2={targetY}
+        stroke={CHART_INK_MUTED}
+        strokeWidth={1}
+        strokeDasharray="2 3"
+      />
+      <text x={CHART_W - CHART_PAD.right + 6} y={targetY + 3} fontSize={10} fill={CHART_INK_MUTED}>
+        target {MILESTONE_MAIA_TARGET}
+      </text>
+
+      {/* Measured series */}
+      {measured.length > 1 && (
+        <polyline
+          points={measured.map((p) => `${x(p.t)},${y(p.v)}`).join(" ")}
+          fill="none"
+          stroke={CHART_LINE}
+          strokeWidth={2}
+        />
+      )}
+      {measured.map((p) => (
+        <circle key={p.t} cx={x(p.t)} cy={y(p.v)} r={4} fill={CHART_LINE}>
+          <title>{`${monthOf(p.t)} · ${Math.round(p.v)}`}</title>
+        </circle>
+      ))}
+      {/* Direct label on the latest measured value (ink, not series color) */}
+      <text x={x(last.t)} y={y(last.v) - 8} fontSize={10} fill="rgba(255,255,255,0.85)" textAnchor="middle">
+        {Math.round(last.v)}
+      </text>
+
+      {/* Projection — same entity, dashed, explicitly labeled */}
+      {targetT !== null && projected !== null && targetT > last.t && (
+        <>
+          <line
+            x1={x(last.t)}
+            y1={y(last.v)}
+            x2={x(targetT)}
+            y2={y(projected)}
+            stroke={CHART_LINE}
+            strokeWidth={2}
+            strokeDasharray="5 4"
+            opacity={0.75}
+          />
+          <circle cx={x(targetT)} cy={y(projected)} r={4} fill="none" stroke={CHART_LINE} strokeWidth={2}>
+            <title>{`projected · ${Math.round(projected)}`}</title>
+          </circle>
+          <text
+            x={(x(last.t) + x(targetT)) / 2}
+            y={(y(last.v) + y(projected)) / 2 - 7}
+            fontSize={10}
+            fill={CHART_INK_MUTED}
+            textAnchor="middle"
+          >
+            projection
+          </text>
+        </>
+      )}
+
+      {/* X extent labels */}
+      <text x={CHART_PAD.left} y={CHART_H - 8} fontSize={10} fill={CHART_INK_MUTED}>
+        {monthOf(t0)}
+      </text>
+      <text x={CHART_W - CHART_PAD.right} y={CHART_H - 8} fontSize={10} fill={CHART_INK_MUTED} textAnchor="end">
+        {targetT !== null && targetT >= last.t ? new Date(targetT).toISOString().slice(0, 10) : monthOf(last.t)}
+      </text>
+      {/* Y extent labels */}
+      <text x={CHART_PAD.left - 6} y={y(y1) + 10} fontSize={10} fill={CHART_INK_MUTED} textAnchor="end">
+        {Math.round(y1)}
+      </text>
+      <text x={CHART_PAD.left - 6} y={y(y0)} fontSize={10} fill={CHART_INK_MUTED} textAnchor="end">
+        {Math.round(y0)}
+      </text>
+    </svg>
+  )
 }
 
 function OverlayForm({
@@ -621,9 +904,17 @@ function CriterionGauge({ criterion, metrics }: { criterion: ExitCriterion; metr
 function MetricsPanel({
   metrics,
   onAdd,
+  onRefreshSpar,
+  onImportText,
+  measureMsg,
 }: {
   metrics: MetricPoint[]
   onAdd: (p: MetricPoint) => void
+  /** Recompute this month's spar score from the stored spar games (in-app). */
+  onRefreshSpar: () => void
+  /** Import a measurement file's text (scripts/measure_monthly.py output). */
+  onImportText: (text: string) => void
+  measureMsg: string | null
 }) {
   const [metric, setMetric] = useState<MetricKey>("maia_rapid")
   const [value, setValue] = useState("")
@@ -637,6 +928,16 @@ function MetricsPanel({
     setValue("")
   }
 
+  const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = "" // allow re-picking the same file
+    if (!file) return
+    file
+      .text()
+      .then(onImportText)
+      .catch(() => onImportText("")) // unreadable file → parse error surfaces the message
+  }
+
   return (
     <div data-testid="training-metrics" className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-4">
       <div>
@@ -645,6 +946,34 @@ function MetricsPanel({
           The monthly needle. Enter real numbers — exit criteria read the latest of each. No inflation.
         </p>
       </div>
+
+      {/* Refresh paths (spec 215 Tier 2): spar score straight from the stored
+          games; the pipeline metrics via the monthly script's output file. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" onClick={onRefreshSpar} data-testid="training-refresh-spar">
+          Refresh spar score
+        </Button>
+        <label className="inline-flex">
+          <input
+            type="file"
+            accept=".json,application/json"
+            onChange={onFilePicked}
+            className="hidden"
+            data-testid="training-import-file"
+          />
+          <span className="cursor-pointer inline-flex items-center px-3 h-8 rounded-md border border-input bg-transparent text-sm hover:bg-white/5">
+            Import measurements…
+          </span>
+        </label>
+        <span className="text-[11px] text-muted-foreground">
+          from <code className="font-mono">scripts/measure_monthly.py</code>
+        </span>
+      </div>
+      {measureMsg && (
+        <p className="text-xs text-muted-foreground" data-testid="training-measure-msg">
+          {measureMsg}
+        </p>
+      )}
 
       {/* Latest per metric */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
@@ -727,6 +1056,111 @@ function MetricsPanel({
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Spar games — the recorded results feeding spar_score (spec 215, Tier 1)
+// ---------------------------------------------------------------------------
+
+const SPAR_GAMES_SHOWN = 15
+
+function SparGamesCard({
+  results,
+  onReclassify,
+  now,
+}: {
+  results: SparResultEntry[]
+  onReclassify: (id: string, counts: boolean) => void
+  now: number
+}) {
+  const score = sparScore(results, now)
+  const recent = results.slice(-SPAR_GAMES_SHOWN).reverse()
+  return (
+    <div data-testid="training-spar-games" className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-3">
+      <div>
+        <h2 className="font-bold">Spar games</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Recorded automatically at game end. Serious games count by default; probe never counts.
+          Flagged games STAY in the score until you untick them — flagged, never silently dropped.
+        </p>
+      </div>
+
+      <div className="text-sm" data-testid="training-spar-score">
+        {score.score === null ? (
+          <span className="text-muted-foreground italic">
+            No counting games in the last {SPAR_SCORE_WINDOW_DAYS} days.
+          </span>
+        ) : (
+          <>
+            <span className="font-bold tabular-nums">{Math.round(score.score * 100)}%</span>{" "}
+            <span className="text-muted-foreground">
+              over {score.games} counting game{score.games === 1 ? "" : "s"}
+              {score.flagged > 0 ? ` (${score.flagged} flagged, included)` : ""} · last{" "}
+              {SPAR_SCORE_WINDOW_DAYS} days
+            </span>
+          </>
+        )}
+      </div>
+
+      {recent.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
+          No games recorded yet — finish a Play-vs-Bot game and it lands here.
+        </p>
+      ) : (
+        <table className="w-full text-sm">
+          <tbody data-testid="training-spar-list">
+            {recent.map((g) => (
+              <tr key={g.id} className="border-b border-white/5 last:border-0" data-testid={`training-spar-game-${g.id}`}>
+                <td className="py-1 tabular-nums text-muted-foreground w-24">{g.at.slice(0, 10)}</td>
+                <td className="py-1 truncate max-w-32">{g.opponent}</td>
+                <td className="py-1 tabular-nums text-muted-foreground">{g.level}</td>
+                <td className="py-1">
+                  <span
+                    className={
+                      g.result === "win"
+                        ? "text-emerald-300"
+                        : g.result === "loss"
+                          ? "text-red-300"
+                          : "text-muted-foreground"
+                    }
+                  >
+                    {g.result}
+                  </span>
+                  {g.mode === "probe" && (
+                    <span className="ml-1.5 text-[10px] uppercase tracking-wide text-violet-300">probe</span>
+                  )}
+                </td>
+                <td className="py-1 text-xs text-amber-300/90">
+                  {g.anomalyFlags.map((f) => ANOMALY_LABELS[f]).join(", ")}
+                </td>
+                <td className="py-1 text-right">
+                  <label
+                    className={`inline-flex items-center gap-1.5 text-xs ${
+                      g.mode === "probe" ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+                    }`}
+                    title={
+                      g.mode === "probe"
+                        ? "Probe games never count toward training."
+                        : "Counts toward the spar score."
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={g.countsTowardTraining}
+                      disabled={g.mode === "probe"}
+                      onChange={(e) => onReclassify(g.id, e.target.checked)}
+                      data-testid={`training-spar-counts-${g.id}`}
+                    />
+                    counts
+                  </label>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   )

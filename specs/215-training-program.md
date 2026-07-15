@@ -66,8 +66,35 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
   + save-as serious/test at game end; pace/eval anomaly detection may flag a game
   for reclassification but never silently excludes (2026-07-15, from first live
   spar: user's probe games must not pollute the rating signal).
+  - *Progress 2026-07-15 — spar results persistence BUILT*: completed games
+    auto-record at game end (lib/spar-results + hooks/use-spar-results, one hook
+    call in spar-tab); serious counts by default, probe stored flagged and never
+    counts; anomaly flags (short game / early resign — length proxies until the
+    spar loop has clocks) shown next to the score, never excluded; per-game
+    "counts" reclassification lives in the Training tab's Spar games card.
+    DEVIATION: the game-START intent toggle is currently the existing
+    Serious/Probe mode picker (intent by mode) — a dedicated per-game toggle on
+    the spar config screen remains open (spar-tab owned by parallel work).
+    endgame_playout + rake_deck still blocked on 211/corpus.
 - **Tier 2**: monthly measurement automation (fetch + Maia estimate from the app),
   trajectory projection via 212 win-prob, coach-suggested program adjustments.
+  - *Progress 2026-07-15 — measurement automation BUILT (script + import, the
+    smaller honest step)*: the self-report pipeline was rescued from scratchpad
+    into scripts/self_report/ (engage → analyze → maia → stats, logic
+    byte-identical, parameterized) with scripts/measure_monthly.py orchestrating
+    fetch → metrics → data/rivals/training_metrics.json; the Training tab's
+    Measurements panel imports that file (idempotent merge keyed by (at, metric))
+    and refreshes spar_score fully in-app from the stored spar games. NOT an
+    in-app spawn: the run is minutes of lc0 + network — a silent button would be
+    dishonest UX; revisit when there's a progress surface. Verified: profile-only
+    run reproduces the report baselines (flag_net −85, eg_conversion 0.431).
+  - *Progress 2026-07-15 — trajectory projection BUILT*: lib/training-projection
+    (least-squares trend over dated points, ≥2 required; Elo expected-score
+    framing "X/10 expected", model stated in the copy) renders on the Today view
+    as measured line + dashed projection + target hairline, labeled "a
+    projection, not a promise". Note: 212's win-prob curve maps engine EVALS, not
+    rating gaps — the Elo logistic is used instead and said so in code comments.
+    Coach-suggested adjustments still open.
 
 ## Cultural context
 

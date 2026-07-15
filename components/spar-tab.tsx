@@ -63,6 +63,7 @@ import {
   type SparColor,
   type SparPly,
 } from "@/lib/spar"
+import { useSparResultRecorder } from "@/hooks/use-spar-results"
 
 const Board = dynamic(() => import("@/components/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -367,6 +368,22 @@ export function SparTab() {
     return fen ? sparStatus(fen) : { over: false, label: null }
   }, [fen, manualEnd])
   const frozen = status.over || probeEnded
+
+  // Spar-results persistence (spec 215 Tier 1): a completed game is stored
+  // locally for the Training tab's spar-score metric. Serious games count by
+  // default, probe games never count, anomalies flag but never exclude —
+  // all of that lives in the hook + lib/spar-results, not here.
+  useSparResultRecorder({
+    active: phase === "playing",
+    over: status.over,
+    resultLabel: status.label,
+    mode: sparMode,
+    opponent: opponentLabel,
+    level: effectiveLevel,
+    userColor,
+    plies: plies.length,
+    gameKey: boardNonce,
+  })
 
   // Load the book + the local private-rival configs once on mount.
   useEffect(() => {

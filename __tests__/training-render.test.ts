@@ -57,4 +57,30 @@ describe("TrainingTab renders headless", () => {
     expect(html).toContain('data-testid="training-metric-value"')
     expect(html).toContain('data-testid="training-metric-add"')
   })
+
+  it("renders the measurement refresh controls (spec 215 Tier 2)", () => {
+    const html = renderToStaticMarkup(createElement(TrainingTab, { onLaunch: noop }))
+    expect(html).toContain('data-testid="training-refresh-spar"')
+    expect(html).toContain('data-testid="training-import-file"')
+  })
+
+  it("renders the trajectory card with the projection labeled honestly", () => {
+    const html = renderToStaticMarkup(createElement(TrainingTab, { onLaunch: noop }))
+    expect(html).toContain('data-testid="training-trajectory"')
+    // One baseline point only -> no line is drawn; the status says why.
+    expect(html).toContain('data-testid="training-projection-status"')
+    expect(html).toContain("at least two dated measurements")
+    // The word "projection" is present as a label, never "forecast"/"guaranteed".
+    expect(html.toLowerCase()).toContain("projection")
+    expect(html.toLowerCase()).not.toContain("guaranteed")
+  })
+
+  it("renders the spar-games section with the flag-don't-drop rule stated", () => {
+    const html = renderToStaticMarkup(createElement(TrainingTab, { onLaunch: noop }))
+    expect(html).toContain('data-testid="training-spar-games"')
+    expect(html).toContain('data-testid="training-spar-score"')
+    expect(html).toContain("never silently dropped")
+    // Empty store under SSR — the honest empty states.
+    expect(html).toContain("No games recorded yet")
+  })
 })
