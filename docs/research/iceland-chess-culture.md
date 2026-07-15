@@ -30,6 +30,21 @@ It was played at **Laugardalshöll**, an indoor sports arena in Reykjavík that 
 mostly hosts handball and concerts
 ([Wikipedia, World Chess Championship 1972](https://en.wikipedia.org/wiki/World_Chess_Championship_1972)).
 
+Spassky is easy to lose in the American telling of 1972, but he was the other chair at
+that board, and it's worth saying plainly who he was: the tenth World Champion,
+having taken the title from Tigran Petrosian in 1969 after losing to him in 1966,
+defending it in Reykjavík against a challenger who was, by most accounts, difficult to
+deal with even by chess standards
+([Wikipedia, Boris Spassky](https://en.wikipedia.org/wiki/Boris_Spassky)). The single
+most-cited moment of the match's sportsmanship belongs to him, not Fischer: after
+Fischer's Game 6 — a game good enough that Fischer, playing the Queen's Gambit for the
+only time in a serious game in his career, later called it his best of the match —
+Spassky rose from his own chair and joined the audience in applauding his opponent's
+win. Fischer called him "a true sportsman" for it
+([chess.com, "Bobby Fischer Wins Positional Masterpiece"](https://www.chess.com/article/view/50-year-anniversary-fischer-spassky-game-6)).
+Fischer went on to win the match 12½–8½, becoming the first American-born world champion
+([Wikipedia, World Chess Championship 1972](https://en.wikipedia.org/wiki/World_Chess_Championship_1972)).
+
 That accident of Cold War logistics put a population smaller than a mid-sized American
 suburb at the center of the most-watched chess event in history — an American and a
 Soviet fighting a proxy battle of the Cold War on Icelandic soil, with the world's press
@@ -84,16 +99,52 @@ in the next round
 It remains the closest an Icelandic player has come to the world championship cycle
 since Friðrik's own 1959 Candidates appearance, and it is the moment the boom generation
 proved it wasn't just producing grandmaster *titles* — it was producing players who
-could beat the players who nearly became world champion.
+could beat the players who nearly became world champion. Neither of Hjartarson's actual
+Candidates matches was played on home soil, for the record: the Korchnoi
+quarterfinal was in Saint John, Canada, and the loss to Karpov the following year was
+in Seattle ([Wikipedia, Jóhann Hjartarson](https://en.wikipedia.org/wiki/J%C3%B3hann_Hjartarson)).
+
+That same generation did get one more moment in Reykjavík itself, and it's very likely
+the event behind a specific memory of "a big chess tournament in Iceland around the time
+Reagan and Gorbachev met." Worth checking carefully, because the actual answer is a
+near-miss, not a match. The Reykjavík Summit itself, held at Höfði house on October
+11–12, 1986, had no chess component in its own documented program
+([Wikipedia, Reykjavík Summit](https://en.wikipedia.org/wiki/Reykjav%C3%ADk_Summit)).
+Iceland did host a Reykjavik Open that same year — 1986, won by the Yugoslav Predrag
+Nikolić, with Helgi Ólafsson among the field — but the Reykjavik Open has traditionally
+run in spring (its modern edition is late March), not October, so even the
+right-year event doesn't line up on the calendar
+([Wikipedia, Reykjavik Open](https://en.wikipedia.org/wiki/Reykjavik_Open)). The event
+that actually matches "big, Soviet-heavy, drew crowds, happened in Reykjavík in October"
+is the third leg of the Grandmasters Association's 1988 World Cup — held at the
+Reykjavík City Theatre from **October 3 to 24, 1988**, two years after the summit, not
+the same year. It was a serious field: Garry Kasparov won it outright with 11 points,
+ahead of Alexander Beliavsky and Mikhail Tal, and Iceland's own **Jóhann Hjartarson
+finished fourth at 9.5 points** — ahead of every player in the field except those
+three — with **Margeir Pétursson** also competing. Hjartarson's individual game against
+Kasparov reportedly drew a crowd of at least 700 spectators
+([Wikipedia, Chess World Cup 1988–1989](https://en.wikipedia.org/wiki/Chess_World_Cup_1988%E2%80%931989)).
+If a memory has folded the 1986 summit and the 1988 World Cup into one moment, that's an
+honest, forgivable compression — two real "Reykjavík is the center of the world again"
+events, in the same season, two years apart — not a memory that invented anything. The
+sharper, sourced version is: no chess happened at the summit itself, but two years later
+Iceland's own grandmasters shared a stage with Kasparov and Tal in front of real crowds,
+in the same city, in the same month.
 
 ## Fischer's return
 
-Fischer's relationship with Iceland didn't end in 1972. In 2004, he was detained by
-Japanese immigration authorities for traveling on a revoked U.S. passport, and the
-United States sought his extradition on charges stemming from his having played a
-rematch against Spassky in Yugoslavia in 1992, in violation of U.S. sanctions. Facing
-deportation to the United States, Fischer wrote to the president of Iceland's parliament
-in January 2005, applying for Icelandic citizenship
+Fischer's relationship with Iceland didn't end in 1972. In 1992, he and Spassky met
+again — an unofficial, twenty-years-later rematch billed as a World Championship, played
+in Sveti Stefan and then Belgrade, in a Yugoslavia then under United Nations sanctions.
+Fischer won, 10 games to 5 with 15 draws, and took home the larger share of a $5 million
+purse ([Wikipedia, Fischer–Spassky (1992 match)](https://en.wikipedia.org/wiki/Fischer%E2%80%93Spassky_(1992_match))).
+Playing in sanctioned Yugoslavia triggered a U.S. arrest warrant against Fischer for
+violating the sanctions regime — the same warrant still hanging over him twelve years
+later when Japanese authorities detained him in 2004 for traveling on a revoked
+passport, which is what set the Icelandic citizenship story below in motion.
+
+Facing deportation to the United States, Fischer wrote to the president of Iceland's
+parliament in January 2005, applying for Icelandic citizenship
 ([ChessBase, "Bobby Fischer applies for Icelandic Citizenship"](https://en.chessbase.com/post/bobby-fischer-applies-for-icelandic-citizenship)).
 
 On **March 21, 2005**, the Althingi — Iceland's parliament — granted Fischer full
@@ -119,6 +170,16 @@ by his own request
 The grave, unmarked by any grand monument, has since become a quiet pilgrimage site for
 chess players passing through Iceland.
 
+Spassky outlived his old rival by seventeen years, dying in Moscow on **February 27,
+2025**, at 88 — he had lived in France since emigrating there in 1976, becoming a French
+citizen in 1978 ([Wikipedia, Boris Spassky](https://en.wikipedia.org/wiki/Boris_Spassky);
+[FIDE obituary](https://www.fide.com/boris-spassky-1937-2025/)). He never fully let go
+of Iceland either: in 2008, not long after Fischer's death, Spassky visited the grave
+at Laugardælir, and when journalists asked what he made of it, he reportedly wondered
+aloud whether the neighboring plot was available
+([Iceland Review, "Spassky Visits Fischer's Grave in Iceland"](https://www.icelandreview.com/news/spassky-visits-fischer%E2%80%99s-grave-iceland/))
+— one old opponent, half in jest, asking to be buried next to the other.
+
 ## The numbers
 
 The full per-capita math — Iceland's active and all-time grandmaster counts, the
@@ -138,16 +199,17 @@ this population scale.
 ## The stakes
 
 The persona roster this project builds — Friðrik, Guðmundur, Helgi, Jóhann, Jón,
-Margeir, Hannes, and the rest, alongside Fischer and Kasparov as the international
-anchors (see
+Margeir, Hannes, and the rest, alongside Fischer, Spassky, and Kasparov as the
+international anchors (see
 [`data/personas/STRENGTH_ANCHOR.md`](../../data/personas/STRENGTH_ANCHOR.md) for how
-that pairing was calibrated) — isn't a difficulty ladder dressed up in history. It's
-closer to a living museum: every name in it is a real person who was shaped by, or who
-helped shape, the specific chain of events this document just walked through — a
-championship match that happened to land in a small country, a generation of children
-who watched it and decided this was a thing a person from Iceland could do, and a
-national federation that, decades later, brought its most famous and most damaged
-son home to die.
+the Fischer/Kasparov pairing was calibrated) — isn't a difficulty ladder dressed up in
+history. It's closer to a living museum: every name in it is a real person who was
+shaped by, or who helped shape, the specific chain of events this document just walked
+through — a championship match that happened to land in a small country, a generation
+of children who watched it and decided this was a thing a person from Iceland could do,
+and a national federation that, decades later, brought its most famous and most damaged
+son home to die, and buried him a short drive from where his old rival, years later,
+half-joked about wanting to lie down next to him.
 
 Which is what makes the December match worth training for beyond the ordinary
 competitive reasons a training curriculum usually exists for. The user's father was
