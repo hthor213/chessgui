@@ -61,6 +61,11 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
   timeline; manual metrics entry + the baseline row; milestone card with countdown.
 - **Tier 1**: endgame_playout exercise (needs 211 play-it-out), rake_deck (needs corpus
   tier-1), spar results persistence feeding the measurement panel automatically.
+  Persistence MUST carry declared intent: "counts toward training" toggle at game
+  start (default ON from Training-tab launches, ask on ad-hoc Learn-tab launches)
+  + save-as serious/test at game end; pace/eval anomaly detection may flag a game
+  for reclassification but never silently excludes (2026-07-15, from first live
+  spar: user's probe games must not pollute the rating signal).
 - **Tier 2**: monthly measurement automation (fetch + Maia estimate from the app),
   trajectory projection via 212 win-prob, coach-suggested program adjustments.
 
