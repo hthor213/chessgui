@@ -43,6 +43,64 @@ const RIVAL_LABEL = "Dad"
 type SideChoice = "white" | "black" | "either"
 type Phase = "intro" | "playing"
 
+// Realism feedback capture (spec 214, "Realism feedback capture" checklist
+// item, user request): "felt like him" / "didn't feel like him", tappable at
+// any point during or after a game. This is the ground-truth stream style
+// priors are later tuned and validated against — private data, localStorage
+// only, never bundled or committed.
+type FeedbackVerdict = "felt_like" | "did_not_feel_like"
+// How sure the user is of the verdict itself (user: "I can't guarantee he
+// would *not* have done this... just didn't feel like him" — a verdict is a
+// probability shift, not a veto). Two options only, per the user's own read
+// on their sample size ("I'd say gut feel and fairly sure - never certain").
+type FeedbackConfidence = "gut" | "fairly_sure"
+const DEFAULT_CONFIDENCE: FeedbackConfidence = "gut"
+
+interface PersonaFeedbackEntry {
+  at: string // ISO date
+  rival: string
+  level: number
+  verdict: FeedbackVerdict
+  confidence: FeedbackConfidence
+  note: string
+  ply: number
+  pgn: string
+}
+
+const FEEDBACK_STORAGE_KEY = "spar-persona-feedback"
+
+function appendPersonaFeedback(entry: PersonaFeedbackEntry): void {
+  try {
+    const raw = localStorage.getItem(FEEDBACK_STORAGE_KEY)
+    const existing: PersonaFeedbackEntry[] = raw ? JSON.parse(raw) : []
+    existing.push(entry)
+    localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(existing))
+  } catch {
+    // localStorage unavailable / corrupt — the entry just isn't persisted
+  }
+}
+
+// SAN move text ("1. e4 e5 2. Nf3 ..."), honoring a book entry's start FEN
+// (which may already be mid-game with Black to move) — not a full PGN (no
+// tags), just the movetext this feedback record needs.
+function sanMoveText(startFen: string, plies: SparPly[]): string {
+  const fields = startFen.split(" ")
+  let toMove: SparColor = fields[1] === "b" ? "black" : "white"
+  let moveNum = parseInt(fields[5] ?? "1", 10) || 1
+  const tokens: string[] = []
+  for (const p of plies) {
+    if (toMove === "white") {
+      tokens.push(`${moveNum}.`, p.san)
+    } else {
+      if (tokens.length === 0) tokens.push(`${moveNum}...`)
+      tokens.push(p.san)
+      moveNum += 1
+    }
+    toMove = toMove === "white" ? "black" : "white"
+  }
+  return tokens.join(" ")
+}
+
 function legalDests(fen: string): Map<Key, Key[]> {
   const setup = parseFen(fen)
   if (setup.isErr) return new Map()
@@ -67,6 +125,15 @@ export function SparTab() {
   const [thinking, setThinking] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
   const [boardNonce, setBoardNonce] = useState(0)
+
+  // Realism feedback capture (spec 214): which verdict's inline form is open
+  // (null = closed), its draft note, and a brief post-submit confirmation.
+  const [feedbackOpen, setFeedbackOpen] = useState<FeedbackVerdict | null>(null)
+  const [feedbackNote, setFeedbackNote] = useState("")
+  const [feedbackConfidence, setFeedbackConfidence] = useState<FeedbackConfidence>(DEFAULT_CONFIDENCE)
+  const [feedbackConfirm, setFeedbackConfirm] = useState(false)
+  const feedbackConfirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(feedbackConfirmTimer.current), [])
 
   // The FEN a rival reply is being computed for — so a stale async result (after
   // a take-back / new game) is discarded instead of applied to a moved board.
@@ -175,6 +242,45 @@ export function SparTab() {
     setBoardNonce((n) => n + 1)
   }, [thinking, plies, userColor, startFen])
 
+  // Open (or toggle closed) the inline feedback form for a verdict.
+  const toggleFeedback = useCallback((verdict: FeedbackVerdict) => {
+    setFeedbackConfirm(false)
+    setFeedbackOpen((prev) => {
+      if (prev === verdict) return null // clicking the open verdict again closes it
+      setFeedbackNote("")
+      setFeedbackConfidence(DEFAULT_CONFIDENCE)
+      return verdict
+    })
+  }, [])
+
+  const cancelFeedback = useCallback(() => {
+    setFeedbackOpen(null)
+    setFeedbackNote("")
+    setFeedbackConfidence(DEFAULT_CONFIDENCE)
+  }, [])
+
+  const submitFeedback = useCallback(() => {
+    if (!feedbackOpen) return
+    const note = feedbackNote.trim()
+    if (feedbackOpen === "did_not_feel_like" && !note) return // required for the negative
+    appendPersonaFeedback({
+      at: new Date().toISOString(),
+      rival: RIVAL_LABEL,
+      level,
+      verdict: feedbackOpen,
+      confidence: feedbackConfidence,
+      note,
+      ply: plies.length,
+      pgn: sanMoveText(startFen, plies),
+    })
+    setFeedbackOpen(null)
+    setFeedbackNote("")
+    setFeedbackConfidence(DEFAULT_CONFIDENCE)
+    setFeedbackConfirm(true)
+    clearTimeout(feedbackConfirmTimer.current)
+    feedbackConfirmTimer.current = setTimeout(() => setFeedbackConfirm(false), 2000)
+  }, [feedbackOpen, feedbackNote, feedbackConfidence, level, plies, startFen])
+
   const lastShape = useMemo<DrawShape[]>(() => {
     if (plies.length === 0) return []
     const uci = plies[plies.length - 1].uci
@@ -263,6 +369,91 @@ export function SparTab() {
               {moveError}
             </p>
           )}
+
+          {/* Realism feedback capture (spec 214) — a quiet research affordance,
+              tappable any time during or after the game; not a game feature. */}
+          <div className="border-t border-white/10 pt-3 flex flex-col gap-2" data-testid="spar-feedback">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Realism:</span>
+              <button
+                data-testid="spar-feedback-felt"
+                onClick={() => toggleFeedback("felt_like")}
+                className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                  feedbackOpen === "felt_like"
+                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                Felt like him
+              </button>
+              <button
+                data-testid="spar-feedback-not"
+                onClick={() => toggleFeedback("did_not_feel_like")}
+                className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                  feedbackOpen === "did_not_feel_like"
+                    ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                Didn&apos;t feel like him
+              </button>
+            </div>
+
+            {feedbackOpen && (
+              <div className="flex flex-col gap-1.5" data-testid="spar-feedback-form">
+                <textarea
+                  data-testid="spar-feedback-note"
+                  className="w-full bg-white/[0.03] border border-white/10 rounded-md px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-white/20"
+                  rows={3}
+                  placeholder={
+                    feedbackOpen === "did_not_feel_like"
+                      ? "What gave it away? (required)"
+                      : "What felt right? (optional)"
+                  }
+                  value={feedbackNote}
+                  onChange={(e) => setFeedbackNote(e.target.value)}
+                  autoFocus
+                />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-muted-foreground">Confidence:</span>
+                  {(["gut", "fairly_sure"] as const).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      data-testid={`spar-feedback-confidence-${c}`}
+                      onClick={() => setFeedbackConfidence(c)}
+                      className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${
+                        feedbackConfidence === c
+                          ? "border-white/30 bg-white/10 text-foreground"
+                          : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                      }`}
+                    >
+                      {c === "gut" ? "Gut feel" : "Fairly sure"}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={cancelFeedback} data-testid="spar-feedback-cancel">
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={submitFeedback}
+                    disabled={feedbackOpen === "did_not_feel_like" && !feedbackNote.trim()}
+                    data-testid="spar-feedback-submit"
+                  >
+                    Submit
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {feedbackConfirm && (
+              <span className="text-xs text-emerald-300/80" data-testid="spar-feedback-confirm">
+                Noted.
+              </span>
+            )}
+          </div>
 
           <div className="mt-auto pt-2 flex gap-2">
             <Button
