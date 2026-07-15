@@ -66,6 +66,42 @@ cat fixtures/sample.pgn | python3 filter_month.py | python3 band_cap.py --cap 1
 # fixture: 9 games -> 3 pass the filter (bands 1600,2100,1600) -> cap 1 keeps 2
 ```
 
+## Tier-1 eval-cliff puzzle generator (spec 211:45-51)
+
+`mine_cliffs.py` consumes the built months and emits avoidance-puzzle rows:
+
+```bash
+python3 scripts/mining/mine_cliffs.py ~/chess-corpus/months/*.pgn \
+    --engine <stockfish> --depth 16 --out-dir ~/chess-corpus/puzzles \
+    --threads 2 --limit 20000        # bounded first batch per month
+```
+
+Cliff = [%eval] within ±1.0 before the move (mover's perspective), ≤ −1.5
+(or mate) after. Every candidate is re-verified with local Stockfish at the
+fixed `--depth` — refutation confirmed at ≥ 1.5, pre-position not already
+lost/won, ≥ 3 reasonable alternatives via MultiPV (within 0.5 of best AND
+above −1.0, spec 211's grading thresholds). Output is one
+`<month>.cliffs.jsonl` per input (row schema in `mine_cliffs.py --help`)
+plus a `.cliffs.done.json` marker (idempotent; a `--limit`-capped run gets
+NO marker so a later full run redoes the month).
+`import_puzzles.py <db> *.jsonl` loads them into the spec's `puzzles`
+SQLite table with UNIQUE(fen, trap_uci) dedup.
+
+Two deviations from the corpus builder's rules: it needs **python-chess**
+for SAN replay (`python3 -m pip install --user python-chess` on the server
+— hand-rolled move legality is the one chess-math wheel not worth
+reinventing), and throughput is engine-bound (~1.2 s/candidate at depth 16
+× 1 thread; a full 1.4M-game month has candidates in the ~10⁶ range, so
+budget with `--limit`, `--threads`, or depth — never run a month open-ended
+without checking the candidate stats first).
+
+Fixture tests (positive White + Black cliffs, calm negative, fabricated
+[%eval] that re-verification must reject, pre-window gate):
+
+```bash
+python3 scripts/mining/test_mine_cliffs.py   # needs stockfish on PATH or $STOCKFISH
+```
+
 ## Decisions to confirm (spec-silent choices made here)
 
 1. **Time controls are the calibrated four** (`600+5,900+10,1800+0,1800+20`),
