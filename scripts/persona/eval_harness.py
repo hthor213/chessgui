@@ -500,6 +500,12 @@ def build_report(results: dict, per_persona_positions: Dict[str, List[Position]]
     A("- `match@1` against a single ground-truth move is inherently low even for "
       "a perfect model: strong positions often have several reasonable moves. "
       "Read `match@3` and cross-backend agreement alongside it.\n")
+    A("- Run history: 2026-07-14 initial run (fischer, kasparov, sigurjonsson, "
+      "sigurjonsson-peak; 250 pos each). 2026-07-15 fleet run added the spec-217 "
+      "roster (spassky, karpov + 7 Icelandic GMs; 250 pos each, same seed/config; "
+      "no net substitution — the BT3 net named above was present locally and used "
+      "as-is). Sampling is seeded+deterministic and rankings are disk-cached, so "
+      "earlier personas' numbers regenerate byte-identically in this report.\n")
     return "\n".join(lines)
 
 

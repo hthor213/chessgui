@@ -1,6 +1,6 @@
 # Persona Eval Harness — Results (spec 214, tier-1)
 
-_Generated 2026-07-15 14:43 · seed 214214 · movetime 150ms (SF) · lc0 `go nodes 1` (policy)._
+_Generated 2026-07-15 14:45 · seed 214214 · movetime 150ms (SF) · lc0 `go nodes 1` (policy)._
 
 The Hikaru-bot test made quantitative: on held-out positions from each player's own EVAL games, how often does a candidate policy play the human's actual move? `match@1` = exact top move; `match@3` = actual move in the backend's top 3.
 
@@ -568,3 +568,5 @@ Strong net: `BT3-768x15x24h-swa-2790000.pb.gz` (sha256 `e3067757d1fc2dfc…`, [s
 - Maia nets top out at the 1900 band; both Fischer and Kasparov are far above that, so Maia move-match is a floor, not a fit — the point of the contrast is to see how much a *human* policy at its ceiling still recovers of a 2700+ player's choices.
 
 - `match@1` against a single ground-truth move is inherently low even for a perfect model: strong positions often have several reasonable moves. Read `match@3` and cross-backend agreement alongside it.
+
+- Run history: 2026-07-14 initial run (fischer, kasparov, sigurjonsson, sigurjonsson-peak; 250 pos each). 2026-07-15 fleet run added the spec-217 roster (spassky, karpov + 7 Icelandic GMs; 250 pos each, same seed/config; no net substitution — the BT3 net named above was present locally and used as-is). Sampling is seeded+deterministic and rankings are disk-cached, so earlier personas' numbers regenerate byte-identically in this report.

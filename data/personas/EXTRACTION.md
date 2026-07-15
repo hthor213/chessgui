@@ -188,3 +188,41 @@ book from the 139 train-side peak games and evaluate on the 37 eval-side ones.
   includes games vs Korchnoi (2670), Portisch (2630), Larsen (2625), Polugaevsky
   (2620), Hort (2620), Geller (2620), Smejkal — the world-elite field of the era,
   confirming this is the real GM, not a namesake. 16 peak games vs 2600+ opponents.
+
+## Fleet roster extraction (spec 217, 2026-07-15)
+
+Spassky + Karpov + the Icelandic canon, extracted by `scripts/persona/
+extract_roster.py` (same pipeline: read-only app DB, empty-movetext rejects,
+mainline-UCI dedup, python-chess validation, seeded 80/20 split, seed 214).
+Name variants were swept with LIKE queries over surname / first-name /
+transliterations from ICELAND_ROSTER.md; each player has exactly ONE spelling
+in the Lumbra OTB DB (no "Jon Loftur Arnason", no "Hannes Hlifar Stefansson",
+no bare "Spassky, Boris"). Nobody fell below the 100-game floor. Full stats:
+`_cache/roster_summary.json`.
+
+| persona | DB name | raw | dupes | parse rejects | valid | train/eval | dates | own Elo (min–max, avg) |
+|---|---|--:|--:|--:|--:|---|---|---|
+| spassky | Spassky, Boris Vasilievich | 1181 | 0 | 0 | 1181 | 945/236 | 1970–2009 | 2535–2690, 2601 |
+| karpov | Karpov, Anatoly | 2959 | 0 | 1 | 2958 | 2366/592 | 1971–2016 | 2540–2785, 2704 |
+| fridrik-olafsson | Olafsson, Fridrik | 343 | 0 | 0 | 343 | 274/69 | 1971–2013 | 2416–2570, 2529 |
+| margeir-petursson | Petursson, Margeir | 972 | 0 | 0 | 972 | 778/194 | 1979–2026 | 2382–2590, 2526 |
+| johann-hjartarson | Hjartarson, Johann | 1097 | 0 | 0 | 1097 | 878/219 | 1979–2026 | 2270–2640, 2556 |
+| hannes-stefansson | Stefansson, Hannes | 1363 | 0 | 0 | 1363 | 1090/273 | 1987–2026 | 2335–2604, 2543 |
+| helgi-olafsson | Olafsson, Helgi | 899 | 0 | 0 | 899 | 719/180 | 1978–2026 | 2420–2595, 2512 |
+| jon-l-arnason | Arnason, Jon L | 686 | 0 | 0 | 686 | 549/137 | 1978–2026 | 2404–2590, 2498 |
+| hedinn-steingrimsson | Steingrimsson, Hedinn | 315 | 0 | 0 | 315 | 252/63 | 1991–2025 | 2410–2574, 2509 |
+
+Namesake check: every persona's own-Elo floor is ≥2270 and the date spans
+match the real careers (Spassky's DB coverage starts at 1970 — Lumbra's Elo-era
+cut, not a data problem; Karpov runs to 2016 exhibitions; the active Icelanders
+run to 2026). The small same-surname players found in the sweep (Olafsson
+Olafur Orn/Thorvardur, Petursson Gudni/Stefan Mar, Karpov Vladyslav/Vadim/…)
+are excluded by the exact-name filter. Karpov's one parse reject is
+Polgar–Karpov, Lindsborg 2004 (corrupt SAN `Ne2` at move 1 in the source).
+
+Opening books (`{slug}.book.json`, build_rival_book.py v1 format, max_ply 24)
+are built from TRAIN splits only, so held-out eval games never leak into a
+book. `sigurjonsson-peak.book.json` uses the 139 train-side games of the
+1975–1978 peak window (see "Peak-era analysis" above). Persona configs
+(`{slug}.config.json`) carry backend + sampling defaults + the measured
+harness label; see HARNESS_RESULTS.md.
