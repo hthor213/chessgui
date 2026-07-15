@@ -66,14 +66,16 @@ policy personas (Maia/BT3-policy), whose strength is time-invariant.
 
 ## Checklist
 
-### Tier 0
-- [ ] `machine_profile`: bench invocation + nps capture + JSON storage
-- [ ] `lib/time-elo.ts`: prior curve, ΔElo(compression), PRIOR/MEASURED flag, tests
-- [ ] Tournament watch: format picker + pacing slider + Elo readout
-- [ ] Play vs engine: pacing slider with per-format recommended default
-- [ ] Floors: 1.25× compute buffer + watch-mode observability floor
+### Tier 0 — SHIPPED 2026-07-15 (b5c403c, c19ae57, 1666b6b)
+- [x] `machine_profile`: bench invocation + nps capture + JSON storage
+- [x] `lib/time-elo.ts`: prior curve, ΔElo(compression), PRIOR/MEASURED flag, tests (22)
+- [x] Tournament watch: format picker + pacing slider + Elo readout
+- [x] Play vs engine: pacing slider (default 20s/move = legacy clock exactly)
+- [x] Floors: 1.25× compute buffer + watch-mode observability floor (machine-min
+      is a 0.05s placeholder until the ladder measures it)
 
 ### Tier 1
-- [ ] Time-odds ladder runner (engine lab, resumable rungs)
+- [x] Time-odds ladder runner (engine lab, resumable rungs) — smoke-verified
+      +89 Elo/doubling at the 62ms rung, 20 games
 - [ ] `b(t)` fit + CI, persisted to machine profile
 - [ ] UI flips to MEASURED with rung count
