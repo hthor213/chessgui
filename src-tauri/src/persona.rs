@@ -25,7 +25,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use crate::maia::{self, MaiaMove, MaiaState};
+use crate::maia::{self, MaiaMove, MaiaPolicy, MaiaState};
 
 /// Moves the band assigns less mass than this are dropped before sampling: the
 /// policy's long tail is noise a human of that rating essentially never plays,
@@ -236,7 +236,9 @@ fn splitmix64(mut z: u64) -> u64 {
 
 /// The per-move seed: mix the game seed with the ply, then one splitmix64 round.
 /// Deterministic in (seed, ply); different plies of the same game decorrelate.
-fn derive_seed(seed: u64, ply: u32) -> u64 {
+/// `pub(crate)` so the match runner's persona arm derives per-move seeds the
+/// same way the spar `persona_move` command does.
+pub(crate) fn derive_seed(seed: u64, ply: u32) -> u64 {
     splitmix64(seed ^ (ply as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
 }
 
@@ -542,6 +544,83 @@ pub async fn maia_move(
     Ok(PersonaMove { uci, san })
 }
 
+/// The out-of-book selection core (contract steps 3+4+9), given an
+/// already-fetched `policy` and a per-move `derived_seed`. Shared by the spar
+/// `persona_move` command and the match runner's persona arm so both surfaces
+/// select moves through the exact same pipeline (spec 218: the persona arm
+/// CONSUMES this contract, never redefines it). `stockfish` is the resolved
+/// verification engine (`None` degrades to pure tempered policy). See the
+/// module's persona-engine section for the reweight semantics.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn select_move_from_policy(
+    fen: &str,
+    policy: &MaiaPolicy,
+    alpha: f64,
+    lambda: f64,
+    temperature: f64,
+    top_k: Option<usize>,
+    top_p: Option<f64>,
+    verify_depth: Option<u32>,
+    derived_seed: u64,
+    stockfish: Option<&Path>,
+) -> Result<PersonaDecision, String> {
+    let u = uniform_from_seed(derived_seed);
+
+    let cands = select_candidates(&policy.moves, POLICY_FLOOR, top_k, top_p);
+    if cands.is_empty() {
+        return Err("Maia returned no legal moves (terminal position)".to_string());
+    }
+
+    // Verification reweight (step 4). Skipped when disabled, unavailable, or when
+    // there's nothing to choose between — pure tempered policy in those cases.
+    let mut penalties = vec![0.0f64; cands.len()];
+    let mut eval_cps: Vec<Option<i64>> = vec![None; cands.len()];
+    let mut reason = "policy";
+    let verify_on = verify_depth.is_some_and(|d| d > 0) && cands.len() > 1;
+    if verify_on {
+        if let Some(sf) = stockfish {
+            let depth = verify_depth.unwrap();
+            if let Ok(values) = verify_candidates(sf, fen, &cands, depth).await {
+                let best = values.iter().copied().max().unwrap_or(0);
+                for (i, v) in values.iter().enumerate() {
+                    eval_cps[i] = Some(*v);
+                    penalties[i] = ((best - v) as f64 / 100.0).max(0.0);
+                }
+                reason = "verify-reweight";
+            }
+            // A verification failure silently degrades to policy-only.
+        }
+    }
+
+    let probs: Vec<f64> = cands.iter().map(|m| m.prob).collect();
+    let (idx, weights) =
+        reweight_and_sample(&probs, &penalties, alpha, lambda, temperature, u);
+
+    let candidates: Vec<PersonaCandidate> = cands
+        .iter()
+        .enumerate()
+        .map(|(i, m)| PersonaCandidate {
+            uci: m.uci.clone(),
+            san: san_for(fen, &m.uci).unwrap_or_default(),
+            policy_prob: m.prob,
+            eval_cp: eval_cps[i],
+            eval_penalty: penalties[i],
+            weight: weights[i],
+        })
+        .collect();
+
+    let chosen = &cands[idx];
+    let san = san_for(fen, &chosen.uci)?;
+    Ok(PersonaDecision {
+        uci: chosen.uci.clone(),
+        san,
+        reason: reason.to_string(),
+        band: policy.band,
+        derived_seed,
+        candidates,
+    })
+}
+
 /// Persona engine v1 (spec 214 contract steps 3+4+8+9): pick an out-of-book move
 /// for `fen` by seeded sampling from the Maia policy with a Stockfish
 /// verification reweight, and return the full per-move decision log. See the
@@ -557,68 +636,21 @@ pub async fn persona_move(
     params: PersonaParams,
 ) -> Result<PersonaDecision, String> {
     let derived = derive_seed(params.seed, params.ply);
-    let u = uniform_from_seed(derived);
-
     let policy = maia::query_policy(&app, state.inner(), &fen, params.level).await?;
-    let cands = select_candidates(&policy.moves, POLICY_FLOOR, params.top_k, params.top_p);
-    if cands.is_empty() {
-        return Err("Maia returned no legal moves (terminal position)".to_string());
-    }
-
-    // Verification reweight (step 4). Skipped when disabled, unavailable, or when
-    // there's nothing to choose between — pure tempered policy in those cases.
-    let mut penalties = vec![0.0f64; cands.len()];
-    let mut eval_cps: Vec<Option<i64>> = vec![None; cands.len()];
-    let mut reason = "policy";
-    let verify_on = params.verify_depth.is_some_and(|d| d > 0) && cands.len() > 1;
-    if verify_on {
-        if let Some(sf) = resolve_stockfish() {
-            let depth = params.verify_depth.unwrap();
-            if let Ok(values) = verify_candidates(&sf, &fen, &cands, depth).await {
-                let best = values.iter().copied().max().unwrap_or(0);
-                for (i, v) in values.iter().enumerate() {
-                    eval_cps[i] = Some(*v);
-                    penalties[i] = ((best - v) as f64 / 100.0).max(0.0);
-                }
-                reason = "verify-reweight";
-            }
-            // A verification failure silently degrades to policy-only.
-        }
-    }
-
-    let probs: Vec<f64> = cands.iter().map(|m| m.prob).collect();
-    let (idx, weights) = reweight_and_sample(
-        &probs,
-        &penalties,
+    let stockfish = resolve_stockfish();
+    select_move_from_policy(
+        &fen,
+        &policy,
         params.alpha,
         params.lambda,
         params.temperature,
-        u,
-    );
-
-    let candidates: Vec<PersonaCandidate> = cands
-        .iter()
-        .enumerate()
-        .map(|(i, m)| PersonaCandidate {
-            uci: m.uci.clone(),
-            san: san_for(&fen, &m.uci).unwrap_or_default(),
-            policy_prob: m.prob,
-            eval_cp: eval_cps[i],
-            eval_penalty: penalties[i],
-            weight: weights[i],
-        })
-        .collect();
-
-    let chosen = &cands[idx];
-    let san = san_for(&fen, &chosen.uci)?;
-    Ok(PersonaDecision {
-        uci: chosen.uci.clone(),
-        san,
-        reason: reason.to_string(),
-        band: policy.band,
-        derived_seed: derived,
-        candidates,
-    })
+        params.top_k,
+        params.top_p,
+        params.verify_depth,
+        derived,
+        stockfish.as_deref(),
+    )
+    .await
 }
 
 /// The rival opening book as parsed JSON, or an error if it hasn't been built.

@@ -7,6 +7,7 @@
 //! synchronously, one move at a time.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -20,6 +21,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
+
+use crate::maia::MaiaProcess;
+use crate::persona::{self, PersonaDecision};
 
 // ============================================================================
 // 7-piece endgame tablebase adjudication (Lichess public API)
@@ -339,6 +343,190 @@ impl EngineHandle {
     }
 }
 
+// ============================================================================
+// Persona participants (spec 218 "the persona arm" + spec 214 move contract)
+// ============================================================================
+//
+// A match participant is either a bare UCI binary (argmax `bestmove`, byte-for-
+// byte the historical runner) or a PERSONA: lc0+policy sampling with a Stockfish
+// verification reweight, per spec 214's move-selection contract. The seam is a
+// `Player` enum at the single per-move call site in the game loop. A UCI player
+// owns an `EngineHandle`; a persona player owns its own warm lc0 process (a
+// `MaiaProcess`, one per game, mirroring how each game owns its engine handles)
+// plus a resolved Stockfish path for the verification arm. The persona's move
+// selection reuses `persona::select_move_from_policy` — the SAME contract the
+// spar `persona_move` command runs — so the two surfaces can never diverge.
+
+/// A persona participant resolved to runnable form: absolute paths located and
+/// weights ensured by the command layer, so the pure runner core stays free of
+/// Tauri/app-data dependencies. Sampling parameters are spec 214 contract knobs.
+#[derive(Clone, Debug)]
+pub struct PersonaRuntime {
+    /// lc0 binary that serves the policy head.
+    pub lc0_path: PathBuf,
+    /// Weights file (a Maia band net or a managed strong net, e.g. BT3).
+    pub weights_path: PathBuf,
+    /// Stockfish for the verification reweight; `None` = pure tempered policy.
+    pub stockfish_path: Option<PathBuf>,
+    /// Label for the returned policies / decision log (Maia band or GM ceiling).
+    pub band: u32,
+    pub alpha: f64,
+    pub lambda: f64,
+    pub temperature: f64,
+    pub top_k: Option<usize>,
+    pub top_p: Option<f64>,
+    pub verify_depth: Option<u32>,
+    /// Per-game RNG seed (contract step 8): same seed + same snapshot = same game.
+    pub seed: u64,
+}
+
+/// A persona player: a warm lc0 process bound to the persona's net, driven once
+/// per move through the spec 214 selection contract.
+struct PersonaPlayer {
+    proc: MaiaProcess,
+    stockfish: Option<PathBuf>,
+    alpha: f64,
+    lambda: f64,
+    temperature: f64,
+    top_k: Option<usize>,
+    top_p: Option<f64>,
+    verify_depth: Option<u32>,
+    seed: u64,
+}
+
+impl PersonaPlayer {
+    async fn spawn(rt: &PersonaRuntime) -> Result<Self, String> {
+        let proc = MaiaProcess::spawn(&rt.lc0_path, &rt.weights_path, rt.band).await?;
+        Ok(Self {
+            proc,
+            stockfish: rt.stockfish_path.clone(),
+            alpha: rt.alpha,
+            lambda: rt.lambda,
+            temperature: rt.temperature,
+            top_k: rt.top_k,
+            top_p: rt.top_p,
+            verify_depth: rt.verify_depth,
+            seed: rt.seed,
+        })
+    }
+
+    /// Select the persona's move for `fen` (contract steps 3+4+8+9), returning
+    /// the UCI move, the wall time it took (debited to the persona's clock like
+    /// an engine's search), and the full per-move decision log.
+    async fn bestmove(
+        &self,
+        fen: &str,
+        ply: u32,
+    ) -> Result<(String, i64, PersonaDecision), String> {
+        let t0 = tokio::time::Instant::now();
+        let policy = self.proc.query(fen).await?;
+        let derived = persona::derive_seed(self.seed, ply);
+        let decision = persona::select_move_from_policy(
+            fen,
+            &policy,
+            self.alpha,
+            self.lambda,
+            self.temperature,
+            self.top_k,
+            self.top_p,
+            self.verify_depth,
+            derived,
+            self.stockfish.as_deref(),
+        )
+        .await?;
+        let elapsed = t0.elapsed().as_millis() as i64;
+        Ok((decision.uci.clone(), elapsed, decision))
+    }
+}
+
+/// One side of a game: a UCI engine or a persona. The per-move call site
+/// dispatches on this; the UCI arm is the unchanged historical behavior.
+enum Player {
+    Uci(EngineHandle),
+    Persona(Box<PersonaPlayer>),
+}
+
+impl Player {
+    fn is_persona(&self) -> bool {
+        matches!(self, Player::Persona(_))
+    }
+
+    /// Ask this player for its move. `position_cmd` drives a UCI engine (its
+    /// exact historical input); `fen` + `ply` drive a persona. Returns the UCI
+    /// move, the elapsed wall time, and — for personas — the decision log.
+    #[allow(clippy::too_many_arguments)]
+    async fn bestmove(
+        &mut self,
+        position_cmd: &str,
+        fen: &str,
+        wtime_ms: i64,
+        btime_ms: i64,
+        winc_ms: u64,
+        binc_ms: u64,
+        read_wait: Duration,
+        ply: u32,
+    ) -> Result<(String, i64, Option<PersonaDecision>), String> {
+        match self {
+            Player::Uci(h) => {
+                let (mv, elapsed) = h
+                    .bestmove(position_cmd, wtime_ms, btime_ms, winc_ms, binc_ms, read_wait)
+                    .await?;
+                Ok((mv, elapsed, None))
+            }
+            Player::Persona(p) => {
+                let (mv, elapsed, decision) = p.bestmove(fen, ply).await?;
+                Ok((mv, elapsed, Some(decision)))
+            }
+        }
+    }
+
+    async fn quit(self) {
+        match self {
+            Player::Uci(h) => h.quit().await,
+            // The persona's lc0 process is killed on drop (kill_on_drop); its
+            // per-move Stockfish verifier is already gone (spawned+dropped per move).
+            Player::Persona(_) => {}
+        }
+    }
+}
+
+/// How to build a [`Player`] for one side, before the (post-FEN-validation)
+/// spawn. Borrows so the runner core needs no owned/resolved copies.
+pub(crate) enum PlayerSpec<'a> {
+    Uci(&'a str),
+    Persona(&'a PersonaRuntime),
+}
+
+impl<'a> PlayerSpec<'a> {
+    /// Spawn the player, applying the UCI handshake for engines. `side`
+    /// ("White"/"Black") only labels a UCI init failure, preserving the exact
+    /// historical error strings.
+    async fn spawn(self, side: &str) -> Result<Player, String> {
+        match self {
+            PlayerSpec::Uci(path) => {
+                let mut h = EngineHandle::spawn(path).await?;
+                h.init()
+                    .await
+                    .map_err(|e| format!("{side} engine init failed: {}", e))?;
+                Ok(Player::Uci(h))
+            }
+            PlayerSpec::Persona(rt) => Ok(Player::Persona(Box::new(PersonaPlayer::spawn(rt).await?))),
+        }
+    }
+}
+
+/// A persona participant's per-move decision log entry, attached to the game's
+/// [`GameOutcome`]. Additive: absent (empty) for pure-UCI games.
+#[derive(Serialize, Debug, Clone)]
+pub struct PersonaLogEntry {
+    /// 1-based half-move index (matches [`MoveEvent::ply`]).
+    pub ply: usize,
+    /// Side that moved: "white" | "black".
+    pub color: String,
+    /// The full spec 214 decision record (candidates, evals, chosen move, arm).
+    pub decision: PersonaDecision,
+}
+
 /// Build a `position ...` UCI command from the start FEN and the played moves.
 fn position_command(start_fen: &str, is_standard_start: bool, moves: &[String]) -> String {
     let mut cmd = if is_standard_start {
@@ -497,6 +685,11 @@ pub async fn play_game_core(
 /// clocks hold. `move_delay_ms` throttles the on-board display so each move
 /// stays up at least that long (0 = no throttle). Neither affects the clocks,
 /// which are only ever debited by measured search time.
+///
+/// Thin wrapper over [`play_game_streamed_impl`] with two UCI participants; its
+/// public signature and behavior are unchanged (persona logs, always empty here,
+/// are dropped).
+#[allow(clippy::too_many_arguments)]
 pub async fn play_game_streamed(
     white_path: &str,
     black_path: &str,
@@ -513,6 +706,47 @@ pub async fn play_game_streamed(
     paused: &AtomicBool,
     move_delay_ms: &AtomicU64,
 ) -> Result<GameResult, String> {
+    play_game_streamed_impl(
+        PlayerSpec::Uci(white_path),
+        PlayerSpec::Uci(black_path),
+        start_fen,
+        white_base_ms,
+        white_inc_ms,
+        black_base_ms,
+        black_inc_ms,
+        max_plies,
+        adjudicate_tb,
+        game_id,
+        on_move,
+        cancel,
+        paused,
+        move_delay_ms,
+    )
+    .await
+    .map(|(result, _logs)| result)
+}
+
+/// Play one full headless game between two [`PlayerSpec`]s (UCI engine or
+/// persona), streaming each move via `on_move`. Returns the [`GameResult`] plus
+/// any persona per-move decision logs (empty for pure-UCI games). This is the
+/// shared game loop; [`play_game_streamed`] is the UCI-only wrapper over it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn play_game_streamed_impl(
+    white_spec: PlayerSpec<'_>,
+    black_spec: PlayerSpec<'_>,
+    start_fen: Option<String>,
+    white_base_ms: u64,
+    white_inc_ms: u64,
+    black_base_ms: u64,
+    black_inc_ms: u64,
+    max_plies: usize,
+    adjudicate_tb: bool,
+    game_id: usize,
+    on_move: impl Fn(MoveEvent) + Send + Sync,
+    cancel: &AtomicBool,
+    paused: &AtomicBool,
+    move_delay_ms: &AtomicU64,
+) -> Result<(GameResult, Vec<PersonaLogEntry>), String> {
     // Set up the starting position.
     let (mut pos, start_fen_str, is_standard_start): (Chess, String, bool) = match &start_fen {
         Some(f) => {
@@ -531,17 +765,15 @@ pub async fn play_game_streamed(
         ),
     };
 
-    // Spawn and initialize both engines.
-    let mut white = EngineHandle::spawn(white_path).await?;
-    let mut black = EngineHandle::spawn(black_path).await?;
-    white
-        .init()
-        .await
-        .map_err(|e| format!("White engine init failed: {}", e))?;
-    black
-        .init()
-        .await
-        .map_err(|e| format!("Black engine init failed: {}", e))?;
+    // Spawn and initialize both players (UCI handshake for engines) — AFTER the
+    // FEN is validated above, so an illegal start position errors without ever
+    // spawning a process (preserving the historical no-spawn-on-bad-FEN behavior).
+    let mut white = white_spec.spawn("White").await?;
+    let mut black = black_spec.spawn("Black").await?;
+
+    // Persona per-move decision logs (spec 214 contract step 9); attached to the
+    // game's outcome. Stays empty for pure-UCI games.
+    let mut persona_logs: Vec<PersonaLogEntry> = Vec::new();
 
     let mut moves: Vec<String> = Vec::new();
 
@@ -561,14 +793,15 @@ pub async fn play_game_streamed(
     let initial_key = pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
     rep_counts.insert(initial_key, 1);
 
-    let finish = |white: EngineHandle,
-                  black: EngineHandle,
+    let finish = |white: Player,
+                  black: Player,
                   result: &str,
                   termination: &str,
                   moves: Vec<String>|
      -> GameResult {
-        // Engines are dropped (kill_on_drop) when the closure returns; we spawn
-        // detached quit tasks so they exit cleanly without blocking.
+        // Players are dropped (engines/lc0 processes are kill_on_drop) when the
+        // closure returns; we spawn detached quit tasks so they exit cleanly
+        // without blocking.
         tokio::spawn(async move { white.quit().await });
         tokio::spawn(async move { black.quit().await });
         GameResult {
@@ -588,7 +821,7 @@ pub async fn play_game_streamed(
         let fen = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
         if let Some(verdict) = probe_tablebase(&fen).await {
             let result = tb_result(verdict, stm);
-            return Ok(finish(white, black, result, "tablebase", moves));
+            return Ok((finish(white, black, result, "tablebase", moves), std::mem::take(&mut persona_logs)));
         }
     }
 
@@ -614,15 +847,30 @@ pub async fn play_game_streamed(
 
         // Adjudicate at max plies.
         if moves.len() >= max_plies {
-            return Ok(finish(white, black, "1/2-1/2", "max_plies", moves));
+            return Ok((finish(white, black, "1/2-1/2", "max_plies", moves), std::mem::take(&mut persona_logs)));
         }
 
         let mover = pos.turn();
 
         let position_cmd = position_command(&start_fen_str, is_standard_start, &moves);
 
-        // Ask the engine to move.
-        let engine = match mover {
+        // A persona reads the current position by FEN (not the UCI move list); a
+        // UCI engine ignores it. Compute it only when the mover is a persona so
+        // the UCI hot path is byte-for-byte unchanged.
+        let mover_is_persona = match mover {
+            Color::White => white.is_persona(),
+            Color::Black => black.is_persona(),
+        };
+        let cur_fen = if mover_is_persona {
+            Fen::from_position(&pos, EnPassantMode::Legal).to_string()
+        } else {
+            String::new()
+        };
+        // 0-based half-move index for the persona's seeded RNG (contract step 8).
+        let ply_idx = moves.len() as u32;
+
+        // Ask the moving player for its move.
+        let player = match mover {
             Color::White => &mut white,
             Color::Black => &mut black,
         };
@@ -637,8 +885,17 @@ pub async fn play_game_streamed(
         let read_wait =
             Duration::from_millis((remaining.max(0) as u64).saturating_add(5000).max(5000));
 
-        let (bestmove, elapsed) = match engine
-            .bestmove(&position_cmd, wtime, btime, white_inc_ms, black_inc_ms, read_wait)
+        let (bestmove, elapsed, decision) = match player
+            .bestmove(
+                &position_cmd,
+                &cur_fen,
+                wtime,
+                btime,
+                white_inc_ms,
+                black_inc_ms,
+                read_wait,
+                ply_idx,
+            )
             .await
         {
             Ok(m) => m,
@@ -646,9 +903,23 @@ pub async fn play_game_streamed(
                 // Treat a comms failure as a loss for the side to move.
                 let result = loss_for(mover);
                 let term = format!("engine_error: {}", e);
-                return Ok(finish(white, black, result, &term, moves));
+                return Ok((finish(white, black, result, &term, moves), std::mem::take(&mut persona_logs)));
             }
         };
+
+        // Record the persona's per-move decision log (contract step 9). `ply` is
+        // 1-based to match `MoveEvent::ply` (the move about to be applied).
+        if let Some(decision) = decision {
+            persona_logs.push(PersonaLogEntry {
+                ply: moves.len() + 1,
+                color: match mover {
+                    Color::White => "white",
+                    Color::Black => "black",
+                }
+                .to_string(),
+                decision,
+            });
+        }
 
         // Debit the moving side's clock by the measured search time. If the
         // clock falls below zero (beyond the small jitter grace) the side has
@@ -665,7 +936,7 @@ pub async fn play_game_streamed(
         *clock -= elapsed;
         if *clock < -FLAG_GRACE_MS {
             let result = loss_for(mover);
-            return Ok(finish(white, black, result, "time_forfeit", moves));
+            return Ok((finish(white, black, result, "time_forfeit", moves), std::mem::take(&mut persona_logs)));
         }
         *clock += inc as i64;
 
@@ -678,7 +949,7 @@ pub async fn play_game_streamed(
             } else {
                 (loss_for(mover), "no_move")
             };
-            return Ok(finish(white, black, result, term, moves));
+            return Ok((finish(white, black, result, term, moves), std::mem::take(&mut persona_logs)));
         }
 
         // Parse + validate the move against the current position.
@@ -686,14 +957,14 @@ pub async fn play_game_streamed(
             Ok(u) => u,
             Err(_) => {
                 let result = loss_for(mover);
-                return Ok(finish(white, black, result, "illegal_move", moves));
+                return Ok((finish(white, black, result, "illegal_move", moves), std::mem::take(&mut persona_logs)));
             }
         };
         let legal_move = match uci.to_move(&pos) {
             Ok(m) => m,
             Err(_) => {
                 let result = loss_for(mover);
-                return Ok(finish(white, black, result, "illegal_move", moves));
+                return Ok((finish(white, black, result, "illegal_move", moves), std::mem::take(&mut persona_logs)));
             }
         };
 
@@ -702,7 +973,7 @@ pub async fn play_game_streamed(
             Ok(p) => p,
             Err(_) => {
                 let result = loss_for(mover);
-                return Ok(finish(white, black, result, "illegal_move", moves));
+                return Ok((finish(white, black, result, "illegal_move", moves), std::mem::take(&mut persona_logs)));
             }
         };
         moves.push(bestmove);
@@ -738,30 +1009,24 @@ pub async fn play_game_streamed(
         if pos.is_checkmate() {
             // The side that just moved (`mover`) delivered mate and wins.
             let result = win_for(mover);
-            return Ok(finish(white, black, result, "checkmate", moves));
+            return Ok((finish(white, black, result, "checkmate", moves), std::mem::take(&mut persona_logs)));
         }
         if pos.is_stalemate() {
-            return Ok(finish(white, black, "1/2-1/2", "stalemate", moves));
+            return Ok((finish(white, black, "1/2-1/2", "stalemate", moves), std::mem::take(&mut persona_logs)));
         }
         if pos.is_insufficient_material() {
-            return Ok(finish(
-                white,
-                black,
-                "1/2-1/2",
-                "insufficient_material",
-                moves,
-            ));
+            return Ok((finish(white, black, "1/2-1/2", "insufficient_material", moves), std::mem::take(&mut persona_logs)));
         }
         // 50-move rule: halfmove clock >= 100.
         if pos.halfmoves() >= 100 {
-            return Ok(finish(white, black, "1/2-1/2", "fifty_move", moves));
+            return Ok((finish(white, black, "1/2-1/2", "fifty_move", moves), std::mem::take(&mut persona_logs)));
         }
         // Threefold repetition (tracked by us).
         let key = pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0;
         let count = rep_counts.entry(key).or_insert(0);
         *count += 1;
         if *count >= 3 {
-            return Ok(finish(white, black, "1/2-1/2", "threefold", moves));
+            return Ok((finish(white, black, "1/2-1/2", "threefold", moves), std::mem::take(&mut persona_logs)));
         }
 
         // --- Tablebase adjudication (perfect-play result for <=7-man endgames) ---
@@ -774,7 +1039,7 @@ pub async fn play_game_streamed(
             let fen = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
             if let Some(verdict) = probe_tablebase(&fen).await {
                 let result = tb_result(verdict, stm);
-                return Ok(finish(white, black, result, "tablebase", moves));
+                return Ok((finish(white, black, result, "tablebase", moves), std::mem::take(&mut persona_logs)));
             }
         }
     }
@@ -821,6 +1086,62 @@ pub async fn play_game(
 // Milestone 2 — Parallel batch runner
 // ============================================================================
 
+/// Whether a [`Participant`] is a UCI binary or a persona (spec 218).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ParticipantKind {
+    Uci,
+    Persona,
+}
+
+/// The runtime object a surface spawns to field an opponent (spec 218 "The
+/// Participant"): one roster entry, engine or persona. This is the wire shape the
+/// tournament/exhibition UI sends; the exact (camelCase) field names are the
+/// contract the frontend consumes — `{ id, displayName, kind, enginePath?,
+/// personaConfig? }`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Participant {
+    /// Stable roster id (echoed in labels/logs).
+    pub id: String,
+    /// Human-facing name shown in the picker/standings.
+    pub display_name: String,
+    pub kind: ParticipantKind,
+    /// Engine binary path — required when `kind == uci`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_path: Option<String>,
+    /// Persona configuration — required when `kind == persona`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona_config: Option<PersonaConfig>,
+}
+
+/// A persona participant's move-selection config (spec 214 Tier 2). Mirrors the
+/// spar `persona_move` params plus a policy-backend selector (`weights`): the
+/// Maia band `level` by default, or a named managed strong net (e.g. "bt3") for
+/// GM personas. camelCase field names are the frontend contract.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonaConfig {
+    /// Maia band selector, and the decision-log strength label.
+    pub level: u32,
+    pub temperature: f64,
+    pub alpha: f64,
+    pub lambda: f64,
+    #[serde(default)]
+    pub top_k: Option<usize>,
+    #[serde(default)]
+    pub top_p: Option<f64>,
+    #[serde(default)]
+    pub verify_depth: Option<u32>,
+    /// Named managed net overriding the Maia band policy backend (e.g. "bt3").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weights: Option<String>,
+    /// Per-persona base RNG seed (contract step 8); mixed with the game id so
+    /// each game in a batch is distinct yet reproducible. Defaults to 0.
+    #[serde(default)]
+    pub seed: Option<u64>,
+}
+
 /// One game to be played as part of a batch. Self-describing so the runner can
 /// schedule games in any order and the caller can correlate outcomes by `id`.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -858,6 +1179,21 @@ pub struct GameSpec {
     pub black_base_ms: Option<u64>,
     #[serde(default)]
     pub black_inc_ms: Option<u64>,
+    /// Optional participant for White (spec 218). When present it supersedes
+    /// `white_path`: the command layer normalizes a UCI participant's
+    /// `engine_path` into `white_path` and resolves a persona participant into
+    /// `white_runtime`. Absent = the legacy `white_path` UCI behavior.
+    #[serde(default)]
+    pub white: Option<Participant>,
+    #[serde(default)]
+    pub black: Option<Participant>,
+    /// Resolved persona runtimes, filled by the command layer from `white`/`black`
+    /// persona participants. Never serialized (the frontend sends participants,
+    /// not resolved paths); the pure runner core reads these to spawn the arm.
+    #[serde(skip)]
+    pub white_runtime: Option<PersonaRuntime>,
+    #[serde(skip)]
+    pub black_runtime: Option<PersonaRuntime>,
 }
 
 /// Default for [`GameSpec::adjudicate_tb`]: tablebase adjudication is on unless
@@ -894,6 +1230,11 @@ pub struct GameOutcome {
     /// Aborted games are excluded from all result stats.
     #[serde(default)]
     pub aborted: bool,
+    /// Per-move persona decision logs (spec 214 contract step 9), one per persona
+    /// move in this game. Additive: omitted from the JSON for pure-UCI games, so
+    /// existing consumers are unaffected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub persona_logs: Vec<PersonaLogEntry>,
 }
 
 /// Progress event emitted as each game in a batch completes.
@@ -1136,9 +1477,19 @@ pub async fn run_batch_core_evaluated(
 
             let on_move_inner = Arc::clone(&on_move);
             let eval_tx_move = eval_tx.clone();
-            let result = play_game_streamed(
-                &spec.white_path,
-                &spec.black_path,
+            // A resolved persona runtime supersedes the UCI path for its side; a
+            // pure-UCI game reads the (byte-for-byte) legacy `*_path` fields.
+            let white_spec = match &spec.white_runtime {
+                Some(rt) => PlayerSpec::Persona(rt),
+                None => PlayerSpec::Uci(&spec.white_path),
+            };
+            let black_spec = match &spec.black_runtime {
+                Some(rt) => PlayerSpec::Persona(rt),
+                None => PlayerSpec::Uci(&spec.black_path),
+            };
+            let (result, persona_logs) = match play_game_streamed_impl(
+                white_spec,
+                black_spec,
                 spec.start_fen.clone(),
                 spec.white_base_ms.unwrap_or(spec.base_ms),
                 spec.white_inc_ms.unwrap_or(spec.inc_ms),
@@ -1159,7 +1510,11 @@ pub async fn run_batch_core_evaluated(
                 &paused_game,
                 &delay_game,
             )
-            .await;
+            .await
+            {
+                Ok((r, logs)) => (Ok(r), logs),
+                Err(e) => (Err(e), Vec::new()),
+            };
 
             // Close the eval channel (both sender clones) and collect the evals.
             // The evaluator lags by at most one position, so this waits briefly.
@@ -1178,6 +1533,7 @@ pub async fn run_batch_core_evaluated(
                 result,
                 evals,
                 aborted,
+                persona_logs,
             };
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1219,7 +1575,16 @@ pub async fn run_batch_core_evaluated(
 fn check_engine_paths(specs: &[GameSpec]) -> Result<(), String> {
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for spec in specs {
-        for path in [spec.white_path.as_str(), spec.black_path.as_str()] {
+        for (runtime, path) in [
+            (&spec.white_runtime, spec.white_path.as_str()),
+            (&spec.black_runtime, spec.black_path.as_str()),
+        ] {
+            // A persona side has no engine binary to pre-flight (it drives lc0,
+            // already resolved). An empty path is a persona-only spec's other
+            // field or an intentionally unset side — skip it too.
+            if runtime.is_some() || path.is_empty() {
+                continue;
+            }
             if !seen.insert(path) {
                 continue;
             }
@@ -1227,6 +1592,99 @@ fn check_engine_paths(specs: &[GameSpec]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Resolve every game spec's participants (spec 218) before play: a UCI
+/// participant's `enginePath` is normalized into the side's `*_path`; a persona
+/// participant is resolved into a runnable [`PersonaRuntime`] (lc0 located,
+/// weights ensured — possibly a 190MB download — Stockfish located for the
+/// verification arm). Runs once up front so a bad config or missing net fails the
+/// whole batch fast rather than silently per game. Weight files are ensured once
+/// per distinct (band, net) and reused across games.
+async fn resolve_participants(
+    app: &tauri::AppHandle,
+    specs: &mut [GameSpec],
+) -> Result<(), String> {
+    let lc0 = crate::maia::resolve_lc0();
+    let stockfish = persona::resolve_stockfish();
+    let mut weight_cache: HashMap<String, PathBuf> = HashMap::new();
+
+    for spec in specs.iter_mut() {
+        let game_id = spec.id;
+        if let Some(p) = spec.white.take() {
+            match resolve_one(app, p, game_id, &lc0, &stockfish, &mut weight_cache).await? {
+                ResolvedSide::Uci(path) => spec.white_path = path,
+                ResolvedSide::Persona(rt) => spec.white_runtime = Some(rt),
+            }
+        }
+        if let Some(p) = spec.black.take() {
+            match resolve_one(app, p, game_id, &lc0, &stockfish, &mut weight_cache).await? {
+                ResolvedSide::Uci(path) => spec.black_path = path,
+                ResolvedSide::Persona(rt) => spec.black_runtime = Some(rt),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// One resolved side: either a normalized UCI binary path or a persona runtime.
+enum ResolvedSide {
+    Uci(String),
+    Persona(PersonaRuntime),
+}
+
+/// Resolve a single [`Participant`] into a runnable side.
+async fn resolve_one(
+    app: &tauri::AppHandle,
+    p: Participant,
+    game_id: usize,
+    lc0: &Option<PathBuf>,
+    stockfish: &Option<PathBuf>,
+    weight_cache: &mut HashMap<String, PathBuf>,
+) -> Result<ResolvedSide, String> {
+    match p.kind {
+        ParticipantKind::Uci => {
+            let path = p
+                .engine_path
+                .filter(|s| !s.trim().is_empty())
+                .ok_or_else(|| format!("participant '{}' is kind=uci but has no enginePath", p.id))?;
+            Ok(ResolvedSide::Uci(path))
+        }
+        ParticipantKind::Persona => {
+            let cfg = p.persona_config.ok_or_else(|| {
+                format!("participant '{}' is kind=persona but has no personaConfig", p.id)
+            })?;
+            let lc0_path = lc0.clone().ok_or(
+                "lc0 not found — install it with: brew install lc0 (required for persona participants)",
+            )?;
+            let key = format!("{}|{}", cfg.level, cfg.weights.as_deref().unwrap_or(""));
+            let weights_path = match weight_cache.get(&key) {
+                Some(w) => w.clone(),
+                None => {
+                    let w = crate::maia::resolve_persona_weights(app, cfg.level, cfg.weights.as_deref())
+                        .await?;
+                    weight_cache.insert(key, w.clone());
+                    w
+                }
+            };
+            // Per-game seed (contract step 8): mix the persona base seed with the
+            // game id so each game in the batch is distinct yet reproducible.
+            let seed = persona::derive_seed(cfg.seed.unwrap_or(0), game_id as u32);
+            Ok(ResolvedSide::Persona(PersonaRuntime {
+                lc0_path,
+                weights_path,
+                stockfish_path: stockfish.clone(),
+                band: cfg.level,
+                alpha: cfg.alpha,
+                lambda: cfg.lambda,
+                temperature: cfg.temperature,
+                top_k: cfg.top_k,
+                top_p: cfg.top_p,
+                verify_depth: cfg.verify_depth,
+                seed,
+            }))
+        }
+    }
 }
 
 /// Pre-flight one engine binary: must exist, be a file, and (on Unix) carry an
@@ -1310,7 +1768,8 @@ pub struct BatchReport {
 /// to each [`GameOutcome`]. `eval_path` is pre-flighted like the players.
 #[tauri::command]
 pub async fn play_batch(
-    specs: Vec<GameSpec>,
+    app: tauri::AppHandle,
+    mut specs: Vec<GameSpec>,
     concurrency: usize,
     on_progress: tauri::ipc::Channel<BatchProgress>,
     on_move: tauri::ipc::Channel<MoveEvent>,
@@ -1321,9 +1780,16 @@ pub async fn play_batch(
     move_delay_ms: Option<u64>,
     control: tauri::State<'_, BatchControl>,
 ) -> Result<BatchReport, String> {
+    // Resolve roster participants (spec 218) first: normalize UCI participants to
+    // their binary path and resolve persona participants to runnable runtimes
+    // (lc0 + weights ensured). A bad persona config or missing net fails the whole
+    // batch here, up front.
+    resolve_participants(&app, &mut specs).await?;
+
     // Fail fast, once, if an engine binary is missing or non-executable —
     // otherwise every game spawn-fails identically and the UI shows only a
-    // count. A bare command (PATH-resolved) is not checked here.
+    // count. A bare command (PATH-resolved) is not checked here. Persona sides
+    // (resolved above) carry no binary and are skipped.
     check_engine_paths(&specs)?;
 
     // Pre-flight the evaluator path too so a bad path fails up front, not
@@ -1608,7 +2074,7 @@ mod tests {
     }
 
     fn outcome(id: usize, result: Result<GameResult, String>, aborted: bool) -> GameOutcome {
-        GameOutcome { id, flipped: false, result, evals: Vec::new(), aborted }
+        GameOutcome { id, flipped: false, result, evals: Vec::new(), aborted, persona_logs: Vec::new() }
     }
 
     fn win(res: &str) -> Result<GameResult, String> {
@@ -1737,5 +2203,133 @@ mod tests {
             "throttled game took {elapsed}ms, expected >= {floor}ms ({} plies @ {delay_ms}ms)",
             res.plies
         );
+    }
+
+    // ---- Persona participants (spec 218 persona arm) ----------------------
+
+    // The exact camelCase wire shape the tournament/exhibition UI sends. This
+    // locks the serde field names the frontend stream consumes — no engine needed.
+    #[test]
+    fn participant_wire_shape_matches_spec_218() {
+        let persona = r#"{
+            "id": "kasparov",
+            "displayName": "Garry Kasparov",
+            "kind": "persona",
+            "personaConfig": {
+                "level": 1900, "temperature": 0.5, "alpha": 1.0, "lambda": 0.75,
+                "topK": 4, "verifyDepth": 12, "weights": "bt3", "seed": 214214
+            }
+        }"#;
+        let p: Participant = serde_json::from_str(persona).expect("persona participant deserializes");
+        assert_eq!(p.id, "kasparov");
+        assert_eq!(p.display_name, "Garry Kasparov");
+        assert_eq!(p.kind, ParticipantKind::Persona);
+        let cfg = p.persona_config.expect("persona carries a config");
+        assert_eq!(cfg.level, 1900);
+        assert_eq!(cfg.top_k, Some(4));
+        assert_eq!(cfg.verify_depth, Some(12));
+        assert_eq!(cfg.weights.as_deref(), Some("bt3"));
+        assert_eq!(cfg.seed, Some(214214));
+
+        let uci = r#"{"id":"sf","displayName":"Stockfish 18","kind":"uci","enginePath":"/opt/homebrew/bin/stockfish"}"#;
+        let p: Participant = serde_json::from_str(uci).expect("uci participant deserializes");
+        assert_eq!(p.kind, ParticipantKind::Uci);
+        assert_eq!(p.engine_path.as_deref(), Some("/opt/homebrew/bin/stockfish"));
+        assert!(p.persona_config.is_none());
+    }
+
+    // A GameSpec may carry participants on the wire; the resolved runtimes never
+    // appear in JSON and default to None on deserialization.
+    #[test]
+    fn game_spec_accepts_participants_on_the_wire() {
+        let json = r#"{
+            "id": 0, "white_path": "", "black_path": "", "max_plies": 4,
+            "white": {"id":"sf","displayName":"SF","kind":"uci","enginePath":"/bin/sf"},
+            "black": {"id":"dad","displayName":"Dad","kind":"persona",
+                      "personaConfig":{"level":1700,"temperature":0.5,"alpha":1.0,"lambda":0.75}}
+        }"#;
+        let spec: GameSpec = serde_json::from_str(json).expect("spec with participants deserializes");
+        assert_eq!(spec.white.as_ref().unwrap().kind, ParticipantKind::Uci);
+        assert_eq!(spec.black.as_ref().unwrap().kind, ParticipantKind::Persona);
+        assert!(spec.white_runtime.is_none() && spec.black_runtime.is_none());
+    }
+
+    /// Resolve a usable lc0 + maia-1500 weights for the persona-arm test, or
+    /// `None` so it skips cleanly on a box without lc0 or offline.
+    async fn find_persona_deps() -> Option<(PathBuf, PathBuf)> {
+        let lc0 = crate::maia::resolve_lc0()?;
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("maia-test-cache");
+        let weights = crate::maia::ensure_weights(1500, &dir).await.ok()?;
+        Some((lc0, weights))
+    }
+
+    // End-to-end persona arm: a persona (Maia-1500 policy + Stockfish verification
+    // reweight) as White vs Stockfish as Black, two half-moves headless. Proves
+    // the enum dispatches the persona at the per-move call site, that its move is
+    // legal and applied, and that a per-move decision log is attached to the
+    // outcome. Skips cleanly without lc0/weights/stockfish.
+    #[tokio::test]
+    async fn persona_vs_uci_two_moves_logs_a_decision() {
+        let Some((lc0, weights)) = find_persona_deps().await else {
+            eprintln!("skipping persona_vs_uci_two_moves: no lc0/maia weights");
+            return;
+        };
+        let Some(sf) = find_stockfish() else {
+            eprintln!("skipping persona_vs_uci_two_moves: no stockfish");
+            return;
+        };
+
+        let rt = PersonaRuntime {
+            lc0_path: lc0,
+            weights_path: weights,
+            stockfish_path: Some(PathBuf::from(&sf)),
+            band: 1500,
+            alpha: 1.0,
+            lambda: 0.75,
+            temperature: 0.5,
+            top_k: Some(4),
+            top_p: None,
+            verify_depth: Some(6), // shallow: fast but exercises the verify arm
+            seed: 214218,
+        };
+
+        let cancel = AtomicBool::new(false);
+        let paused = AtomicBool::new(false);
+        let delay = AtomicU64::new(0);
+        let (result, logs) = play_game_streamed_impl(
+            PlayerSpec::Persona(&rt),
+            PlayerSpec::Uci(&sf),
+            None,
+            5000, 0, 5000, 0,
+            2,      // two half-moves then max_plies adjudication
+            false,  // no tablebase network
+            0,
+            |_| {},
+            &cancel,
+            &paused,
+            &delay,
+        )
+        .await
+        .expect("persona-vs-uci game should play");
+
+        assert!(result.plies >= 1, "at least White's persona move was played");
+        // White is the persona → exactly its ply-1 move is logged.
+        assert_eq!(logs.len(), 1, "one persona decision (White, ply 1)");
+        let entry = &logs[0];
+        assert_eq!(entry.ply, 1);
+        assert_eq!(entry.color, "white");
+        assert!(!entry.decision.uci.is_empty(), "the chosen move is recorded");
+        assert_eq!(
+            entry.decision.uci, result.moves[0],
+            "the logged decision is the move actually applied"
+        );
+        assert!(
+            entry.decision.reason == "policy" || entry.decision.reason == "verify-reweight",
+            "reason arm should be a persona arm, got {}",
+            entry.decision.reason
+        );
+        assert!(!entry.decision.candidates.is_empty(), "candidates are logged");
     }
 }

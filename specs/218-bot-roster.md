@@ -146,10 +146,15 @@ strength (spec:216 curve) — no unmeasured realism claims.
 - [ ] Participant dropdown replaces the two free-text binary paths in the
       tournament tab (decision 5 labels), with explicit per-side assignment
       (Phase 3 `flipFirst` is only half of side selection)
-- [ ] Persona arm in the runner: the Participant enum at the single per-move call
-      site (see "The persona arm" above)
-- [ ] Managed weights: the ~190MB BT3 strong net lives outside the repo today;
-      extend the existing checksummed Maia weight-download story to fetch/locate it
+- [x] Persona arm in the runner (2026-07-15): Player enum Uci|Persona at the
+      per-move call site in match_runner.rs; persona arm and spar persona_move
+      share one selection core (persona.rs::select_move_from_policy) so surfaces
+      cannot diverge; additive GameOutcome.persona_logs decision-log field;
+      persona-vs-UCI integration test ran against real lc0+SF (77 Rust tests
+      pass). Live-app exhibition run pending user eyeball.
+- [x] Managed weights (2026-07-15): maia.rs MANAGED_NETS registry — BT3 net with
+      pinned sha256 + live lczero.org URL; resolution order: PERSONA_BT3_PATH
+      local registration → verified cache → download.
 - [ ] Exhibition framing: batch of 1 through the existing runner as v1; featured
       single-game presentation (less stats-first); SAN move list with move numbers
       in the live viewer; spec:216 honest strength labels on every persona match

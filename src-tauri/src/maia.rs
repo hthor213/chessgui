@@ -223,6 +223,102 @@ async fn http_download(url: String) -> Result<Vec<u8>, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Managed strong nets (spec 218 "Managed weights")
+// ---------------------------------------------------------------------------
+//
+// Beyond the nine Maia bands, GM-strength personas (spec 214) run on a large
+// lc0-format net. These are too big to bundle (~190MB), so they follow the same
+// fetch-once/checksum-pinned/cache story as the Maia weights — plus a local-file
+// registration path (an env var pointing at an already-downloaded copy), because
+// re-downloading 190MB per machine is wasteful when the file is often already on
+// disk. The download URL is recorded when known; a net with a blank `url` is
+// registration-only until its URL is pinned.
+
+/// A named strong net managed the same way as the Maia bands: fetched once,
+/// checksum-verified, and cached — or registered from a local file via
+/// `local_env`.
+pub struct ManagedNet {
+    /// Stable lookup key used in a persona config's `weights` field.
+    pub name: &'static str,
+    /// Cache filename (also the upstream asset name).
+    pub filename: &'static str,
+    /// SHA-256 the downloaded/registered bytes must match.
+    pub sha256: &'static str,
+    /// Download URL, or "" when only local registration is supported so far.
+    pub url: &'static str,
+    /// Env var that, when set to an existing file, registers a local copy in
+    /// place of downloading (checksum still verified).
+    pub local_env: &'static str,
+}
+
+/// The managed strong-net registry. BT3 is the GM-persona policy backend from
+/// the spec 214 eval harness (its held-out move-match beat Maia at every tested
+/// strength). Its checksum + URL are pinned from scripts/persona (build_persona_configs.py).
+pub const MANAGED_NETS: &[ManagedNet] = &[ManagedNet {
+    name: "bt3",
+    filename: "BT3-768x15x24h-swa-2790000.pb.gz",
+    sha256: "e3067757d1fc2dfc66947b21d15ace0cedf4c54254fc1de83d77c378a3e8b8e1",
+    url: "https://storage.lczero.org/files/networks-contrib/BT3-768x15x24h-swa-2790000.pb.gz",
+    local_env: "PERSONA_BT3_PATH",
+}];
+
+/// Look up a managed net by its config `weights` name (e.g. "bt3").
+pub fn managed_net(name: &str) -> Option<&'static ManagedNet> {
+    MANAGED_NETS.iter().find(|n| n.name.eq_ignore_ascii_case(name))
+}
+
+/// Ensure a managed strong net is available, returning a path to it:
+///   1. a local file registered via `net.local_env` (checksum-verified in place),
+///   2. else a checksum-valid cached copy under `dir`,
+///   3. else download from `net.url` (must be non-empty), verify, and cache.
+/// The pinned SHA-256 is enforced in every branch.
+pub async fn ensure_managed_net(net: &ManagedNet, dir: &Path) -> Result<PathBuf, String> {
+    // 1. Locally registered copy — the 190MB net is often already on disk.
+    if let Ok(p) = std::env::var(net.local_env) {
+        if !p.trim().is_empty() {
+            let pb = PathBuf::from(&p);
+            if pb.exists() {
+                let bytes = std::fs::read(&pb)
+                    .map_err(|e| format!("reading registered net {pb:?}: {e}"))?;
+                verify_download(&bytes, Some(net.sha256))?;
+                return Ok(pb);
+            }
+            return Err(format!(
+                "{} points at {p}, which does not exist",
+                net.local_env
+            ));
+        }
+    }
+
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let path = dir.join(net.filename);
+
+    // 2. Verified cache hit.
+    if path.exists() {
+        if let Ok(bytes) = std::fs::read(&path) {
+            if verify_download(&bytes, Some(net.sha256)).is_ok() {
+                return Ok(path);
+            }
+        }
+        // Corrupt/stale — fall through and re-fetch.
+    }
+
+    // 3. Download (only if a URL is pinned).
+    if net.url.is_empty() {
+        return Err(format!(
+            "managed net '{}' has no download URL yet — set {} to a local copy",
+            net.name, net.local_env
+        ));
+    }
+    let bytes = http_download(net.url.to_string()).await?;
+    verify_download(&bytes, Some(net.sha256))?;
+    let tmp = dir.join(format!("{}.part", net.filename));
+    std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+// ---------------------------------------------------------------------------
 // Policy parsing
 // ---------------------------------------------------------------------------
 
@@ -306,7 +402,11 @@ pub struct MaiaProcess {
 }
 
 impl MaiaProcess {
-    async fn spawn(lc0: &Path, weights: &Path, band: u32) -> Result<Self, String> {
+    /// Spawn a warm lc0 process bound to `weights` (a Maia band net or a managed
+    /// strong net), labelled `band` for the policies it returns. `pub(crate)` so
+    /// the match runner's persona arm can own a per-game lc0 process the same way
+    /// a UCI participant owns an engine process.
+    pub(crate) async fn spawn(lc0: &Path, weights: &Path, band: u32) -> Result<Self, String> {
         let mut child = Command::new(lc0)
             .arg(format!("--weights={}", weights.display()))
             .stdin(Stdio::piped())
@@ -495,6 +595,39 @@ fn maia_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Cache directory for managed strong nets (kept separate from the Maia bands).
+fn nets_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("nets");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Resolve the weights file for a persona's policy backend: a named managed net
+/// (e.g. "bt3") when `weights_name` is set, else the Maia band net for `band`.
+/// Ensures the file is present (download/registration) and checksum-valid.
+pub async fn resolve_persona_weights(
+    app: &tauri::AppHandle,
+    band: u32,
+    weights_name: Option<&str>,
+) -> Result<PathBuf, String> {
+    match weights_name {
+        Some(name) => {
+            let net =
+                managed_net(name).ok_or_else(|| format!("unknown managed net '{name}'"))?;
+            let dir = nets_dir(app)?;
+            ensure_managed_net(net, &dir).await
+        }
+        None => {
+            let dir = maia_dir(app)?;
+            ensure_weights(band, &dir).await
+        }
+    }
+}
+
 /// Report lc0 availability and which band weights are already cached. The UI
 /// uses this to hide the feature (no lc0) or to show a first-use download hint.
 #[tauri::command]
@@ -591,6 +724,45 @@ mod tests {
         assert!((mass("d2d4") - 0.2334).abs() < 1e-4);
         // Value head captured from the node line's Q.
         assert!((policy.value.unwrap() - 0.03821).abs() < 1e-6);
+    }
+
+    #[test]
+    fn managed_net_lookup_is_case_insensitive_and_records_bt3() {
+        let bt3 = managed_net("BT3").expect("bt3 is a managed net");
+        assert_eq!(bt3.name, "bt3");
+        assert_eq!(bt3.filename, "BT3-768x15x24h-swa-2790000.pb.gz");
+        assert_eq!(bt3.sha256.len(), 64, "sha256 must be a 32-byte hex digest");
+        assert!(bt3.url.starts_with("https://"), "bt3 has a pinned download URL");
+        assert!(managed_net("no-such-net").is_none());
+    }
+
+    #[tokio::test]
+    async fn ensure_managed_net_verifies_registered_local_file() {
+        let net = managed_net("bt3").unwrap();
+        let dir = std::env::temp_dir().join(format!("nets-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // A registered path that doesn't exist is a clear error (not a silent
+        // fall-through to a 190MB download).
+        std::env::set_var(net.local_env, "/no/such/bt3.pb.gz");
+        assert!(
+            ensure_managed_net(net, &dir).await.is_err(),
+            "a missing registered file must error"
+        );
+
+        // A registered file whose bytes don't match the pinned digest is rejected
+        // (gzip magic present so it passes the format gate and reaches the hash).
+        let bogus = dir.join("bogus.pb.gz");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&bogus, [0x1f, 0x8b, 0x01, 0x02, 0x03]).unwrap();
+        std::env::set_var(net.local_env, &bogus);
+        let err = ensure_managed_net(net, &dir)
+            .await
+            .expect_err("checksum mismatch must error");
+        assert!(err.contains("checksum"), "expected a checksum error, got: {err}");
+
+        std::env::remove_var(net.local_env);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
