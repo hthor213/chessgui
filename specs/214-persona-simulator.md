@@ -81,7 +81,7 @@ from the player's real games, how often does the persona play the human's move?
       tuned and validated against.
 - [x] Persona vs persona v0 (2026-07-15, script not match-runner): Kasparov 3.5-2.5 Fischer, data/personas/EXHIBITION.md
 - [x] Dad OTB data chase (2026-07-15): identity confirmed (KR, b.1947, FIDE 2316668, standard 1591-converted), zero recorded games — dad-sim stays chess.com-book+Maia (skak.is, chess-results) — results/rating even if no moves
-- [ ] Spar modes + game controls (2026-07-15, user request): mode picked at game
+- [x] Spar modes + game controls (2026-07-15, user request; SHIPPED 6145613): mode picked at game
       start — "Serious spar" vs "Improve his personality" (probe). Probe mode
       adds an End game button (abort, no result, never counts toward metrics) for
       the stop→feedback→try-again loop; Resign and Offer draw exist in BOTH
@@ -89,7 +89,7 @@ from the player's real games, how often does the persona play the human's move?
       exists, else an honest material/quietness rule — either way the rule is
       visible in the UI (tooltip), never hidden dice. Probe mode states honestly
       that feedback tunes the NEXT persona iteration, not this game.
-- [ ] Move-by-move rival book (2026-07-15, supersedes drop-into-line as default):
+- [x] Move-by-move rival book (2026-07-15, SHIPPED 6145613, supersedes drop-into-line as default):
       spar starts at move 1; while the position matches the rival's real games
       the persona replies with his recorded reply (frequency-weighted across
       alternatives), then Maia takes over out of book. The drop-into-line start
