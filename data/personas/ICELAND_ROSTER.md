@@ -209,3 +209,18 @@ flag, which resolves the aggregator conflict noted above.
 
 Arena-relevant: Margeir Pétursson still ACTIVE at #14 (2386) — the "win the game
 Gudmundur never got" quest has a live, currently-rated benchmark.
+
+
+## Statistical significance — filtering the microstates (user's point, 2026-07-15)
+
+Source for raw counts: chess.stackexchange 34893 (April 2021 FIDE list): Monaco
+3 GMs (79.4/M), Iceland 13 (39.1/M), Andorra 2, Faroes 1, Armenia 40 (13.3/M).
+Poisson sanity check at the world base rate (~0.22 GMs/million, ~1,700 living GMs
+/ 7.8B — estimate): expected counts are Monaco 0.009, Iceland 0.08, Armenia 0.7.
+- Monaco/Andorra/Faroes: 1-3 observed = residency/federation-transfer selection
+  (imported GMs), the "can happen in a village" artifact. Not chess culture.
+- Iceland: 13 observed vs 0.08 expected — P on the order of 1e-24. A production
+  system, all homegrown per skak.is.
+- Armenia: 40 vs ~0.7 — equally significant, at 8x the population, schools-driven.
+Honest podium once noise is filtered: Iceland (density), Armenia (density at
+scale). Lobby copy can say "best per capita" with a straight face.
