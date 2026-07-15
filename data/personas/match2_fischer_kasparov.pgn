@@ -1,0 +1,312 @@
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "1"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "0-1"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "White resigns"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bc4 e6 7. Bb3 Nbd7 8. Be3 Nc5 9. f3 Be7 10. Qd2 Qc7 11. g4 b5 12. a3 Nfd7 13. Ba2 Ne5 14. g5 Rb8 15. b4 Ncd7 16. f4 Nc4 17. Bxc4 Qxc4 18. Qd3 Qc7 19. h4 Bb7 20. Nde2 Rc8 21. Rg1 Qc4 22. Rg3 h6 23. Kd2 hxg5 24. hxg5 e5 25. f5 Rh4 26. Rf1 Bf8 27. Rf2 Bxe4 28. Qxc4 Rxc4 29. Nxe4 Rhxe4 30. Nc3 Rh4 31. Nd5 Be7 32. Kc1 Bd8 33. Kb2 e4 34. c3 Ne5 35. Kb3 Rh1 36. Bd4 Rd1 37. Re2 Rcxd4 38. cxd4 Rxd4 39. Nf4 Kd7 40. Nh5 g6 41. fxg6 fxg6 42. Nf4 a5 43. bxa5 Bxa5 44. Kc2 Bd8 45. Rd2 Rxd2+ 46. Kxd2 Bxg5 47. Ke3 Nc4+ 48. Kxe4 Nd2+ 49. Kd5 Bxf4 50. Rxg6 0-1
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "2"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Drawn (sustained equality)"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. f4 e5 7. Nf3 Nbd7 8. a4 Be7 9. Bc4 Qa5 10. Bd2 exf4 11. Bxf4 Ne5 12. Bd5 Be6 13. Bxe6 fxe6 14. Ng5 Ng6 15. Be3 Qe5 16. Nf3 Qh5 17. Qe2 Rc8 18. Nd4 Qxe2+ 19. Kxe2 Kd7 20. Ra3 Ng4 21. Rb3 Rc7 22. Nf3 Nxe3 23. Kxe3 Rb8 24. h4 Bf6 25. h5 Ne7 26. Kd3 Nc6 27. Nd1 h6 28. c3 b5 29. axb5 axb5 30. Nf2 b4 31. Ng4 Ra7 32. Nxf6+ gxf6 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "3"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "0-1"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "White resigns"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bg5 Nc6 7. f4 Qb6 8. Nb3 e6 9. Qf3 Be7 10. Bd3 h6 11. Bh4 Qc7 12. Bf2 b5 13. a4 bxa4 14. Rxa4 Bb7 15. Qe2 a5 16. Nb5 Qb8 17. Bb6 Bd8 18. Bxd8 Kxd8 19. Nxd6 Qxd6 20. e5 Qc7 21. exf6 gxf6 22. f5 e5 23. Be4 Ke7 24. Qb5 Rhc8 25. Qc5+ Ke8 26. Rc4 a4 27. Nd2 Qd7 28. Qb5 Kf8 29. Rc3 Rab8 30. Qxa4 Ra8 31. Bxc6 Bxc6 32. Qb4+ Kg7 33. Rg3+ Kh7 34. Qh4 Ra1+ 35. Ke2 Rxh1 0-1
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "4"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Draw agreed"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bc4 e6 7. Bb3 Nbd7 8. Be3 Nc5 9. f3 Be7 10. g4 Nfd7 11. Qe2 Bh4+ 12. Bf2 h5 13. gxh5 Qg5 14. Bg3 b5 15. Rg1 Bb7 16. Qf2 Rxh5 17. Bxh4 Qxh4 18. Rxg7 Ne5 19. Qxh4 Rxh4 20. Rg2 Rh3 21. Kf2 Ke7 22. a3 Rah8 23. Rag1 R8h4 24. Ba2 Bxe4 25. fxe4 Nxe4+ 26. Nxe4 Rf4+ 27. Ke1 Rxe4+ 28. Ne2 Nf3+ 29. Kf2 Nxg1 30. Nxg1 Rh5 31. c3 Rf4+ 32. Ke3 Rf1 33. Nf3 Rh3 34. Rf2 Rxf2 35. Kxf2 d5 36. Kg2 Rh8 37. h4 f5 38. Bb3 Kf6 39. Kg3 Rd8 40. Nd4 e5 41. Nc6 Rg8+ 42. Kf2 Rg4 43. Bxd5 Rxh4 44. Bg2 Rh6 45. Nb4 Kg5 46. Nd5 Rh2 47. b3 e4 48. c4 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "5"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Draw agreed"]
+
+1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 e6 5. Nb5 d6 6. Bf4 e5 7. Be3 Nf6 8. Bg5 Be6 9. N1c3 a6 10. Bxf6 gxf6 11. Na3 d5 12. exd5 Bxa3 13. bxa3 Qa5 14. Qd2 Rd8 15. Bc4 Bf5 16. Nd1 Bxc2 17. Ne3 Qxd2+ 18. Kxd2 Be4 19. Rhc1 Ne7 20. Ke2 Nxd5 21. Bxd5 Bxd5 22. Nxd5 Rxd5 23. Rab1 b5 24. Rc8+ Rd8 25. Rc6 Ke7 26. Rxa6 Ra8 27. Rb6 Rhd8 28. Rb3 Rac8 29. Rf3 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "6"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Draw agreed"]
+
+1. d4 d5 2. c4 dxc4 3. e3 e6 4. Bxc4 c5 5. Nf3 a6 6. O-O Nf6 7. Bb3 b5 8. a4 Bb7 9. axb5 axb5 10. Rxa8 Bxa8 11. Qe2 c4 12. Bc2 Qb6 13. b3 cxb3 14. Bd3 b4 15. e4 Be7 16. Nbd2 Nbd7 17. Bb2 h6 18. Nxb3 Bb7 19. d5 exd5 20. Bd4 Qe6 21. Bxf6 Nxf6 22. Nfd4 Qe5 23. f4 Qc7 24. Bb5+ Kf8 25. e5 Ne4 26. Rc1 Qb6 27. Qg4 Bc5 28. Nxc5 Nxc5 29. Kh1 g6 30. Qe2 Ne4 31. Qb2 Kg7 32. e6 Kh7 33. f5 gxf5 34. e7 Nc3 35. Qxb4 Nxb5 36. Qxb5 Qxd4 37. e8=R Rxe8 38. Qxe8 Kg7 39. Qd7 Qb2 40. Rg1 d4 41. Qxf5 Qe2 42. Qd7 Qe4 43. Qc7 d3 44. Qg3+ Qg6 45. Qf2 Qf6 46. Qe3 Qg6 47. Qd4+ Kh7 48. Qf2 Bd5 49. Re1 Be4 50. Kg1 Kg8 51. h3 Kh7 52. Ra1 Qf5 53. Ra4 Qxf2+ 54. Kxf2 Bg6 55. Ke3 Kg7 56. Kf4 Kf6 57. Rd4 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "7"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "1-0"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Black resigns"]
+
+1. e4 c5 2. Nf3 e6 3. d3 Nc6 4. g3 d5 5. Nbd2 g6 6. Bg2 Bg7 7. c3 Nge7 8. h4 h6 9. exd5 Nxd5 10. Nc4 e5 11. Qb3 Nb6 12. Be3 Be6 13. Bxc5 Qxd3 14. Nd6+ Qxd6 15. Bxd6 Bxb3 16. axb3 e4 17. Nd2 f5 18. h5 Rd8 19. Bc7 Rd7 20. Bxb6 axb6 21. hxg6 Ne5 22. Rh5 Nd3+ 23. Ke2 Nxb2 24. Rxf5 Rf8 25. Ra8+ 1-0
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "8"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1-0"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Black resigns"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 b6 4. a3 Bb7 5. Nc3 d5 6. cxd5 Nxd5 7. Qc2 Nxc3 8. bxc3 c5 9. e4 Nd7 10. Bd3 Qc7 11. Qd2 Nf6 12. Bb5+ Bc6 13. Qe2 Bxb5 14. Qxb5+ Qd7 15. Qxd7+ Kxd7 16. Ne5+ Ke8 17. f3 Nd7 18. Nd3 Rc8 19. Be3 Bd6 20. a4 f6 21. a5 Ke7 22. Kd2 cxd4 23. cxd4 Rc7 24. axb6 Nxb6 25. Ke2 Rhc8 26. Rhd1 Nc4 27. Ra6 Nxe3 28. Kxe3 Rd7 29. Rda1 Rc2 30. Rxa7 Rxg2 31. f4 Rxh2 32. e5 Rh3+ 33. Kd2 fxe5 34. fxe5 Bb8 35. Rxd7+ Kxd7 36. Nc5+ Kc6 37. Nxe6 Rb3 38. Nf4 g5 39. Rc1+ Kd7 40. Nd3 Ra3 41. Ke3 Ba7 42. Ke4 Ra4 43. Nc5+ Bxc5 44. Rxc5 g4 45. Rb5 Kc7 46. Rb1 g3 47. Rh1 Kd8 48. Rxh7 Ra2 49. Rg7 1-0
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "9"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "0-1"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "White resigns"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. h3 e5 7. Nb3 Be6 8. f4 b5 9. f5 Bc8 10. Bg5 Nbd7 11. a4 b4 12. Nd5 Bb7 13. Bc4 Be7 14. Nxe7 Qxe7 15. Bd3 h6 16. Bh4 d5 17. Na5 dxe4 18. Bc4 Nb6 19. Bb3 Rd8 20. Qe2 Nbd5 21. Nxb7 Qxb7 22. Bxd5 Rxd5 23. Bxf6 gxf6 24. Rd1 Rxd1+ 25. Kxd1 Qd7+ 26. Kc1 Qxa4 27. Kb1 Qc6 28. Re1 a5 29. Qxe4 Qxe4 30. Rxe4 Kd7 31. c3 bxc3 32. bxc3 h5 33. Kc2 Ra8 34. Ra4 Kc6 35. c4 Kb6 36. Kd3 h4 37. Ke4 Rd8 38. Ke3 Rd4 39. g3 hxg3 40. Kf3 Rf4+ 41. Kxg3 Rxf5 42. h4 Rf1 43. Ra2 Rg1+ 44. Rg2 Rxg2+ 45. Kxg2 a4 46. h5 a3 47. h6 a2 48. h7 a1=Q 0-1
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "10"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Drawn (sustained equality)"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be3 e5 7. Nb3 Be6 8. f3 h5 9. Nd5 Bxd5 10. exd5 Nbd7 11. Qd2 g6 12. Be2 Bg7 13. Na5 Qc7 14. c4 e4 15. Rc1 exf3 16. gxf3 Ne5 17. c5 dxc5 18. d6 Qd7 19. Rxc5 Qe6 20. Nxb7 Rb8 21. Rxe5 Qxe5 22. Bf4 Qe6 23. d7+ Qxd7 24. Bxb8 Qxb7 25. Bd6 Nd5 26. Bxa6 Qc6 27. Ba3 Ne7 28. Qd6 Qxd6 29. Bxd6 Kd7 30. Ba3 Nf5 31. Kd2 Be5 32. h3 Rd8 33. Kc1 Kc6 34. Kb1 Rd2 35. Rc1+ Kb6 36. Bc4 f6 37. Bf7 g5 38. Bxh5 Ne3 39. Be8 Bd4 40. b3 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "11"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Drawn (sustained equality)"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. h3 e5 7. Nb3 Be7 8. g4 h6 9. Be3 Nbd7 10. a4 Nf8 11. Qd2 Be6 12. f3 d5 13. Nxd5 Nxd5 14. exd5 Bh4+ 15. Bf2 Bxd5 16. Bxh4 Qxh4+ 17. Qf2 Qf6 18. Nd2 Ne6 19. Qe3 Qh4+ 20. Kd1 h5 21. Rg1 Rd8 22. Kc1 hxg4 23. fxg4 Qf6 24. Ra3 Nf4 25. g5 Qd6 26. Qe1 Be6 27. Re3 Rc8 28. Ne4 Qd4 29. Nc3 Rc5 30. Rh1 f5 31. gxf6 gxf6 32. Rh2 Rc6 33. Rd2 Qb4 34. Ne4 Qe7 35. Kb1 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "12"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Drawn (sustained equality)"]
+
+1. e4 c5 2. Nc3 d6 3. Nge2 e5 4. Nd5 Nf6 5. Nec3 Nxd5 6. Nxd5 Be7 7. Bc4 Be6 8. d3 Nc6 9. c3 Rb8 10. a4 a6 11. Qh5 b5 12. Nxe7 Qxe7 13. axb5 axb5 14. Bd5 Qd7 15. f4 Bxd5 16. exd5 Ne7 17. fxe5 dxe5 18. c4 bxc4 19. dxc4 Qf5 20. Qxf5 Nxf5 21. Ra5 Nd4 22. Be3 Rxb2 23. Bxd4 cxd4 24. Ra8+ Kd7 25. Rxh8 Rb1+ 26. Kd2 Rxh1 27. c5 Rxh2 28. c6+ Kc7 29. Re8 Rxg2+ 30. Kd1 Rg6 31. Re7+ Kd8 32. Rd7+ Kc8 33. d6 Re6 34. Rc7+ Kd8 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "13"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "0-1"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "White resigns"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bc4 e6 7. Bb3 Nbd7 8. Be3 Nc5 9. f3 Be7 10. Qd2 Qc7 11. g4 b5 12. a3 Nfd7 13. Ba2 Ne5 14. g5 Rb8 15. b4 Ncd7 16. f4 Nc4 17. Bxc4 Qxc4 18. Nb3 h6 19. Na5 Qc7 20. h4 hxg5 21. fxg5 Bb7 22. Rh3 Rc8 23. Bd4 e5 24. Bf2 Ba8 25. Rd3 Nf8 26. Nd5 Bxd5 27. exd5 Qxc2 28. Nc6 Qc4 29. Rc1 Qg4 30. Rdc3 Ng6 31. Nxe7 Kxe7 32. Rc7+ Rxc7 33. Rxc7+ Kf8 34. Qe2 Qh3 35. Ra7 Qc3+ 36. Kd1 Qa1+ 37. Kd2 Qa2+ 38. Ke1 Qxd5 39. Qg4 Qc6 40. Bg3 Ke8 41. h5 Ne7 42. g6 Qc1+ 43. Kf2 f5 44. Qe2 Qc6 45. Kg1 Nxg6 46. Qa2 d5 47. Qe2 d4 48. Rxg7 d3 49. Qxd3 Rxh5 50. Qb3 Qc1+ 0-1
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "14"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Drawn (sustained equality)"]
+
+1. d4 d5 2. c4 dxc4 3. e3 a6 4. Bxc4 c5 5. Nf3 Nf6 6. Bb3 e6 7. Nc3 b5 8. e4 cxd4 9. Nxd4 Nbd7 10. Be3 Bb7 11. Rc1 Rc8 12. f3 Bc5 13. Qd2 Qb6 14. a3 Ne5 15. Ba2 Rd8 16. Nce2 Nc6 17. Rxc5 Qxc5 18. Nxc6 Qxc6 19. Qb4 Qd6 20. Qxd6 Rxd6 21. Bc5 Rd8 22. Bb4 Ra8 23. Ba5 Nd7 24. Kf2 Nc5 25. Rd1 Rc8 26. Ke3 g5 27. Bc3 Rg8 28. Ng3 Rd8 29. Rc1 Nd3 30. Rg1 Nf4 31. Bb1 Rg6 32. Ne2 Nxe2 33. Kxe2 g4 34. f4 Rh6 35. Kf2 Rxh2 36. Kg3 Rh6 37. f5 Kf8 38. Re1 Kg8 39. Ba5 Rd7 40. Bc3 Kf8 41. Rf1 exf5 42. exf5 f6 43. Re1 Bd5 44. Bc2 Rh5 45. Bxf6 Bxg2 46. Bc3 Bf3 47. Bb3 Rd3 48. Kf4 a5 49. Bc2 Rd8 50. Bxa5 Rd4+ 51. Ke5 Rc4 52. Bd3 Ra4 53. Bb6 Bc6 54. Bc2 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "15"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Draw by rule"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bc4 e6 7. Bb3 b5 8. f4 Bb7 9. e5 dxe5 10. fxe5 Ne4 11. Nxe4 Bxe4 12. Be3 Bxg2 13. Qg4 Bxh1 14. Nxe6 fxe6 15. Qxe6+ Qe7 16. Qc8+ Qd8 17. Qe6+ Qe7 18. Qc8+ Qd8 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "16"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1-0"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Black resigns"]
+
+1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 d5 5. cxd5 exd5 6. Bg5 h6 7. Bh4 c5 8. dxc5 Nc6 9. e3 g5 10. Bg3 Qa5 11. Nf3 Ne4 12. Nd2 Nxc3 13. bxc3 Bxc3 14. Rb1 Qxc5 15. Rb5 Qa3 16. Rb3 Bxd2+ 17. Qxd2 Qa5 18. h4 Qxd2+ 19. Kxd2 g4 20. Bd3 b6 21. Rc3 Na5 22. e4 dxe4 23. Bxe4 Bb7 24. Bxb7 Nxb7 25. Re1+ Kf8 26. Rc7 Rd8+ 27. Kc2 Nc5 28. Ree7 Rh7 29. Rxa7 h5 30. Bf4 Nd3 31. Bg5 Nxf2 32. a4 Rc8+ 33. Kb3 Nd3 34. Be3 Rc6 35. g3 Nc1+ 36. Kb4 Ne2 37. Bf2 Rc2 38. Reb7 Kg8 39. Rxb6 Rb2+ 40. Kc4 Rxb6 41. Bxb6 Rh6 42. a5 Nxg3 43. Rb7 Nf5 44. a6 Nd6+ 45. Kc5 g3 46. Rb8+ 1-0
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "17"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Drawn (sustained equality)"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. h3 e5 7. Nb3 Be6 8. f4 b5 9. f5 Bc8 10. Bg5 Nbd7 11. a4 b4 12. Nd5 Bb7 13. Qf3 Be7 14. Bxf6 Nxf6 15. Nxf6+ Bxf6 16. Bd3 Bg5 17. a5 Rb8 18. g3 Qc7 19. h4 Bh6 20. f6 Rg8 21. Qh5 Bc8 22. fxg7 Bxg7 23. g4 Be6 24. g5 Rh8 25. Rf1 Ke7 26. Qe2 h6 27. Bxa6 hxg5 28. hxg5 f6 29. Nd2 Qxc2 30. Qf2 Rhf8 31. gxf6+ Bxf6 32. Qa7+ Bd7 33. Rxf6 Ra8 34. Qb7 Rxf6 35. Qxa8 Qxb2 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "18"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "0-1"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "White resigns"]
+
+1. d4 Nf6 2. Nf3 g6 3. c4 Bg7 4. Nc3 O-O 5. e4 d6 6. Be2 e5 7. Be3 Qe7 8. dxe5 dxe5 9. Nd5 Qd6 10. Qc2 Nc6 11. Rd1 Nb4 12. Qa4 Nbxd5 13. cxd5 Bd7 14. Qc4 b6 15. h3 a6 16. a4 Rfc8 17. Nd2 b5 18. Qc3 Bf8 19. axb5 axb5 20. Bg5 h6 21. Bh4 Ra4 22. Bxf6 Qxf6 23. Qe3 c5 24. dxc6 Qxc6 25. Bd3 Ra2 26. Rb1 Rxb2 27. Rxb2 Qc1+ 28. Ke2 Qxh1 29. Bxb5 Be6 30. Rb1 Qxg2 31. Qg3 Qxg3 32. fxg3 Bxh3 33. Bc4 Rc7 34. Bd5 Kg7 35. Nc4 f6 36. Rb8 h5 37. Rb7 Rxb7 38. Bxb7 Bc5 39. Bc6 Be6 40. Nd2 g5 41. Bb5 h4 0-1
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "19"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "0-1"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "White resigns"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bc4 e6 7. Bb3 Nbd7 8. Be3 Nc5 9. f3 Be7 10. Qd2 Qc7 11. g4 b5 12. a3 Nfd7 13. Ba2 Ne5 14. g5 Rb8 15. b4 Ncd7 16. f4 Nc4 17. Bxc4 Qxc4 18. Nb3 h6 19. h4 hxg5 20. Na5 Qc7 21. fxg5 Bb7 22. Rh3 Rc8 23. Bd4 e5 24. Bf2 Ba8 25. Rd3 Nf8 26. a4 Ne6 27. axb5 Bxg5 28. Be3 Bxh4+ 29. Kd1 Bg5 30. Kc1 Nf4 31. Kb2 Nxd3+ 32. Qxd3 Rh3 33. b6 Qxc3+ 0-1
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "20"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "0-1"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "White resigns"]
+
+1. e4 Nf6 2. e5 Nd5 3. d4 d6 4. Nf3 g6 5. Bc4 Nb6 6. Bb3 Bg7 7. a4 dxe5 8. a5 N6d7 9. Bxf7+ Kxf7 10. Ng5+ Kg8 11. Ne6 Qe8 12. Nxc7 Qd8 13. Nxa8 exd4 14. c3 Nc6 15. Qb3+ Kf8 16. Qd5 h5 17. Bf4 e6 18. Qd6+ Kf7 19. Nc7 Nde5 20. Bxe5 Qg5 21. Bxg7 Rd8 22. Qxd8 Nxd8 23. Nd2 Kxg7 24. Ne8+ Kh6 25. Nd6 Bd7 26. g3 Bc6 27. N6e4 Qf5 28. f3 Bxe4 29. fxe4 Qb5 30. cxd4 Nc6 31. Nf3 Qd3 32. Kf2 Qc2+ 33. Ke3 Qb3+ 34. Kf4 Nb4 35. Rad1 Nc2 36. Rhe1 e5+ 37. Nxe5 Qb4 0-1
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "21"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Drawn (sustained equality)"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bc4 e6 7. Bb3 b5 8. f4 Bb7 9. e5 dxe5 10. fxe5 Nfd7 11. Qh5 g6 12. Qh3 Nc6 13. Nxc6 Bxc6 14. Bxe6 Nxe5 15. Bf4 Qf6 16. Rf1 fxe6 17. Bg3 Nf3+ 18. gxf3 Rd8 19. Ne4 Qf5 20. Qxf5 exf5 21. Be5 fxe4 22. Bxh8 exf3 23. Rd1 Rxd1+ 24. Kxd1 g5 25. Re1+ Kd7 26. Re5 Be7 27. Ke1 h6 28. Rf5 Be4 29. Re5 Bxc2 30. h3 g4 31. Rxe7+ Kxe7 32. hxg4 Kf7 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "22"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Drawn (sustained equality)"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Be3 e5 7. Nb3 Be6 8. f3 h5 9. Nd5 Bxd5 10. exd5 g6 11. Qd2 Bg7 12. Be2 Nbd7 13. Na5 Qc7 14. c4 e4 15. Rc1 exf3 16. gxf3 Ne5 17. c5 dxc5 18. d6 Qd7 19. Rxc5 Qe6 20. Nxb7 Rb8 21. Rxe5 Qxe5 22. Bf4 Qe6 23. d7+ Qxd7 24. Bxb8 Qxb7 25. Bd6 Nd5 26. Bxa6 Qc6 27. Ba3 Ne7 28. Qd6 Qxd6 29. Bxd6 Kd7 30. Ba3 Rb8 31. Ke2 Nf5 32. Rd1+ Kc7 33. Rc1+ Kd7 34. Kd3 Bxb2 35. Rb1 Be5 36. Rxb8 Bxb8 37. Bb5+ Kd8 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "23"]
+[White "Fischer (persona)"]
+[Black "Kasparov (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Draw agreed"]
+
+1. e4 c5 2. Nf3 e6 3. d4 cxd4 4. Nxd4 Nc6 5. Nc3 d6 6. g4 a6 7. Be3 Nge7 8. Nb3 b5 9. h4 Rb8 10. f4 b4 11. Ne2 h5 12. gxh5 d5 13. e5 Nf5 14. Bf2 Rxh5 15. Bh3 a5 16. Bxf5 Rxf5 17. Qd2 Rh5 18. Nbd4 Qc7 19. Nxc6 Qxc6 20. Nd4 Qc4 21. b3 Qc3 22. Qxc3 bxc3 23. Rh3 Ba3 24. Ke2 Ba6+ 25. Kf3 Kd7 26. Rg1 g6 27. Kg2 Rc8 28. Rd1 Be7 29. a4 Rch8 1/2-1/2
+
+[Event "Persona Exhibition v2 — Fischer vs Kasparov"]
+[Site "ChessGUI persona simulator (spec 214, match #2)"]
+[Date "2026.07.15"]
+[Round "24"]
+[White "Kasparov (persona)"]
+[Black "Fischer (persona)"]
+[Result "1/2-1/2"]
+[Backend "train-book + BT3-768x15x24h verification search (visit head), Fischer nodes=400 / Kasparov nodes=560, T=0.3"]
+[Adjudicator "Stockfish @ 300000 nodes"]
+[Termination "Draw agreed"]
+
+1. d4 d5 2. Nf3 e6 3. c4 Be7 4. g3 c5 5. Bg2 Nf6 6. dxc5 Bxc5 7. a3 a5 8. cxd5 exd5 9. Qc2 Bb6 10. Bg5 Be6 11. Nc3 Nbd7 12. Rd1 Rc8 13. Nd4 h6 14. Bxf6 Nxf6 15. Nxe6 fxe6 16. Qg6+ Kf8 17. e4 Qe8 18. Qxe8+ Rxe8 19. exd5 exd5+ 20. Kf1 h5 21. Bxd5 h4 22. h3 Nxd5 23. Rxd5 Rh6 24. Kg2 Rf6 25. Rd2 hxg3 26. fxg3 Be3 27. Rc2 Bd4 28. Nb5 Bb6 29. Rd1 Rc6 30. Nc3 Re3 31. Rd7 Kg8 32. Rcd2 Bc5 33. h4 Rg6 34. Ne2 Bd6 35. h5 1/2-1/2
+
