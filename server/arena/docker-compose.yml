@@ -1,0 +1,25 @@
+# Persona Arena Tier-0 (spec 217). Staging binding is loopback-only —
+# LAN/Tailscale exposure goes through Caddy later, same pattern as the other
+# services on this box. NOT public internet at Tier 0.
+services:
+  arena:
+    build: .
+    container_name: chessgui-arena
+    ports:
+      - "127.0.0.1:8017:8000"
+    env_file:
+      - .env
+    volumes:
+      - ../../data/personas:/app/personas:ro   # committed books + configs
+      - ./data:/app/data                        # sqlite (private games; gitignored)
+      - ./nets:/nets:ro                         # BT3 net (gitignored, sha-pinned)
+    # Respect the mining job (tmux mine211) and the other services: modest caps.
+    cpus: "6"
+    mem_limit: 6g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s   # first start hashes + loads the 190MB net
