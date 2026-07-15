@@ -40,6 +40,12 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
   spec 214 findings: BT3/strong-policy for GM personas, Maia bands for amateurs; the
   realism lessons from match #1/#2 (verification search, draw model) apply directly.
 
+## Cultural context
+
+The roster is a living museum: docs/research/iceland-chess-culture.md — 1972
+Match of the Century in Reykjavik, the boom generation, Fischer's return, the
+per-capita math.
+
 ## The Icelandic canon (user-supplied roster + lore, 2026-07-15)
 
 Iceland's infamous brag — "best per capita :-)", ~10 GMs at peak for ~330k people —

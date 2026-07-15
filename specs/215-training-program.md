@@ -69,6 +69,11 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
 - **Tier 2**: monthly measurement automation (fetch + Maia estimate from the app),
   trajectory projection via 212 win-prob, coach-suggested program adjustments.
 
+## Cultural context
+
+Why the December match matters beyond the scoreboard:
+docs/research/iceland-chess-culture.md (the 1972 Reykjavik inheritance).
+
 ## Non-goals
 - Cloud sync, social features, coach-marketplace anything.
 - Motivational-app theatrics. The user is an adult with a bet to win.
