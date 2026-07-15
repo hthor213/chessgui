@@ -130,12 +130,26 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
 - [ ] Session flow + streak/score, failed-puzzle respawn (spaced repetition hook)
 - [ ] Tier-2: band miss-rate difficulty once mining data exists
 - [ ] Tier-3: feature-filtered decks; "from your own games" mode
-- [ ] "Play it out" (2026-07-14): from any puzzle/calibration position — especially
+- [x] "Play it out" (2026-07-14): from any puzzle/calibration position — especially
       conversion and endgame decks — hand the position to play-vs-engine and play it to a
       result; score conversion rate vs the position's expected score. Perceiving +2 and
       converting +2 are different skills (the per-player perception-vs-conversion gap from
       spec:213, as a training loop). Endgame decks add technique coaching hooks: counting,
       king activity, passed-pawn escort (coach tag endgame_technique exists).
+  - *BUILT 2026-07-15 (independent of the generator)*: lib/playout +
+    components/playout-screen — from a calibration reveal ("Play it out" button)
+    or a Training-tab endgame_playout block, the position is played to a result
+    vs a Maia band (persona engine; mock outside Tauri). The user plays the side
+    the ENGINE eval favours (the claim under test; level defaults from the
+    source game's Elo band). Verdict at game end vs the eval's expected score
+    (lib/win-prob, default logistic — engine-lab anchors deliberately NOT
+    borrowed for human-vs-Maia play): expected ≥ 0.6 claims a win, else a hold;
+    result ≥ claim → **converted**, draw under a win claim → **held**, any loss
+    → **dropped**. Stored in its own local store (`chessgui:playout-results`,
+    distinct kind — never mixed into spar results). Puzzle launch is hook-ready
+    (`source: "puzzle"` exists; nothing constructs it until the solver ships).
+    Open: no aggregate conversion-rate readout yet, and abandoning a game
+    mid-playout records nothing (an easy dodge once a metric reads this store).
 - [ ] Opening-rake decks (2026-07-14): early-game eval cliffs — at sub-1900 the opening
       goal is "don't be -1 by move 10", not prep; pairs with an opening-leak report over
       the user's own imported games (module 9). No repertoire trainer — evidence says that

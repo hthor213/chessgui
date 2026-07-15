@@ -17,13 +17,15 @@
 // Types
 // ---------------------------------------------------------------------------
 
-/** Exercise block types. Only some launch a real feature today (Tier 0):
- *  calibration_session → Learn/calibration, spar_rival → Learn/Spar. The rest
- *  are check-off-only with a one-line instruction until their feature exists
- *  (endgame play-it-out, rake decks: Tier 1). */
+/** Exercise block types. Only some launch a real feature today:
+ *  calibration_session → Learn/calibration, spar_rival → Learn/Spar (Tier 0),
+ *  endgame_playout → the Play-it-out screen (spec 211 play-it-out, Tier 1).
+ *  The rest are check-off-only with a one-line instruction until their
+ *  feature exists (rake decks: still Tier 1, blocked on the 211 generator). */
 export type ExerciseType =
   | "calibration_session"
   | "spar_rival"
+  | "endgame_playout"
   | "long_game_review"
   | "rest"
   | "other"
@@ -327,7 +329,7 @@ const CHAPTER_1: Chapter = {
   week: [
     block("c1-sun", 0, "rest", "Rest", "Rest, or casual unrated only. Never play rated tired."),
     block("c1-mon", 1, "other", "Tactics + rapid game", "Tactics/pattern practice, then one rapid game (15+10) with a full review.", 45),
-    block("c1-tue", 2, "other", "Endgame play-it-out", "Convert a winning endgame (+1.5 to +3) against the engine; replay any failure.", 30),
+    block("c1-tue", 2, "endgame_playout", "Endgame play-it-out", "Convert a winning endgame (+1.5 to +3) against the engine; replay any failure.", 30),
     block("c1-wed", 3, "calibration_session", "Calibration session", "Run a Learn calibration deck; write your eval before every reveal.", 20),
     block("c1-thu", 4, "other", "Tactics + rapid game", "Tactics/pattern practice, then one rapid game (15+10) with a full review.", 45),
     block("c1-fri", 5, "spar_rival", "Spar your rival", "Play your rival's openings with the clock on.", 45),
@@ -352,10 +354,10 @@ const CHAPTER_2: Chapter = {
   ],
   week: [
     block("c2-sun", 0, "rest", "Rest", "Rest, or casual unrated only. Never play rated tired."),
-    block("c2-mon", 1, "other", "Endgame play-it-out", "Convert a +2 position vs the engine; replay every failure.", 30),
+    block("c2-mon", 1, "endgame_playout", "Endgame play-it-out", "Convert a +2 position vs the engine; replay every failure.", 30),
     block("c2-tue", 2, "calibration_session", "Calibration session", "Run a Learn calibration deck; write your eval before every reveal.", 20),
     block("c2-wed", 3, "other", "Endgame fundamentals", "K+P and rook-endgame drills — opposition, Lucena/Philidor, the square rule.", 30),
-    block("c2-thu", 4, "other", "Endgame play-it-out", "Convert a +2 position vs the engine; replay every failure.", 30),
+    block("c2-thu", 4, "endgame_playout", "Endgame play-it-out", "Convert a +2 position vs the engine; replay every failure.", 30),
     block("c2-fri", 5, "spar_rival", "Spar your rival", "Play from your rival's positions; track your score.", 45),
     block("c2-sat", 6, "long_game_review", "Long game + review", "One slow game (30+20), then an engine-last review with rebuttal notes."),
   ],

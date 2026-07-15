@@ -76,6 +76,20 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
     Serious/Probe mode picker (intent by mode) — a dedicated per-game toggle on
     the spar config screen remains open (spar-tab owned by parallel work).
     endgame_playout + rake_deck still blocked on 211/corpus.
+  - *Progress 2026-07-15 — endgame_playout BUILT* (211's play-it-out landed):
+    the three "Endgame play-it-out" blocks are now type `endgame_playout` (ids
+    unchanged, check-offs preserved) and launch the Play-it-out screen
+    (components/playout-screen) instead of check-off-only. v1 positions come
+    from a CURATED 3-position theory-won deck (lib/playout
+    TRAINING_PLAYOUT_DECK — evals stated as approximations, honest for
+    theory-won material); mined conversion positions replace it when the 211
+    Tier-1 generator lands. Verdicts (converted/held/dropped vs the eval's
+    win-prob claim) persist to the playout store (`chessgui:playout-results`,
+    distinct from spar results per the coordination note). Open: playout
+    results don't yet feed the eg_conversion measurement panel — that metric
+    still comes from the monthly self-analysis pipeline; wiring an in-app
+    playout conversion rate needs a declared-intent story first (playouts have
+    no serious/probe split yet, and mid-game exit records nothing).
 - **Tier 2**: monthly measurement automation (fetch + Maia estimate from the app),
   trajectory projection via 212 win-prob, coach-suggested program adjustments.
   - *Progress 2026-07-15 — measurement automation BUILT (script + import, the

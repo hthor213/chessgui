@@ -58,6 +58,8 @@ import {
   SPAR_SCORE_WINDOW_DAYS,
   type SparResultEntry,
 } from "@/lib/spar-results"
+import { pickTrainingPlayout, type PlayoutRequest } from "@/lib/playout"
+import { PlayoutScreen } from "@/components/playout-screen"
 
 /** Which Learn feature a block launches into, when one exists today. */
 export type LearnLaunch = "calibrate" | "spar"
@@ -242,6 +244,21 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   const rivalLabel = overlay?.rivalLabel?.trim() || "your rival"
   const checkedToday = log[todayISO] ?? {}
 
+  // endgame_playout launch (spec 215 Tier 1, unblocked by spec 211
+  // play-it-out): a curated conversion position handed to the playout screen.
+  // While set, the playout replaces the tab's content; everything else stays
+  // mounted in state, so exiting lands back on Today with check-offs intact.
+  const [playout, setPlayout] = useState<PlayoutRequest | null>(null)
+  const launchPlayout = useCallback(() => setPlayout(pickTrainingPlayout()), [])
+
+  if (playout) {
+    return (
+      <div className="h-full flex flex-col text-foreground" data-testid="training-tab">
+        <PlayoutScreen request={playout} onExit={() => setPlayout(null)} />
+      </div>
+    )
+  }
+
   return (
     <div className="h-full flex flex-col text-foreground" data-testid="training-tab">
       {/* Sub-nav */}
@@ -299,6 +316,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
                   checked={!!checkedToday[b.id]}
                   onToggle={() => toggleCheck(b.id)}
                   onLaunch={onLaunch}
+                  onPlayout={launchPlayout}
                 />
               ))}
             </div>
@@ -360,18 +378,23 @@ function TodayBlock({
   checked,
   onToggle,
   onLaunch,
+  onPlayout,
 }: {
   block: DayBlock
   checked: boolean
   onToggle: () => void
   onLaunch: (sub: LearnLaunch) => void
+  /** endgame_playout blocks launch the Play-it-out screen (spec 215 Tier 1). */
+  onPlayout: () => void
 }) {
   const launch =
     block.type === "calibration_session"
-      ? { sub: "calibrate" as LearnLaunch, label: "Open calibration" }
+      ? { action: () => onLaunch("calibrate"), label: "Open calibration" }
       : block.type === "spar_rival"
-        ? { sub: "spar" as LearnLaunch, label: "Open Spar" }
-        : null
+        ? { action: () => onLaunch("spar"), label: "Open Spar" }
+        : block.type === "endgame_playout"
+          ? { action: onPlayout, label: "Play it out" }
+          : null
   return (
     <div
       data-testid={`training-block-${block.id}`}
@@ -414,7 +437,7 @@ function TodayBlock({
             size="sm"
             variant="outline"
             data-testid={`training-launch-${block.id}`}
-            onClick={() => onLaunch(launch.sub)}
+            onClick={launch.action}
             className="shrink-0"
           >
             {launch.label}

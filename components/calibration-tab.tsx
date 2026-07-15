@@ -50,6 +50,8 @@ import {
   rangeError,
   type Scored,
 } from "@/lib/calibration-stats"
+import { evalPawnsOf, levelForEloBand, type PlayoutRequest } from "@/lib/playout"
+import { PlayoutScreen } from "@/components/playout-screen"
 
 const Board = dynamic(() => import("@/components/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -170,6 +172,10 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const [boardNonce, setBoardNonce] = useState(0)
   // The just-locked answer being revealed, or null when answering.
   const [revealed, setRevealed] = useState<Reveal | null>(null)
+  // "Play it out" (spec 211): a live playout launched from the reveal card.
+  // While set, the playout screen replaces the tab's content; the session
+  // state underneath stays mounted, so exiting returns to the same reveal.
+  const [playout, setPlayout] = useState<PlayoutRequest | null>(null)
   // Position-shown time (elapsed clock) and first-interaction time (think clock).
   const startedAt = useRef<number>(Date.now())
   const firstInteractionAt = useRef<number | null>(null)
@@ -511,6 +517,21 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     [current, markInteraction],
   )
 
+  // Launch a playout from the revealed position (spec 211 "Play it out"): the
+  // user plays the side the ENGINE eval favours — that's the claim under test
+  // — at a default level from the source game's Elo band.
+  const startPlayout = useCallback(() => {
+    if (!revealed) return
+    const p = revealed.position
+    setPlayout({
+      fen: p.fen,
+      evalPawns: evalPawnsOf(p.sf_cp, p.sf_mate),
+      source: "calibration",
+      label: p.deck,
+      defaultLevel: levelForEloBand(p.elo_band),
+    })
+  }, [revealed])
+
   // Keyboard: Enter submits, S skips (when not typing in the textarea handled
   // by the input focus naturally — Enter in the number field submits).
   const onEvalKeyDown = useCallback(
@@ -522,6 +543,16 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     },
     [canSubmit, submit],
   )
+
+  // Playout takes over the whole tab while active; everything else (session,
+  // answers, the open reveal) stays mounted in state underneath.
+  if (playout) {
+    return (
+      <div className="h-full flex flex-col text-foreground">
+        <PlayoutScreen request={playout} onExit={() => setPlayout(null)} />
+      </div>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col text-foreground">
@@ -585,6 +616,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           showCoach={showCoach}
           onCoachResult={onCoachResult}
           onRebuttal={onRebuttal}
+          onPlayout={startPlayout}
           onNext={() => submit(false)}
           onSkip={() => submit(true)}
         />
@@ -813,6 +845,7 @@ function AnsweringScreen({
   showCoach,
   onCoachResult,
   onRebuttal,
+  onPlayout,
   onNext,
   onSkip,
 }: {
@@ -845,6 +878,8 @@ function AnsweringScreen({
   showCoach: boolean
   onCoachResult: (index: number, coach: CoachFeedback) => void
   onRebuttal: (index: number, rebuttal: string, reply: string | null) => void
+  /** "Play it out" (spec 211): start a live playout from the revealed position. */
+  onPlayout: () => void
   onNext: () => void
   onSkip: () => void
 }) {
@@ -913,6 +948,7 @@ function AnsweringScreen({
               showCoach={showCoach}
               onCoachResult={onCoachResult}
               onRebuttal={onRebuttal}
+              onPlayout={onPlayout}
             />
           ) : (
           <>
@@ -1158,12 +1194,15 @@ function RevealCard({
   showCoach,
   onCoachResult,
   onRebuttal,
+  onPlayout,
 }: {
   reveal: Reveal
   onContinue: () => void
   showCoach: boolean
   onCoachResult: (index: number, coach: CoachFeedback) => void
   onRebuttal: (index: number, rebuttal: string, reply: string | null) => void
+  /** "Play it out" (spec 211): hand this position to a live playout vs Maia. */
+  onPlayout: () => void
 }) {
   const { answer, position } = reveal
   const sf = sfEvalPawns(position)
@@ -1344,9 +1383,19 @@ function RevealCard({
         </div>
       )}
 
-      <Button onClick={onContinue} className="w-full mt-1" data-testid="calib-continue">
-        Continue
-      </Button>
+      <div className="flex gap-2 mt-1">
+        <Button onClick={onContinue} className="flex-1" data-testid="calib-continue">
+          Continue
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onPlayout}
+          title="Play this position to a result vs a Maia band — the outcome is scored against the engine's claim (converted / held / dropped). Your session waits here."
+          data-testid="calib-playout"
+        >
+          Play it out
+        </Button>
+      </div>
     </div>
   )
 }

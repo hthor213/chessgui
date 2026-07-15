@@ -65,13 +65,15 @@ describe("Road to 1900 program data is well-formed", () => {
   })
 
   it("only launches exercise types that have a feature; the rest are check-off-only", () => {
-    // Tier 0: calibration_session and spar_rival launch; others are check-off.
-    const launchable = new Set(["calibration_session", "spar_rival"])
+    // Tier 0: calibration_session and spar_rival launch; Tier 1 adds
+    // endgame_playout (spec 211 play-it-out); others are check-off.
+    const launchable = new Set(["calibration_session", "spar_rival", "endgame_playout"])
     for (const ch of chapters) {
       for (const b of ch.week) {
         expect([
           "calibration_session",
           "spar_rival",
+          "endgame_playout",
           "long_game_review",
           "rest",
           "other",
