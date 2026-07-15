@@ -11,7 +11,8 @@ import { formatScore, scoreToNumeric, type PvLine } from "@/lib/uci-parser"
 import { EvalBar } from "@/components/eval-bar"
 import { HumanEvalSection } from "@/components/human-eval"
 import { EngineSettingsDialog } from "@/components/engine-settings-dialog"
-import { DEFAULT_PRIOR_CURVE, paceStrength } from "@/lib/time-elo"
+import { DEFAULT_PRIOR_CURVE, paceStrength, type EloCurve } from "@/lib/time-elo"
+import { useMachineProfile } from "@/hooks/use-machine-profile"
 import type { EngineSettings } from "@/lib/engine-settings"
 import type { EngineState, EngineMode, PlayerColor } from "@/hooks/use-engine"
 
@@ -45,12 +46,16 @@ function EnginePaceControl({
   paceSeconds: number
   onChange: (seconds: number) => void
 }) {
+  // Prefer this machine's measured b(t) curve once the Tier-1 ladder has fitted
+  // one; fall back to the literature prior until then (spec 216:28-30).
+  const { profile } = useMachineProfile()
+  const curve = (profile?.curve as EloCurve | null) ?? DEFAULT_PRIOR_CURVE
   const clamped = Math.min(ENGINE_PACE_MAX_SECONDS, Math.max(ENGINE_PACE_MIN_SECONDS, paceSeconds))
   const logMin = Math.log2(ENGINE_PACE_MIN_SECONDS)
   const logMax = Math.log2(ENGINE_PACE_MAX_SECONDS)
   const fraction = ((Math.log2(clamped) - logMin) / (logMax - logMin)) * 100
   const referenceC = ENGINE_PACE_REFERENCE_SECONDS / clamped
-  const readout = paceStrength(DEFAULT_PRIOR_CURVE, ENGINE_PACE_REFERENCE_SECONDS, referenceC, {
+  const readout = paceStrength(curve, ENGINE_PACE_REFERENCE_SECONDS, referenceC, {
     timeSensitive: true,
   })
 
@@ -61,7 +66,7 @@ function EnginePaceControl({
           Engine pace — {clamped < 1 ? `${Math.round(clamped * 1000)}ms` : `${clamped.toFixed(1)}s`}/move
         </span>
         <Badge variant="secondary" className="font-mono text-[10px]">
-          {DEFAULT_PRIOR_CURVE.source.toUpperCase()}
+          {curve.source.toUpperCase()}
         </Badge>
       </div>
       <Slider

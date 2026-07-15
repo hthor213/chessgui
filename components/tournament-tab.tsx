@@ -46,6 +46,7 @@ import {
   paceFloor,
   paceStrength,
   secondsPerMoveOf,
+  type EloCurve,
 } from "@/lib/time-elo"
 import { useMachineProfile, type MachineProfile } from "@/hooks/use-machine-profile"
 import type { Key } from "@lichess-org/chessground/types"
@@ -181,6 +182,10 @@ export function TournamentTab({
   // on every render so it survives format changes without a stale slider jump.
   const [paceTargetSeconds, setPaceTargetSeconds] = useState<number | null>(null)
   const machineProfile = useMachineProfile()
+  // Prefer this machine's measured b(t) curve once the Tier-1 ladder has fitted
+  // one; fall back to the literature prior until then (spec 216:28-30). The
+  // PRIOR/MEASURED badge reads its provenance straight off `curve.source`.
+  const curve = (machineProfile.profile?.curve as EloCurve | null) ?? DEFAULT_PRIOR_CURVE
   // Adjudicate <=7-man positions via the tablebase (perfect play) — fair, since
   // any engine can bolt on a 7-man tablebase for free.
   const [adjudicateTb, setAdjudicateTb] = useState(true)
@@ -312,7 +317,7 @@ export function TournamentTab({
   // both divided by the same compression factor).
   const effectiveBaseMs = Math.max(50, Math.round(faceClockConfig.baseMs / paceC))
   const effectiveIncMs = Math.max(0, Math.round(faceClockConfig.incMs / paceC))
-  const paceReadout = paceStrength(DEFAULT_PRIOR_CURVE, faceSecondsPerMove, paceC, { timeSensitive: true })
+  const paceReadout = paceStrength(curve, faceSecondsPerMove, paceC, { timeSensitive: true })
 
   // Auto-check "show eval bar" for effective (post-pacing) clocks at 60s+
   // (where per-move eval reads are meaningful and there's time to watch),
@@ -944,8 +949,8 @@ export function TournamentTab({
           {/* Playback pace slider (spec 216 UI:2-3): compression factor C from
               1x (real time) down to the pacing floor. Base AND increment are
               both divided by C for the actual runner clock (effectiveBaseMs/
-              effectiveIncMs above); the readout uses the PRIOR curve since no
-              per-machine curve has been measured yet (216 Tier 1). */}
+              effectiveIncMs above); the readout uses this machine's MEASURED
+              curve once the Tier-1 ladder has fitted one, else the PRIOR. */}
           <div className="flex flex-col gap-2 border-t border-white/10 pt-4">
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground">
@@ -989,7 +994,7 @@ export function TournamentTab({
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="secondary" className="font-mono text-[10px]">
-                {DEFAULT_PRIOR_CURVE.source.toUpperCase()}
+                {curve.source.toUpperCase()}
               </Badge>
               <span className="text-xs text-muted-foreground">
                 Both engines {paceReadout.reason}
