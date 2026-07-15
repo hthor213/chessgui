@@ -26,7 +26,23 @@ import {
   type RivalBook,
   type RivalBookEntry,
 } from "@/lib/rival-book"
-import { applyUci, dragToUci, sparStatus, turnOf, type SparColor, type SparPly } from "@/lib/spar"
+import {
+  buildRivalMoveMap,
+  lookupRivalReply,
+  replySanToUci,
+  START_FEN,
+  type RivalMoveMap,
+} from "@/lib/rival-book-lookup"
+import {
+  applyUci,
+  dragToUci,
+  DRAW_OFFER_RULE_DESCRIPTION,
+  evaluateDrawOffer,
+  sparStatus,
+  turnOf,
+  type SparColor,
+  type SparPly,
+} from "@/lib/spar"
 
 const Board = dynamic(() => import("@/components/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -42,6 +58,19 @@ const RIVAL_LABEL = "Dad"
 
 type SideChoice = "white" | "black" | "either"
 type Phase = "intro" | "playing"
+
+// Move-by-move rival book (spec 214, "Move-by-move rival book" checklist item,
+// supersedes drop-into-line as the default): the game starts at move 1 (or the
+// rival's own first move, if he's White) and follows his real games position
+// by position; "dropin" is the original behavior, kept as a secondary option.
+type BookStartMode = "movebymove" | "dropin"
+const DEFAULT_BOOK_START_MODE: BookStartMode = "movebymove"
+
+// Spar modes + game controls (spec 214, user request): "Serious spar" counts;
+// "Improve his personality" (probe) is the stop→feedback→retry loop and adds
+// an End game button that aborts with no result recorded anywhere.
+type SparGameMode = "serious" | "probe"
+const DEFAULT_SPAR_MODE: SparGameMode = "serious"
 
 // Realism feedback capture (spec 214, "Realism feedback capture" checklist
 // item, user request): "felt like him" / "didn't feel like him", tappable at
@@ -65,6 +94,10 @@ interface PersonaFeedbackEntry {
   note: string
   ply: number
   pgn: string
+  // Added alongside "Spar modes + game controls" (spec 214) — earlier stored
+  // entries predate this field and simply won't have it; treat a missing
+  // `mode` as unknown when reading old records back, never as "serious".
+  mode: SparGameMode
 }
 
 const FEEDBACK_STORAGE_KEY = "spar-persona-feedback"
@@ -116,6 +149,10 @@ export function SparTab() {
   const [side, setSide] = useState<SideChoice>("either")
   // Opponent strength; set on the intro screen, fixed for the duration of a game.
   const [level, setLevel] = useState<number>(DEFAULT_LEVEL)
+  // Move-by-move book vs. drop-into-line, and Serious vs. probe — both picked
+  // on the intro screen, fixed for the duration of a game.
+  const [bookStartMode, setBookStartMode] = useState<BookStartMode>(DEFAULT_BOOK_START_MODE)
+  const [sparMode, setSparMode] = useState<SparGameMode>(DEFAULT_SPAR_MODE)
 
   const [entry, setEntry] = useState<RivalBookEntry | null>(null)
   const [userColor, setUserColor] = useState<SparColor>("white")
@@ -125,6 +162,23 @@ export function SparTab() {
   const [thinking, setThinking] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
   const [boardNonce, setBoardNonce] = useState(0)
+  // Whether the last rival reply came from the book or from Maia (move-by-move
+  // mode only) — an honest "in book / out of book" readout, null before the
+  // rival's first move of the game.
+  const [bookStatus, setBookStatus] = useState<"book" | "maia" | null>(null)
+
+  // Spar modes + game controls (spec 214): a probe-mode abort (no result,
+  // ever), and a manual end (resign / draw agreed) that overrides the
+  // position-derived status below. Both freeze the board; neither is a
+  // position-derived game end.
+  const [probeEnded, setProbeEnded] = useState(false)
+  const [manualEnd, setManualEnd] = useState<{ label: string } | null>(null)
+  // Draw offers: the ply count at the last offer (spam guard, one per 10
+  // plies) and a brief "declined" note.
+  const [lastDrawOfferPly, setLastDrawOfferPly] = useState<number | null>(null)
+  const [drawDeclinedNote, setDrawDeclinedNote] = useState(false)
+  const drawDeclinedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(drawDeclinedTimer.current), [])
 
   // Realism feedback capture (spec 214): which verdict's inline form is open
   // (null = closed), its draft note, and a brief post-submit confirmation.
@@ -140,7 +194,13 @@ export function SparTab() {
   const pendingFenRef = useRef<string | null>(null)
 
   const rivalColor: SparColor = userColor === "white" ? "black" : "white"
-  const status = useMemo(() => (fen ? sparStatus(fen) : { over: false, label: null }), [fen])
+  // A manual end (resign / draw agreed) overrides the position-derived status;
+  // a probe abort freezes the board without claiming any result at all.
+  const status = useMemo(() => {
+    if (manualEnd) return { over: true, label: manualEnd.label }
+    return fen ? sparStatus(fen) : { over: false, label: null }
+  }, [fen, manualEnd])
+  const frozen = status.over || probeEnded
 
   // Load the book once on mount.
   useEffect(() => {
@@ -153,8 +213,47 @@ export function SparTab() {
     }
   }, [])
 
+  // Move-by-move rival book (spec 214): the position->reply lookup, one map
+  // per rival colour, precomputed once when the book loads (not per game
+  // start, and not per move).
+  const moveMaps = useMemo(() => {
+    if (!book) return null
+    return {
+      white: buildRivalMoveMap(book.entries, "white"),
+      black: buildRivalMoveMap(book.entries, "black"),
+    }
+  }, [book])
+
   const startGame = useCallback(() => {
     if (!book) return
+    pendingFenRef.current = null
+    setThinking(false)
+    setMoveError(null)
+    setBookStatus(null)
+    setProbeEnded(false)
+    setManualEnd(null)
+    setLastDrawOfferPly(null)
+    setDrawDeclinedNote(false)
+
+    if (bookStartMode === "movebymove") {
+      // Spec 214 "Move-by-move rival book": start at move 1. If the user's
+      // requested side would put the rival on White, his own first move
+      // fires immediately once phase flips to "playing" (the rival-turn
+      // effect below fires on any `fen` value where it's rivalColor's move,
+      // including the very first one).
+      const chosenUserColor: SparColor =
+        side === "either" ? (Math.random() < 0.5 ? "white" : "black") : side
+      setEntry(null)
+      setUserColor(chosenUserColor)
+      setStartFen(START_FEN)
+      setFen(START_FEN)
+      setPlies([])
+      setBoardNonce((n) => n + 1)
+      setPhase("playing")
+      return
+    }
+
+    // Drop-into-line (the original behavior, kept as a secondary option).
     const picked = pickBookEntry(book.entries, Math.random, {
       userColor: side === "either" ? undefined : side,
     })
@@ -162,28 +261,50 @@ export function SparTab() {
       setBookError("The rival book has no lines for that side yet.")
       return
     }
-    pendingFenRef.current = null
     setEntry(picked)
     setUserColor(userColorForEntry(picked))
     setStartFen(picked.fen)
     setFen(picked.fen)
     setPlies([])
-    setThinking(false)
-    setMoveError(null)
     setBoardNonce((n) => n + 1)
     setPhase("playing")
-  }, [book, side])
+  }, [book, side, bookStartMode])
 
-  // Drive the rival's reply whenever it's their turn at the live tip.
+  // Drive the rival's reply whenever it's their turn at the live tip: an
+  // exact-position book lookup first (move-by-move mode only), Maia otherwise
+  // — "while the position matches the rival's real games the persona replies
+  // with his recorded reply, then Maia takes over out of book" (spec 214).
+  // The lookup is a plain map read, so this re-checks fresh every rival turn
+  // rather than latching "out of book" permanently — a take-back (or even a
+  // coincidental transposition) that lands back on a book node is honored.
   useEffect(() => {
     if (phase !== "playing" || !fen) return
     if (turnOf(fen) !== rivalColor) return
-    if (sparStatus(fen).over) return
+    if (frozen) return
+
+    if (bookStartMode === "movebymove" && moveMaps) {
+      const map = rivalColor === "white" ? moveMaps.white : moveMaps.black
+      const reply = lookupRivalReply(map, fen, Math.random)
+      if (reply) {
+        const uci = replySanToUci(fen, reply.san)
+        const ply = uci ? applyUci(fen, uci) : null
+        if (ply) {
+          pendingFenRef.current = null
+          setBookStatus("book")
+          setPlies((prev) => [...prev, ply])
+          setFen(ply.fen)
+          return
+        }
+        // A malformed/stale entry (SAN didn't parse or apply here) — fall
+        // through to Maia below rather than getting stuck.
+      }
+    }
 
     let live = true
     pendingFenRef.current = fen
     setThinking(true)
     setMoveError(null)
+    setBookStatus(bookStartMode === "movebymove" ? "maia" : null)
     maiaMove(fen, level)
       .then((mv) => {
         // Discard if the board moved on (take-back / new game) while we waited.
@@ -206,9 +327,9 @@ export function SparTab() {
     return () => {
       live = false
     }
-  }, [phase, fen, rivalColor, level])
+  }, [phase, fen, rivalColor, level, frozen, bookStartMode, moveMaps])
 
-  const userToMove = phase === "playing" && !!fen && turnOf(fen) === userColor && !status.over
+  const userToMove = phase === "playing" && !!fen && turnOf(fen) === userColor && !frozen
   const legalMoves = useMemo(
     () => (userToMove && !thinking ? legalDests(fen) : new Map<Key, Key[]>()),
     [userToMove, thinking, fen],
@@ -226,10 +347,20 @@ export function SparTab() {
     [userToMove, thinking, fen],
   )
 
-  // Take back to the user's previous turn: drop the rival's reply and the user's
-  // move. Disabled mid-think.
+  // Take back to the user's previous turn: drop the rival's reply and the
+  // user's move. Disabled mid-think. If the game is frozen by a manual end
+  // (resign / draw agreed) or a probe abort, Take back's first job is to undo
+  // THAT — neither one consumed a ply, so it just resumes at the same position.
   const takeBack = useCallback(() => {
-    if (thinking || plies.length === 0) return
+    if (thinking) return
+    if (manualEnd || probeEnded) {
+      pendingFenRef.current = null
+      setManualEnd(null)
+      setProbeEnded(false)
+      setMoveError(null)
+      return
+    }
+    if (plies.length === 0) return
     pendingFenRef.current = null
     const next = plies.slice()
     next.pop()
@@ -240,7 +371,43 @@ export function SparTab() {
     setThinking(false)
     setMoveError(null)
     setBoardNonce((n) => n + 1)
-  }, [thinking, plies, userColor, startFen])
+  }, [thinking, plies, userColor, startFen, manualEnd, probeEnded])
+
+  // Resign / offer draw (spec 214 "Spar modes + game controls"): available in
+  // both Serious and probe modes, always visible during play.
+  const resign = useCallback(() => {
+    if (frozen || thinking) return
+    pendingFenRef.current = null
+    const resultTag = userColor === "white" ? "0-1" : "1-0"
+    setManualEnd({ label: `You resigned — ${resultTag}` })
+  }, [frozen, thinking, userColor])
+
+  // One offer per 10 plies (spam guard). Acceptance is the honest fallback
+  // rule (DRAW_OFFER_RULE_DESCRIPTION) — no one-shot engine-eval command
+  // exists yet to judge it by eval instead.
+  const drawOfferOnCooldown = lastDrawOfferPly !== null && plies.length - lastDrawOfferPly < 10
+  const offerDraw = useCallback(() => {
+    if (frozen || thinking || drawOfferOnCooldown) return
+    setLastDrawOfferPly(plies.length)
+    if (evaluateDrawOffer(fen, plies)) {
+      setManualEnd({ label: "Draw agreed — ½–½" })
+      return
+    }
+    setDrawDeclinedNote(true)
+    clearTimeout(drawDeclinedTimer.current)
+    drawDeclinedTimer.current = setTimeout(() => setDrawDeclinedNote(false), 2500)
+  }, [frozen, thinking, drawOfferOnCooldown, plies, fen])
+
+  // Probe-mode "End game": aborts instantly, no result recorded anywhere —
+  // the board freezes on the current position so the realism-feedback
+  // affordance stays usable on it, but status never claims a W/L/D.
+  const endGameProbe = useCallback(() => {
+    if (probeEnded || status.over) return
+    pendingFenRef.current = null
+    setThinking(false)
+    setMoveError(null)
+    setProbeEnded(true)
+  }, [probeEnded, status.over])
 
   // Open (or toggle closed) the inline feedback form for a verdict.
   const toggleFeedback = useCallback((verdict: FeedbackVerdict) => {
@@ -272,6 +439,7 @@ export function SparTab() {
       note,
       ply: plies.length,
       pgn: sanMoveText(startFen, plies),
+      mode: sparMode,
     })
     setFeedbackOpen(null)
     setFeedbackNote("")
@@ -279,7 +447,7 @@ export function SparTab() {
     setFeedbackConfirm(true)
     clearTimeout(feedbackConfirmTimer.current)
     feedbackConfirmTimer.current = setTimeout(() => setFeedbackConfirm(false), 2000)
-  }, [feedbackOpen, feedbackNote, feedbackConfidence, level, plies, startFen])
+  }, [feedbackOpen, feedbackNote, feedbackConfidence, level, plies, startFen, sparMode])
 
   const lastShape = useMemo<DrawShape[]>(() => {
     if (plies.length === 0) return []
@@ -294,6 +462,10 @@ export function SparTab() {
         setSide={setSide}
         level={level}
         setLevel={setLevel}
+        bookStartMode={bookStartMode}
+        setBookStartMode={setBookStartMode}
+        sparMode={sparMode}
+        setSparMode={setSparMode}
         onStart={startGame}
         canStart={!!book}
         bookError={bookError}
@@ -310,6 +482,20 @@ export function SparTab() {
           <span className="text-xs text-muted-foreground" data-testid="spar-label">
             a ~{level} playing {RIVAL_LABEL.toLowerCase()}&apos;s openings
           </span>
+          {sparMode === "probe" && (
+            <span
+              className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-violet-400/10 text-violet-300 border border-violet-400/30"
+              data-testid="spar-mode-badge"
+              title="Improve his personality mode: End game aborts with no result recorded."
+            >
+              Probe
+            </span>
+          )}
+          {bookStartMode === "movebymove" && bookStatus && (
+            <span className="text-[11px] text-muted-foreground" data-testid="spar-book-status">
+              {bookStatus === "book" ? "in book" : `out of book — playing like a ~${level}`}
+            </span>
+          )}
         </div>
         <span
           className={`inline-block px-2.5 py-1 rounded-md text-xs font-medium ${
@@ -347,7 +533,13 @@ export function SparTab() {
           )}
 
           <div className="text-sm" data-testid="spar-turn">
-            {status.over ? (
+            {probeEnded && !status.over ? (
+              // Probe abort: honestly NOT a result — never styled or worded
+              // like one (spec 214: "no result, never counts toward metrics").
+              <span className="text-violet-300 font-medium" data-testid="spar-probe-ended">
+                Game ended (not recorded) — leave feedback below, then start a new game.
+              </span>
+            ) : status.over ? (
               <span className="text-amber-300 font-medium" data-testid="spar-status">
                 {status.label}
               </span>
@@ -362,7 +554,13 @@ export function SparTab() {
             )}
           </div>
 
-          <MoveList plies={plies} userColor={userColor} rivalLabel={RIVAL_LABEL} />
+          {drawDeclinedNote && (
+            <p className="text-xs text-muted-foreground" data-testid="spar-draw-declined">
+              {RIVAL_LABEL} declined the draw offer.
+            </p>
+          )}
+
+          <MoveList plies={plies} userColor={userColor} startFen={startFen} rivalLabel={RIVAL_LABEL} />
 
           {moveError && (
             <p className="text-xs text-red-400" data-testid="spar-error">
@@ -455,19 +653,59 @@ export function SparTab() {
             )}
           </div>
 
-          <div className="mt-auto pt-2 flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={takeBack}
-              disabled={thinking || plies.length === 0}
-              data-testid="spar-takeback"
-            >
-              Take back
-            </Button>
-            <Button size="sm" onClick={startGame} data-testid="spar-newgame">
-              New game
-            </Button>
+          {/* Resign / offer draw (both modes, always visible during play) +
+              End game (probe mode only, aborts with no result recorded) +
+              Take back / New game — pinned to the bottom as one block. */}
+          <div className="mt-auto pt-2 flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resign}
+                disabled={frozen || thinking}
+                data-testid="spar-resign"
+              >
+                Resign
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={offerDraw}
+                disabled={frozen || thinking || drawOfferOnCooldown}
+                title={DRAW_OFFER_RULE_DESCRIPTION}
+                data-testid="spar-offer-draw"
+              >
+                Offer draw
+              </Button>
+              {sparMode === "probe" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={endGameProbe}
+                  disabled={probeEnded || status.over}
+                  className="border-violet-400/30 text-violet-300 hover:bg-violet-400/10"
+                  title="Aborts instantly — no result is recorded anywhere. Feedback below still applies."
+                  data-testid="spar-end-game"
+                >
+                  End game
+                </Button>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={takeBack}
+                disabled={thinking || (plies.length === 0 && !manualEnd && !probeEnded)}
+                data-testid="spar-takeback"
+              >
+                Take back
+              </Button>
+              <Button size="sm" onClick={startGame} data-testid="spar-newgame">
+                New game
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -478,12 +716,18 @@ export function SparTab() {
 function MoveList({
   plies,
   userColor,
+  startFen,
   rivalLabel,
 }: {
   plies: SparPly[]
   userColor: SparColor
+  /** The game's start position — who's to move here decides who plays ply 0.
+   *  Drop-into-line starts always land on the user's turn; a move-by-move
+   *  start with the rival on White does NOT (his own first move goes first). */
+  startFen: string
   rivalLabel: string
 }) {
+  const userMovesFirst = turnOf(startFen) === userColor
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 flex-1 min-h-0 overflow-auto">
       <div className="text-xs font-semibold text-muted-foreground mb-2">Moves</div>
@@ -492,11 +736,9 @@ function MoveList({
       ) : (
         <ol className="space-y-0.5 text-sm" data-testid="spar-movelist">
           {plies.map((p, i) => {
-            // Who played ply i: at the start of this game the user is to move,
-            // so even indices are the user's, odd are the rival's.
-            const mover = i % 2 === 0 ? "you" : "rival"
-            const who = mover === "you" ? "You" : rivalLabel
-            const color = mover === "you" ? "text-foreground" : "text-sky-300/90"
+            const isUserPly = userMovesFirst ? i % 2 === 0 : i % 2 === 1
+            const who = isUserPly ? "You" : rivalLabel
+            const color = isUserPly ? "text-foreground" : "text-sky-300/90"
             return (
               <li key={i} className="flex items-baseline gap-2">
                 <span className={`w-10 shrink-0 text-xs ${color}`}>{who}</span>
@@ -516,6 +758,10 @@ function SparIntro({
   setSide,
   level,
   setLevel,
+  bookStartMode,
+  setBookStartMode,
+  sparMode,
+  setSparMode,
   onStart,
   canStart,
   bookError,
@@ -525,6 +771,10 @@ function SparIntro({
   setSide: (s: SideChoice) => void
   level: number
   setLevel: (n: number) => void
+  bookStartMode: BookStartMode
+  setBookStartMode: (m: BookStartMode) => void
+  sparMode: SparGameMode
+  setSparMode: (m: SparGameMode) => void
   onStart: () => void
   canStart: boolean
   bookError: string | null
@@ -541,8 +791,9 @@ function SparIntro({
         <div>
           <h1 className="text-2xl font-bold">Spar vs {RIVAL_LABEL} (beta)</h1>
           <p className="text-muted-foreground mt-1">
-            Play a game that starts from one of {RIVAL_LABEL.toLowerCase()}&apos;s real openings, against{" "}
-            <span className="text-foreground">a ~{level}</span> playing his lines. The opponent
+            Play a full game against <span className="text-foreground">a ~{level}</span>{" "}
+            playing {RIVAL_LABEL.toLowerCase()}&apos;s lines — from move 1 with his real
+            recorded replies, or dropped into one of his openings. The opponent
             isn&apos;t {RIVAL_LABEL.toLowerCase()} — it&apos;s a Maia human-move model at that
             strength, opening the way he does.
           </p>
@@ -591,6 +842,62 @@ function SparIntro({
           Dad&apos;s FIDE-listed standard is ~1591; family lore says higher. Start at{" "}
           {DEFAULT_LEVEL} and dial to match what you see over a few games.
         </p>
+
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Opening:</span>
+          <div className="flex gap-1">
+            {(
+              [
+                ["movebymove", "From move 1 (his book, move by move)"],
+                ["dropin", "Drop into one of his lines"],
+              ] as [BookStartMode, string][]
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                data-testid={`spar-book-mode-${id}`}
+                onClick={() => setBookStartMode(id)}
+                className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                  bookStartMode === id
+                    ? "border-white/30 bg-white/10 text-foreground"
+                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Mode:</span>
+          <div className="flex gap-1">
+            {(
+              [
+                ["serious", "Serious spar"],
+                ["probe", "Improve his personality"],
+              ] as [SparGameMode, string][]
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                data-testid={`spar-game-mode-${id}`}
+                onClick={() => setSparMode(id)}
+                className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                  sparMode === id
+                    ? "border-white/30 bg-white/10 text-foreground"
+                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {sparMode === "probe" && (
+          <p className="text-xs text-muted-foreground -mt-2">
+            Probe mode adds an End game button to stop, give feedback, and try again — feedback
+            tunes the NEXT persona iteration, not this game.
+          </p>
+        )}
 
         <Button onClick={onStart} size="lg" className="w-full" disabled={!canStart} data-testid="spar-start">
           {canStart ? "Start sparring game" : "Loading rival book…"}

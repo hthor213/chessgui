@@ -90,3 +90,53 @@ export function sparStatus(fen: string): SparStatus {
   if (pos.isInsufficientMaterial()) return { over: true, label: "Draw — insufficient material" };
   return { over: true, label: "Draw" };
 }
+
+// ---------------------------------------------------------------------------
+// Draw-offer acceptance (spec 214, "Spar modes + game controls")
+// ---------------------------------------------------------------------------
+
+/**
+ * The rule an "Offer draw" click is judged by. No one-shot engine-eval Tauri
+ * command exists yet (checked src-tauri/src — the app's engine analysis is a
+ * persistent streaming process, not a single evaluate-this-FEN call), so
+ * acceptance uses an honest material/quietness proxy instead of a hidden coin
+ * flip. Shown verbatim in the UI (tooltip) — the rule is never hidden dice.
+ */
+export const DRAW_OFFER_RULE_DESCRIPTION =
+  "Accepts a draw offer when material is exactly equal, it's at least move 30, and neither side has captured or given check in the last 6 plies.";
+
+const PIECE_VALUES: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+
+/** Material balance (white − black) in standard point values, read straight
+ *  off a FEN's board field. Kings excluded — always present, never decisive. */
+function materialBalance(fen: string): number {
+  const board = fen.split(" ")[0] ?? "";
+  let balance = 0;
+  for (const ch of board) {
+    const value = PIECE_VALUES[ch.toLowerCase()];
+    if (!value) continue;
+    balance += ch === ch.toLowerCase() ? -value : value;
+  }
+  return balance;
+}
+
+/** Fullmove number from a FEN (field 6, 1-indexed; defaults to 1 if missing). */
+function fullmoveOf(fen: string): number {
+  const n = parseInt(fen.split(" ")[5] ?? "1", 10);
+  return Number.isFinite(n) ? n : 1;
+}
+
+/**
+ * Whether a draw offer at `fen` (the position right after the offering move)
+ * is accepted under DRAW_OFFER_RULE_DESCRIPTION: material exactly equal,
+ * fullmove >= 30, and the last 6 recorded plies were quiet (no captures or
+ * checks — read straight off their SAN, which already encodes both via "x"
+ * and a "+"/"#" suffix). Needs at least 6 recorded plies to judge quietness.
+ */
+export function evaluateDrawOffer(fen: string, plies: SparPly[]): boolean {
+  if (materialBalance(fen) !== 0) return false;
+  if (fullmoveOf(fen) < 30) return false;
+  if (plies.length < 6) return false;
+  const lastSix = plies.slice(-6);
+  return lastSix.every((p) => !p.san.includes("x") && !/[+#]$/.test(p.san));
+}

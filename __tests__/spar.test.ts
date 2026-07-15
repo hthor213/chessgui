@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Chess } from "chessops/chess";
 import { parseFen } from "chessops/fen";
 import { chessgroundDests } from "chessops/compat";
-import { applyUci, dragToUci, sparStatus, turnOf } from "@/lib/spar";
+import { applyUci, dragToUci, evaluateDrawOffer, sparStatus, turnOf, type SparPly } from "@/lib/spar";
 import {
   pickBookEntry,
   userColorForEntry,
@@ -169,5 +169,45 @@ describe("spar game loop (headless mock path)", () => {
     expect(rivalMoves).toBeGreaterThanOrEqual(2);
     // The running position stayed legal the whole way (every applyUci returned).
     expect(applyUci(fen, firstLegalUci(fen))).not.toBeNull();
+  });
+});
+
+describe("draw-offer honest fallback rule (spec 214, Spar modes + game controls)", () => {
+  // A quiet fake tail: SAN text is all evaluateDrawOffer reads (no legality
+  // replay), so hand-rolled entries are fine as long as the SAN carries the
+  // capture/check markers the rule inspects.
+  const quietPly = (san: string): SparPly => ({ fen: "", san, uci: "" });
+  const QUIET_SIX = [quietPly("Nf3"), quietPly("Nc6"), quietPly("Be2"), quietPly("Be7"), quietPly("O-O"), quietPly("O-O")];
+
+  // Equal material (4 pawns, 2 bishops, 2 knights, 2 rooks, 1 queen each side).
+  const EQUAL_MATERIAL_FEN_MOVE30 = "r1bq1rk1/pppb1ppp/2n2n2/8/8/2N2N2/PPPB1PPP/R1BQ1RK1 w - - 0 30";
+  const EQUAL_MATERIAL_FEN_MOVE29 = "r1bq1rk1/pppb1ppp/2n2n2/8/8/2N2N2/PPPB1PPP/R1BQ1RK1 w - - 0 29";
+  // White is up a knight (one fewer black knight on the board).
+  const WHITE_UP_A_KNIGHT_MOVE30 = "r1bq1rk1/pppb1ppp/5n2/8/8/2N2N2/PPPB1PPP/R1BQ1RK1 w - - 0 30";
+
+  it("accepts when material is equal, move >= 30, and the last 6 plies are quiet", () => {
+    expect(evaluateDrawOffer(EQUAL_MATERIAL_FEN_MOVE30, QUIET_SIX)).toBe(true);
+  });
+
+  it("declines before move 30 even with equal material and quiet plies", () => {
+    expect(evaluateDrawOffer(EQUAL_MATERIAL_FEN_MOVE29, QUIET_SIX)).toBe(false);
+  });
+
+  it("declines when material is unequal", () => {
+    expect(evaluateDrawOffer(WHITE_UP_A_KNIGHT_MOVE30, QUIET_SIX)).toBe(false);
+  });
+
+  it("declines when one of the last 6 plies was a capture", () => {
+    const withCapture = [...QUIET_SIX.slice(0, 5), quietPly("Nxc6")];
+    expect(evaluateDrawOffer(EQUAL_MATERIAL_FEN_MOVE30, withCapture)).toBe(false);
+  });
+
+  it("declines when one of the last 6 plies gave check", () => {
+    const withCheck = [...QUIET_SIX.slice(0, 5), quietPly("Bb5+")];
+    expect(evaluateDrawOffer(EQUAL_MATERIAL_FEN_MOVE30, withCheck)).toBe(false);
+  });
+
+  it("declines with fewer than 6 recorded plies, even if all are quiet", () => {
+    expect(evaluateDrawOffer(EQUAL_MATERIAL_FEN_MOVE30, QUIET_SIX.slice(0, 3))).toBe(false);
   });
 });
