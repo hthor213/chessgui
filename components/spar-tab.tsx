@@ -197,7 +197,7 @@ export function SparTab() {
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col" data-testid="spar-playing">
+    <div className="h-full flex flex-col" data-testid="spar-playing">
       <div className="px-6 py-3 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium">Sparring</span>
