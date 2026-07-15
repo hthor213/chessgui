@@ -23,11 +23,12 @@ others get planned only when their turn comes — this spec is web's turn.
 ## Transparency (non-negotiable; wording decided 2026-07-15)
 
 Every session shows an honest disclosure before play. User decision 2026-07-15: no
-consent paperwork — the tournament-chess norm (moves are recorded) expressed as a
-ToU-style line ("games played here are recorded and may be used to model the
-players who play here"), plus the family sticker for dad, near-verbatim: "note:
-your son may use your games — study them in order to try to beat you in chess at
-Christmas." This supersedes the earlier two-candidate wording choice.
+consent paperwork — this is an app for the user, then dad. The disclosure is the
+family sticker, near-verbatim: "note: your son may use your games — study them in
+order to try to beat you in chess at Christmas." (Tournament-chess norm: moves are
+recorded.) This supersedes the earlier two-candidate wording choice. A formal ToU
+is deliberately deferred — it becomes a question only if the app is ever published
+beyond family.
 Recorded games of private individuals stay private (server-side equivalent of
 data/rivals; never committed, never bundled) — same hard rule as spec 214.
 

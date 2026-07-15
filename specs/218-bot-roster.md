@@ -70,10 +70,10 @@ abstraction serves spec:217's server-side roster.
    roster-browser screen in the tournament tab; the card-style roster browser with
    avatars belongs to Play vs Bot.
 6. **Disclosure, not consent paperwork**, for using relatives' games and fielding
-   their personas: the tournament-chess norm — moves are recorded — expressed as a
-   ToU-style line plus the family sticker, recorded in spec:217 Transparency
-   ("note: your son may use your games — study them in order to try to beat you in
-   chess at Christmas").
+   their personas: the family sticker, recorded in spec:217 Transparency ("note:
+   your son may use your games — study them in order to try to beat you in chess
+   at Christmas"). The app is for the user, then dad; a formal ToU is deferred
+   until/unless the app is ever published beyond family (user, 2026-07-15).
 
 Implementation detail settled without user (small fork, 2026-07-15): the
 back/forward review mechanic is copied in place in the spar tab first; it gets
