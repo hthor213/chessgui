@@ -1,0 +1,423 @@
+{
+  "seed": 214214,
+  "generated": "2026-07-14T19:04:59",
+  "config": {
+    "ply_range": [
+      10,
+      60
+    ],
+    "target_per_persona": 250,
+    "strong_net": {
+      "file": "BT3-768x15x24h-swa-2790000.pb.gz",
+      "sha256": "e3067757d1fc2dfc66947b21d15ace0cedf4c54254fc1de83d77c378a3e8b8e1",
+      "url": "https://storage.lczero.org/files/networks-contrib/BT3-768x15x24h-swa-2790000.pb.gz"
+    },
+    "stockfish": {
+      "multipv": 3,
+      "movetime_ms": 150
+    }
+  },
+  "sample_sizes": {
+    "fischer": {
+      "endgame": 27,
+      "middlegame": 134,
+      "opening": 89
+    },
+    "kasparov": {
+      "endgame": 83,
+      "middlegame": 83,
+      "opening": 84
+    },
+    "sigurjonsson": {
+      "endgame": 8,
+      "middlegame": 137,
+      "opening": 105
+    },
+    "sigurjonsson-peak": {
+      "middlegame": 146,
+      "opening": 104
+    }
+  },
+  "results": {
+    "fischer": {
+      "match": {
+        "maia-1900": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.404,
+            "match@3": 0.708
+          },
+          "opening": {
+            "n": 89,
+            "match@1": 0.4045,
+            "match@3": 0.7528
+          },
+          "middlegame": {
+            "n": 134,
+            "match@1": 0.4254,
+            "match@3": 0.6567
+          },
+          "endgame": {
+            "n": 27,
+            "match@1": 0.2963,
+            "match@3": 0.8148
+          }
+        },
+        "maia-1500": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.38,
+            "match@3": 0.64
+          },
+          "opening": {
+            "n": 89,
+            "match@1": 0.3483,
+            "match@3": 0.6854
+          },
+          "middlegame": {
+            "n": 134,
+            "match@1": 0.4179,
+            "match@3": 0.5896
+          },
+          "endgame": {
+            "n": 27,
+            "match@1": 0.2963,
+            "match@3": 0.7407
+          }
+        },
+        "lc0-bt3": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.604,
+            "match@3": 0.84
+          },
+          "opening": {
+            "n": 89,
+            "match@1": 0.573,
+            "match@3": 0.7753
+          },
+          "middlegame": {
+            "n": 134,
+            "match@1": 0.597,
+            "match@3": 0.8582
+          },
+          "endgame": {
+            "n": 27,
+            "match@1": 0.7407,
+            "match@3": 0.963
+          }
+        },
+        "stockfish-mpv": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.632,
+            "match@3": 0.844
+          },
+          "opening": {
+            "n": 89,
+            "match@1": 0.5843,
+            "match@3": 0.809
+          },
+          "middlegame": {
+            "n": 134,
+            "match@1": 0.6343,
+            "match@3": 0.8433
+          },
+          "endgame": {
+            "n": 27,
+            "match@1": 0.7778,
+            "match@3": 0.963
+          }
+        }
+      },
+      "top1_agreement": {
+        "maia-1900 vs maia-1500": 0.672,
+        "maia-1900 vs lc0-bt3": 0.464,
+        "maia-1900 vs stockfish-mpv": 0.392,
+        "maia-1500 vs lc0-bt3": 0.412,
+        "maia-1500 vs stockfish-mpv": 0.352,
+        "lc0-bt3 vs stockfish-mpv": 0.656
+      }
+    },
+    "kasparov": {
+      "match": {
+        "maia-1900": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.396,
+            "match@3": 0.748
+          },
+          "opening": {
+            "n": 84,
+            "match@1": 0.4405,
+            "match@3": 0.75
+          },
+          "middlegame": {
+            "n": 83,
+            "match@1": 0.3614,
+            "match@3": 0.7108
+          },
+          "endgame": {
+            "n": 83,
+            "match@1": 0.3855,
+            "match@3": 0.7831
+          }
+        },
+        "maia-1500": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.344,
+            "match@3": 0.664
+          },
+          "opening": {
+            "n": 84,
+            "match@1": 0.3214,
+            "match@3": 0.6548
+          },
+          "middlegame": {
+            "n": 83,
+            "match@1": 0.3614,
+            "match@3": 0.6386
+          },
+          "endgame": {
+            "n": 83,
+            "match@1": 0.3494,
+            "match@3": 0.6988
+          }
+        },
+        "lc0-bt3": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.636,
+            "match@3": 0.868
+          },
+          "opening": {
+            "n": 84,
+            "match@1": 0.619,
+            "match@3": 0.8333
+          },
+          "middlegame": {
+            "n": 83,
+            "match@1": 0.6145,
+            "match@3": 0.8434
+          },
+          "endgame": {
+            "n": 83,
+            "match@1": 0.6747,
+            "match@3": 0.9277
+          }
+        },
+        "stockfish-mpv": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.644,
+            "match@3": 0.864
+          },
+          "opening": {
+            "n": 84,
+            "match@1": 0.5833,
+            "match@3": 0.8452
+          },
+          "middlegame": {
+            "n": 83,
+            "match@1": 0.7108,
+            "match@3": 0.8795
+          },
+          "endgame": {
+            "n": 83,
+            "match@1": 0.6386,
+            "match@3": 0.8675
+          }
+        }
+      },
+      "top1_agreement": {
+        "maia-1900 vs maia-1500": 0.692,
+        "maia-1900 vs lc0-bt3": 0.504,
+        "maia-1900 vs stockfish-mpv": 0.408,
+        "maia-1500 vs lc0-bt3": 0.432,
+        "maia-1500 vs stockfish-mpv": 0.372,
+        "lc0-bt3 vs stockfish-mpv": 0.628
+      }
+    },
+    "sigurjonsson": {
+      "match": {
+        "maia-1900": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.388,
+            "match@3": 0.68
+          },
+          "opening": {
+            "n": 105,
+            "match@1": 0.419,
+            "match@3": 0.6667
+          },
+          "middlegame": {
+            "n": 137,
+            "match@1": 0.365,
+            "match@3": 0.6861
+          },
+          "endgame": {
+            "n": 8,
+            "match@1": 0.375,
+            "match@3": 0.75
+          }
+        },
+        "maia-1500": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.324,
+            "match@3": 0.64
+          },
+          "opening": {
+            "n": 105,
+            "match@1": 0.3048,
+            "match@3": 0.5619
+          },
+          "middlegame": {
+            "n": 137,
+            "match@1": 0.3431,
+            "match@3": 0.6934
+          },
+          "endgame": {
+            "n": 8,
+            "match@1": 0.25,
+            "match@3": 0.75
+          }
+        },
+        "lc0-bt3": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.536,
+            "match@3": 0.764
+          },
+          "opening": {
+            "n": 105,
+            "match@1": 0.5238,
+            "match@3": 0.7333
+          },
+          "middlegame": {
+            "n": 137,
+            "match@1": 0.5401,
+            "match@3": 0.781
+          },
+          "endgame": {
+            "n": 8,
+            "match@1": 0.625,
+            "match@3": 0.875
+          }
+        },
+        "stockfish-mpv": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.52,
+            "match@3": 0.82
+          },
+          "opening": {
+            "n": 105,
+            "match@1": 0.5143,
+            "match@3": 0.8381
+          },
+          "middlegame": {
+            "n": 137,
+            "match@1": 0.5182,
+            "match@3": 0.8029
+          },
+          "endgame": {
+            "n": 8,
+            "match@1": 0.625,
+            "match@3": 0.875
+          }
+        }
+      },
+      "top1_agreement": {
+        "maia-1900 vs maia-1500": 0.66,
+        "maia-1900 vs lc0-bt3": 0.448,
+        "maia-1900 vs stockfish-mpv": 0.324,
+        "maia-1500 vs lc0-bt3": 0.388,
+        "maia-1500 vs stockfish-mpv": 0.296,
+        "lc0-bt3 vs stockfish-mpv": 0.556
+      }
+    },
+    "sigurjonsson-peak": {
+      "match": {
+        "maia-1900": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.384,
+            "match@3": 0.656
+          },
+          "opening": {
+            "n": 104,
+            "match@1": 0.4135,
+            "match@3": 0.6731
+          },
+          "middlegame": {
+            "n": 146,
+            "match@1": 0.363,
+            "match@3": 0.6438
+          }
+        },
+        "maia-1500": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.32,
+            "match@3": 0.604
+          },
+          "opening": {
+            "n": 104,
+            "match@1": 0.2885,
+            "match@3": 0.5577
+          },
+          "middlegame": {
+            "n": 146,
+            "match@1": 0.3425,
+            "match@3": 0.637
+          }
+        },
+        "lc0-bt3": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.524,
+            "match@3": 0.784
+          },
+          "opening": {
+            "n": 104,
+            "match@1": 0.5,
+            "match@3": 0.7115
+          },
+          "middlegame": {
+            "n": 146,
+            "match@1": 0.5411,
+            "match@3": 0.8356
+          }
+        },
+        "stockfish-mpv": {
+          "overall": {
+            "n": 250,
+            "match@1": 0.496,
+            "match@3": 0.816
+          },
+          "opening": {
+            "n": 104,
+            "match@1": 0.4615,
+            "match@3": 0.7981
+          },
+          "middlegame": {
+            "n": 146,
+            "match@1": 0.5205,
+            "match@3": 0.8288
+          }
+        }
+      },
+      "top1_agreement": {
+        "maia-1900 vs maia-1500": 0.712,
+        "maia-1900 vs lc0-bt3": 0.468,
+        "maia-1900 vs stockfish-mpv": 0.368,
+        "maia-1500 vs lc0-bt3": 0.4,
+        "maia-1500 vs stockfish-mpv": 0.332,
+        "lc0-bt3 vs stockfish-mpv": 0.608
+      }
+    }
+  }
+}

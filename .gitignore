@@ -33,3 +33,4 @@ lichess-bot/
 # Agent worktrees (session tooling)
 .claude/worktrees/
 data/rivals/
+data/personas/_cache/
