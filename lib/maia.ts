@@ -38,6 +38,31 @@ export interface MaiaStatus {
   cached_bands: number[];
 }
 
+/** A persona's chosen move (spec 214 Tier 0): sampled from the Maia policy, with
+ *  its SAN for the move list. */
+export interface PersonaMove {
+  uci: string;
+  san: string;
+}
+
+function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
+ * A human-like move for `fen` from the Maia net at `level` (spec 214 "Spar vs
+ * rival"): the Rust command reads the `go nodes 1` policy and samples from it at
+ * temperature 1 — sampling, not argmax, is what makes it play like a human of
+ * that rating. Outside Tauri (Playwright / unit tests) a mock returns a canned
+ * legal move so the spar flow is drivable headless.
+ */
+export async function maiaMove(fen: string, level: number): Promise<PersonaMove> {
+  if (!isTauri()) {
+    return import("./maia-mock").then((m) => m.mockMaiaMove(fen, level));
+  }
+  return invoke<PersonaMove>("maia_move", { fen, level });
+}
+
 /** lc0 availability + which band weights are already cached. Never throws. */
 export async function maiaStatus(): Promise<MaiaStatus> {
   try {

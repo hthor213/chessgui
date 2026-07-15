@@ -17,6 +17,7 @@ import { computeMaterial } from "@/lib/material"
 import { TournamentTab } from "@/components/tournament-tab"
 import { DatabaseTab } from "@/components/database-tab"
 import { CalibrationTab } from "@/components/calibration-tab"
+import { SparTab } from "@/components/spar-tab"
 import { parsePgnToTrees } from "@/lib/pgn"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
@@ -85,6 +86,8 @@ export default function Home() {
   const playerColor = engine.state.playerColor
   const [boardSize, setBoardSize] = useState(560)
   const [view, setView] = useState<"board" | "tournament" | "thinking" | "database" | "learn">("board")
+  // Sub-view within the Learn tab: eval calibration or persona sparring (spec 214).
+  const [learnSub, setLearnSub] = useState<"calibrate" | "spar">("calibrate")
   // Thinking mode has its own board instance; keep its size separate so the
   // hidden main board (kept mounted) can't clobber it.
   const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
@@ -545,10 +548,41 @@ export default function Home() {
           </main>
         )}
 
-        {/* Learn view — eval calibration. Mounted only when active. */}
+        {/* Learn view — eval calibration + persona sparring. Mounted only when
+            active; a small sub-nav switches between the two. */}
         {view === "learn" && (
-          <main className="flex-1 min-h-0">
-            <CalibrationTab onLoadPosition={handleLoadCalibrationPosition} />
+          <main className="flex-1 min-h-0 flex flex-col">
+            <div className="px-6 pt-3 flex items-center gap-1 border-b border-white/10">
+              <button
+                data-testid="learn-sub-calibrate"
+                onClick={() => setLearnSub("calibrate")}
+                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                  learnSub === "calibrate"
+                    ? "text-foreground font-medium border-b-2 border-emerald-500"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Eval calibration
+              </button>
+              <button
+                data-testid="learn-sub-spar"
+                onClick={() => setLearnSub("spar")}
+                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                  learnSub === "spar"
+                    ? "text-foreground font-medium border-b-2 border-emerald-500"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Spar vs Dad (beta)
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              {learnSub === "calibrate" ? (
+                <CalibrationTab onLoadPosition={handleLoadCalibrationPosition} />
+              ) : (
+                <SparTab />
+              )}
+            </div>
           </main>
         )}
 

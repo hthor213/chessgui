@@ -3,6 +3,7 @@ pub mod calibration;
 pub mod coach;
 pub mod db;
 pub mod maia;
+pub mod persona;
 mod uci;
 mod vision;
 pub mod match_runner;
@@ -49,6 +50,8 @@ pub fn run() {
             calibration::calibration_save_results,
             maia::maia_status,
             maia::maia_policy,
+            persona::maia_move,
+            persona::rival_book,
             coach::coach_feedback,
             coach::coach_followup,
         ])

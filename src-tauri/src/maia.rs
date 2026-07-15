@@ -516,6 +516,28 @@ pub async fn maia_status(app: tauri::AppHandle) -> Result<MaiaStatus, String> {
     })
 }
 
+/// Resolve lc0, ensure the band's weights, warm its process, and read the root
+/// policy for `fen`. The shared core behind the `maia_policy` command and the
+/// persona `maia_move` sampler (spec 214) so both take the exact same path into
+/// the pool. Errors are strings so callers can degrade without crashing.
+pub async fn query_policy(
+    app: &tauri::AppHandle,
+    state: &MaiaState,
+    fen: &str,
+    band: u32,
+) -> Result<MaiaPolicy, String> {
+    if !is_valid_band(band) {
+        return Err(format!(
+            "no Maia-1 net for band {band} (available: 1100–1900)"
+        ));
+    }
+    let lc0 = resolve_lc0().ok_or("lc0 not found — install it with: brew install lc0")?;
+    let dir = maia_dir(app)?;
+    let weights = ensure_weights(band, &dir).await?;
+    let proc = state.get_or_spawn(band, &lc0, &weights).await?;
+    proc.query(fen).await
+}
+
 /// Root policy for `fen` at rating `band`: `Vec<(uci, prob)>` plus the value
 /// head. Spawns/warms the band's lc0 process and downloads its weights on first
 /// use. Errors (no lc0, download failure, terminal position) are returned as
@@ -527,17 +549,7 @@ pub async fn maia_policy(
     fen: String,
     band: u32,
 ) -> Result<MaiaPolicy, String> {
-    if !is_valid_band(band) {
-        return Err(format!(
-            "no Maia-1 net for band {band} (available: 1100–1900)"
-        ));
-    }
-    let lc0 = resolve_lc0()
-        .ok_or("lc0 not found — install it with: brew install lc0")?;
-    let dir = maia_dir(&app)?;
-    let weights = ensure_weights(band, &dir).await?;
-    let proc = state.get_or_spawn(band, &lc0, &weights).await?;
-    proc.query(&fen).await
+    query_policy(&app, state.inner(), &fen, band).await
 }
 
 // ---------------------------------------------------------------------------
