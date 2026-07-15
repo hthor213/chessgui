@@ -35,10 +35,25 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
   homeserver services (Docker; the homeserver agent handles choreography).
 - **Auth**: Google auth ported from the golf app. Invite-only allowlist — this is a
   family arena, not a public chess server.
-- **Personas v1 roster**: Gudmundur (peak slice), Fischer, Kasparov + Karpov and 1-2
-  more Icelandic GMs (extraction pipeline exists, Lumbra OTB in app DB). Backend per
+- **Personas v1 roster**: Gudmundur (peak slice), Fischer, Kasparov + Karpov and the
+  Icelandic canon (extraction pipeline exists, Lumbra OTB in app DB). Backend per
   spec 214 findings: BT3/strong-policy for GM personas, Maia bands for amateurs; the
   realism lessons from match #1/#2 (verification search, draw model) apply directly.
+
+## The Icelandic canon (user-supplied roster + lore, 2026-07-15)
+
+Iceland's infamous brag — "best per capita :-)", ~10 GMs at peak for ~330k people —
+is the arena's flavor (candidate lobby tagline: "Best per capita"). Extraction
+candidates, all public figures, check Lumbra coverage per name:
+- **Friðrik Ólafsson** — Iceland's first GM, dad's-generation hero (also FIDE
+  president 1978-82).
+- **Margeir Pétursson** — GM AND founded MP Capital; personally helped the user with
+  VC funding. Lore: **Gudmundur was always trying to beat Margeir and never quite
+  made it** — a built-in arena quest ("win the game Gudmundur never got").
+- **Jóhann Hjartarson** — candidates-level (beat Korchnoi in the 1988/89 candidates).
+- **Hannes Stefánsson** — multiple Icelandic champion.
+- **Helgi Ólafsson**, **Héðinn Steingrímsson**, and the rest of the ~10 (Jón L.
+  Árnason etc.) as coverage allows.
 - **Feedback**: the spar realism-feedback capture pattern ("felt like him" for people
   who knew the player) is a v2 candidate for other family members who knew these
   players.
