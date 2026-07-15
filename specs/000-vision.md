@@ -6,7 +6,7 @@
 
 ## North Star
 
-A beautiful, fast, open-source chess GUI for macOS that combines the analytical power of SCID, the modern stack of En-Croissant, and the polish of Lichess. No subscriptions, no bloat — Stockfish as a first-class citizen with a clean interface for serious chess analysis.
+A beautiful, fast, open-source chess GUI that combines the analytical power of SCID, the modern stack of En-Croissant, and the polish of Lichess. No subscriptions, no bloat — Stockfish as a first-class citizen with a clean interface for serious chess analysis. macOS, web, mobile, and Windows/PC are all first-class target platforms; macOS is the build we develop and test against until further notice (see Platforms).
 
 ## Why
 
@@ -117,11 +117,28 @@ commit your own eval and reasoning first, then see the evidence. This is the Lea
 
 ## Principles
 
-1. **macOS-first** — Native feel, proper menu bar, keyboard shortcuts, dark mode, Retina
+1. **Every platform a first-class citizen** — macOS, web, mobile, and Windows/PC all count as real targets; no design decision may quietly wall one off. macOS stays the development/testing build until further notice. On each platform, native feel (on macOS: proper menu bar, keyboard shortcuts, dark mode, Retina).
 2. **Engine-centric** — Stockfish/UCI engine communication is the core, not an afterthought
 3. **Fast** — Tauri + Rust backend, no Electron. Sub-second app launch.
 4. **Focused** — Do fewer things than ChessBase, do them exceptionally well.
 5. **Open** — GPL-3.0 (compatible with Chessground and Stockfish licenses)
+
+## Platforms (decided 2026-07-15)
+
+macOS, **web**, **mobile**, and **Windows/PC native** are all first-class citizens.
+This replaces the original "macOS-first, mobile out of scope" stance: reaching other
+players — dad on his PC first (spec:217, the Persona Arena honeypot) — requires
+surfaces beyond the Mac app, and web is the fastest route to someone who is usually
+online.
+
+- **macOS** remains the development and testing build until further notice. It is the
+  reference implementation; features land and get verified there first.
+- **Web** is the first additional surface, driven by spec:217. The Next.js frontend
+  already runs Tauri-free in a browser, which is the enabling fact.
+- **Mobile** and **Windows/PC native** are declared targets with no detailed plan yet —
+  deliberately. The commitment today is architectural: keep the frontend
+  platform-agnostic and keep Tauri-only code behind clean seams so no platform gets
+  walled off by accident. Tauri 2 covers Windows and mobile builds when we get there.
 
 ## Architecture
 
@@ -205,9 +222,8 @@ We take the modern stack (En-Croissant), the analytical depth (SCID/ChessX), and
 
 ## Non-Goals (for now)
 
-- Online play (use Lichess for that)
+- Online play against strangers (use Lichess for that; invite-only persona play is spec:217)
 - Chess variants
-- Mobile/tablet support
 - Cloud sync
 - Correspondence game management
 - Integrated opening book editing (Polyglot/CTG authoring)

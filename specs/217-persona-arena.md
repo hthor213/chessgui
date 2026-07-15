@@ -15,6 +15,11 @@ GMs. The pull is a roster chess.com cannot offer; the return is a continuous str
 dad's games under controlled conditions (known opponent, known strength, every move in
 context) feeding the spec-214 style priors and the training program's rival model.
 
+Platform note: per the vision's platform stance (spec:000 "Platforms", 2026-07-15),
+this is the project's first non-macOS surface. Web, mobile, and Windows/PC native are
+first-class citizens alongside macOS; macOS remains the testing build for now, and the
+others get planned only when their turn comes — this spec is web's turn.
+
 ## Transparency (non-negotiable, wording user-decided)
 
 Every session shows an honest disclosure before play. Two candidate wordings, user
