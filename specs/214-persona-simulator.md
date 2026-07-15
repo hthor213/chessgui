@@ -71,7 +71,8 @@ from the player's real games, how often does the persona play the human's move?
       public-figure games may be committed if useful)
 - [x] Held-out eval harness (2026-07-15, results in data/personas/HARNESS_RESULTS.md — strong-engine policy beats Maia at every tested strength; BT3 = GM-persona backend): move-match@1/@3, per phase, per policy backend
 - [ ] Persona config format + loader
-- [ ] Realism feedback capture (2026-07-15, user request): "felt like him" /
+- [x] Realism feedback capture (2026-07-15, user request; SHIPPED e158101 — plus
+      confidence chips gut-feel/fairly-sure, never "certain"): "felt like him" /
       "didn't feel like him" buttons in the spar UI, tappable at any point during
       or after a game; the negative REQUIRES a free-text why, the positive makes
       it optional. Each entry stores verdict + note + game context (PGN so far,
