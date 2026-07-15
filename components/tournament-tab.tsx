@@ -7,19 +7,23 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
   buildSeeds,
-  buildSpecs,
+  buildParticipantSpecs,
+  buildExhibitionSpec,
+  newPersonaSeed,
   seedsForGames,
   buildProbabilityMap,
   buildEngineCurves,
   buildEngineWDL,
   eloDelta,
   gameResult,
+  gameError,
   isOk,
   summarizeErrors,
   uciSquares,
   averageEvalByPly,
   gameEvalSeries,
   evalBarDefaultForBaseMs,
+  STANDARD_START_FEN,
   TIME_CONTROLS,
   MOVE_DELAY_OPTIONS,
   type BatchProgress,
@@ -37,10 +41,17 @@ import {
   type EvalPoint,
   type LiveFrame,
   type ViewerControls,
+  type Participant,
+  type PersonaLogEntry,
+  type Seed,
 } from "@/lib/tournament"
-import { replayFens, movesToPgn } from "@/lib/game-replay"
+import { replayFens, movesToPgn, sansFromUci, numberMoves, type NumberedPly } from "@/lib/game-replay"
+import { buildTournamentRoster, type TournamentRosterEntry, type EngineOption } from "@/lib/tournament-roster"
+import { loadRivalBook, type RivalBook } from "@/lib/rival-book"
+import type { PersonaCandidate, PersonaDecision } from "@/lib/persona"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
+import { EvalBar } from "@/components/eval-bar"
 import {
   DEFAULT_PRIOR_CURVE,
   paceFloor,
@@ -109,6 +120,24 @@ function engineLabel(path: string): string {
   return base.replace(/\.(exe|app)$/i, "")
 }
 
+// Display label for a wire Participant (spec 218 "Exhibition & tournament"):
+// a UCI side shows its binary's short name (same derivation as engineLabel,
+// pre-participant-dropdown behavior); a persona side shows its displayName
+// (roster labels already carry the honest strength info — see
+// lib/tournament-roster.ts — this is just the short game-log name).
+function sideLabel(p: Participant): string {
+  return p.kind === "uci" ? engineLabel(p.enginePath ?? p.displayName) : p.displayName
+}
+
+// Fresh per-run persona seed (spec 214 contract step 8): the runner derives
+// each GAME's seed from this base + the game id, so every game in a batch is
+// distinct yet reproducible from one Run click. Only persona sides carry a
+// seed; a UCI side is returned unchanged.
+function withFreshSeed(p: Participant): Participant {
+  if (p.kind !== "persona" || !p.personaConfig) return p
+  return { ...p, personaConfig: { ...p.personaConfig, seed: newPersonaSeed() } }
+}
+
 // Format a nodes-per-second bench figure for display (spec 216 machine profile).
 function formatNps(nps: number): string {
   if (nps >= 1_000_000) return `${(nps / 1_000_000).toFixed(1)} Mnps`
@@ -161,8 +190,30 @@ export function TournamentTab({
    */
   presetNonce?: number
 } = {}) {
-  const [engineA, setEngineA] = useState(STOCKFISH_DEFAULT)
-  const [engineB, setEngineB] = useState(RECKLESS_DEFAULT)
+  // Participant dropdown (spec 218 "Exhibition & tournament" checklist item 1,
+  // decision 5 picker style): each side is a roster entry id, not a free-text
+  // binary path. Defaults to the two MVP engines so an untouched config
+  // behaves exactly like the old free-text defaults did.
+  const [sideAId, setSideAId] = useState("engine-stockfish")
+  const [sideBId, setSideBId] = useState("engine-reckless")
+  // Explicit per-side assignment (spec 218 item 1: "who is White in game 1" —
+  // flipFirst still alternates within a pair, this only picks which roster
+  // entry starts White). "current" mode keeps its own board-bottom-color
+  // control (engineASide below) since that has a different intent ("my side
+  // of the board"); this one is the general-purpose control for every mode.
+  const [firstWhite, setFirstWhite] = useState<"a" | "b">("a")
+  // Private rival gating (spec 218 decision 4 / spec 214 hard rule): his
+  // roster entry exists only once his local book has loaded — mirrors
+  // spar-tab.tsx's identical load-once-on-mount pattern so both surfaces
+  // agree on when he's in scope.
+  const [rivalBook, setRivalBook] = useState<RivalBook | null>(null)
+  useEffect(() => {
+    let live = true
+    loadRivalBook()
+      .then((b) => { if (live) setRivalBook(b) })
+      .catch(() => { /* no local book — the rival entry simply doesn't exist */ })
+    return () => { live = false }
+  }, [])
   const [mode, setMode] = useState<StartMode>("eval")
   // Numeric fields are held as raw strings so they stay freely editable
   // (clearing/retyping); they are coerced to numbers with fallbacks in run().
@@ -218,6 +269,10 @@ export function TournamentTab({
   const [running, setRunning] = useState(false)
   const [tally, setTally] = useState<RunningTally | null>(null)
   const [report, setReport] = useState<BatchReport | null>(null)
+  // The two sides' display labels AS OF the run that produced `report`/`tally`
+  // — snapshotted at run start so changing the dropdown selection afterward
+  // (before the next Run) never relabels a finished result.
+  const [reportLabels, setReportLabels] = useState<{ a: string; b: string }>({ a: "Side A", b: "Side B" })
   const [probBins, setProbBins] = useState<ProbBin[]>([])
   const [curveBins, setCurveBins] = useState<EngineCurveBin[]>([])
   const [sfWdl, setSfWdl] = useState<ProbBin[]>([])
@@ -245,8 +300,13 @@ export function TournamentTab({
           typeof p === "string"
             ? p.replace("/Documents/GitHub/chessgui/", "/github/chessgui/")
             : p
-        if (c.engineA) setEngineA(healPath(c.engineA) as string)
-        if (c.engineB) setEngineB(healPath(c.engineB) as string)
+        // sideAId/sideBId are roster ids, not paths — no healing needed. Older
+        // saved configs only have engineA/engineB (pre-dropdown paths); those
+        // are silently dropped in favor of the new default roster ids rather
+        // than migrated, since a path doesn't map onto a roster id 1:1.
+        if (c.sideAId) setSideAId(String(c.sideAId))
+        if (c.sideBId) setSideBId(String(c.sideBId))
+        if (c.firstWhite === "a" || c.firstWhite === "b") setFirstWhite(c.firstWhite)
         if (c.mode) setMode(c.mode)
         if (c.minEval != null) setMinEval(String(c.minEval))
         if (c.maxEval != null) setMaxEval(String(c.maxEval))
@@ -275,9 +335,9 @@ export function TournamentTab({
   }, [])
   useEffect(() => {
     if (!restored.current) return // don't clobber saved config before restore runs
-    const c = { engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current, autoStartNext, moveDelayMs }
+    const c = { sideAId, sideBId, firstWhite, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current, autoStartNext, moveDelayMs }
     try { localStorage.setItem("chessgui-tournament-config", JSON.stringify(c)) } catch { /* ignore */ }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, autoStartNext, moveDelayMs])
+  }, [sideAId, sideBId, firstWhite, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, autoStartNext, moveDelayMs])
 
   // Face-value clock (ms) implied by the current time-control selection —
   // BEFORE playback-pace compression (spec 216 UI:1). This is what the format
@@ -332,23 +392,47 @@ export function TournamentTab({
     onEvalBarChange?.(showEvalBar)
   }, [showEvalBar, onEvalBarChange])
 
-  // Resolve each engine's UCI version (e.g. "Stockfish 18") for display.
+  // Resolve each MVP engine's UCI version (e.g. "Stockfish 18") once, for the
+  // dropdown label (decision 5's literal "engine: stockfish 18" style) and the
+  // inline readout below it. Paths are fixed constants now (the Participant
+  // dropdown replaces the old free-text inputs — spec:210 Phase 6's
+  // "Add-engine UI" for arbitrary binaries is a separate, unstarted item), so
+  // this runs once on mount rather than per-keystroke.
   useEffect(() => {
     let cancelled = false
-    setSfVersion(null)
-    invoke<string>("engine_id", { path: engineA })
+    invoke<string>("engine_id", { path: STOCKFISH_DEFAULT })
       .then((v) => { if (!cancelled) setSfVersion(v) })
       .catch(() => { if (!cancelled) setSfVersion("not found") })
     return () => { cancelled = true }
-  }, [engineA])
+  }, [])
   useEffect(() => {
     let cancelled = false
-    setRkVersion(null)
-    invoke<string>("engine_id", { path: engineB })
+    invoke<string>("engine_id", { path: RECKLESS_DEFAULT })
       .then((v) => { if (!cancelled) setRkVersion(v) })
       .catch(() => { if (!cancelled) setRkVersion("not found") })
     return () => { cancelled = true }
-  }, [engineB])
+  }, [])
+
+  // The two fixed engine options + the roster (spec 218 decision 5): one flat
+  // dropdown per side, kind-prefixed labels. `engines` folds in the live
+  // version once resolved ("engine: stockfish 18"); before that it reads
+  // "engine: stockfish" so the dropdown is never empty.
+  const engines: EngineOption[] = useMemo(() => {
+    const sfName = sfVersion && sfVersion !== "not found" ? sfVersion : "Stockfish"
+    const rkName = rkVersion && rkVersion !== "not found" ? rkVersion : "Reckless"
+    return [
+      { id: "engine-stockfish", displayName: sfName, enginePath: STOCKFISH_DEFAULT, label: `engine: ${sfName.toLowerCase()}` },
+      { id: "engine-reckless", displayName: rkName, enginePath: RECKLESS_DEFAULT, label: `engine: ${rkName.toLowerCase()}` },
+    ]
+  }, [sfVersion, rkVersion])
+  const roster: TournamentRosterEntry[] = useMemo(
+    () => buildTournamentRoster(rivalBook, engines),
+    [rivalBook, engines],
+  )
+  const participantA: Participant =
+    roster.find((e) => e.participant.id === sideAId)?.participant ?? roster[0].participant
+  const participantB: Participant =
+    roster.find((e) => e.participant.id === sideBId)?.participant ?? roster[1].participant
 
   // Enter "Current position" mode with its defaults: engine A (Stockfish) on
   // the side at the bottom of the user's board, 10m+5s, one flipped pair.
@@ -415,13 +499,18 @@ export function TournamentTab({
         mode === "normal" || mode === "current" ? [] : await loadPositions()
       const nSeeds = seedsForGames(nGamesNum)
       const seeds = buildSeeds(mode, nSeeds, positions, lo, hi, currentFen ?? null)
-      // Current-position mode: engine A takes the user's chosen side in the
-      // odd games; pairs still flip. flipFirst reverses each pair's order.
-      const flipFirst = mode === "current" && engineASide === "black"
-      const { specs, evalById } = buildSpecs(
+      // Current-position mode keeps its own board-bottom-color control
+      // (engineASide); every other mode uses the general "White in game 1"
+      // control (firstWhite). Either way flipFirst reverses each pair's order.
+      const flipFirst = mode === "current" ? engineASide === "black" : firstWhite === "b"
+      // Fresh per-run persona seed (spec 214 contract step 8) — the runner
+      // derives each game's actual seed from this + the game id.
+      const pA = withFreshSeed(participantA)
+      const pB = withFreshSeed(participantB)
+      const { specs, evalById } = buildParticipantSpecs(
         seeds,
-        engineA,
-        engineB,
+        pA,
+        pB,
         baseMs,
         incMs,
         MAX_PLIES,
@@ -434,8 +523,9 @@ export function TournamentTab({
       setTally({ completed: 0, total, engineA: 0, engineB: 0, draw: 0, errors: 0, aborted: 0 })
 
       // --- Live game tracking (for the board viewer) ---
-      const labelA = engineLabel(engineA)
-      const labelB = engineLabel(engineB)
+      const labelA = sideLabel(pA)
+      const labelB = sideLabel(pB)
+      setReportLabels({ a: labelA, b: labelB })
       const specMeta = new Map<number, { whiteLabel: string; blackLabel: string }>()
       for (const s of specs) {
         specMeta.set(s.id, {
@@ -607,7 +697,96 @@ export function TournamentTab({
       setNowTs(Date.now()) // freeze elapsed at the final value
       setRunning(false)
     }
-  }, [engineA, engineB, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, effectiveBaseMs, effectiveIncMs, concurrency, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, onLiveUpdate])
+  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, effectiveBaseMs, effectiveIncMs, concurrency, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, onLiveUpdate])
+
+  // --- Exhibition ("Watch two bots play") — spec 218 "Exhibition framing" ---
+  // A batch of 1 through the SAME `play_batch` runner (no separate code path
+  // on the Rust side, per the checklist item), with its own small live-state
+  // slice so it renders independently of the stats-first batch view above.
+  const [exhibitionRunning, setExhibitionRunning] = useState(false)
+  const [exhibitionError, setExhibitionError] = useState<string | null>(null)
+  const [exhibitionOutcome, setExhibitionOutcome] = useState<GameOutcome | null>(null)
+  const [exhibitionStartFen, setExhibitionStartFen] = useState<string>(STANDARD_START_FEN)
+  const [exhibitionFen, setExhibitionFen] = useState<string>(STANDARD_START_FEN)
+  const [exhibitionLastMove, setExhibitionLastMove] = useState<[string, string] | undefined>(undefined)
+  const [exhibitionWhiteMs, setExhibitionWhiteMs] = useState(0)
+  const [exhibitionBlackMs, setExhibitionBlackMs] = useState(0)
+  const [exhibitionEval, setExhibitionEval] = useState<{ cp: number | null; mate: number | null } | null>(null)
+  const [exhibitionUciMoves, setExhibitionUciMoves] = useState<string[]>([])
+  const [exhibitionWhiteLabel, setExhibitionWhiteLabel] = useState("White")
+  const [exhibitionBlackLabel, setExhibitionBlackLabel] = useState("Black")
+
+  const runExhibition = useCallback(async () => {
+    setExhibitionError(null)
+    setExhibitionOutcome(null)
+    setExhibitionUciMoves([])
+    setExhibitionEval(null)
+    setExhibitionRunning(true)
+    try {
+      const a = Number.isFinite(Number(minEval)) ? Math.abs(Number(minEval)) : 0.5
+      const b = Number.isFinite(Number(maxEval)) ? Math.abs(Number(maxEval)) : 1.5
+      const lo = Math.min(a, b)
+      const hi = Math.max(a, b)
+      const positions = mode === "normal" || mode === "current" ? [] : await loadPositions()
+      const seeds = buildSeeds(mode, 1, positions, lo, hi, currentFen ?? null)
+      const seed: Seed = seeds[0] ?? { fen: null, eval: 0 }
+
+      const pA = withFreshSeed(participantA)
+      const pB = withFreshSeed(participantB)
+      const white = firstWhite === "b" ? pB : pA
+      const black = firstWhite === "b" ? pA : pB
+      const { spec } = buildExhibitionSpec(
+        seed,
+        white,
+        black,
+        effectiveBaseMs,
+        effectiveIncMs,
+        MAX_PLIES,
+        adjudicateTb,
+      )
+      const startFen = seed.fen ?? STANDARD_START_FEN
+      setExhibitionStartFen(startFen)
+      setExhibitionFen(startFen)
+      setExhibitionLastMove(undefined)
+      setExhibitionWhiteMs(effectiveBaseMs)
+      setExhibitionBlackMs(effectiveBaseMs)
+      setExhibitionWhiteLabel(sideLabel(white))
+      setExhibitionBlackLabel(sideLabel(black))
+
+      const moveChannel = new Channel<MoveEvent>()
+      moveChannel.onmessage = (m: MoveEvent) => {
+        setExhibitionFen(m.fen)
+        setExhibitionLastMove(uciSquares(m.uci))
+        setExhibitionWhiteMs(m.wtime_ms)
+        setExhibitionBlackMs(m.btime_ms)
+        setExhibitionUciMoves((prev) => {
+          const next = prev.slice()
+          next[m.ply - 1] = m.uci
+          return next
+        })
+      }
+      const evalChannel = new Channel<EvalEvent>()
+      evalChannel.onmessage = (ev: EvalEvent) => setExhibitionEval({ cp: ev.cp, mate: ev.mate })
+      const progressChannel = new Channel<BatchProgress>()
+
+      const result = await invoke<BatchReport>("play_batch", {
+        specs: [spec] as GameSpec[],
+        concurrency: 1,
+        onProgress: progressChannel,
+        onMove: moveChannel,
+        onEval: evalChannel,
+        evalPath: useEvaluator ? evaluatorPath : null,
+        evalMovetimeMs: 100,
+        autoStart: true,
+        moveDelayMs,
+      })
+      setExhibitionOutcome(result.outcomes[0] ?? null)
+    } catch (e) {
+      setExhibitionError(String(e))
+    } finally {
+      setExhibitionRunning(false)
+    }
+  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, effectiveBaseMs, effectiveIncMs, adjudicateTb, useEvaluator, evaluatorPath, moveDelayMs, currentFen])
 
   const cancel = useCallback(async () => {
     try {
@@ -689,42 +868,124 @@ export function TournamentTab({
           </p>
         </div>
 
-        {/* Engine configuration */}
+        {/* Participant dropdown (spec 218 "Exhibition & tournament" checklist
+            item 1; decision 5: one flat dropdown per side, kind-prefixed
+            labels — "engine: stockfish 18", "bot: kasparov (BT3, ...)"). No
+            roster-browser screen here — that's Play vs Bot's card picker. */}
         <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-foreground">Engines</h2>
+          <h2 className="text-sm font-semibold text-foreground">Participants</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">
-                Engine A — White in game A (default: Stockfish)
-              </span>
-              <input
-                className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground font-mono"
-                value={engineA}
-                onChange={(e) => setEngineA(e.target.value)}
+              <span className="text-xs text-muted-foreground">Side A</span>
+              <select
+                data-testid="tournament-side-a"
+                className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+                value={sideAId}
+                onChange={(e) => setSideAId(e.target.value)}
                 disabled={running}
-                spellCheck={false}
-              />
-              <span className={`text-xs font-mono ${sfVersion === "not found" ? "text-amber-400" : "text-green-400"}`}>
-                {sfVersion ? `→ ${sfVersion}` : "→ checking…"}
-              </span>
+              >
+                {roster.map((e) => (
+                  <option key={e.participant.id} value={e.participant.id} disabled={e.disabled}>
+                    {e.label}{e.disabled ? " — coming soon" : ""}
+                  </option>
+                ))}
+              </select>
+              {sideAId === "engine-stockfish" && (
+                <span className={`text-xs font-mono ${sfVersion === "not found" ? "text-amber-400" : "text-green-400"}`}>
+                  {sfVersion ? `→ ${sfVersion}` : "→ checking…"}
+                </span>
+              )}
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">
-                Engine B — Black in game A (default: Reckless)
-              </span>
-              <input
-                className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground font-mono"
-                value={engineB}
-                onChange={(e) => setEngineB(e.target.value)}
+              <span className="text-xs text-muted-foreground">Side B</span>
+              <select
+                data-testid="tournament-side-b"
+                className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+                value={sideBId}
+                onChange={(e) => setSideBId(e.target.value)}
                 disabled={running}
-                spellCheck={false}
-              />
-              <span className={`text-xs font-mono ${rkVersion === "not found" ? "text-amber-400" : "text-sky-400"}`}>
-                {rkVersion ? `→ ${rkVersion}` : "→ checking…"}
-              </span>
+              >
+                {roster.map((e) => (
+                  <option key={e.participant.id} value={e.participant.id} disabled={e.disabled}>
+                    {e.label}{e.disabled ? " — coming soon" : ""}
+                  </option>
+                ))}
+              </select>
+              {sideBId === "engine-reckless" && (
+                <span className={`text-xs font-mono ${rkVersion === "not found" ? "text-amber-400" : "text-sky-400"}`}>
+                  {rkVersion ? `→ ${rkVersion}` : "→ checking…"}
+                </span>
+              )}
             </label>
           </div>
+
+          {/* Explicit per-side assignment (spec 218 item 1: "who is White in
+              game 1" — flipFirst still alternates within a pair, this only
+              picks which roster entry starts). Hidden in "current" mode, which
+              has its own board-bottom-color control below. */}
+          {mode !== "current" && (
+            <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-white/10">
+              <span className="text-xs text-muted-foreground pt-3">White in game 1</span>
+              <div className="flex gap-2 pt-3">
+                {(["a", "b"] as const).map((side) => (
+                  <button
+                    key={side}
+                    data-testid={`tournament-first-white-${side}`}
+                    onClick={() => setFirstWhite(side)}
+                    disabled={running}
+                    className={`px-3 py-1 text-sm rounded-md border transition-colors disabled:opacity-50 ${
+                      firstWhite === side
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-input hover:text-foreground"
+                    }`}
+                  >
+                    {side === "a" ? sideLabel(participantA) : sideLabel(participantB)}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-muted-foreground pt-3">
+                (colors flip every second game)
+              </span>
+            </div>
+          )}
+
+          {/* Exhibition entry point (spec 218 "Exhibition framing" checklist
+              item): "batch of 1" through the SAME runner, featured single-game
+              presentation below instead of the stats-first batch view. */}
+          <div className="flex items-center gap-2 pt-1 border-t border-white/10">
+            <Button
+              data-testid="tournament-watch-exhibition"
+              variant="outline"
+              size="sm"
+              onClick={runExhibition}
+              disabled={running || exhibitionRunning}
+            >
+              {exhibitionRunning ? "Watching…" : "Watch two bots play"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              One game, right now — {sideLabel(participantA)} vs {sideLabel(participantB)}, no batch stats.
+            </span>
+          </div>
         </section>
+
+        {/* Exhibition viewer (spec 218 "Exhibition framing"): board + eval bar
+            + numbered SAN move list, less stats-first than the batch view. */}
+        {(exhibitionRunning || exhibitionOutcome || exhibitionError) && (
+          <ExhibitionView
+            running={exhibitionRunning}
+            fen={exhibitionFen}
+            lastMove={exhibitionLastMove}
+            whiteMs={exhibitionWhiteMs}
+            blackMs={exhibitionBlackMs}
+            evalScore={exhibitionEval}
+            showEvalBar={showEvalBar && useEvaluator}
+            whiteLabel={exhibitionWhiteLabel}
+            blackLabel={exhibitionBlackLabel}
+            rows={numberMoves(exhibitionStartFen, sansFromUci(exhibitionStartFen, exhibitionUciMoves))}
+            outcome={exhibitionOutcome}
+            error={exhibitionError}
+          />
+        )}
 
         {/* Machine profile (spec 216 Tier 0) — calibrates the pacing floor and,
             eventually, cross-machine equivalence. */}
@@ -782,7 +1043,7 @@ export function TournamentTab({
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs text-muted-foreground">
-                  {engineLabel(engineA)} plays the first game as
+                  {sideLabel(participantA)} plays the first game as
                 </span>
                 {(["white", "black"] as const).map((c) => (
                   <button
@@ -1155,9 +1416,9 @@ export function TournamentTab({
               {gamesPerMin !== null && <span>{gamesPerMin.toFixed(1)} games/min</span>}
             </div>
             <div className="flex flex-wrap gap-4 text-sm">
-              <span className="text-green-400">{engineLabel(engineA)} wins: {tally.engineA}</span>
+              <span className="text-green-400">{reportLabels.a} wins: {tally.engineA}</span>
               <span className="text-muted-foreground">Draws: {tally.draw}</span>
-              <span className="text-sky-400">{engineLabel(engineB)} wins: {tally.engineB}</span>
+              <span className="text-sky-400">{reportLabels.b} wins: {tally.engineB}</span>
               {tally.errors > 0 && (
                 <span className="text-amber-400">Errors: {tally.errors}</span>
               )}
@@ -1172,8 +1433,8 @@ export function TournamentTab({
         {report && (
           <SummaryCard
             outcomes={report.outcomes}
-            labelA={engineLabel(engineA)}
-            labelB={engineLabel(engineB)}
+            labelA={reportLabels.a}
+            labelB={reportLabels.b}
           />
         )}
 
@@ -1181,8 +1442,8 @@ export function TournamentTab({
         {report && (
           <AverageEvalGraph
             outcomes={report.outcomes}
-            labelA={engineLabel(engineA)}
-            labelB={engineLabel(engineB)}
+            labelA={reportLabels.a}
+            labelB={reportLabels.b}
           />
         )}
 
@@ -1190,8 +1451,8 @@ export function TournamentTab({
         {report && (
           <ResultsExplorer
             outcomes={report.outcomes}
-            labelA={engineLabel(engineA)}
-            labelB={engineLabel(engineB)}
+            labelA={reportLabels.a}
+            labelB={reportLabels.b}
             onOpenGame={onOpenGame}
           />
         )}
@@ -1200,8 +1461,8 @@ export function TournamentTab({
         {report && curveBins.some((b) => b.a.games > 0 || b.b.games > 0) && (
           <EngineCurve
             bins={curveBins}
-            labelA={engineLabel(engineA)}
-            labelB={engineLabel(engineB)}
+            labelA={reportLabels.a}
+            labelB={reportLabels.b}
           />
         )}
 
@@ -1209,9 +1470,9 @@ export function TournamentTab({
         {report && sfWdl.length > 0 && (
           <ProbabilityMap
             bins={sfWdl}
-            title={`${engineLabel(engineA)} — results by its own starting eval`}
-            desc={`How ${engineLabel(engineA)} fared from its own perspective: +x bins = it began up x pawns (conversion), −x bins = down x pawns (defense). The dot is its mean score.`}
-            winLabel={`${engineLabel(engineA)} win`}
+            title={`${reportLabels.a} — results by its own starting eval`}
+            desc={`How ${reportLabels.a} fared from its own perspective: +x bins = it began up x pawns (conversion), −x bins = down x pawns (defense). The dot is its mean score.`}
+            winLabel={`${reportLabels.a} win`}
             lossLabel="loss"
             scoreLabel="avg score"
           />
@@ -1219,9 +1480,9 @@ export function TournamentTab({
         {report && rkWdl.length > 0 && (
           <ProbabilityMap
             bins={rkWdl}
-            title={`${engineLabel(engineB)} — results by its own starting eval`}
-            desc={`How ${engineLabel(engineB)} fared from its own perspective: +x bins = up x pawns (conversion), −x bins = down x pawns (defense). Compare the same bins against ${engineLabel(engineA)} above.`}
-            winLabel={`${engineLabel(engineB)} win`}
+            title={`${reportLabels.b} — results by its own starting eval`}
+            desc={`How ${reportLabels.b} fared from its own perspective: +x bins = up x pawns (conversion), −x bins = down x pawns (defense). Compare the same bins against ${reportLabels.a} above.`}
+            winLabel={`${reportLabels.b} win`}
             lossLabel="loss"
             scoreLabel="avg score"
           />
@@ -1908,6 +2169,17 @@ function ResultsExplorer({
                 No per-move evals for this game (evaluator was off).
               </span>
             )}
+
+            {/* Persona decision logs (spec 218 "Exhibition & tournament"
+                checklist item 4): inspectable per-move "why" for any persona
+                side in this game. Absent for a pure-UCI game. */}
+            {selected.persona_logs && selected.persona_logs.length > 0 && (
+              <PersonaLogPanel
+                logs={selected.persona_logs}
+                whiteLabel={whiteLabel(selected)}
+                blackLabel={blackLabel(selected)}
+              />
+            )}
           </div>
         )}
       </div>
@@ -1924,5 +2196,236 @@ function StepButton({ label, title, onClick }: { label: string; title: string; o
     >
       {label}
     </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Persona decision log (spec 218 "Exhibition & tournament" checklist item 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * One persona move's inspectable "why" (spec 214 contract step 9): which arm
+ * decided it (verify-reweight vs pure policy), the band it came from, and
+ * every candidate it weighed — policy probability, verification eval, the
+ * eval penalty, and the final sampling weight. Collapsed by default so a long
+ * game's log doesn't dominate the page; click to expand one ply at a time.
+ */
+function PersonaDecisionRow({
+  entry,
+  sideLabel: label,
+}: {
+  entry: PersonaLogEntry
+  sideLabel: string
+}) {
+  const [open, setOpen] = useState(false)
+  const d: PersonaDecision = entry.decision
+  return (
+    <div className="border border-white/10 rounded-md overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs hover:bg-white/5 transition-colors text-left"
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-muted-foreground font-mono w-10 shrink-0">ply {entry.ply}</span>
+          <span className="text-foreground font-mono">{d.san}</span>
+          <span className="text-muted-foreground truncate">{label} ({entry.color})</span>
+        </span>
+        <span className="flex items-center gap-2 shrink-0">
+          <Badge variant="secondary" className="text-[10px] font-mono">
+            {d.reason === "verify-reweight" ? "verified" : "policy-only"}
+          </Badge>
+          <span className="text-muted-foreground font-mono">band {d.band}</span>
+          <span className="text-muted-foreground">{open ? "▲" : "▼"}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="px-2.5 pb-2 overflow-x-auto">
+          <table className="w-full text-[11px] font-mono border-collapse">
+            <thead>
+              <tr className="text-muted-foreground text-left">
+                <th className="pr-3 py-1">move</th>
+                <th className="pr-3 py-1">policy</th>
+                <th className="pr-3 py-1">eval (cp)</th>
+                <th className="pr-3 py-1">penalty</th>
+                <th className="pr-3 py-1">weight</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...d.candidates]
+                .sort((a, b) => b.weight - a.weight)
+                .map((c: PersonaCandidate) => (
+                  <tr
+                    key={c.uci}
+                    className={c.uci === d.uci ? "text-green-400" : "text-foreground/80"}
+                  >
+                    <td className="pr-3 py-0.5">{c.san}{c.uci === d.uci ? " ←" : ""}</td>
+                    <td className="pr-3 py-0.5">{(c.policy_prob * 100).toFixed(1)}%</td>
+                    <td className="pr-3 py-0.5">{c.eval_cp ?? "—"}</td>
+                    <td className="pr-3 py-0.5">{c.eval_penalty.toFixed(2)}</td>
+                    <td className="pr-3 py-0.5">{(c.weight * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          <div className="text-[10px] text-muted-foreground pt-1">
+            derived seed {d.derived_seed}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Expandable per-move persona decision log for one game (spec 218 item 4) —
+ *  shared by the batch ResultsExplorer and the exhibition viewer, since both
+ *  read the same `GameOutcome.persona_logs`. */
+function PersonaLogPanel({
+  logs,
+  whiteLabel,
+  blackLabel,
+}: {
+  logs: PersonaLogEntry[]
+  whiteLabel: string
+  blackLabel: string
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-white/10 pt-3">
+      <span className="text-xs text-muted-foreground">
+        Persona decisions ({logs.length} move{logs.length === 1 ? "" : "s"}) — click a row for the
+        full candidate weighing
+      </span>
+      <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
+        {logs.map((entry) => (
+          <PersonaDecisionRow
+            key={entry.ply}
+            entry={entry}
+            sideLabel={entry.color === "white" ? whiteLabel : blackLabel}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Exhibition viewer (spec 218 "Exhibition framing" checklist item)
+// ---------------------------------------------------------------------------
+
+/**
+ * The exhibition's featured single-game presentation: board + eval bar + a
+ * numbered SAN move list (spec 218 item 3 — "the live viewer currently shows
+ * only 'game #N · move M' ... give it a real move list"). Deliberately
+ * self-contained within this tab rather than reusing app/page.tsx's
+ * LiveGameView: that shared full-screen viewer is out of this task's file
+ * scope (components/tournament-tab.tsx, lib/tournament.ts, lib/game-replay.ts
+ * + new files only), so this renders inline in the tab's own scroll area
+ * instead — less stats-first than the batch view above, but still a second,
+ * DIFFERENT viewer from the shared one. Wiring the same numbered-move fix
+ * into app/page.tsx's live viewer is an open follow-up for whichever agent
+ * owns that file (see this task's final report).
+ */
+function ExhibitionView({
+  running,
+  fen,
+  lastMove,
+  whiteMs,
+  blackMs,
+  evalScore,
+  showEvalBar,
+  whiteLabel,
+  blackLabel,
+  rows,
+  outcome,
+  error,
+}: {
+  running: boolean
+  fen: string
+  lastMove?: [string, string]
+  whiteMs: number
+  blackMs: number
+  evalScore: { cp: number | null; mate: number | null } | null
+  showEvalBar: boolean
+  whiteLabel: string
+  blackLabel: string
+  rows: NumberedPly[]
+  outcome: GameOutcome | null
+  error: string | null
+}) {
+  const gr = outcome ? gameResult(outcome) : null
+  const err = outcome ? gameError(outcome) : null
+  const statusText = running
+    ? "Live"
+    : gr
+      ? `${gr.result} · ${gr.termination.replace(/_/g, " ")}`
+      : err
+        ? `Error: ${err}`
+        : error
+          ? `Error: ${error}`
+          : ""
+
+  const barScore = evalScore
+    ? evalScore.mate != null
+      ? ({ type: "mate", value: evalScore.mate } as const)
+      : ({ type: "cp", value: evalScore.cp ?? 0 } as const)
+    : null
+
+  return (
+    <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-sm font-semibold text-foreground">
+          Exhibition — {whiteLabel} vs {blackLabel}
+        </h2>
+        <span className={`text-xs font-mono ${running ? "text-green-400" : "text-muted-foreground"}`}>
+          {statusText}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-4 items-start">
+        <div className="flex items-start gap-2">
+          {showEvalBar && barScore && <EvalBar score={barScore} turn="white" width={20} />}
+          <div className="flex flex-col gap-1 w-[min(70vw,360px)]">
+            <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
+              <span className="truncate">{blackLabel}</span>
+              <span>{formatDuration(blackMs)}</span>
+            </div>
+            <Board
+              fen={fen}
+              orientation="white"
+              viewOnly
+              legalMoves={EMPTY_DESTS}
+              onMove={noop}
+              lastMove={lastMove as [Key, Key] | undefined}
+            />
+            <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
+              <span className="truncate">{whiteLabel}</span>
+              <span>{formatDuration(whiteMs)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Numbered SAN move list (spec 218 "Move numbers" ship-now item,
+            landing here for the exhibition — "for easier reference in
+            'didn't feel like him'"). */}
+        <div className="flex flex-col gap-1 max-h-[360px] overflow-y-auto">
+          <span className="text-xs text-muted-foreground">Moves</span>
+          {rows.length === 0 ? (
+            <span className="text-xs text-muted-foreground">Waiting for the first move&hellip;</span>
+          ) : (
+            <ol className="text-sm font-mono text-foreground grid grid-cols-[auto_1fr_1fr] gap-x-2 gap-y-0.5">
+              {rows.map((row) => (
+                <li key={row.no} className="contents">
+                  <span className="text-muted-foreground text-right">{row.no}.</span>
+                  <span>{row.white ?? ""}</span>
+                  <span>{row.black ?? ""}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </div>
+
+      {outcome?.persona_logs && outcome.persona_logs.length > 0 && (
+        <PersonaLogPanel logs={outcome.persona_logs} whiteLabel={whiteLabel} blackLabel={blackLabel} />
+      )}
+    </section>
   )
 }

@@ -1,16 +1,19 @@
 "use client"
 
-// Spar vs rival — the Learn view's Tier-0 persona sparring (spec 214).
+// Play vs Bot — the Learn view's persona sparring (specs 214 + 218).
 //
-// You play a full game against lc0+Maia at a fixed ~1700, starting from one of
-// dad's real opening lines (weighted-sampled from data/rivals/dad_book.json).
-// While the position is in the rival's book the reply comes from that book (this
-// file, untouched); out of book the reply comes from the `persona_move` command
+// You pick a roster entry (lib/roster.ts: private rivals from local configs,
+// the 12 committed GM personas, the generic Maia bands) and play a full game
+// against lc0+Maia at that entry's honesty-gated level. While the position is
+// in the entry's opening book (the picked rival's real lines, or a GM's
+// committed book — legitimately his own recorded moves) the reply comes from
+// that book; out of book the reply comes from the `persona_move` command
 // (persona engine v1, spec 214 contract steps 3+4+8+9) — seeded sampling from the
 // Maia human policy with a Stockfish verification reweight, never noise-weakening
 // an engine to fake it (spec 214 hard rule). Each out-of-book move's decision log
-// is stored locally (private data). Honest label: "a ~1700 playing dad's
-// openings", not "dad". This screen runs its own game loop, independent of the
+// is stored locally (private data). Honest labels throughout: "a ~1700 playing
+// dad's openings", "Kasparov — his openings, ~1900 policy approximation" — never
+// "this IS the player". This screen runs its own game loop, independent of the
 // main analysis board, exactly like the calibration screen.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -30,7 +33,11 @@ import {
 import {
   buildRoster,
   initialsFor,
+  loadLocalRivalPersonas,
+  resolveParticipantBook,
+  type LocalRivalPersona,
   type Participant,
+  type PersonaConfig,
 } from "@/lib/roster"
 import {
   loadRivalBook,
@@ -165,6 +172,21 @@ function newGameSeed(): number {
   return Math.floor(Math.random() * 2 ** 53)
 }
 
+/** A participant's per-persona sampling overrides (from its config file, via
+ *  the roster), mapped from the camelCase roster fields to persona_move's
+ *  snake_case params. Spread over DEFAULT_PERSONA_PARAMS; absent = defaults. */
+function samplingParamsFor(pc: PersonaConfig | undefined) {
+  if (!pc) return {}
+  return {
+    ...(pc.temperature !== undefined ? { temperature: pc.temperature } : {}),
+    ...(pc.alpha !== undefined ? { alpha: pc.alpha } : {}),
+    ...(pc.lambda !== undefined ? { lambda: pc.lambda } : {}),
+    ...(pc.topK !== undefined ? { top_k: pc.topK } : {}),
+    ...(pc.topP !== undefined ? { top_p: pc.topP } : {}),
+    ...(pc.verifyDepth !== undefined ? { verify_depth: pc.verifyDepth } : {}),
+  }
+}
+
 // SAN move text ("1. e4 e5 2. Nf3 ..."), honoring a book entry's start FEN
 // (which may already be mid-game with Black to move) — not a full PGN (no
 // tags), just the movetext this feedback record needs.
@@ -198,6 +220,14 @@ export function SparTab() {
   const [phase, setPhase] = useState<Phase>("roster")
   const [book, setBook] = useState<RivalBook | null>(null)
   const [bookError, setBookError] = useState<string | null>(null)
+  // Private rival personas from local configs (data/rivals/*.config.json via
+  // the rival_personas command) — [] when absent, silently (spec 214 hard
+  // rule: private personas stay local; absence is not an error state).
+  const [localRivals, setLocalRivals] = useState<LocalRivalPersona[]>([])
+  // The PICKED participant's opening book: dad's already-loaded book, a
+  // committed GM persona book (lazy JSON chunk), or a local rival's book —
+  // resolved by the effect below whenever the pick changes.
+  const [oppBook, setOppBook] = useState<RivalBook | null>(null)
   // The roster entry picked from the card browser (spec 218 "Roster"
   // checklist item) — null only while phase === "roster". Fixed for the
   // duration of a game, same as everything below it.
@@ -214,15 +244,18 @@ export function SparTab() {
   const [sparMode, setSparMode] = useState<SparGameMode>(DEFAULT_SPAR_MODE)
 
   // Roster (spec 218 decision 4): built from the local rival book's load
-  // state — his entry exists only when the book actually loaded, no error
-  // state for its absence (spec 214 hard rule: his data stays local). Fischer,
-  // Kasparov, and the Maia bands are always present.
-  const roster = useMemo(() => buildRoster(book), [book])
-  // Only the private rival has a move-by-move book and a dial-able level in
-  // v1 — every other entry starts from the standard position at its own
-  // fixed personaConfig.level (spec 218 decision 4).
-  const hasBook = participant?.personaConfig?.book === "rival"
-  const effectiveLevel = hasBook ? level : participant?.personaConfig?.level ?? DEFAULT_LEVEL
+  // state (his entry exists only when the book actually loaded, no error
+  // state for its absence — spec 214 hard rule: his data stays local) plus
+  // whatever private-rival configs exist locally. The 12 committed GM
+  // personas and the Maia bands are always present.
+  const roster = useMemo(() => buildRoster(book, localRivals), [book, localRivals])
+  // Any book-carrying entry (the private rivals AND the GM personas, whose
+  // committed books are legitimately theirs) plays its book move-by-move;
+  // only the ORIGINAL private rival keeps the dial-able level (everyone else
+  // has a fixed, gated personaConfig.level — the honesty gate in lib/roster).
+  const hasBook = !!participant?.personaConfig?.book
+  const dialable = participant?.personaConfig?.book === "rival"
+  const effectiveLevel = dialable ? level : participant?.personaConfig?.level ?? DEFAULT_LEVEL
   const opponentLabel = participant?.displayName ?? "Opponent"
   const canImprove = !!participant?.actions.includes("improve")
 
@@ -335,33 +368,57 @@ export function SparTab() {
   }, [fen, manualEnd])
   const frozen = status.over || probeEnded
 
-  // Load the book once on mount.
+  // Load the book + the local private-rival configs once on mount.
   useEffect(() => {
     let live = true
     loadRivalBook()
       .then((b) => live && setBook(b))
       .catch((e) => live && setBookError(String(e)))
+    loadLocalRivalPersonas().then((r) => live && setLocalRivals(r))
     return () => {
       live = false
     }
   }, [])
 
-  // Move-by-move rival book (spec 214): the position->reply lookup, one map
-  // per rival colour, precomputed once when the book loads (not per game
-  // start, and not per move). Gated on hasBook so a non-rival roster entry
-  // never plays from the rival's book even though `book` stays loaded in
-  // state for roster-membership purposes.
-  const moveMaps = useMemo(() => {
-    if (!hasBook || !book) return null
-    return {
-      white: buildRivalMoveMap(book.entries, "white"),
-      black: buildRivalMoveMap(book.entries, "black"),
+  // Resolve the picked participant's opening book. Book participants can't
+  // start until this lands (canStart below); a GM persona's book is a lazy
+  // JSON chunk so nothing multi-MB loads at roster time.
+  useEffect(() => {
+    const cfg = participant?.personaConfig
+    if (!cfg?.book) {
+      setOppBook(null)
+      return
     }
-  }, [hasBook, book])
+    let live = true
+    setOppBook(null)
+    setBookError(null)
+    resolveParticipantBook(cfg, { rivalBook: book, localRivals })
+      .then((b) => {
+        if (!live) return
+        if (b) setOppBook(b)
+        else setBookError("This opponent's opening book isn't available.")
+      })
+      .catch((e) => live && setBookError(String(e)))
+    return () => {
+      live = false
+    }
+  }, [participant, book, localRivals])
+
+  // Move-by-move book (spec 214): the position->reply lookup, one map per
+  // book-owner colour, precomputed once per resolved opponent book (not per
+  // game start, and not per move). oppBook is per-participant, so one
+  // entry's book can never leak into another's game.
+  const moveMaps = useMemo(() => {
+    if (!hasBook || !oppBook) return null
+    return {
+      white: buildRivalMoveMap(oppBook.entries, "white"),
+      black: buildRivalMoveMap(oppBook.entries, "black"),
+    }
+  }, [hasBook, oppBook])
 
   const startGame = useCallback(() => {
     if (!participant) return
-    if (hasBook && !book) return
+    if (hasBook && !oppBook) return
     pendingFenRef.current = null
     setThinking(false)
     setMoveError(null)
@@ -394,13 +451,13 @@ export function SparTab() {
       return
     }
 
-    // Drop-into-line (rival only, the original behavior, kept as a secondary
-    // option).
-    const picked = pickBookEntry(book!.entries, Math.random, {
+    // Drop-into-line (book participants only, the original behavior, kept as
+    // a secondary option).
+    const picked = pickBookEntry(oppBook!.entries, Math.random, {
       userColor: side === "either" ? undefined : side,
     })
     if (!picked) {
-      setBookError("The rival book has no lines for that side yet.")
+      setBookError("The opening book has no lines for that side yet.")
       return
     }
     setEntry(picked)
@@ -410,7 +467,7 @@ export function SparTab() {
     setPlies([])
     setBoardNonce((n) => n + 1)
     setPhase("playing")
-  }, [participant, hasBook, book, side, bookStartMode])
+  }, [participant, hasBook, oppBook, side, bookStartMode])
 
   // Drive the rival's reply whenever it's their turn at the live tip: an
   // exact-position book lookup first (move-by-move mode only), Maia otherwise
@@ -452,6 +509,9 @@ export function SparTab() {
     const movePly = plies.length
     personaMove(fen, {
       ...DEFAULT_PERSONA_PARAMS,
+      // Per-persona sampling overrides from the entry's config file (level
+      // itself passed the roster's honesty gate — always a real Maia band).
+      ...samplingParamsFor(participant?.personaConfig),
       level: effectiveLevel,
       seed: gameSeed,
       ply: movePly,
@@ -493,6 +553,7 @@ export function SparTab() {
     phase,
     fen,
     rivalColor,
+    participant,
     effectiveLevel,
     opponentLabel,
     frozen,
@@ -656,6 +717,7 @@ export function SparTab() {
       <SparConfig
         participant={participant}
         hasBook={hasBook}
+        dialable={dialable}
         side={side}
         setSide={setSide}
         level={level}
@@ -667,9 +729,9 @@ export function SparTab() {
         canImprove={canImprove}
         onStart={startGame}
         onBack={() => setPhase("roster")}
-        canStart={hasBook ? !!book : true}
+        canStart={hasBook ? !!oppBook : true}
         bookError={hasBook ? bookError : null}
-        book={hasBook ? book : null}
+        book={hasBook ? oppBook : null}
       />
     )
   }
@@ -684,7 +746,7 @@ export function SparTab() {
           </Avatar>
           <span className="text-sm font-medium">{opponentLabel}</span>
           <span className="text-xs text-muted-foreground" data-testid="spar-label">
-            {hasBook
+            {dialable
               ? `a ~${effectiveLevel} playing ${opponentLabel.toLowerCase()}'s openings`
               : participant?.strengthLabel}
           </span>
@@ -767,7 +829,9 @@ export function SparTab() {
         <div className="w-72 shrink-0 flex flex-col gap-4 overflow-auto">
           {entry && (
             <div className="text-sm">
-              <div className="text-muted-foreground">Opening (from {opponentLabel.toLowerCase()}&apos;s games)</div>
+              <div className="text-muted-foreground">
+                Opening (from {dialable ? opponentLabel.toLowerCase() : opponentLabel}&apos;s games)
+              </div>
               <div className="font-mono text-foreground mt-0.5" data-testid="spar-line">
                 {entry.line}
               </div>
@@ -1164,13 +1228,15 @@ function RosterScreen({
 
 // Per-participant options screen — was SparIntro when the private rival was
 // the only possible opponent; now parameterized by whichever roster entry
-// was picked. hasBook (only the private rival in v1) gates the level dial
-// and the opening-source picker; canImprove (same entry) gates the
-// serious/probe mode picker — everyone else plays one fixed-strength,
-// book-less, serious-only game (spec 218 decision 4).
+// was picked. hasBook (any book-carrying entry: the private rivals and the
+// GM personas) gates the opening-source picker; dialable (only the ORIGINAL
+// private rival) gates the level dial; canImprove (same entry) gates the
+// serious/probe mode picker — everyone else plays at its fixed, honesty-gated
+// personaConfig.level (spec 218 decision 4, spec 216/214 hard rule).
 function SparConfig({
   participant,
   hasBook,
+  dialable,
   side,
   setSide,
   level,
@@ -1188,6 +1254,7 @@ function SparConfig({
 }: {
   participant: Participant
   hasBook: boolean
+  dialable: boolean
   side: SideChoice
   setSide: (s: SideChoice) => void
   level: number
@@ -1222,7 +1289,7 @@ function SparConfig({
           </button>
           <h1 className="text-2xl font-bold mt-1">Play vs {opponentLabel}</h1>
           <p className="text-muted-foreground mt-1">
-            {hasBook ? (
+            {dialable ? (
               <>
                 Play a full game against <span className="text-foreground">a ~{level}</span>{" "}
                 playing {opponentLabel.toLowerCase()}&apos;s lines — from move 1 with his real
@@ -1257,7 +1324,7 @@ function SparConfig({
           </div>
         </div>
 
-        {hasBook ? (
+        {dialable && (
           <>
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground">Strength:</span>
@@ -1283,7 +1350,16 @@ function SparConfig({
               dial-able. Start at {DEFAULT_LEVEL} and dial to match what you see over a few
               games.
             </p>
+          </>
+        )}
 
+        {!dialable && (
+          <p className="text-xs text-muted-foreground" data-testid="spar-fixed-strength">
+            Fixed strength: {participant.strengthLabel}
+          </p>
+        )}
+
+        {hasBook && (
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground">Opening:</span>
               <div className="flex gap-1">
@@ -1308,11 +1384,6 @@ function SparConfig({
                 ))}
               </div>
             </div>
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground" data-testid="spar-fixed-strength">
-            Fixed strength: {participant.strengthLabel}
-          </p>
         )}
 
         {canImprove && (
@@ -1349,12 +1420,13 @@ function SparConfig({
         )}
 
         <Button onClick={onStart} size="lg" className="w-full" disabled={!canStart} data-testid="spar-start">
-          {canStart ? "Start game" : "Loading rival book…"}
+          {canStart ? "Start game" : "Loading opening book…"}
         </Button>
 
         {hasBook && book?.stats?.positions != null && (
           <p className="text-xs text-muted-foreground text-center">
-            {book.stats.positions} book positions from {opponentLabel.toLowerCase()}&apos;s games.
+            {book.stats.positions} book positions from{" "}
+            {dialable ? opponentLabel.toLowerCase() : opponentLabel}&apos;s games.
           </p>
         )}
         {hasBook && bookError && (

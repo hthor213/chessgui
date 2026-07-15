@@ -653,6 +653,73 @@ pub async fn persona_move(
     .await
 }
 
+/// Locate the local rivals dir (gitignored, never bundled — spec 214): the app
+/// data dir first, then the dev repo's data/rivals. None when neither exists.
+fn rivals_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    if let Ok(dir) = app.path().app_data_dir() {
+        let d = dir.join("rivals");
+        if d.is_dir() {
+            return Some(d);
+        }
+    }
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("data")
+        .join("rivals");
+    if dev.is_dir() {
+        return Some(dev);
+    }
+    None
+}
+
+/// Every locally-present private-rival persona, as `{ config, book|null }`
+/// pairs — one per data/rivals/<slug>.config.json, with the matching
+/// <slug>.book.json when it exists. Returns `[]` (not an error) when the dir
+/// or configs are absent: private personas stay local and their absence is a
+/// normal state, never an error (spec 214/218 hard rule). Unparseable files
+/// are skipped for the same reason.
+#[tauri::command]
+pub fn rival_personas(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    let Some(dir) = rivals_dir(&app) else {
+        return Ok(Vec::new());
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(Vec::new());
+    };
+    let mut paths: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(".config.json"))
+        })
+        .collect();
+    paths.sort();
+    let mut out = Vec::new();
+    for path in paths {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(config) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        // The book lives next to its config as <slug>.book.json; the slug is
+        // used as a bare file stem only (no separators), never a path.
+        let book = config
+            .get("slug")
+            .and_then(|s| s.as_str())
+            .filter(|slug| !slug.contains('/') && !slug.contains('\\'))
+            .and_then(|slug| {
+                let text = std::fs::read_to_string(dir.join(format!("{slug}.book.json"))).ok()?;
+                serde_json::from_str::<serde_json::Value>(&text).ok()
+            })
+            .unwrap_or(serde_json::Value::Null);
+        out.push(serde_json::json!({ "config": config, "book": book }));
+    }
+    Ok(out)
+}
+
 /// The rival opening book as parsed JSON, or an error if it hasn't been built.
 /// The UI samples a starting line from it (spec 214, Tier 0).
 #[tauri::command]

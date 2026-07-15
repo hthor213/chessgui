@@ -5,6 +5,65 @@
 // `GameSpec[]` payload, keeps the id -> eval side-table the Rust side does not
 // carry, and aggregates outcomes into an eval -> conversion probability map.
 
+import type { PersonaDecision } from "@/lib/persona"
+
+// ---------------------------------------------------------------------------
+// Participant wire shape (spec 218 "The Participant") — camelCase, matches
+// src-tauri/src/match_runner.rs's `Participant`/`PersonaConfig`
+// (`#[serde(rename_all = "camelCase")]`) verbatim; locked by a Rust unit test
+// (`participant_wire_shape_matches_spec_218`, match_runner.rs). This is a
+// DIFFERENT shape from lib/roster.ts's `Participant`/`PersonaConfig` — those
+// are the UI-facing roster (displayName/avatar/strengthLabel/actions) consumed
+// by Play vs Bot; this is the engine-runnable payload the tournament/
+// exhibition runner actually deserializes. lib/tournament-roster.ts bridges
+// the two (and reuses lib/roster.ts's rival-gating logic rather than
+// reimplementing it) to build the dropdown this file's spec-builders consume.
+// ---------------------------------------------------------------------------
+
+export type ParticipantKind = "uci" | "persona"
+
+/** A persona participant's move-selection config (spec 214 Tier 2). `level`
+ *  is the Maia band policy backend AND the decision-log strength label;
+ *  `weights` overrides the policy backend with a named managed net (e.g.
+ *  "bt3" for a GM-strength persona) — when set, `level` no longer selects a
+ *  Maia net file, it is purely the label. A GM persona (level > 1900) MUST
+ *  set `weights`, or the runner's weight resolution errors (no Maia-1 net
+ *  above 1900) — never send a GM persona level-only. */
+export interface PersonaConfig {
+  level: number
+  temperature: number
+  alpha: number
+  lambda: number
+  topK?: number
+  topP?: number
+  verifyDepth?: number
+  /** Named managed net (e.g. "bt3"), overriding the Maia band policy backend. */
+  weights?: string
+  /** Per-persona base seed; mixed with the game id server-side (spec 214
+   *  contract step 8) so every game in a batch is distinct yet reproducible. */
+  seed?: number
+}
+
+/** The runtime object a surface spawns to field an opponent (spec 218). */
+export interface Participant {
+  id: string
+  displayName: string
+  kind: ParticipantKind
+  /** kind: "uci" only. */
+  enginePath?: string
+  /** kind: "persona" only. */
+  personaConfig?: PersonaConfig
+}
+
+/** A per-game seed below 2^53 so it survives the JSON number round-trip to
+ *  Rust intact (same constraint as spar-tab.tsx's newGameSeed — kept as a
+ *  separate one-liner here since that component is out of this file's
+ *  scope). One fresh seed per participant per Run, not per game: the runner
+ *  derives each game's actual seed from this base + the game id. */
+export function newPersonaSeed(): number {
+  return Math.floor(Math.random() * 2 ** 53)
+}
+
 // ---------------------------------------------------------------------------
 // Types mirroring the Rust structs
 // ---------------------------------------------------------------------------
@@ -23,6 +82,15 @@ export type GameSpec = {
   flipped: boolean
   /** Adjudicate <=7-man positions via the tablebase (perfect play). */
   adjudicate_tb: boolean
+  /**
+   * Optional Participant for White/Black (spec 218). When present it
+   * supersedes `white_path`/`black_path` server-side — the command layer
+   * normalizes a UCI participant's `enginePath` into the legacy path field
+   * and resolves a persona participant into a runnable engine. Additive:
+   * absent = the legacy path-only behavior every existing caller still uses.
+   */
+  white?: Participant
+  black?: Participant
 }
 
 /** A completed (or adjudicated) game. Mirrors Rust `GameResult`. */
@@ -55,6 +123,23 @@ export type EvalEvent = {
 }
 
 /**
+ * One persona participant's per-move decision log entry (spec 214 contract
+ * step 9), attached to a `GameOutcome`. Mirrors Rust `PersonaLogEntry`
+ * (snake_case — no `rename_all` on that struct, unlike `Participant`). Reuses
+ * `PersonaDecision`/`PersonaCandidate` from lib/persona.ts rather than
+ * redefining them: those already mirror the exact Rust `persona.rs` shapes
+ * the spar tab's `persona_move` command returns, and the match runner's
+ * persona arm shares that same decision core (spec 218 "Persona arm in the
+ * runner"), so the JSON shape is identical between the two call sites.
+ */
+export type PersonaLogEntry = {
+  /** 1-based half-move index. */
+  ply: number
+  color: "white" | "black"
+  decision: PersonaDecision
+}
+
+/**
  * Outcome of attempting one `GameSpec`. serde serializes the Rust `Result` as
  * `{ Ok: GameResult }` or `{ Err: string }`, so the result is one of those
  * shapes. `evals` carries the neutral evaluator's per-ply White-POV scores
@@ -71,6 +156,13 @@ export type GameOutcome = {
    * real outcome), and never shown in the completed-games browser.
    */
   aborted?: boolean
+  /**
+   * Per-move persona decision logs (spec 214 contract step 9). Additive:
+   * absent/empty for pure-UCI games — `#[serde(skip_serializing_if =
+   * "Vec::is_empty")]` on the Rust side omits the key entirely rather than
+   * sending `[]`, so this is optional here too.
+   */
+  persona_logs?: PersonaLogEntry[]
 }
 
 /** Progress event emitted as each game completes. Mirrors Rust `BatchProgress`. */
@@ -473,6 +565,90 @@ export function buildSpecs(
  */
 export function seedsForGames(nGames: number): number {
   return Math.max(1, Math.ceil(nGames / 2))
+}
+
+/** A UCI participant's `white_path`/`black_path` fallback value; a persona
+ *  participant leaves the legacy path field empty — the runner resolves it
+ *  server-side from `white`/`black` before any path is read (spec 218
+ *  `resolve_participants` runs before `check_engine_paths`). */
+function legacyPath(p: Participant): string {
+  return p.kind === "uci" ? (p.enginePath ?? "") : ""
+}
+
+/**
+ * Participant-aware sibling of `buildSpecs` (spec 218 "Exhibition &
+ * tournament" checklist item 1): identical color-flip pairing, but each side
+ * is a full `Participant` (engine OR persona) rather than a bare binary path.
+ * `white_path`/`black_path` are still populated (best-effort, empty for a
+ * persona side) purely for callers that only look at the legacy fields; the
+ * runner itself always prefers `white`/`black` when present.
+ */
+export function buildParticipantSpecs(
+  seeds: Seed[],
+  participantA: Participant,
+  participantB: Participant,
+  baseMs: number,
+  incMs: number,
+  maxPlies: number,
+  adjudicateTb: boolean,
+  flipFirst = false,
+): BuiltBatch {
+  const specs: GameSpec[] = []
+  const evalById: EvalMap = new Map()
+  let id = 0
+  for (const seed of seeds) {
+    for (const flipped of flipFirst ? [true, false] : [false, true]) {
+      const white = flipped ? participantB : participantA
+      const black = flipped ? participantA : participantB
+      const spec: GameSpec = {
+        id: id++,
+        white_path: legacyPath(white),
+        black_path: legacyPath(black),
+        start_fen: seed.fen,
+        base_ms: baseMs,
+        inc_ms: incMs,
+        max_plies: maxPlies,
+        flipped,
+        adjudicate_tb: adjudicateTb,
+        white,
+        black,
+      }
+      evalById.set(spec.id, { eval: seed.eval })
+      specs.push(spec)
+    }
+  }
+  return { specs, evalById }
+}
+
+/**
+ * A single (unflipped) game spec — the exhibition entry point's "batch of 1"
+ * (spec 218 "Exhibition framing" checklist item): one featured game through
+ * the SAME runner as a full batch, no color-flip pairing (that's what makes
+ * it 1 game, not 2). `id` is always 0.
+ */
+export function buildExhibitionSpec(
+  seed: Seed,
+  white: Participant,
+  black: Participant,
+  baseMs: number,
+  incMs: number,
+  maxPlies: number,
+  adjudicateTb: boolean,
+): { spec: GameSpec; evalById: EvalMap } {
+  const spec: GameSpec = {
+    id: 0,
+    white_path: legacyPath(white),
+    black_path: legacyPath(black),
+    start_fen: seed.fen,
+    base_ms: baseMs,
+    inc_ms: incMs,
+    max_plies: maxPlies,
+    flipped: false,
+    adjudicate_tb: adjudicateTb,
+    white,
+    black,
+  }
+  return { spec, evalById: new Map([[0, { eval: seed.eval }]]) }
 }
 
 // ---------------------------------------------------------------------------

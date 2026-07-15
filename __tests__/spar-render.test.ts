@@ -22,13 +22,16 @@ describe("SparTab entry point renders", () => {
     expect(html).toContain("Play vs Bot");
     expect(html).toContain('data-testid="roster-grid"');
 
-    // Fischer/Kasparov: honest approximation labels (spec 216/214 hard rule
-    // — no unmeasured realism claims), Play only (no Improve profile).
+    // GM personas: honest approximation labels (spec 216/214 hard rule — no
+    // unmeasured realism claims; the honesty gate in lib/roster clamps their
+    // BT3 configs to the top Maia band), Play only (no Improve profile).
     expect(html).toContain('data-testid="roster-card-fischer"');
     expect(html).toContain('data-testid="roster-play-fischer"');
     expect(html).not.toContain('data-testid="roster-improve-fischer"');
+    expect(html).toContain('data-testid="roster-card-kasparov"');
+    expect(html).toContain('data-testid="roster-card-sigurjonsson-peak"');
     expect(html).toContain("approximation");
-    expect(html).toContain("full persona pending");
+    expect(html).toContain("full-strength persona available in Tournament");
 
     // Maia strength bands as generic bots, full 1100-1900 set.
     expect(html).toContain('data-testid="roster-card-maia-1100"');

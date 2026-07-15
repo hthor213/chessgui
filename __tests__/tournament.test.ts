@@ -5,6 +5,9 @@ import { describe, it, expect } from "vitest"
 import {
   buildSeeds,
   buildSpecs,
+  buildParticipantSpecs,
+  buildExhibitionSpec,
+  newPersonaSeed,
   seedsForGames,
   summarizeErrors,
   plyEvalPawns,
@@ -14,6 +17,7 @@ import {
   MATE_EVAL_PAWNS,
   TIME_CONTROLS,
   type GameOutcome,
+  type Participant,
   type PlyEval,
   type Seed,
 } from "@/lib/tournament"
@@ -81,6 +85,82 @@ describe("buildSpecs — color-flipped pairing", () => {
       expect(specs[i].flipped).toBe(flipped)
       expect(specs[i].white_path).toBe(flipped ? RK : SF)
       expect(specs[i].black_path).toBe(flipped ? SF : RK)
+    }
+  })
+})
+
+// spec 218 "Exhibition & tournament" checklist item 1: the Participant-aware
+// spec builders (the wire shape the tournament/exhibition dropdown sends).
+describe("buildParticipantSpecs — Participant-aware color-flipped pairing", () => {
+  const seeds: Seed[] = [{ fen: FEN_AFTER_E4, eval: 0 }]
+  const uciA: Participant = { id: "engine-stockfish", displayName: "Stockfish 18", kind: "uci", enginePath: SF }
+  const uciB: Participant = { id: "engine-reckless", displayName: "Reckless", kind: "uci", enginePath: RK }
+  const persona: Participant = {
+    id: "kasparov",
+    displayName: "Garry Kasparov",
+    kind: "persona",
+    personaConfig: { level: 1900, temperature: 0.5, alpha: 1.0, lambda: 0.75, topK: 4, verifyDepth: 12, weights: "bt3" },
+  }
+
+  it("mirrors buildSpecs' pairing: A white in game 1, B white in game 2", () => {
+    const { specs, evalById } = buildParticipantSpecs(seeds, uciA, uciB, 600_000, 5_000, 400, true)
+    expect(specs).toHaveLength(2)
+    expect(specs[0]).toMatchObject({ id: 0, flipped: false, white: uciA, black: uciB })
+    expect(specs[1]).toMatchObject({ id: 1, flipped: true, white: uciB, black: uciA })
+    expect(evalById.get(0)?.eval).toBe(0)
+  })
+
+  it("fills legacy white_path/black_path from a UCI participant's enginePath", () => {
+    const { specs } = buildParticipantSpecs(seeds, uciA, uciB, 600_000, 5_000, 400, true)
+    expect(specs[0].white_path).toBe(SF)
+    expect(specs[0].black_path).toBe(RK)
+  })
+
+  it("leaves the legacy path empty for a persona side (the runner resolves it server-side)", () => {
+    const { specs } = buildParticipantSpecs(seeds, persona, uciA, 600_000, 5_000, 400, true)
+    expect(specs[0].white_path).toBe("")
+    expect(specs[0].white).toEqual(persona)
+  })
+
+  it("flipFirst reverses each pair's order, same semantics as buildSpecs", () => {
+    const { specs } = buildParticipantSpecs(seeds, uciA, uciB, 600_000, 5_000, 400, true, true)
+    expect(specs[0]).toMatchObject({ flipped: true, white: uciB, black: uciA })
+    expect(specs[1]).toMatchObject({ flipped: false, white: uciA, black: uciB })
+  })
+
+  // HONESTY GATE (spec 218 item 1): a GM persona's wire config must carry
+  // `weights` — this locks that the builder never strips it in transit.
+  it("passes a GM persona's weights:'bt3' through untouched", () => {
+    const { specs } = buildParticipantSpecs(seeds, persona, uciA, 600_000, 5_000, 400, true)
+    expect(specs[0].white?.personaConfig?.weights).toBe("bt3")
+    expect(specs[0].white?.personaConfig?.level).toBe(1900)
+  })
+})
+
+describe("buildExhibitionSpec — the exhibition's batch-of-1 (spec 218 item 3)", () => {
+  const uciA: Participant = { id: "engine-stockfish", displayName: "Stockfish", kind: "uci", enginePath: SF }
+  const uciB: Participant = { id: "engine-reckless", displayName: "Reckless", kind: "uci", enginePath: RK }
+
+  it("builds exactly one unflipped GameSpec, id 0", () => {
+    const { spec, evalById } = buildExhibitionSpec(
+      { fen: FEN_AFTER_E4, eval: 0.3 },
+      uciA,
+      uciB,
+      600_000,
+      5_000,
+      400,
+      true,
+    )
+    expect(spec).toMatchObject({ id: 0, flipped: false, white: uciA, black: uciB, start_fen: FEN_AFTER_E4 })
+    expect(evalById.get(0)?.eval).toBe(0.3)
+  })
+})
+
+describe("newPersonaSeed — per-run persona base seed", () => {
+  it("stays below 2^53 so it survives the JSON round-trip to Rust", () => {
+    for (let i = 0; i < 20; i++) {
+      expect(newPersonaSeed()).toBeLessThan(2 ** 53)
+      expect(Number.isInteger(newPersonaSeed())).toBe(true)
     }
   })
 })

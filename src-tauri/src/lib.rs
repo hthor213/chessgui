@@ -56,6 +56,7 @@ pub fn run() {
             persona::maia_move,
             persona::persona_move,
             persona::rival_book,
+            persona::rival_personas,
             coach::coach_feedback,
             coach::coach_followup,
         ])

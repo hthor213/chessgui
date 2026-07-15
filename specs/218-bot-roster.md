@@ -143,9 +143,23 @@ strength (spec:216 curve) — no unmeasured realism claims.
 
 ### Exhibition & tournament
 
-- [ ] Participant dropdown replaces the two free-text binary paths in the
+- [x] Participant dropdown replaces the two free-text binary paths in the
       tournament tab (decision 5 labels), with explicit per-side assignment
-      (Phase 3 `flipFirst` is only half of side selection)
+      (Phase 3 `flipFirst` is only half of side selection) (2026-07-15,
+      headless-verified, user eyeball pending): one flat dropdown per side
+      (`lib/tournament-roster.ts` `buildTournamentRoster`) — two fixed
+      engines, BT3 GM personas (`lib/persona-manifest.ts`, live-imported from
+      data/personas/*.config.json, mirroring lib/roster.ts's own precedent
+      for the same files), the private rival gated by literally reusing
+      lib/roster.ts's `buildRoster` (never re-derived), and the Maia bands.
+      HONESTY GATE: every GM persona entry carries `weights:"bt3"` + its real
+      sampling params + a measured harness move-match label — e.g. "bot:
+      kasparov (BT3, 64% move-match)" — never level-only, since
+      match_runner.rs's persona arm does support the BT3 managed net (unlike
+      Play vs Bot's `persona_move`, which can't, hence that surface's
+      approximation-only roster). A new "White in game 1" control (hidden in
+      Current-position mode, which keeps its own board-bottom-color control)
+      makes the explicit per-side assignment.
 - [x] Persona arm in the runner (2026-07-15): Player enum Uci|Persona at the
       per-move call site in match_runner.rs; persona arm and spar persona_move
       share one selection core (persona.rs::select_move_from_policy) so surfaces
@@ -155,8 +169,21 @@ strength (spec:216 curve) — no unmeasured realism claims.
 - [x] Managed weights (2026-07-15): maia.rs MANAGED_NETS registry — BT3 net with
       pinned sha256 + live lczero.org URL; resolution order: PERSONA_BT3_PATH
       local registration → verified cache → download.
-- [ ] Exhibition framing: batch of 1 through the existing runner as v1; featured
+- [x] Exhibition framing: batch of 1 through the existing runner as v1; featured
       single-game presentation (less stats-first); SAN move list with move numbers
       in the live viewer; spec:216 honest strength labels on every persona match
+      (2026-07-15, headless-verified, user eyeball pending): "Watch two bots
+      play" sends one `GameSpec` (`buildExhibitionSpec`, no color-flip pairing)
+      through the same `play_batch` runner. DIVERGES from "in the live
+      viewer": the featured single-game presentation (board + eval bar +
+      numbered SAN move list, `ExhibitionView` in tournament-tab.tsx) is a
+      NEW, separate viewer rendered inline in the tab, not a change to
+      app/page.tsx's shared `LiveGameView` (the "game #N · move M" one) —
+      that file was out of this task's scope (components/tournament-tab.tsx,
+      lib/tournament.ts, lib/game-replay.ts + new files only). Wiring the
+      same numbered-move-list fix into the shared live viewer is an open
+      follow-up for whichever agent owns app/page.tsx. Persona strength
+      labels: spec:216 curve for engines (unchanged), harness move-match %
+      for personas (same labels as the dropdown, item 1 above).
 - [ ] Personas in round-robin standings with spec:216 labels (rides on spec:210
       Phase 6's round-robin item)
