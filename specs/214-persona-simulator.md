@@ -71,6 +71,13 @@ from the player's real games, how often does the persona play the human's move?
       public-figure games may be committed if useful)
 - [x] Held-out eval harness (2026-07-15, results in data/personas/HARNESS_RESULTS.md — strong-engine policy beats Maia at every tested strength; BT3 = GM-persona backend): move-match@1/@3, per phase, per policy backend
 - [ ] Persona config format + loader
+- [ ] Realism feedback capture (2026-07-15, user request): "felt like him" /
+      "didn't feel like him" buttons in the spar UI, tappable at any point during
+      or after a game; the negative REQUIRES a free-text why, the positive makes
+      it optional. Each entry stores verdict + note + game context (PGN so far,
+      ply, level) locally (private data, never bundled/committed for private
+      rivals). This is the ground-truth stream that style priors (below) are
+      tuned and validated against.
 - [x] Persona vs persona v0 (2026-07-15, script not match-runner): Kasparov 3.5-2.5 Fischer, data/personas/EXHIBITION.md
 - [x] Dad OTB data chase (2026-07-15): identity confirmed (KR, b.1947, FIDE 2316668, standard 1591-converted), zero recorded games — dad-sim stays chess.com-book+Maia (skak.is, chess-results) — results/rating even if no moves
 - [ ] Style priors, gated on measured move-match improvement
