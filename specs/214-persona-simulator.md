@@ -58,6 +58,91 @@ from the player's real games, how often does the persona play the human's move?
   refers to "the private rival persona" generically — the spec:218 roster adds
   nothing about him beyond what this spec already discloses.
 
+## Persona engine — the move-selection contract
+
+**Origin:** GPT mentor spec review 2026-07-15, triaged with user. This section is the
+canonical definition of how a persona selects a move. spec:218's persona arm (the
+Participant enum) CONSUMES this contract and never redefines it; spec:217's server-side
+personas run the same pipeline.
+
+The pipeline, per move:
+
+1. **Inputs**: current position, the persona snapshot (see "Persona snapshots" below),
+   clock state (own + opponent), the game's RNG seed, and — Tier 3 only — opponent
+   context (archetype conditioning, see Tier 3 additions).
+2. **Book phase**: while the position is in book, play the persona's recorded reply,
+   frequency-weighted across alternatives (shipped behavior — see the move-by-move
+   rival book checklist item). The book is **N-source by design**: chess.com archives
+   + arena games (the spec:217 flywheel) + OTB-if-found. Merge rules are specified up
+   front so a new source slots in without redesign: per-source weights, recency decay,
+   and time-control weighting. Honest note: dad's OTB chase found identity
+   (FIDE-confirmed) but ZERO recorded game moves so far — skak.is and chess-results
+   carry results and ratings, rarely amateur moves — so OTB is a designed-for, not yet
+   existing, source.
+3. **Out of book — policy sampling**: sample from the persona's policy backend (Maia
+   band or BT3, per config) with top-k/top-p + temperature. The **temperature schedule
+   varies by phase and clock**: opening low (book-like), middlegame higher, spikes
+   under time pressure. A **style-bias window** applies for N moves after book exit:
+   the persona's characteristic tendencies are overweighted while leaving theory.
+4. **Verification reweight**: cheap Stockfish eval of the top k candidate moves;
+   `final_score = policy_prob^alpha * exp(-lambda * eval_penalty)`; alpha/lambda are
+   per-persona parameters. Keeps the human move distribution while suppressing
+   non-human blunders — this formalizes the verification-search lesson from realism
+   matches #1/#2.
+5. **Corpus-derived error model**: from the 11M-game evals-on corpus, learn
+   P(mistake | eval, phase, clock, Elo band); mistakes appear only with human-band
+   timing. The hard rule stands: this is never random noise-weakening.
+6. **Endgame arm**: at low material, switch backends — deeper filtered Stockfish (or
+   tablebase when trivial), humanized through the same verification reweight — because
+   Maia is weakest exactly where the primary rival is strongest (his endgame record at
+   fast time controls).
+7. **Draw/resign model**: the existing scripts/persona draw model is canonicalized
+   here as part of the contract (visible-rule requirement from the spar-modes item
+   applies unchanged).
+8. **Determinism**: move selection is stochastic by design but SEEDED — a per-game
+   seed is logged; the same seed + the same snapshot reproduces the game.
+9. **Per-move decision log**: policy probabilities, verification evals, the chosen
+   move, and the reason arm (book / policy / verify-reweight / error-model / endgame).
+   This is the realism-debugging record: "didn't feel like him" feedback joins
+   against it.
+
+## Persona snapshots
+
+A persona ships as an **immutable versioned bundle**: config + book build + weights
+reference + sampling parameters. Every match and exhibition records the snapshot
+version it played under; any prior/book/parameter change produces a NEW snapshot.
+Reproducibility rule: same seed + same snapshot = same game.
+
+## Human-likeness metrics & acceptance
+
+Metrics, all measured on held-out splits:
+- **move-match@1/@3** (the existing harness metric)
+- **ACPL-profile similarity** (per-phase centipawn-loss shape, not just the mean)
+- **error-TIMING similarity** (when mistakes happen — phase, clock, eval context)
+- **opening KL-divergence** (persona's opening distribution vs the player's real one)
+
+Acceptance bar for ANY engine or prior change: a measurable held-out improvement
+(e.g. move-match@1 +2% absolute) OR an explicit user realism verdict from the shipped
+feedback capture. An offline auto-tuning loop (optimize alpha/lambda/temperature/
+priors against held-out) is a checklist item below.
+
+## Tier 3 additions (mentor review 2026-07-15)
+
+- **Opponent-ARCHETYPE conditioning**: condition on the opponent's style cluster +
+  rating differential, trained on ALL games — per-specific-opponent data is
+  insufficient (Fischer–Tal is ~11 classical games; Fischer never played Kasparov).
+  Specific opponents get book-level flavor only. Testable exception: for the private
+  rival, a light personal bias from his real games vs people he knows.
+- **Sequence/plan coherence**: a 2–4 move plan memory biasing consistent follow-ups.
+
+Both gated on the acceptance bar above, like everything else.
+
+## Time model
+
+Cross-ref spec:216 (machine speed / time-compression Elo model). Personas exhibit
+human time behavior — the private rival moves fast — and the clock state conditions
+the temperature schedule (contract step 3) and the error model (step 5).
+
 ## Data
 
 - Fischer, Kasparov: app DB (Lumbra OTB). Extraction query by player name, dedup.
@@ -103,6 +188,20 @@ from the player's real games, how often does the persona play the human's move?
       alternatives), then Maia takes over out of book. The drop-into-line start
       stays as a secondary option.
 - [ ] Style priors, gated on measured move-match improvement
+- [ ] Persona engine v1 (mentor review 2026-07-15): contract steps 3+4+8+9 minimal —
+      policy sampling with temperature, verification reweight, seeded determinism,
+      per-move decision log
+- [ ] N-source book merge rules: per-source weights, recency decay, time-control
+      weighting (contract step 2)
+- [ ] Temperature schedule: phase × clock, plus the post-book style-bias window
+      (contract step 3)
+- [ ] Corpus error model: P(mistake | eval, phase, clock, Elo band) from the
+      11M-game evals-on corpus, human-band timing only (contract step 5)
+- [ ] Endgame arm: filtered SF / tablebase backend switch, humanized through the
+      verification reweight (contract step 6)
+- [ ] Metrics harness + auto-tuning loop: move-match@1/@3, ACPL-profile,
+      error-timing, opening KL on held-out splits; offline optimization of
+      alpha/lambda/temperature/priors against them
 
 ## Open questions
 

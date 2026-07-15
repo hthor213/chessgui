@@ -16,6 +16,17 @@ One roster of bots — engines and personas, with faces — consumed by every su
 that fields an opponent: the Play vs Bot tab, the tournament/exhibition, and the web
 arena. Pick any bot to play; pick any two to watch.
 
+## Glossary (mentor review 2026-07-15)
+
+- **Rival** — a real person we model (dad, the chess.com rivals); private individuals
+  stay local per spec:214's hard rules.
+- **Persona** — the model of a player: book + policy + priors (spec:214).
+- **Bot** — a roster entry visible in the UI.
+- **Participant** — the runtime object a surface spawns to field an opponent, engine
+  or persona (below).
+
+Move selection is owned by spec:214's persona engine contract; 218 owns surfacing.
+
 ## The Participant
 
 The architectural core is one object:

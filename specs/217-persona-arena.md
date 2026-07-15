@@ -51,6 +51,22 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
   persona definitions per spec:214 Tier 2) — the lobby consumes that definition,
   including the caricature avatar field, rather than redefining it.
 
+## Failure modes & latency (mentor review 2026-07-15)
+
+Family-scale operations, not scaling engineering:
+
+- **Move-latency budget**: target under ~2s per persona move, with a visible thinking
+  indicator in the game screen.
+- **Engine stalls**: retry, then respawn the engine process — never silently hang a
+  game.
+- **Disconnect/resume**: every move is persisted server-side as it happens; partial
+  games are resumable.
+- **Crash-restart**: the standard Docker restart policy, same as the other homeserver
+  services.
+- **Resource limits**: modest per-process limits — enough for a family, nothing more.
+
+The arena DB is canonical for arena games; games are deletable on request.
+
 ## Cultural context
 
 The roster is a living museum: docs/research/iceland-chess-culture.md — 1972
