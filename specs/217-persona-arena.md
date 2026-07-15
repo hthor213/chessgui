@@ -20,14 +20,14 @@ this is the project's first non-macOS surface. Web, mobile, and Windows/PC nativ
 first-class citizens alongside macOS; macOS remains the testing build for now, and the
 others get planned only when their turn comes — this spec is web's turn.
 
-## Transparency (non-negotiable, wording user-decided)
+## Transparency (non-negotiable; wording decided 2026-07-15)
 
-Every session shows an honest disclosure before play. Two candidate wordings, user
-picks (family-dynamics call, deliberately not defaulted):
-- (a) Specific-but-innocuous: "games may be recorded to improve this site's players,
-  including opponents modeled on the people who play here."
-- (b) General now ("games may be recorded for training purposes"), with the full
-  reveal as part of the Christmas match story.
+Every session shows an honest disclosure before play. User decision 2026-07-15: no
+consent paperwork — the tournament-chess norm (moves are recorded) expressed as a
+ToU-style line ("games played here are recorded and may be used to model the
+players who play here"), plus the family sticker for dad, near-verbatim: "note:
+your son may use your games — study them in order to try to beat you in chess at
+Christmas." This supersedes the earlier two-candidate wording choice.
 Recorded games of private individuals stay private (server-side equivalent of
 data/rivals; never committed, never bundled) — same hard rule as spec 214.
 
@@ -46,9 +46,9 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
   Icelandic canon (extraction pipeline exists, Lumbra OTB in app DB). Backend per
   spec 214 findings: BT3/strong-policy for GM personas, Maia bands for amateurs; the
   realism lessons from match #1/#2 (verification search, draw model) apply directly.
-  Roster source of truth: spec:214 Tier 2 persona config + Participant abstraction
-  (spec:214 "Play vs Bot" section) — the lobby consumes that definition, including
-  the avatar field, rather than redefining it.
+  Roster source of truth: spec:218 (Participant abstraction, roster, avatars;
+  persona definitions per spec:214 Tier 2) — the lobby consumes that definition,
+  including the caricature avatar field, rather than redefining it.
 
 ## Cultural context
 
