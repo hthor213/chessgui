@@ -39,6 +39,26 @@
     "slow_ms": 500,
     "w": 100
   },
+  "5.7s": {
+    "ci_hi": -0.0,
+    "ci_lo": -0.0,
+    "d": 200,
+    "elapsed_s": 9245.322694958,
+    "elo_per_doubling": -0.0,
+    "errors": 0,
+    "fast_base_ms": 32000,
+    "fast_inc_ms": 3200,
+    "fast_ms": 4000,
+    "finished_at": 1784121590,
+    "games": 200,
+    "l": 0,
+    "rung": "5.7s",
+    "score": 0.5,
+    "slow_base_ms": 64000,
+    "slow_inc_ms": 6400,
+    "slow_ms": 8000,
+    "w": 0
+  },
   "62ms": {
     "ci_hi": 111.44018912507647,
     "ci_lo": 87.93002709246453,
