@@ -35,7 +35,9 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
   homeserver services (Docker; the homeserver agent handles choreography).
 - **Auth**: Google auth ported from the golf app. Invite-only allowlist — this is a
   family arena, not a public chess server.
-- **Personas v1 roster**: Gudmundur (peak slice), Fischer, Kasparov + Karpov and the
+- **Personas v1 roster**: Gudmundur (peak slice), Fischer, Kasparov, **Spassky** (the
+  other chair in Reykjavík 1972 — and the strength-anchor's best common opponent:
+  played Fischer 1972/1992 AND Kasparov in the 80s) + Karpov and the
   Icelandic canon (extraction pipeline exists, Lumbra OTB in app DB). Backend per
   spec 214 findings: BT3/strong-policy for GM personas, Maia bands for amateurs; the
   realism lessons from match #1/#2 (verification search, draw model) apply directly.
