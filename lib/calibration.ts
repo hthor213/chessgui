@@ -182,6 +182,21 @@ export type PhaseStat = {
   moveAnswers: number
 }
 
+/** Per-deck accuracy row (v3 training-value decks: conversion / critical /
+ *  endgame / level). Same depth as a phase row — the deck IS the training
+ *  axis, so correlation and move accuracy matter per deck. All counts are 0
+ *  on v1/v2 sessions, whose positions carry no deck; the UI hides the table
+ *  then. */
+export type DeckStat = {
+  deck: string
+  count: number
+  mae: number | null
+  pearson: number | null
+  bestMoveHitRate: number | null
+  /** Positions in this deck on which the user chose a move. */
+  moveAnswers: number
+}
+
 /** A position the user was furthest off on. */
 export type Miss = {
   index: number
@@ -210,6 +225,8 @@ export type CalibrationSummary = {
   timeExcludedCount: number
   perBand: BandStat[]
   perPhase: PhaseStat[]
+  /** v3 training-deck rows; all-zero counts on v1/v2 sessions. */
+  perDeck: DeckStat[]
   biggestMisses: Miss[]
 }
 

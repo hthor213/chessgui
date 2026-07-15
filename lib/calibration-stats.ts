@@ -9,6 +9,7 @@ import type {
   CalibrationPosition,
   CalibrationSession,
   CalibrationSummary,
+  DeckStat,
   Miss,
   PhaseStat,
 } from "./calibration"
@@ -22,6 +23,10 @@ export const BANDS = ["0-0.5", "0.5-1.5", "1.5-3", "3+"] as const
 
 /** The two game phases, in order — the fixed rows of the per-phase table. */
 export const PHASES = ["middlegame", "endgame"] as const
+
+/** The v3 training decks, in quota order — the fixed rows of the per-deck
+ *  table. Mirrors DECK_LABELS in src-tauri/src/calibration.rs. */
+export const DECKS = ["conversion", "critical", "endgame", "level"] as const
 
 /** Stockfish eval for a position, in pawns (White-POV), clamped to ±MATE_PAWNS. */
 export function sfEvalPawns(p: CalibrationPosition): number {
@@ -151,6 +156,14 @@ export function summarize(
     ...groupStats(scored.filter((s) => s.pos.phase === phase)),
   }))
 
+  // v3 training decks. Positions from v1/v2 sessions carry no deck, so every
+  // row counts 0 there — old sessions keep summarizing (never discarded on a
+  // schema upgrade), they just have no deck breakdown to show.
+  const perDeck: DeckStat[] = DECKS.map((deck) => ({
+    deck,
+    ...groupStats(scored.filter((s) => s.pos.deck === deck)),
+  }))
+
   // Think time: median over answers whose time counts and who actually
   // interacted before advancing. Excluded/pre-upgrade answers still count for
   // eval accuracy above; they're only omitted from time analysis here.
@@ -183,6 +196,7 @@ export function summarize(
     timeExcludedCount,
     perBand,
     perPhase,
+    perDeck,
     biggestMisses,
   }
 }

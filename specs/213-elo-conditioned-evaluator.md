@@ -183,7 +183,7 @@ optional move, and score them against Stockfish. Files are the research artifact
       long-range threats are the bottleneck") and the session budget spends itself on
       the scarcest data.
 
-- [ ] Single-labeler scope (2026-07-14): the user can only generate authentic perception
+- [x] Single-labeler scope (2026-07-14): the user can only generate authentic perception
       data at their own band — expertise can't be simulated in either direction. Division of
       labor: the corpus is the multi-Elo labeler (moves + outcomes at every band); the user
       supplies the inside of the error (stated evals, reasoning text, cause tags) at one
@@ -191,8 +191,13 @@ optional move, and score them against Stockfish. Files are the research artifact
       longitudinal: if they climb 1300→1900 inside the system, which error classes dissolve
       first (scale calibration vs template-blindness vs rake-stepping) is data no
       cross-sectional corpus contains. Preserve session history accordingly; never discard
-      old sessions on schema upgrades.
-- [ ] Sampler v3 — stratify by training value, not engine-pawn bands (from calibration
+      old sessions on schema upgrades. History preservation verified 2026-07-15: results
+      files are append-only (`results-<timestamp>.json`, calibration.rs
+      `calibration_save_results`), all v2/v3 position fields are optional in TS so old
+      sessions load, `normalizeAnswer`/`coachInputFor` upgrade v1 answers/positions in
+      place, and `summarize` on a stored v1 session is regression-tested
+      (`__tests__/calibration.test.ts` "summarizes a stored pre-v3 session").
+- [x] Sampler v3 — stratify by training value, not engine-pawn bands (from calibration
       session 2026-07-14): for a 1300 aiming at 1900, +0.3 vs +0.9 in a middlegame is
       immaterial — the win-prob curve at that level is flat there (212's curve quantifies
       this) — EXCEPT with a material imbalance, where conversion is mechanical and the curve
@@ -219,14 +224,23 @@ optional move, and score them against Stockfish. Files are the research artifact
       6 plies of PV1 as SAN (`sf_pv_san`) during the scoring pass, pass it in CoachInput,
       and let the coach cite the line (the no-inventing rule stays; the "admit when the
       justification is outside your data" guard now only applies when no PV is present).
-- [ ] PV plumbing for the coach (2026-07-14, the ...b5 Benoni case): CoachInput carries only
+      Shipped: `SESSION_VERSION 3`, `DECK_LABELS`/`DECK_PCTS` [30,25,25,20], `deck_of`
+      with endgame>conversion>critical>level priority + unit tests
+      (src-tauri/src/calibration.rs); deck chip in reveal (`calib-deck`,
+      calibration-tab.tsx) and per-deck results grouping (`perDeck` in
+      lib/calibration-stats.ts `summarize` + `DeckTable`, hidden on pre-v3 sessions).
+- [x] PV plumbing for the coach (2026-07-14, the ...b5 Benoni case): CoachInput carries only
       best-move + margin, so when the engine's move needs a tactical justification the coach
       cannot give it — and it invented a positional story ("gains space") for a move that is
       justified only by ...Nxe4/...Qa5+ regaining the pawn. Sampler v3 must store a short PV
       (≈6 plies, SAN, and ideally PV2) per position at sampling time; pass it in CoachInput
       so the coach can explain the tactic from data; optionally render it in the reveal. A
       prompt guard (coach.rs) now forbids positional stories for material-hanging moves in
-      the meantime.
+      the meantime. Shipped: `sf_pv_san` captured at scoring (PV1 truncated to 6 plies,
+      SAN, calibration.rs), carried in `CoachInput` (coach.rs `sf_pv_san`, prompt cites
+      "Engine line (best play)" when present; the outside-your-data guard applies only
+      when no PV is provided), rendered in the reveal (calibration-tab.tsx), nulled —
+      never dropped — for pre-v3 positions (`coachInputFor`, vitest-covered).
 - [ ] Plan elicitation (2026-07-14): on selected decks, before the eval, also ask "what's
       the plan for the side to move?" (one line, e.g. "queenside minority attack" /
       "trade into the pawn endgame"). The coach grades plan DIRECTION against the engine

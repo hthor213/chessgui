@@ -33,6 +33,7 @@ import {
   type CalibrationSession,
   type CoachFeedback,
   type CoachInput,
+  type DeckStat,
   type PhaseStat,
 } from "@/lib/calibration"
 import { summarize, scoredAnswers, sfEvalPawns, formatPawns, type Scored } from "@/lib/calibration-stats"
@@ -1253,6 +1254,8 @@ function ResultsScreen({
 
         <PhaseTable perPhase={summary.perPhase} />
 
+        <DeckTable perDeck={summary.perDeck} />
+
         {summary.biggestMisses.length > 0 && (
           <div className="space-y-2">
             <h2 className="text-sm font-semibold text-muted-foreground">Biggest misses</h2>
@@ -1350,6 +1353,48 @@ function PhaseTable({ perPhase }: { perPhase: PhaseStat[] }) {
           A phase with fewer than {MIN_PHASE_N} positions is too thin to read much into.
         </p>
       )}
+    </div>
+  )
+}
+
+/** Per-deck accuracy — the v3 training axis (conversion / critical / endgame /
+ *  level). Hidden entirely on v1/v2 sessions, whose positions carry no deck;
+ *  only decks that actually appeared get a row. */
+function DeckTable({ perDeck }: { perDeck: DeckStat[] }) {
+  const fmt = (v: number | null, digits = 2) => (v == null ? "—" : v.toFixed(digits))
+  const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`)
+  const present = perDeck.filter((d) => d.count > 0)
+  if (present.length === 0) return null
+  return (
+    <div className="space-y-2" data-testid="calib-deck-table">
+      <h2 className="text-sm font-semibold text-muted-foreground">By training deck</h2>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-muted-foreground text-left border-b border-white/10">
+            <th className="py-1.5 font-medium">Deck</th>
+            <th className="py-1.5 font-medium text-right">Positions</th>
+            <th className="py-1.5 font-medium text-right">MAE</th>
+            <th className="py-1.5 font-medium text-right">Correlation</th>
+            <th className="py-1.5 font-medium text-right">Best-move</th>
+          </tr>
+        </thead>
+        <tbody>
+          {present.map((d) => (
+            <tr key={d.deck} className="border-b border-white/5">
+              <td className="py-1.5 capitalize">{d.deck}</td>
+              <td className="py-1.5 text-right tabular-nums">{d.count}</td>
+              <td className="py-1.5 text-right tabular-nums">{fmt(d.mae)}</td>
+              <td className="py-1.5 text-right tabular-nums">{fmt(d.pearson)}</td>
+              <td className="py-1.5 text-right tabular-nums">
+                {d.bestMoveHitRate == null ? "—" : pct(d.bestMoveHitRate)}
+                {d.moveAnswers > 0 && (
+                  <span className="text-muted-foreground text-xs"> ({d.moveAnswers})</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

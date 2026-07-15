@@ -220,6 +220,60 @@ describe("summarize — per-phase breakdown", () => {
   })
 })
 
+describe("summarize — per-deck breakdown (v3)", () => {
+  it("groups stats by training deck", () => {
+    const s = session([
+      pos({ deck: "conversion", sf_cp: 200 }),
+      pos({ deck: "conversion", sf_cp: 100 }),
+      pos({ deck: "endgame", phase: "endgame", sf_cp: 50 }),
+      pos({ deck: "level", sf_cp: 0 }),
+    ])
+    const sum = summarize(s, [
+      ans({ index: 0, eval: 2.0, move_uci: "e2e4" }), // conversion: exact, best-move hit
+      ans({ index: 1, eval: 0.0 }), // conversion: off by 1.0
+      ans({ index: 2, eval: 0.5 }), // endgame: exact
+      ans({ index: 3, eval: 1.0 }), // level: off by 1.0
+    ])
+    const byDeck = Object.fromEntries(sum.perDeck.map((d) => [d.deck, d]))
+    expect(sum.perDeck.map((d) => d.deck)).toEqual(["conversion", "critical", "endgame", "level"])
+    expect(byDeck.conversion.count).toBe(2)
+    expect(byDeck.conversion.mae).toBeCloseTo(0.5)
+    expect(byDeck.conversion.bestMoveHitRate).toBe(1)
+    expect(byDeck.critical.count).toBe(0)
+    expect(byDeck.critical.mae).toBeNull()
+    expect(byDeck.endgame.count).toBe(1)
+    expect(byDeck.endgame.mae).toBeCloseTo(0)
+    expect(byDeck.level.count).toBe(1)
+    expect(byDeck.level.mae).toBeCloseTo(1.0)
+  })
+
+  it("summarizes a stored pre-v3 session — no decks, but nothing lost (session history survives schema upgrades)", () => {
+    // A v1 position exactly as it sits in an old localStorage/results file:
+    // no deck, no sf_pv_san, none of the v2 game-context fields.
+    const v1Position = {
+      fen: "8/8/8/8/8/8/8/8 w - - 0 1",
+      sf_cp: 120,
+      sf_mate: null,
+      sf_best_uci: "e2e4",
+      sf_best_san: "e4",
+      multipv_gap_cp: null,
+      material: 0,
+      band: "0.5-1.5",
+      phase: "middlegame",
+      game_id: 1,
+      ply: 20,
+    } as unknown as CalibrationPosition
+    const sum = summarize(session([v1Position]), [ans({ index: 0, eval: 1.0 })])
+    // The old answer still fully counts for accuracy...
+    expect(sum.answered).toBe(1)
+    expect(sum.mae).toBeCloseTo(0.2)
+    expect(sum.perBand.find((b) => b.band === "0.5-1.5")?.count).toBe(1)
+    // ...and every deck row is present but empty (the UI hides the table).
+    expect(sum.perDeck).toHaveLength(4)
+    expect(sum.perDeck.every((d) => d.count === 0 && d.mae === null)).toBe(true)
+  })
+})
+
 describe("median", () => {
   it("handles odd, even, and empty", () => {
     expect(median([3, 1, 2])).toBe(2)
