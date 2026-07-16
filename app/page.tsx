@@ -2,24 +2,24 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import dynamic from "next/dynamic"
-import { TooltipProvider } from "@/components/ui/tooltip"
-import { MoveList } from "@/components/move-list"
-import { AnnotationBar } from "@/components/annotation-bar"
-import { EvalGraph } from "@/components/eval-graph"
-import { AnalysisPanel } from "@/components/analysis-panel"
-import { EvalBar } from "@/components/eval-bar"
-import { PromotionDialog } from "@/components/promotion-dialog"
-import { PgnImportDialog } from "@/components/pgn-import-dialog"
-import { PositionEditorDialog } from "@/components/position-editor-dialog"
-import { ErrorBoundary } from "@/components/error-boundary"
-import { CapturedPieces } from "@/components/captured-pieces"
+import { TooltipProvider } from "@chessgui/ui/ui/tooltip"
+import { MoveList } from "@chessgui/ui/move-list"
+import { AnnotationBar } from "@chessgui/ui/annotation-bar"
+import { EvalGraph } from "@chessgui/ui/eval-graph"
+import { AnalysisPanel } from "@chessgui/ui/analysis-panel"
+import { EvalBar } from "@chessgui/ui/eval-bar"
+import { PromotionDialog } from "@chessgui/ui/promotion-dialog"
+import { PgnImportDialog } from "@chessgui/ui/pgn-import-dialog"
+import { PositionEditorDialog } from "@chessgui/ui/position-editor-dialog"
+import { ErrorBoundary } from "@chessgui/ui/error-boundary"
+import { CapturedPieces } from "@chessgui/ui/captured-pieces"
 import { computeMaterial } from "@chessgui/core/material"
-import { TournamentTab } from "@/components/tournament-tab"
-import { DatabaseTab } from "@/components/database-tab"
-import { CalibrationTab } from "@/components/calibration-tab"
-import { SparTab } from "@/components/spar-tab"
-import { TrainingTab } from "@/components/training-tab"
-import { PuzzlesTab } from "@/components/puzzles-tab"
+import { TournamentTab } from "@chessgui/ui/tournament-tab"
+import { DatabaseTab } from "@chessgui/ui/database-tab"
+import { CalibrationTab } from "@chessgui/ui/calibration-tab"
+import { SparTab } from "@chessgui/ui/spar-tab"
+import { TrainingTab } from "@chessgui/ui/training-tab"
+import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
@@ -41,7 +41,7 @@ const PV_ARROW_BRUSHES = ["blue", "paleBlue", "paleGrey"]
 const PV_ARROW_WIDTHS = [6, 5, 4]
 
 const Board = dynamic(
-  () => import("@/components/board").then((m) => ({ default: m.Board })),
+  () => import("@chessgui/ui/board").then((m) => ({ default: m.Board })),
   { ssr: false }
 )
 

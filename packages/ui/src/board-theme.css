@@ -1,0 +1,6 @@
+/* Single source of truth for pieces + board texture (spec:220).
+   Swapping a piece set or board style = editing THIS file — shells must not
+   import chessground assets themselves. */
+@import "@lichess-org/chessground/assets/chessground.base.css";
+@import "@lichess-org/chessground/assets/chessground.brown.css";
+@import "@lichess-org/chessground/assets/chessground.cburnett.css";

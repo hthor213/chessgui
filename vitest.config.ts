@@ -11,6 +11,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@chessgui/core": path.resolve(__dirname, "packages/core/src"),
+      "@chessgui/ui": path.resolve(__dirname, "packages/ui/src"),
       "@": path.resolve(__dirname, "."),
     },
   },

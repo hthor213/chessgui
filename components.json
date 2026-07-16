@@ -11,9 +11,9 @@
     "prefix": ""
   },
   "aliases": {
-    "components": "@/components",
-    "utils": "@/lib/utils",
-    "ui": "@/components/ui",
+    "components": "@chessgui/ui",
+    "utils": "@chessgui/ui/utils",
+    "ui": "@chessgui/ui/ui",
     "lib": "@/lib",
     "hooks": "@/hooks"
   }

@@ -28,6 +28,9 @@
       ],
       "@chessgui/core/*": [
         "./packages/core/src/*"
+      ],
+      "@chessgui/ui/*": [
+        "./packages/ui/src/*"
       ]
     },
     "forceConsistentCasingInFileNames": true

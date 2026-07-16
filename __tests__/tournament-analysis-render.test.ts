@@ -20,7 +20,7 @@ import {
   BandTrajectorySection,
   SeedBreakdownSection,
   TerminationQualitySection,
-} from "@/components/tournament-tab"
+} from "@chessgui/ui/tournament-tab"
 import { DEFAULT_LOGISTIC_K, type WinProbCurve } from "@chessgui/core/win-prob"
 import {
   STANDARD_START_FEN,

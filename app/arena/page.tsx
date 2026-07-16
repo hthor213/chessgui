@@ -14,13 +14,13 @@
 // a returning user who's still logged in skips straight to the lobby.
 
 import { useCallback, useEffect, useState } from "react"
-import { TooltipProvider } from "@/components/ui/tooltip"
-import { ErrorBoundary } from "@/components/error-boundary"
-import { LoginScreen } from "@/components/arena/login-screen"
-import { DisclosureScreen } from "@/components/arena/disclosure-screen"
-import { LobbyScreen } from "@/components/arena/lobby-screen"
-import { GameScreen } from "@/components/arena/game-screen"
-import { HistoryScreen } from "@/components/arena/history-screen"
+import { TooltipProvider } from "@chessgui/ui/ui/tooltip"
+import { ErrorBoundary } from "@chessgui/ui/error-boundary"
+import { LoginScreen } from "@chessgui/ui/arena/login-screen"
+import { DisclosureScreen } from "@chessgui/ui/arena/disclosure-screen"
+import { LobbyScreen } from "@chessgui/ui/arena/lobby-screen"
+import { GameScreen } from "@chessgui/ui/arena/game-screen"
+import { HistoryScreen } from "@chessgui/ui/arena/history-screen"
 import { ackDisclosure, hasAckedDisclosure } from "@/lib/arena-disclosure"
 import {
   ArenaApiError,

@@ -9,7 +9,7 @@ vi.mock("next/dynamic", () => ({
   default: () => () => null,
 }));
 
-import { SparTab } from "@/components/spar-tab";
+import { SparTab } from "@chessgui/ui/spar-tab";
 
 describe("SparTab entry point renders", () => {
   it("renders the roster (Play vs Bot) as the initial screen", () => {

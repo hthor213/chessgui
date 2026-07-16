@@ -20,20 +20,3 @@
     @apply bg-background text-foreground;
   }
 }
-
-/* Move highlight color - Lichess yellow-green */
-cg-board square.last-move {
-  background-color: rgba(155, 199, 0, 0.41) !important;
-}
-
-cg-board square.selected {
-  background-color: rgba(20, 85, 30, 0.5) !important;
-}
-
-cg-board square.move-dest {
-  background: radial-gradient(rgba(20, 85, 30, 0.5) 22%, transparent 22%);
-}
-
-cg-board square.move-dest.oc {
-  background: radial-gradient(transparent 0%, transparent 80%, rgba(20, 85, 0, 0.3) 80%);
-}

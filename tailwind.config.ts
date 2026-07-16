@@ -1,59 +1,15 @@
 import type { Config } from "tailwindcss"
+import preset from "@chessgui/ui/tailwind-preset"
 
+// All theme tokens live in the shared preset (spec:220) — a shell may not
+// declare a color, piece asset, or board style locally.
 const config: Config = {
-  darkMode: "class",
+  presets: [preset as Config],
   content: [
     "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
     "./hooks/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
+    "./packages/ui/src/**/*.{ts,tsx}",
   ],
-  theme: {
-    extend: {
-      colors: {
-        background: "#0a0a0a",
-        foreground: "#f6f6f6",
-        card: {
-          DEFAULT: "#1e1c19",
-          foreground: "#bababa",
-        },
-        secondary: {
-          DEFAULT: "#2a2825",
-          foreground: "#bababa",
-        },
-        muted: {
-          DEFAULT: "#2a2825",
-          // Lightened from #666666 — that was too dark to read on the near-black
-          // background (e.g. the "Draws" label and other secondary text).
-          foreground: "#9b9b9b",
-        },
-        accent: {
-          DEFAULT: "#779556",
-          foreground: "#ffffff",
-        },
-        border: "#2a2825",
-        input: "#2a2825",
-        ring: "#779556",
-        destructive: {
-          DEFAULT: "#e05555",
-          foreground: "#ffffff",
-        },
-        primary: {
-          DEFAULT: "#7fba3a",
-          foreground: "#ffffff",
-        },
-        popover: {
-          DEFAULT: "#1e1c19",
-          foreground: "#bababa",
-        },
-      },
-      borderRadius: {
-        lg: "0.5rem",
-        md: "calc(0.5rem - 2px)",
-        sm: "calc(0.5rem - 4px)",
-      },
-    },
-  },
-  plugins: [],
 }
 export default config

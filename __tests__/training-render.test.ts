@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
-import { TrainingTab } from "@/components/training-tab"
+import { TrainingTab } from "@chessgui/ui/training-tab"
 
 // Effects don't run under renderToStaticMarkup, so localStorage is never touched
 // and the component shows its initial state: program not started (Today), metrics
