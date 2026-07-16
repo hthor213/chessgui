@@ -129,7 +129,7 @@ interface TournamentResult {
 - [x] Engine process lifecycle: no zombie processes after batch ends or is cancelled (verified in code 2026-07-15 — `kill_on_drop(true)` at spawn `match_runner.rs:168,1428`, explicit `quit()` with timeout+`start_kill()` `:334-339`)
 
 ### Phase 3 — Starting-Position Pipeline
-- [ ] UHO-format position file (EPD/FEN list) can be loaded from disk via file picker — NOT FOUND (2026-07-15): the tab only `fetch`es a pre-generated static asset `public/tagged_positions.json` (`tournament-tab.tsx:126-131`); no in-app EPD/FEN file picker (EPD input is a CLI `--input` arg to the offline tagger). Left unticked.
+- [x] UHO-format position file (EPD/FEN list) can be loaded from disk via file picker (code-verified 2026-07-16: native `pickFile` → `read_opening_positions` Tauri command (32 MB cap, `match_runner.rs`) → `parseOpeningPositions` in `packages/core/src/tournament.ts` (bare EPD normalized, `ce` opcode → White-POV cp, bad lines counted not fatal); parsed pool held as the session's custom positions in `tournament-tab.tsx`. Supersedes the 2026-07-15 NOT FOUND note.)
 - [ ] Eval-tagging step: Stockfish evaluates each candidate position (fixed depth, e.g. depth 12), stores `(fen, eval_cp)` in a session cache — PARTIAL (2026-07-15): tagging exists as an offline Python script `scripts/tag_positions.py` (Stockfish over UCI, default depth 16, writes `{fen,eval_cp,...}`), not an in-app session pipeline; the frontend only caches the already-tagged static file (`positionsCache`, `tournament-tab.tsx:125`). Left unticked.
 - [x] Sampling step: given target range and target N, sample positions so buckets are evenly represented (not all positions clustered near 0) (verified in code 2026-07-15, `buildSeeds(mode:"eval")` buckets by 0.25-pawn magnitude and round-robins across non-empty bins, `lib/tournament.ts:356-411`)
 - [x] Color-flip pairing: each sampled position generates two games (A plays white, then B plays white) (verified in code 2026-07-15, `buildSpecs` `lib/tournament.ts:437-468`)
@@ -162,8 +162,11 @@ and the picker UI are specced in **spec:218 Bot Roster & Exhibition Play**
 (consolidated there 2026-07-15, user decision). The runner-side seam lands in this
 codebase area; the spec text lives in 218.
 
-- [ ] Add-engine UI: user can register any UCI binary as a named engine (a spec:218
-      Participant of kind `uci`)
+- [x] Add-engine UI: user can register any UCI binary as a named engine (a spec:218
+      Participant of kind `uci`) (code-verified 2026-07-16: inline add-engine form in
+      `tournament-tab.tsx` (native binary picker + name field) persisted via
+      `lib/tournament-roster.ts` (`chessgui-custom-engines` storage key, stable
+      `custom-<slug>` ids, remove supported); entries fold into both side dropdowns)
 - [x] Round-robin tournament: N engines, each pair plays M games, full cross-table;
       persona entries appear in standings with spec:216 honest-strength labels
       (closed 2026-07-15 — participants are the spec-218 dropdown roster, engines

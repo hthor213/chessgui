@@ -187,7 +187,13 @@ the temperature schedule (contract step 3) and the error model (step 5).
       the persona replies with his recorded reply (frequency-weighted across
       alternatives), then Maia takes over out of book. The drop-into-line start
       stays as a secondary option.
-- [ ] Style priors, gated on measured move-match improvement
+- [x] Style priors, gated on measured move-match improvement (code-verified
+      2026-07-16: `tune_persona.py` Stage C searches a 30-candidate grid (5 move
+      classes × mults 0.5/1.5/2.0 × windows 4/8 plies after book exit) on the tune
+      half atop Stage-A/B params, judges once on the untouched test half, and only
+      enables at ≥ +2% absolute match@1 (`STYLE_BAR`); `persona_sim.py` ports
+      persona.rs StyleBias 1:1 with mirrored selftests; `emit_config_v2` writes
+      `sampling.style_bias` only when the gate passes, else null)
 - [x] Persona engine v1 (mentor review 2026-07-15; implemented same day — Rust
       persona_move: policy-head candidates, tempered softmax over
       alpha·ln(policy)−lambda·penalty, splitmix64 seeded per game+ply, decision

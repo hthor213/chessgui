@@ -98,7 +98,7 @@ Red dots where eval drops significantly:
 - [x] Square annotations highlighted on board (right-click), persisted as dest-less arrows — not yet verified in-app
 - [x] Annotated PGN export includes comments, evals, NAGs, arrows, squares (spec:013 task) — shipped and ticked in spec:013:29 (`treeToPgn`/`makePgn`, round-trip tested in `__tests__/pgn.test.ts`); cross-verified 2026-07-15
 - [x] PGN import preserves all annotation types (spec:013 task) — shipped and ticked in spec:013:19 (`parsePgnToTrees`, full-tree comments/NAGs/[%eval]/[%clk]/[%cal]/[%csl]); cross-verified 2026-07-15
-- [ ] Annotations persist in database (spec:200) — they do persist in the localStorage save today
+- [x] Annotations persist in database (spec:200) — they do persist in the localStorage save today (code-verified 2026-07-16: `db_save_game` (`src-tauri/src/db.rs`) parses the exported PGN with the import visitor and upserts on `dup_hash`; Rust unit test round-trips annotations through save → get; Save button in `app/page.tsx` (`data-testid="save-to-db"`) exports the annotated tree via `exportPgn()`)
 
 ### Eval Graph (from spec:203)
 - [x] Eval graph displayed below move list (analyze mode only)

@@ -130,6 +130,11 @@ strength (spec:216 curve) — no unmeasured realism claims.
       roster when one exists (dad sees "You"; private-persona rules apply). In
       the arena lobby this is per-account; in the local app it is the user's
       self-persona if built.
+      Local-app half code-verified 2026-07-16: `scripts/persona/build_self_persona.py`
+      builds `self.book.json`/`self.config.json` (kind `"self"`, gitignored) and
+      `lib/roster.ts` surfaces "You" first, gated on kind + built book, excluded
+      from the rival loop (2 roster tests). Arena-lobby per-account half NOT yet
+      built — box stays unticked until that lands.
 
 - [x] Play vs Bot rename + roster (2026-07-15): "Spar vs Dad" → "Play vs Bot"
       (app/page.tsx Learn sub-tab + spar-tab.tsx headings); a roster of
