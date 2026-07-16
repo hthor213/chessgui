@@ -165,8 +165,8 @@ export interface DialogProvider {
 /**
  * Persistent key-value settings storage (spec 220 "StorageProvider").
  * localStorage backs desktop and web; mobile WebViews get an explicit
- * adapter. The 21 bare localStorage call sites route through this in
- * spec 220 step 3 — the interface lands here first.
+ * adapter. All persistence routes through this (step 3): no bare
+ * `localStorage` call sites exist outside the provider implementations.
  */
 export interface StorageProvider {
   get(key: string): string | null

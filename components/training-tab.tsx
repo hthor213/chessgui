@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { getProviders } from "@/lib/platform"
 import {
   ROAD_TO_1900,
   METRIC_META,
@@ -107,16 +108,17 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   const [sparResults, setSparResults] = useState<SparResultEntry[]>([])
   const [now] = useState(() => Date.now())
 
-  // Hydrate from localStorage once, on the client.
+  // Hydrate from storage once, on the client.
   useEffect(() => {
+    const storage = getProviders().storage
     try {
-      const s = localStorage.getItem(STORAGE_KEYS.start)
+      const s = storage.get(STORAGE_KEYS.start)
       if (s) setStartISO(s)
-      const ov = localStorage.getItem(STORAGE_KEYS.overlay)
+      const ov = storage.get(STORAGE_KEYS.overlay)
       if (ov) setOverlay(JSON.parse(ov) as TrainingOverlay)
-      const lg = localStorage.getItem(STORAGE_KEYS.log)
+      const lg = storage.get(STORAGE_KEYS.log)
       if (lg) setLog(JSON.parse(lg) as LogByDate)
-      const mx = localStorage.getItem(STORAGE_KEYS.metrics)
+      const mx = storage.get(STORAGE_KEYS.metrics)
       if (mx) {
         const parsed = JSON.parse(mx) as MetricPoint[]
         if (Array.isArray(parsed) && parsed.length > 0) setMetrics(parsed)
@@ -128,21 +130,14 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   }, [])
 
   const write = useCallback((key: string, value: unknown) => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value))
-    } catch {
-      /* storage unavailable — state still lives in memory */
-    }
+    // Storage unavailable — state still lives in memory.
+    getProviders().storage.set(key, JSON.stringify(value))
   }, [])
 
   const startProgram = useCallback(() => {
     const iso = localISODate()
     setStartISO(iso)
-    try {
-      localStorage.setItem(STORAGE_KEYS.start, iso)
-    } catch {
-      /* ignore */
-    }
+    getProviders().storage.set(STORAGE_KEYS.start, iso)
   }, [])
 
   const saveOverlay = useCallback(

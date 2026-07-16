@@ -1,5 +1,6 @@
-// Engine settings persisted to localStorage, plus the "engine-path" key
-// holding the user-selected engine binary (spec 011).
+// Engine settings persisted via the platform StorageProvider (spec 220
+// step 3), plus the "engine-path" key holding the user-selected engine
+// binary (spec 011).
 
 import { getProviders } from "@/lib/platform";
 
@@ -31,28 +32,16 @@ export function defaultEnginePath(): string {
 }
 
 export function loadEnginePath(): string {
-  if (typeof window === "undefined") return defaultEnginePath();
-  try {
-    return localStorage.getItem(ENGINE_PATH_KEY) || defaultEnginePath();
-  } catch {
-    return defaultEnginePath();
-  }
+  // StorageProvider absorbs the SSR/unavailable cases (returns null).
+  return getProviders().storage.get(ENGINE_PATH_KEY) || defaultEnginePath();
 }
 
 export function saveEnginePath(path: string): void {
-  try {
-    localStorage.setItem(ENGINE_PATH_KEY, path);
-  } catch {
-    // localStorage unavailable — path just won't persist
-  }
+  getProviders().storage.set(ENGINE_PATH_KEY, path);
 }
 
 export function clearEnginePath(): void {
-  try {
-    localStorage.removeItem(ENGINE_PATH_KEY);
-  } catch {
-    // ignore
-  }
+  getProviders().storage.remove(ENGINE_PATH_KEY);
 }
 
 export const HASH_MIN = 16;
@@ -81,9 +70,8 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
 
 export function loadEngineSettings(): EngineSettings {
   const defaults = defaultEngineSettings();
-  if (typeof window === "undefined") return defaults;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = getProviders().storage.get(STORAGE_KEY);
     if (!raw) return defaults;
     const saved = JSON.parse(raw) as Partial<EngineSettings> & { version?: number };
     // One-time migration: a blob from before SETTINGS_VERSION never explicitly
@@ -107,9 +95,8 @@ export function loadEngineSettings(): EngineSettings {
 }
 
 export function saveEngineSettings(settings: EngineSettings): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, version: SETTINGS_VERSION }));
-  } catch {
-    // localStorage unavailable — settings just won't persist
-  }
+  getProviders().storage.set(
+    STORAGE_KEY,
+    JSON.stringify({ ...settings, version: SETTINGS_VERSION }),
+  );
 }

@@ -25,6 +25,7 @@ import { parseFen } from "chessops/fen"
 import { chessgroundDests } from "chessops/compat"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { getProviders } from "@/lib/platform"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   personaMove,
@@ -129,12 +130,13 @@ const FEEDBACK_STORAGE_KEY = "spar-persona-feedback"
 
 function appendPersonaFeedback(entry: PersonaFeedbackEntry): void {
   try {
-    const raw = localStorage.getItem(FEEDBACK_STORAGE_KEY)
+    const storage = getProviders().storage
+    const raw = storage.get(FEEDBACK_STORAGE_KEY)
     const existing: PersonaFeedbackEntry[] = raw ? JSON.parse(raw) : []
     existing.push(entry)
-    localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(existing))
+    storage.set(FEEDBACK_STORAGE_KEY, JSON.stringify(existing))
   } catch {
-    // localStorage unavailable / corrupt — the entry just isn't persisted
+    // storage unavailable / corrupt — the entry just isn't persisted
   }
 }
 
@@ -159,12 +161,13 @@ const DECISION_LOG_STORAGE_KEY = "spar-persona-decision-log"
 
 function appendDecisionLog(entry: PersonaDecisionLogEntry): void {
   try {
-    const raw = localStorage.getItem(DECISION_LOG_STORAGE_KEY)
+    const storage = getProviders().storage
+    const raw = storage.get(DECISION_LOG_STORAGE_KEY)
     const existing: PersonaDecisionLogEntry[] = raw ? JSON.parse(raw) : []
     existing.push(entry)
-    localStorage.setItem(DECISION_LOG_STORAGE_KEY, JSON.stringify(existing))
+    storage.set(DECISION_LOG_STORAGE_KEY, JSON.stringify(existing))
   } catch {
-    // localStorage unavailable / corrupt — the entry just isn't persisted
+    // storage unavailable / corrupt — the entry just isn't persisted
   }
 }
 

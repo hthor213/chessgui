@@ -16,6 +16,7 @@
 // the Training tab's metrics. Pure helpers below are SSR-safe; only
 // loadSparResults/persistSparResults touch localStorage, guarded.
 
+import { getProviders } from "@/lib/platform"
 import type { SparColor } from "@/lib/spar"
 
 export type SparResultOutcome = "win" | "loss" | "draw"
@@ -204,12 +205,12 @@ export function sparScore(
 }
 
 // ---------------------------------------------------------------------------
-// localStorage glue (client-only, guarded like the sibling spar stores)
+// StorageProvider glue (client-only; the provider absorbs unavailability)
 // ---------------------------------------------------------------------------
 
 export function loadSparResults(): SparResultEntry[] {
   try {
-    const raw = localStorage.getItem(SPAR_RESULTS_STORAGE_KEY)
+    const raw = getProviders().storage.get(SPAR_RESULTS_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? (parsed as SparResultEntry[]) : []
@@ -219,9 +220,6 @@ export function loadSparResults(): SparResultEntry[] {
 }
 
 export function persistSparResults(entries: SparResultEntry[]): void {
-  try {
-    localStorage.setItem(SPAR_RESULTS_STORAGE_KEY, JSON.stringify(entries))
-  } catch {
-    // storage unavailable — entries stay in memory only
-  }
+  // Storage unavailable — entries stay in memory only.
+  getProviders().storage.set(SPAR_RESULTS_STORAGE_KEY, JSON.stringify(entries))
 }

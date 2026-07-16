@@ -21,6 +21,7 @@
 // is stored alongside as a fetch handle and re-checked against the fen at
 // respawn time. Calm positions carry their own stable string ids.
 
+import { getProviders } from "@/lib/platform"
 import type { GradeVerdict } from "@/lib/puzzles"
 
 export type PuzzleKind = "rake" | "calm"
@@ -202,12 +203,12 @@ export function failCountFor(entries: readonly PuzzleResultEntry[], key: string)
 }
 
 // ---------------------------------------------------------------------------
-// localStorage glue (client-only, guarded like the sibling stores)
+// StorageProvider glue (client-only; the provider absorbs unavailability)
 // ---------------------------------------------------------------------------
 
 export function loadPuzzleResults(): PuzzleResultEntry[] {
   try {
-    const raw = localStorage.getItem(PUZZLE_RESULTS_STORAGE_KEY)
+    const raw = getProviders().storage.get(PUZZLE_RESULTS_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? (parsed as PuzzleResultEntry[]) : []
@@ -217,9 +218,6 @@ export function loadPuzzleResults(): PuzzleResultEntry[] {
 }
 
 export function persistPuzzleResults(entries: PuzzleResultEntry[]): void {
-  try {
-    localStorage.setItem(PUZZLE_RESULTS_STORAGE_KEY, JSON.stringify(entries))
-  } catch {
-    // storage unavailable — entries stay in memory only
-  }
+  // Storage unavailable — entries stay in memory only.
+  getProviders().storage.set(PUZZLE_RESULTS_STORAGE_KEY, JSON.stringify(entries))
 }

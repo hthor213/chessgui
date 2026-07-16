@@ -191,7 +191,8 @@ export const MOCK_PRIORS_KEY = "chessgui:calibration:mock-priors"
  *  localStorage seed (see MOCK_PRIORS_KEY), else none — a fresh labeler. */
 export async function mockPriorResults(): Promise<CalibrationResults[]> {
   try {
-    const raw = localStorage.getItem(MOCK_PRIORS_KEY)
+    const { getProviders } = await import("@/lib/platform")
+    const raw = getProviders().storage.get(MOCK_PRIORS_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? (parsed as CalibrationResults[]) : []

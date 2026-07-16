@@ -47,6 +47,8 @@
 // separate login PAGE to redirect to — login is a client-rendered screen,
 // components/arena/login-screen.tsx).
 
+import { getProviders } from "@/lib/platform"
+
 export type ArenaColor = "white" | "black"
 /** UI-only side choice; "random" never reaches the wire — the client
  *  resolves it to a concrete color before calling `createGame` because the
@@ -153,22 +155,13 @@ export interface ArenaApiClient {
 const TOKEN_KEY = "arena-jwt"
 
 export function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null
-  try {
-    return window.localStorage.getItem(TOKEN_KEY)
-  } catch {
-    return null
-  }
+  // StorageProvider absorbs SSR/unavailable (returns null) — spec 220 step 3.
+  return getProviders().storage.get(TOKEN_KEY)
 }
 
 export function setStoredToken(token: string | null): void {
-  if (typeof window === "undefined") return
-  try {
-    if (token) window.localStorage.setItem(TOKEN_KEY, token)
-    else window.localStorage.removeItem(TOKEN_KEY)
-  } catch {
-    // localStorage unavailable — the session just doesn't persist across reloads.
-  }
+  if (token) getProviders().storage.set(TOKEN_KEY, token)
+  else getProviders().storage.remove(TOKEN_KEY)
 }
 
 type UnauthorizedHandler = () => void

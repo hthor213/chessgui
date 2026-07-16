@@ -3,6 +3,7 @@ import type { PvLine } from "@/lib/uci-parser";
 import { maiaStatus, maiaPolicy, type MaiaStatus, type MaiaPolicy } from "@/lib/maia";
 import { computeHumanEval, type HumanEvalResult } from "@/lib/human-eval";
 import { humanEvalTree, type HumanTreeResult } from "@/lib/human-eval-tree";
+import { getProviders } from "@/lib/platform";
 
 const STORAGE_KEY = "human-eval-band";
 const TREE_STORAGE_KEY = "human-eval-tree";
@@ -14,26 +15,22 @@ const TREE_CACHE_LIMIT = 32;
 
 /** Persisted slider state: a band, or null for OFF (pure Stockfish). */
 function loadBand(): number | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = getProviders().storage.get(STORAGE_KEY);
   if (!raw || raw === "off") return null;
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : null;
 }
 
 function saveBand(band: number | null) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, band === null ? "off" : String(band));
+  getProviders().storage.set(STORAGE_KEY, band === null ? "off" : String(band));
 }
 
 function loadTreeMode(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(TREE_STORAGE_KEY) === "1";
+  return getProviders().storage.get(TREE_STORAGE_KEY) === "1";
 }
 
 function saveTreeMode(on: boolean) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(TREE_STORAGE_KEY, on ? "1" : "0");
+  getProviders().storage.set(TREE_STORAGE_KEY, on ? "1" : "0");
 }
 
 interface CachedPolicy {

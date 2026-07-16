@@ -6,6 +6,8 @@
 // The default database (games.db in the app data dir) is represented by
 // `undefined` and is always available; the registry stores only extra paths.
 
+import { getProviders } from "@/lib/platform"
+
 const STORAGE_KEY = "chessgui-db-registry"
 const MAX_ENTRIES = 12
 
@@ -23,9 +25,8 @@ export function dbDisplayName(path: string | undefined): string {
 }
 
 export function loadDbPaths(): string[] {
-  if (typeof localStorage === "undefined") return []
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = getProviders().storage.get(STORAGE_KEY)
     const parsed = raw ? JSON.parse(raw) : []
     return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === "string") : []
   } catch {
@@ -34,10 +35,6 @@ export function loadDbPaths(): string[] {
 }
 
 export function saveDbPaths(list: string[]): void {
-  if (typeof localStorage === "undefined") return
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_ENTRIES)))
-  } catch {
-    // localStorage unavailable — the list just won't persist
-  }
+  // StorageProvider absorbs unavailability — the list just won't persist.
+  getProviders().storage.set(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_ENTRIES)))
 }

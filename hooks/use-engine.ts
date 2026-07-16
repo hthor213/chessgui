@@ -26,8 +26,7 @@ const ENGINE_PACE_STORAGE_KEY = "engine-pace-seconds";
 const DEFAULT_ENGINE_PACE_SECONDS = 20;
 
 function loadEnginePaceSeconds(): number {
-  if (typeof window === "undefined") return DEFAULT_ENGINE_PACE_SECONDS;
-  const raw = localStorage.getItem(ENGINE_PACE_STORAGE_KEY);
+  const raw = getProviders().storage.get(ENGINE_PACE_STORAGE_KEY);
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_ENGINE_PACE_SECONDS;
 }
@@ -158,11 +157,8 @@ export function useEngine(
     const clamped = Math.max(0.1, seconds);
     enginePaceSecondsRef.current = clamped;
     setEnginePaceSecondsState(clamped);
-    try {
-      localStorage.setItem(ENGINE_PACE_STORAGE_KEY, String(clamped));
-    } catch {
-      // localStorage unavailable — pace just won't persist
-    }
+    // StorageProvider absorbs unavailability — pace just won't persist.
+    getProviders().storage.set(ENGINE_PACE_STORAGE_KEY, String(clamped));
   }, []);
   const uciMovesRef = useRef(uciMoves);
   const startFenRef = useRef(startFen);

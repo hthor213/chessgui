@@ -29,8 +29,7 @@ export interface BenchResult {
 
 /** The user's configured engine, matching what the rest of the app benches with. */
 function storedEnginePath(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-  return localStorage.getItem("engine-path") ?? undefined;
+  return getProviders().storage.get("engine-path") ?? undefined;
 }
 
 // The startup auto-bench (spec 216 Tier 2: first-start bench on a new install,

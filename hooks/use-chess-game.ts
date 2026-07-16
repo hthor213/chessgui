@@ -16,6 +16,7 @@ import {
   type SerializedTree,
 } from "@/lib/game-tree";
 import { treeToPgn } from "@/lib/pgn";
+import { getProviders } from "@/lib/platform";
 
 export type PromotionRole = "queen" | "rook" | "bishop" | "knight";
 
@@ -31,11 +32,11 @@ export type GameState = SerializedTree;
 
 const STORAGE_KEY = "chessgui-game";
 
-// Rebuild a tree from whatever is in localStorage. Handles three cases: a
+// Rebuild a tree from whatever is in storage. Handles three cases: a
 // current serialized tree, a legacy flat-move save, or garbage — never throws.
 function loadSavedTree(): GameTree | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = getProviders().storage.get(STORAGE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
     if (saved && saved.nodes && saved.rootId) {
@@ -76,7 +77,7 @@ export function useChessGame() {
   // Persist after every mutation so the game survives crashes and restarts.
   useEffect(() => {
     if (hydrated) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(treeRef.current.toJSON()));
+      getProviders().storage.set(STORAGE_KEY, JSON.stringify(treeRef.current.toJSON()));
     }
   }, [version, hydrated]);
 
@@ -343,7 +344,7 @@ export function useChessGame() {
   );
 
   const newGame = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
+    getProviders().storage.remove(STORAGE_KEY);
     treeRef.current = GameTree.create();
     bump();
   }, [bump]);

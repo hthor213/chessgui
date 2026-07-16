@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import { invoke, Channel } from "@/lib/tauri-bridge"
+import { getProviders } from "@/lib/platform"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -345,7 +346,7 @@ export function TournamentTab({
   const restored = useRef(false)
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("chessgui-tournament-config")
+      const raw = getProviders().storage.get("chessgui-tournament-config")
       if (raw) {
         const c = JSON.parse(raw)
         // Self-heal engine paths saved before the repo moved out of
@@ -391,7 +392,7 @@ export function TournamentTab({
   useEffect(() => {
     if (!restored.current) return // don't clobber saved config before restore runs
     const c = { sideAId, sideBId, firstWhite, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current, autoStartNext, moveDelayMs }
-    try { localStorage.setItem("chessgui-tournament-config", JSON.stringify(c)) } catch { /* ignore */ }
+    getProviders().storage.set("chessgui-tournament-config", JSON.stringify(c))
   }, [sideAId, sideBId, firstWhite, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, autoStartNext, moveDelayMs])
 
   // Face-value clock (ms) implied by the current time-control selection —
@@ -1114,8 +1115,7 @@ export function TournamentTab({
           error={machineProfile.error}
           hwChanged={machineProfile.hwChanged}
           onBench={() => {
-            const enginePath =
-              typeof window !== "undefined" ? localStorage.getItem("engine-path") ?? undefined : undefined
+            const enginePath = getProviders().storage.get("engine-path") ?? undefined
             machineProfile.runBench(enginePath)
           }}
         />

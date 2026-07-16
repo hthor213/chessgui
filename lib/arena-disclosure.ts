@@ -14,26 +14,19 @@ export const ARENA_DISCLOSURE_TEXT =
 /** The tournament-chess-norm addendum from the same spec paragraph. */
 export const ARENA_DISCLOSURE_NOTE = "(Tournament-chess norm: moves are recorded.)"
 
+import { getProviders } from "@/lib/platform"
+
 const STORAGE_KEY = "arena-disclosure-acked"
 
 /** Whether this browser has already seen and acknowledged the disclosure.
  *  False (not an error) on the server, in a fresh browser, or if
- *  localStorage is unavailable — the safe failure direction for a disclosure
- *  is to show it again, never to skip it. */
+ *  storage is unavailable (StorageProvider returns null then) — the safe
+ *  failure direction for a disclosure is to show it again, never to skip it. */
 export function hasAckedDisclosure(): boolean {
-  if (typeof window === "undefined") return false
-  try {
-    return window.localStorage.getItem(STORAGE_KEY) === "1"
-  } catch {
-    return false
-  }
+  return getProviders().storage.get(STORAGE_KEY) === "1"
 }
 
 export function ackDisclosure(): void {
-  if (typeof window === "undefined") return
-  try {
-    window.localStorage.setItem(STORAGE_KEY, "1")
-  } catch {
-    // localStorage unavailable — the screen simply reappears next load.
-  }
+  // Storage unavailable — the screen simply reappears next load.
+  getProviders().storage.set(STORAGE_KEY, "1")
 }

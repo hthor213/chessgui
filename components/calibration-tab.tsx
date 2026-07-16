@@ -60,6 +60,7 @@ import {
   rangeError,
   type Scored,
 } from "@/lib/calibration-stats"
+import { getProviders } from "@/lib/platform"
 import { evalPawnsOf, levelForEloBand, type PlayoutRequest } from "@/lib/playout"
 import { PlayoutScreen } from "@/components/playout-screen"
 
@@ -211,7 +212,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   // On mount, offer to resume an unfinished session.
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
+      const raw = getProviders().storage.get(STORAGE_KEY)
       if (!raw) return
       const parsed = JSON.parse(raw) as Saved
       if (parsed?.session && parsed.index < parsed.session.positions.length) {
@@ -236,33 +237,26 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       li: number,
       pp: LabelerProfile | null,
     ) => {
-      try {
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({
-            session: s,
-            answers: a,
-            index: i,
-            showReveal: sr,
-            showCoach: sc,
-            elicitation: el,
-            lockInN: li,
-            profilePrior: pp,
-          }),
-        )
-      } catch {
-        /* storage full / unavailable — the session still runs in memory */
-      }
+      // Storage full / unavailable — the session still runs in memory.
+      getProviders().storage.set(
+        STORAGE_KEY,
+        JSON.stringify({
+          session: s,
+          answers: a,
+          index: i,
+          showReveal: sr,
+          showCoach: sc,
+          elicitation: el,
+          lockInN: li,
+          profilePrior: pp,
+        }),
+      )
     },
     [],
   )
 
   const clearStorage = useCallback(() => {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      /* ignore */
-    }
+    getProviders().storage.remove(STORAGE_KEY)
   }, [])
 
   const current: CalibrationPosition | null =

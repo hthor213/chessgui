@@ -22,6 +22,7 @@ import {
   type WinProbCurve,
 } from "@/lib/win-prob"
 import { MATE_EVAL_PAWNS } from "@/lib/tournament"
+import { getProviders } from "@/lib/platform"
 import { resultFromLabel, type SparResultOutcome } from "@/lib/spar-results"
 import type { SparColor } from "@/lib/spar"
 
@@ -299,11 +300,11 @@ export function removePlayoutResult(entries: PlayoutResultEntry[], id: string): 
   return entries.filter((e) => e.id !== id)
 }
 
-// localStorage glue (client-only, guarded like the sibling stores).
+// StorageProvider glue (client-only; the provider absorbs unavailability).
 
 export function loadPlayoutResults(): PlayoutResultEntry[] {
   try {
-    const raw = localStorage.getItem(PLAYOUT_STORAGE_KEY)
+    const raw = getProviders().storage.get(PLAYOUT_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? (parsed as PlayoutResultEntry[]) : []
@@ -313,9 +314,6 @@ export function loadPlayoutResults(): PlayoutResultEntry[] {
 }
 
 export function persistPlayoutResults(entries: PlayoutResultEntry[]): void {
-  try {
-    localStorage.setItem(PLAYOUT_STORAGE_KEY, JSON.stringify(entries))
-  } catch {
-    // storage unavailable — entries stay in memory only
-  }
+  // Storage unavailable — entries stay in memory only.
+  getProviders().storage.set(PLAYOUT_STORAGE_KEY, JSON.stringify(entries))
 }
