@@ -1,0 +1,14 @@
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/errm0001"]
+[Date "2026.05.01"]
+[White "walter"]
+[Black "bella"]
+[Result "1-0"]
+[UTCDate "2026.05.01"]
+[UTCTime "12:00:00"]
+[WhiteElo "1650"]
+[BlackElo "1542"]
+[TimeControl "600+5"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] [%clk 0:10:00] } 1... e5 { [%eval 0.25] [%clk 0:09:50] } 2. Nf3 { [%eval 0.3] [%clk 0:09:55] } 2... Nc6 { [%eval 0.2] [%clk 0:09:40] } 3. Bc4 { [%eval 0.25] [%clk 0:09:50] } 3... Nd4 { [%eval 1.5] [%clk 0:00:25] } 1-0

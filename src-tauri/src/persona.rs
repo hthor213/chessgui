@@ -112,8 +112,9 @@ fn san_for(fen: &str, uci: &str) -> Result<String, String> {
 }
 
 /// FEN of the position reached by playing `uci` in `fen` — the position the
-/// verification search evaluates for a candidate move.
-fn fen_after(fen: &str, uci: &str) -> Result<String, String> {
+/// verification search evaluates for a candidate move. `pub(crate)` because the
+/// spec-213 human-visible tree (human_search.rs) advances positions the same way.
+pub(crate) fn fen_after(fen: &str, uci: &str) -> Result<String, String> {
     let mut pos: Chess = Fen::from_ascii(fen.as_bytes())
         .map_err(|e| format!("bad FEN: {e}"))?
         .into_position(CastlingMode::Standard)
@@ -168,7 +169,7 @@ const DEFAULT_TOP_K: usize = 4;
 
 /// Centipawn magnitude a forced mate maps to, so a candidate that walks into (or
 /// delivers) mate dominates the eval penalty. Comfortably beyond any real cp eval.
-const MATE_CP: i64 = 100_000;
+pub(crate) const MATE_CP: i64 = 100_000;
 
 /// Sampling + verification parameters for one persona move. Deserialized from the
 /// frontend; `seed` is per-game and `ply` per-move so the RNG derives
@@ -649,8 +650,8 @@ pub fn resolve_stockfish() -> Option<PathBuf> {
 
 /// Parse `score cp N` / `score mate N` (side-to-move POV) from a UCI info line,
 /// collapsing mate to a large centipawn magnitude. Returns `None` if the line
-/// carries no score.
-fn parse_score_cp(line: &str) -> Option<i64> {
+/// carries no score. Shared with the spec-213 leaf evaluator (human_search.rs).
+pub(crate) fn parse_score_cp(line: &str) -> Option<i64> {
     let mut it = line.split_whitespace();
     while let Some(tok) = it.next() {
         if tok == "score" {
@@ -811,7 +812,7 @@ async fn sf_top_moves(
 }
 
 /// Write one line (with newline) to a Stockfish process and flush.
-async fn sf_send(stdin: &mut tokio::process::ChildStdin, cmd: &str) -> Result<(), String> {
+pub(crate) async fn sf_send(stdin: &mut tokio::process::ChildStdin, cmd: &str) -> Result<(), String> {
     stdin
         .write_all(cmd.as_bytes())
         .await
@@ -829,7 +830,7 @@ async fn sf_send(stdin: &mut tokio::process::ChildStdin, cmd: &str) -> Result<()
 
 /// Read lines until `predicate` matches, bounded by a generous timeout so a hung
 /// engine can't wedge a move forever.
-async fn read_until<R, F>(reader: &mut BufReader<R>, mut predicate: F) -> Result<(), String>
+pub(crate) async fn read_until<R, F>(reader: &mut BufReader<R>, mut predicate: F) -> Result<(), String>
 where
     R: tokio::io::AsyncRead + Unpin,
     F: FnMut(&str) -> bool,

@@ -1,0 +1,363 @@
+// Phase-A profile lock-in (spec 213 adaptive elicitation) — the labeler
+// profile and the deterministic lock-in reordering of a sampled session.
+
+import { describe, it, expect } from "vitest"
+import {
+  PROFILE_LOCK_N,
+  LOCK_IN_CAP,
+  signedError,
+  emptyProfile,
+  profileOfSession,
+  mergeProfiles,
+  buildProfileFromResults,
+  lockInNeed,
+  lockInPlan,
+  applyLockIn,
+} from "@/lib/calibration-profile"
+import { scoredAnswers, PHASES } from "@/lib/calibration-stats"
+import type {
+  CalibrationAnswer,
+  CalibrationPosition,
+  CalibrationResults,
+  CalibrationSession,
+  LabelerProfile,
+} from "@/lib/calibration"
+
+function pos(over: Partial<CalibrationPosition>): CalibrationPosition {
+  return {
+    fen: "8/8/8/8/8/8/8/8 w - - 0 1",
+    sf_cp: 0,
+    sf_mate: null,
+    sf_best_uci: "e2e4",
+    sf_best_san: "e4",
+    multipv_gap_cp: null,
+    material: 0,
+    band: "0-0.5",
+    phase: "middlegame",
+    game_id: 1,
+    ply: 20,
+    white_elo: 1800,
+    black_elo: 1800,
+    elo_band: "1600-2000",
+    to_move: "white",
+    played_uci: "e2e4",
+    played_san: "e4",
+    continuation_san: [],
+    ...over,
+  }
+}
+
+function ans(over: Partial<CalibrationAnswer>): CalibrationAnswer {
+  return {
+    index: 0,
+    eval: 0,
+    eval_lo: null,
+    eval_hi: null,
+    why: "",
+    move_uci: null,
+    elapsed_ms: 1000,
+    think_ms: 3000,
+    time_excluded: false,
+    answer_locked_at: 1_000_000,
+    revised_eval: null,
+    revision_note: null,
+    revised_at: null,
+    coach: null,
+    rebuttal: null,
+    coach_reply: null,
+    skipped: false,
+    ...over,
+  }
+}
+
+function session(positions: CalibrationPosition[]): CalibrationSession {
+  return {
+    version: 3,
+    n: positions.length,
+    created_at: 0,
+    stockfish_path: "(test)",
+    positions,
+  }
+}
+
+/** n middlegames followed by m endgames (deterministic fixture). */
+function mixedPositions(mg: number, eg: number): CalibrationPosition[] {
+  return [
+    ...Array.from({ length: mg }, (_, i) => pos({ phase: "middlegame", game_id: 100 + i })),
+    ...Array.from({ length: eg }, (_, i) => pos({ phase: "endgame", game_id: 200 + i })),
+  ]
+}
+
+describe("signedError", () => {
+  it("is user − SF on point answers (+ = leaned White)", () => {
+    const s = session([pos({ sf_cp: 100 })])
+    const scored = scoredAnswers(s, [ans({ index: 0, eval: 2.0 })])
+    expect(signedError(scored[0])).toBeCloseTo(1.0)
+    const under = scoredAnswers(s, [ans({ index: 0, eval: -0.5 })])
+    expect(signedError(under[0])).toBeCloseTo(-1.5)
+  })
+
+  it("is the signed edge distance on range answers, 0 inside", () => {
+    const s = session([pos({ sf_cp: 50 }), pos({ sf_cp: 150 }), pos({ sf_cp: 350 })])
+    const scored = scoredAnswers(s, [
+      ans({ index: 0, eval: 1.5, eval_lo: 1, eval_hi: 2 }), // SF below range → user too high, +0.5
+      ans({ index: 1, eval: 1.5, eval_lo: 1, eval_hi: 2 }), // inside → 0
+      ans({ index: 2, eval: 1.5, eval_lo: 1, eval_hi: 2 }), // SF above range → user too low, −1.5
+    ])
+    expect(signedError(scored[0])).toBeCloseTo(0.5)
+    expect(signedError(scored[1])).toBe(0)
+    expect(signedError(scored[2])).toBeCloseTo(-1.5)
+  })
+})
+
+describe("profileOfSession", () => {
+  it("builds the per-phase vector with count, MAE, and bias", () => {
+    const s = session([
+      pos({ phase: "middlegame", sf_cp: 100 }),
+      pos({ phase: "middlegame", sf_cp: 0 }),
+      pos({ phase: "endgame", sf_cp: 200 }),
+      pos({ phase: "endgame", sf_cp: 0 }),
+    ])
+    const p = profileOfSession(s, [
+      ans({ index: 0, eval: 2.0 }), // mg: +1.0
+      ans({ index: 1, eval: -1.0 }), // mg: −1.0
+      ans({ index: 2, eval: 2.0 }), // eg: 0
+      ans({ index: 3, skipped: true, eval: null }), // ignored
+    ])
+    expect(p.sessions).toBe(1)
+    expect(p.answers).toBe(3)
+    expect(p.per_phase.map((c) => c.phase)).toEqual([...PHASES])
+    const mg = p.per_phase.find((c) => c.phase === "middlegame")!
+    expect(mg.count).toBe(2)
+    expect(mg.mae).toBeCloseTo(1.0)
+    expect(mg.bias).toBeCloseTo(0) // +1 and −1 cancel
+    const eg = p.per_phase.find((c) => c.phase === "endgame")!
+    expect(eg.count).toBe(1)
+    expect(eg.mae).toBeCloseTo(0)
+    // Overall: signed errors [1, −1, 0] → bias 0, population sd √(2/3).
+    expect(p.bias).toBeCloseTo(0)
+    expect(p.sd).toBeCloseTo(Math.sqrt(2 / 3))
+  })
+
+  it("is all-null/zero on an unanswered session", () => {
+    const p = profileOfSession(session([pos({})]), [])
+    expect(p.answers).toBe(0)
+    expect(p.bias).toBeNull()
+    expect(p.sd).toBeNull()
+    expect(p.per_phase.every((c) => c.count === 0 && c.mae === null && c.bias === null)).toBe(true)
+  })
+})
+
+describe("mergeProfiles", () => {
+  it("merging per-session profiles equals computing over the concatenated answers", () => {
+    const s1 = session([pos({ phase: "middlegame", sf_cp: 100 }), pos({ phase: "endgame", sf_cp: 0 })])
+    const a1 = [ans({ index: 0, eval: 2.5 }), ans({ index: 1, eval: -0.5 })]
+    const s2 = session([pos({ phase: "middlegame", sf_cp: -200 }), pos({ phase: "middlegame", sf_cp: 50 })])
+    const a2 = [ans({ index: 0, eval: -1.0 }), ans({ index: 1, eval: 1.5 })]
+
+    const merged = mergeProfiles(profileOfSession(s1, a1), profileOfSession(s2, a2))
+    // Direct computation over one concatenated session (indices shifted).
+    const direct = profileOfSession(session([...s1.positions, ...s2.positions]), [
+      ...a1,
+      ans({ index: 2, eval: -1.0 }),
+      ans({ index: 3, eval: 1.5 }),
+    ])
+    expect(merged.answers).toBe(direct.answers)
+    expect(merged.bias).toBeCloseTo(direct.bias!, 10)
+    expect(merged.sd).toBeCloseTo(direct.sd!, 10)
+    for (const phase of PHASES) {
+      const m = merged.per_phase.find((c) => c.phase === phase)!
+      const d = direct.per_phase.find((c) => c.phase === phase)!
+      expect(m.count).toBe(d.count)
+      if (d.mae == null) expect(m.mae).toBeNull()
+      else expect(m.mae).toBeCloseTo(d.mae, 10)
+      if (d.bias == null) expect(m.bias).toBeNull()
+      else expect(m.bias).toBeCloseTo(d.bias, 10)
+    }
+    expect(merged.sessions).toBe(2)
+  })
+
+  it("merging with the empty profile is the identity", () => {
+    const p = profileOfSession(session([pos({ sf_cp: 100 })]), [ans({ index: 0, eval: 0.5 })])
+    const m = mergeProfiles(emptyProfile(), p)
+    expect(m.answers).toBe(p.answers)
+    expect(m.bias).toBeCloseTo(p.bias!)
+    expect(m.sd).toBeCloseTo(p.sd!)
+  })
+})
+
+describe("buildProfileFromResults", () => {
+  it("is null with no usable results (fresh labeler ≠ empty profile)", () => {
+    expect(buildProfileFromResults([])).toBeNull()
+    // Malformed entries are skipped, not fatal.
+    expect(buildProfileFromResults([{} as CalibrationResults, null as unknown as CalibrationResults])).toBeNull()
+  })
+
+  it("folds a stored v1 results file (point answers, pre-think_ms) — history survives schema upgrades", () => {
+    // Shaped exactly like an old results file: v1 positions (no v2/v3 fields),
+    // answers without think_ms/range fields.
+    const v1Results = {
+      version: 1,
+      finished_at: 1,
+      session: {
+        version: 1,
+        n: 2,
+        created_at: 0,
+        stockfish_path: "(old)",
+        positions: [
+          {
+            fen: "8/8/8/8/8/8/8/8 w - - 0 1",
+            sf_cp: 100,
+            sf_mate: null,
+            sf_best_uci: "e2e4",
+            sf_best_san: "e4",
+            multipv_gap_cp: null,
+            material: 0,
+            band: "0.5-1.5",
+            phase: "middlegame",
+            game_id: 1,
+            ply: 20,
+          },
+          {
+            fen: "8/8/8/8/8/8/8/8 w - - 0 1",
+            sf_cp: 0,
+            sf_mate: null,
+            sf_best_uci: "e2e4",
+            sf_best_san: "e4",
+            multipv_gap_cp: null,
+            material: 0,
+            band: "0-0.5",
+            phase: "endgame",
+            game_id: 2,
+            ply: 60,
+          },
+        ],
+      },
+      answers: [
+        { index: 0, eval: 1.5, why: "", move_uci: null, elapsed_ms: 5000, skipped: false },
+        { index: 1, eval: 0.5, why: "", move_uci: null, elapsed_ms: 5000, skipped: false },
+      ],
+    } as unknown as CalibrationResults
+    const p = buildProfileFromResults([v1Results])!
+    expect(p).not.toBeNull()
+    expect(p.sessions).toBe(1)
+    expect(p.answers).toBe(2)
+    expect(p.per_phase.find((c) => c.phase === "middlegame")!.count).toBe(1)
+    expect(p.per_phase.find((c) => c.phase === "endgame")!.count).toBe(1)
+    expect(p.bias).toBeCloseTo(0.5)
+  })
+})
+
+describe("lockInNeed", () => {
+  it("is the full PROFILE_LOCK_N per phase for a fresh labeler", () => {
+    expect(lockInNeed(null)).toEqual(PHASES.map(() => PROFILE_LOCK_N))
+  })
+
+  it("credits prior answers per phase, floored at 0", () => {
+    const prior: LabelerProfile = {
+      sessions: 1,
+      answers: 13,
+      bias: 0,
+      sd: 0.5,
+      per_phase: [
+        { phase: "middlegame", count: 5, mae: 0.6, bias: 0.1 },
+        { phase: "endgame", count: 8, mae: 0.4, bias: 0 },
+      ],
+    }
+    expect(lockInNeed(prior)).toEqual([PROFILE_LOCK_N - 5, 0])
+  })
+})
+
+describe("lockInPlan / applyLockIn", () => {
+  it("fresh labeler: a 16-position burst covering both phases, alternating from the neediest", () => {
+    const positions = mixedPositions(20, 20)
+    const { order, lockInCount } = lockInPlan(positions, null)
+    expect(lockInCount).toBe(2 * PROFILE_LOCK_N) // 16, inside the spec's 10–20 band
+    expect(lockInCount).toBeLessThanOrEqual(LOCK_IN_CAP)
+    const burst = order.slice(0, lockInCount).map((i) => positions[i].phase)
+    expect(burst.filter((p) => p === "middlegame")).toHaveLength(PROFILE_LOCK_N)
+    expect(burst.filter((p) => p === "endgame")).toHaveLength(PROFILE_LOCK_N)
+    // Equal needs alternate (tie → PHASES order first): mg, eg, mg, eg, …
+    expect(burst.slice(0, 4)).toEqual(["middlegame", "endgame", "middlegame", "endgame"])
+    // The plan is a permutation: every index exactly once.
+    expect([...order].sort((a, b) => a - b)).toEqual(positions.map((_, i) => i))
+    // After the burst, the original sampled order is preserved.
+    const rest = order.slice(lockInCount)
+    expect(rest).toEqual([...rest].sort((a, b) => a - b))
+  })
+
+  it("is deterministic: identical inputs give the identical order", () => {
+    const positions = mixedPositions(12, 8)
+    const a = lockInPlan(positions, null)
+    const b = lockInPlan(positions, null)
+    expect(a.order).toEqual(b.order)
+    expect(a.lockInCount).toBe(b.lockInCount)
+  })
+
+  it("returning labeler: only the unpinned phase is drawn, most-needed first", () => {
+    const prior: LabelerProfile = {
+      sessions: 2,
+      answers: 20,
+      bias: 0.2,
+      sd: 0.7,
+      per_phase: [
+        { phase: "middlegame", count: 12, mae: 0.8, bias: 0.3 }, // locked
+        { phase: "endgame", count: 5, mae: 0.5, bias: 0 }, // needs 3 more
+      ],
+    }
+    const positions = mixedPositions(10, 10)
+    const { order, lockInCount } = lockInPlan(positions, prior)
+    expect(lockInCount).toBe(3)
+    expect(order.slice(0, 3).map((i) => positions[i].phase)).toEqual([
+      "endgame",
+      "endgame",
+      "endgame",
+    ])
+  })
+
+  it("fully locked profile: no burst, original order untouched", () => {
+    const prior: LabelerProfile = {
+      sessions: 3,
+      answers: 40,
+      bias: 0,
+      sd: 0.6,
+      per_phase: [
+        { phase: "middlegame", count: 25, mae: 0.7, bias: 0.1 },
+        { phase: "endgame", count: 15, mae: 0.5, bias: -0.1 },
+      ],
+    }
+    const positions = mixedPositions(6, 4)
+    const { order, lockInCount } = lockInPlan(positions, prior)
+    expect(lockInCount).toBe(0)
+    expect(order).toEqual(positions.map((_, i) => i))
+  })
+
+  it("a phase the sample can't supply takes what exists — no hang, burst shrinks", () => {
+    const positions = mixedPositions(30, 2) // only 2 endgames available
+    const { order, lockInCount } = lockInPlan(positions, null)
+    expect(lockInCount).toBe(PROFILE_LOCK_N + 2)
+    const burst = order.slice(0, lockInCount).map((i) => positions[i].phase)
+    expect(burst.filter((p) => p === "endgame")).toHaveLength(2)
+    expect([...order].sort((a, b) => a - b)).toEqual(positions.map((_, i) => i))
+  })
+
+  it("a session smaller than the burst is consumed whole, once each", () => {
+    const positions = mixedPositions(3, 3)
+    const { order, lockInCount } = lockInPlan(positions, null)
+    expect(lockInCount).toBe(6)
+    expect([...order].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5])
+  })
+
+  it("applyLockIn reorders the session so answer indices track presentation order", () => {
+    const s = session(mixedPositions(10, 10))
+    const { session: reordered, lockInCount } = applyLockIn(s, null)
+    expect(lockInCount).toBe(16)
+    expect(reordered.positions).toHaveLength(20)
+    // Same multiset of positions, burst-first order.
+    expect(new Set(reordered.positions.map((p) => p.game_id)).size).toBe(20)
+    expect(reordered.positions[0].phase).toBe("middlegame")
+    expect(reordered.positions[1].phase).toBe("endgame")
+    // The original session object is not mutated.
+    expect(s.positions[1].phase).toBe("middlegame")
+  })
+})

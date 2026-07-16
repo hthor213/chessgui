@@ -7,6 +7,7 @@
 import type {
   CalibrationPosition,
   CalibrationProgress,
+  CalibrationResults,
   CalibrationSession,
   CoachFeedback,
   CoachInput,
@@ -179,6 +180,23 @@ export async function buildMockSession(
     created_at: Date.now(),
     stockfish_path: "(mock)",
     positions,
+  }
+}
+
+/** localStorage key a headless test can seed with a JSON array of
+ *  CalibrationResults to exercise the returning-user Phase-A path. */
+export const MOCK_PRIORS_KEY = "chessgui:calibration:mock-priors"
+
+/** Prior saved results for Phase-A lock-in, outside Tauri: an optional
+ *  localStorage seed (see MOCK_PRIORS_KEY), else none — a fresh labeler. */
+export async function mockPriorResults(): Promise<CalibrationResults[]> {
+  try {
+    const raw = localStorage.getItem(MOCK_PRIORS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as CalibrationResults[]) : []
+  } catch {
+    return []
   }
 }
 

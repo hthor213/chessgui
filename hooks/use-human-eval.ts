@@ -2,10 +2,15 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import type { PvLine } from "@/lib/uci-parser";
 import { maiaStatus, maiaPolicy, type MaiaStatus, type MaiaPolicy } from "@/lib/maia";
 import { computeHumanEval, type HumanEvalResult } from "@/lib/human-eval";
+import { humanEvalTree, type HumanTreeResult } from "@/lib/human-eval-tree";
 
 const STORAGE_KEY = "human-eval-band";
+const TREE_STORAGE_KEY = "human-eval-tree";
 const DEBOUNCE_MS = 150;
+/** Tier-1 debounce: longer than tier-0 — a tree search costs ~0.2–4 s. */
+const TREE_DEBOUNCE_MS = 400;
 const CACHE_LIMIT = 64;
+const TREE_CACHE_LIMIT = 32;
 
 /** Persisted slider state: a band, or null for OFF (pure Stockfish). */
 function loadBand(): number | null {
@@ -19,6 +24,16 @@ function loadBand(): number | null {
 function saveBand(band: number | null) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, band === null ? "off" : String(band));
+}
+
+function loadTreeMode(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(TREE_STORAGE_KEY) === "1";
+}
+
+function saveTreeMode(on: boolean) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TREE_STORAGE_KEY, on ? "1" : "0");
 }
 
 interface CachedPolicy {
@@ -50,6 +65,13 @@ export interface UseHumanEval {
   result: HumanEvalResult | null;
   loading: boolean;
   error: string | null;
+  /** Tier-1 (experimental) human-visible tree mode toggle. */
+  tree: boolean;
+  setTree: (on: boolean) => void;
+  /** Tier-1 tree result for the current position/band, or null. */
+  treeResult: HumanTreeResult | null;
+  treeLoading: boolean;
+  treeError: string | null;
 }
 
 /**
@@ -69,14 +91,24 @@ export function useHumanEval({
   const [cached, setCached] = useState<CachedPolicy | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tree, setTreeState] = useState(false);
+  const [cachedTree, setCachedTree] = useState<{ key: string; result: HumanTreeResult } | null>(
+    null
+  );
+  const [treeLoading, setTreeLoading] = useState(false);
+  const [treeError, setTreeError] = useState<string | null>(null);
 
   const cacheRef = useRef<Map<string, MaiaPolicy>>(new Map());
   const reqIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const treeCacheRef = useRef<Map<string, HumanTreeResult>>(new Map());
+  const treeReqIdRef = useRef(0);
+  const treeDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Availability + persisted band, once on mount.
   useEffect(() => {
     setBandState(loadBand());
+    setTreeState(loadTreeMode());
     let cancelled = false;
     maiaStatus().then((s) => {
       if (!cancelled) setStatus(s);
@@ -89,7 +121,16 @@ export function useHumanEval({
   const setBand = useCallback((next: number | null) => {
     setBandState(next);
     saveBand(next);
-    if (next === null) setError(null);
+    if (next === null) {
+      setError(null);
+      setTreeError(null);
+    }
+  }, []);
+
+  const setTree = useCallback((on: boolean) => {
+    setTreeState(on);
+    saveTreeMode(on);
+    if (!on) setTreeError(null);
   }, []);
 
   const available = status?.lc0_available ?? false;
@@ -139,6 +180,54 @@ export function useHumanEval({
     };
   }, [analysisFen, band, available, engineRunning]);
 
+  // Tier-1: run the human-visible tree search for (analysisFen, band) when the
+  // tree toggle is on. Independent of the Stockfish stream (the backend runs
+  // its own leaf engine); keyed and race-guarded like the tier-0 policy fetch.
+  // The tier-0 result keeps rendering while this is in flight — the tree value
+  // replaces it when it lands.
+  useEffect(() => {
+    if (treeDebounceRef.current) clearTimeout(treeDebounceRef.current);
+
+    if (!tree || band === null || !available || !engineRunning || !analysisFen) {
+      setTreeLoading(false);
+      return;
+    }
+
+    const key = `${analysisFen}|${band}`;
+    const hit = treeCacheRef.current.get(key);
+    if (hit) {
+      setCachedTree({ key, result: hit });
+      setTreeLoading(false);
+      setTreeError(null);
+      return;
+    }
+
+    const reqId = ++treeReqIdRef.current;
+    setTreeLoading(true);
+    treeDebounceRef.current = setTimeout(() => {
+      humanEvalTree(analysisFen, band)
+        .then((result) => {
+          if (reqId !== treeReqIdRef.current) return; // superseded
+          const c = treeCacheRef.current;
+          c.set(key, result);
+          if (c.size > TREE_CACHE_LIMIT) c.delete(c.keys().next().value as string);
+          setCachedTree({ key, result });
+          setTreeError(null);
+          setTreeLoading(false);
+        })
+        .catch((e) => {
+          if (reqId !== treeReqIdRef.current) return;
+          setTreeError(String(e));
+          setCachedTree(null);
+          setTreeLoading(false);
+        });
+    }, TREE_DEBOUNCE_MS);
+
+    return () => {
+      if (treeDebounceRef.current) clearTimeout(treeDebounceRef.current);
+    };
+  }, [analysisFen, band, tree, available, engineRunning]);
+
   // Recompute the blend from the current policy + live Stockfish lines. Cheap
   // and pure, so it re-runs on every depth tick without touching lc0.
   const result = useMemo<HumanEvalResult | null>(() => {
@@ -147,5 +236,25 @@ export function useHumanEval({
     return computeHumanEval({ fen: analysisFen, scoreTurn, lines, policy: cached.policy });
   }, [band, cached, analysisFen, scoreTurn, lines]);
 
-  return { available, status, band, setBand, result, loading, error };
+  // Tree result only counts when it matches the position/band on screen.
+  const treeResult = useMemo<HumanTreeResult | null>(() => {
+    if (!tree || band === null || !cachedTree) return null;
+    if (cachedTree.key !== `${analysisFen}|${band}`) return null;
+    return cachedTree.result;
+  }, [tree, band, cachedTree, analysisFen]);
+
+  return {
+    available,
+    status,
+    band,
+    setBand,
+    result,
+    loading,
+    error,
+    tree,
+    setTree,
+    treeResult,
+    treeLoading,
+    treeError,
+  };
 }

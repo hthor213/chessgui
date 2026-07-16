@@ -242,6 +242,145 @@ class StockfishMultiPV:
             self._p.kill()
 
 
+def parse_sf_stm_score(lines: List[str]) -> Optional[int]:
+    """Side-to-move-POV centipawn score (deepest `score` line), mate collapsed
+    to MATE_CP magnitude — the exact parse persona.rs's verify path does."""
+    val: Optional[int] = None
+    for line in lines:
+        t = line.strip()
+        if not t.startswith("info ") or " score " not in t:
+            continue
+        toks = t.split()
+        try:
+            i = toks.index("score")
+            kind, num = toks[i + 1], int(toks[i + 2])
+        except (ValueError, IndexError):
+            continue
+        if kind == "cp":
+            val = num
+        elif kind == "mate":
+            val = (MATE_CP - abs(num)) * (1 if num >= 0 else -1)
+    return val
+
+
+def parse_sf_multipv_scored(lines: List[str]) -> List[Tuple[str, int]]:
+    """MultiPV (uci, cp) pairs ordered by multipv index, keeping the deepest
+    iteration per index — persona.rs sf_top_moves semantics (stm-POV; mate ->
+    MATE_CP magnitude)."""
+    by_rank: dict[int, Tuple[str, int]] = {}
+    for line in lines:
+        t = line.strip()
+        if not t.startswith("info ") or " score " not in t or " pv " not in t:
+            continue
+        toks = t.split()
+        rank = 1
+        try:
+            if "multipv" in toks:
+                rank = int(toks[toks.index("multipv") + 1])
+            i = toks.index("score")
+            kind, num = toks[i + 1], int(toks[i + 2])
+            move = toks[toks.index("pv") + 1]
+        except (ValueError, IndexError):
+            continue
+        if not _is_uci_move(move):
+            continue
+        if kind == "cp":
+            cp = num
+        elif kind == "mate":
+            cp = (MATE_CP - abs(num)) * (1 if num >= 0 else -1)
+        else:
+            continue
+        by_rank[rank] = (move, cp)
+    return [by_rank[k] for k in sorted(by_rank)]
+
+
+class StockfishDepth:
+    """A warm single-threaded Stockfish searched at FIXED DEPTH — the persona
+    engine's verification discipline (persona.rs uses `go depth d`, never
+    movetime, so evals reproduce for a given Stockfish build).
+
+    Three reads:
+      * eval_after(fen, uci, depth) — search the position AFTER the move and
+        negate to mover-POV: exactly verify_candidates() in persona.rs.
+      * best_move(fen, depth)      — the engine's best move of the position
+        (used only to FIND the reference move for ACPL; its loss is then
+        measured through eval_after like every other move).
+      * multipv_top(fen, k, depth) — the endgame arm's candidate source
+        (sf_top_moves in persona.rs): stm-POV (uci, cp), best first.
+    """
+
+    def __init__(self, sf_path: str, name: str = "stockfish-depth"):
+        import chess as _chess
+        self._chess = _chess
+        self.name = name
+        self._p = subprocess.Popen(
+            [sf_path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, bufsize=1,
+        )
+        self._send("uci")
+        self._wait("uciok")
+        self._send("setoption name Threads value 1")
+        self._multipv = 1
+        self._send("isready")
+        self._wait("readyok")
+
+    def _send(self, cmd: str) -> None:
+        assert self._p.stdin is not None
+        self._p.stdin.write(cmd + "\n")
+        self._p.stdin.flush()
+
+    def _wait(self, tok: str) -> List[str]:
+        assert self._p.stdout is not None
+        lines: List[str] = []
+        for line in self._p.stdout:
+            line = line.rstrip("\n")
+            lines.append(line)
+            if line.startswith(tok):
+                break
+        return lines
+
+    def _set_multipv(self, k: int) -> None:
+        if k != self._multipv:
+            self._send(f"setoption name MultiPV value {k}")
+            self._multipv = k
+
+    def eval_after(self, fen: str, uci: str, depth: int) -> Optional[int]:
+        """Mover-POV cp of playing `uci` in `fen`: fixed-depth search of the
+        resulting position, negated (the score there is the opponent's POV)."""
+        board = self._chess.Board(fen)
+        board.push(self._chess.Move.from_uci(uci))
+        self._set_multipv(1)
+        self._send(f"position fen {board.fen()}")
+        self._send(f"go depth {max(depth, 1)}")
+        val = parse_sf_stm_score(self._wait("bestmove"))
+        return None if val is None else -val
+
+    def best_move(self, fen: str, depth: int) -> Optional[str]:
+        self._set_multipv(1)
+        self._send(f"position fen {fen}")
+        self._send(f"go depth {max(depth, 1)}")
+        for line in self._wait("bestmove"):
+            t = line.strip()
+            if t.startswith("bestmove"):
+                parts = t.split()
+                if len(parts) > 1 and _is_uci_move(parts[1]):
+                    return parts[1]
+        return None
+
+    def multipv_top(self, fen: str, k: int, depth: int) -> List[Tuple[str, int]]:
+        self._set_multipv(max(k, 1))
+        self._send(f"position fen {fen}")
+        self._send(f"go depth {max(depth, 1)}")
+        return parse_sf_multipv_scored(self._wait("bestmove"))[:k]
+
+    def close(self) -> None:
+        try:
+            self._send("quit")
+            self._p.wait(timeout=5)
+        except Exception:
+            self._p.kill()
+
+
 class StockfishEval:
     """A warm Stockfish process returning a White-POV centipawn eval per FEN.
 

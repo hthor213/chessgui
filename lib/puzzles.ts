@@ -22,6 +22,8 @@
 
 import { invoke } from "@tauri-apps/api/core"
 import { isTauri } from "@/lib/database"
+import { calmDeck, getCalm, type CalmRow } from "@/lib/calm-positions"
+import { dueRespawns, rakeKey, type PuzzleResultEntry } from "@/lib/puzzle-results"
 
 // ---------------------------------------------------------------------------
 // Types mirroring the Rust structs (src-tauri/src/puzzles.rs)
@@ -187,9 +189,66 @@ export function gradeMove(puzzle: PuzzleRow, uci: string, check: MoveCheck | nul
   }
 }
 
+/**
+ * Grade a move on a CALM position (spec 211 mixed decks: no stored trap —
+ * "any developing move passes"). Same thresholds as gradeMove's engine path,
+ * against the calm row's own verified best; the notes may reveal the
+ * position was calm because grading happens strictly AFTER the answer.
+ */
+export function gradeCalmMove(calm: CalmRow, check: MoveCheck | null): Grade {
+  if (check === null) {
+    return {
+      verdict: "safe_unverified",
+      correct: true,
+      note: "Engine check unavailable here, so this move is unverified — the desktop app grades it fully.",
+      replayLine: [],
+    }
+  }
+  if (check.mate_mover != null) {
+    if (check.mate_mover < 0) {
+      return {
+        verdict: "blunder",
+        correct: false,
+        note: `This position was calm — most moves were fine, but this one runs into mate in ${-check.mate_mover}.`,
+        replayLine: check.pv,
+      }
+    }
+    return {
+      verdict: "safe",
+      correct: true,
+      note: `Safe — in fact it mates in ${check.mate_mover}.`,
+      replayLine: [],
+    }
+  }
+  const best = calm.verified_pre_best_cp
+  const cp = check.cp_mover ?? 0
+  if (cp <= -LOST_THRESHOLD_CP) {
+    return {
+      verdict: "blunder",
+      correct: false,
+      note: `This position was calm — most moves were fine, but this one loses (${pawns(cp)} at depth ${check.depth}).`,
+      replayLine: check.pv,
+    }
+  }
+  if (cp >= best - calm.safe_threshold) {
+    return {
+      verdict: "safe",
+      correct: true,
+      note: `Sound (${pawns(cp)} at depth ${check.depth}). This position was calm — most moves keep the balance.`,
+      replayLine: [],
+    }
+  }
+  return {
+    verdict: "inaccuracy",
+    correct: true,
+    note: `Safe, though not most accurate — ${pawns(cp)} vs ${pawns(best)} at depth ${check.depth}. The position was calm.`,
+    replayLine: [],
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Deck sessions (minimal: N puzzles, tallied — streaks/spaced-rep are spec
-// 211 session-flow items, deliberately NOT built here)
+// Deck sessions: respawns-first draw, ~70/30 rake/calm fresh mix, session
+// streak. Results persist via lib/puzzle-results.ts (the caller records).
 // ---------------------------------------------------------------------------
 
 export interface DeckRequest {
@@ -210,9 +269,18 @@ export function bandForRating(rating: number | null): string | null {
 }
 
 export interface SessionResult {
-  puzzleId: number
+  /** DB row id for rake puzzles, the stable string id for calm rows. */
+  puzzleId: number | string
   verdict: GradeVerdict
   correct: boolean
+}
+
+/** Current session streak: consecutive correct answers counting back from
+ *  the latest result. Resets to 0 the moment a rake is stepped on. */
+export function streak(results: readonly SessionResult[]): number {
+  let n = 0
+  for (let i = results.length - 1; i >= 0 && results[i].correct; i--) n++
+  return n
 }
 
 export interface SessionSummary {
@@ -229,6 +297,112 @@ export function summarize(results: SessionResult[]): SessionSummary {
     rakes: results.filter((r) => !r.correct).length,
     unverified: results.filter((r) => r.verdict === "safe_unverified").length,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Mixed-deck builder (spec 211: calm mix + respawn priority)
+// ---------------------------------------------------------------------------
+
+/** One deck slot: a mined rake puzzle or an engine-verified calm position.
+ *  `respawn` marks a failed puzzle back for review (spaced repetition). */
+export type DeckItem =
+  | { kind: "rake"; puzzle: PuzzleRow; respawn: boolean }
+  | { kind: "calm"; calm: CalmRow; respawn: boolean }
+
+export function deckItemFen(item: DeckItem): string {
+  return item.kind === "rake" ? item.puzzle.fen : item.calm.fen
+}
+
+export function deckItemBand(item: DeckItem): string | null {
+  return item.kind === "rake" ? item.puzzle.band : item.calm.band
+}
+
+/** Stable spaced-repetition identity (see lib/puzzle-results.ts). */
+export function deckItemKey(item: DeckItem): string {
+  return item.kind === "rake" ? rakeKey(item.puzzle.fen, item.puzzle.trap_uci) : item.calm.id
+}
+
+/** Fraction of the FRESH draw that is calm (spec 211 default ~70/30). */
+export const CALM_RATIO = 0.3
+
+/** Calm slots in a fresh draw of `n`: nearest integer to 30% (5 → 2, 10 → 3,
+ *  1 → 0). Rounding, not flooring, so small decks still carry calm. */
+export function calmCountFor(n: number): number {
+  return Math.max(0, Math.round(n * CALM_RATIO))
+}
+
+export interface BuildDeckOptions {
+  /** The attempt log (lib/puzzle-results.ts). Empty = no respawns. */
+  entries?: readonly PuzzleResultEntry[]
+  now?: number
+  /** Injectable for deterministic tests; shuffles the fresh mix. */
+  rng?: () => number
+}
+
+/**
+ * Build a session deck of `req.count` items:
+ *   1. Due respawns first (longest-overdue leading) — failed puzzles whose
+ *      review day has come get priority, filtered to the requested band
+ *      ("All" reviews every band). Rake respawns are refetched by row id and
+ *      dropped if the row no longer matches (DB rebuilt) — better a fresh
+ *      puzzle than a wrong one.
+ *   2. The remaining slots are a fresh draw, ~70/30 rake/calm (calmCountFor),
+ *      shuffled together so position in the deck never signals the kind
+ *      (spec 211's anchor-leak lesson). Short supply on either side tops up
+ *      from the other; if both are short the deck is short — honestly.
+ */
+export async function buildDeck(req: DeckRequest, opts: BuildDeckOptions = {}): Promise<DeckItem[]> {
+  const now = opts.now ?? Date.now()
+  const rng = opts.rng ?? Math.random
+  const entries = opts.entries ?? []
+
+  const respawns: DeckItem[] = []
+  const usedRakeKeys = new Set<string>()
+  const usedCalmIds = new Set<string>()
+  for (const r of dueRespawns(entries, now)) {
+    if (respawns.length >= req.count) break
+    if (req.band !== null && r.band !== req.band) continue
+    if (r.kind === "calm") {
+      const calm = getCalm(r.key)
+      if (calm && !usedCalmIds.has(calm.id)) {
+        respawns.push({ kind: "calm", calm, respawn: true })
+        usedCalmIds.add(calm.id)
+      }
+    } else if (r.puzzleId != null) {
+      const row = await getPuzzle(r.puzzleId)
+      if (row && row.fen === r.fen && !usedRakeKeys.has(rakeKey(row.fen, row.trap_uci))) {
+        respawns.push({ kind: "rake", puzzle: row, respawn: true })
+        usedRakeKeys.add(rakeKey(row.fen, row.trap_uci))
+      }
+    }
+  }
+
+  const fresh = req.count - respawns.length
+  // Calm first (bounded supply), remainder to rakes; a thin rake draw hands
+  // its unfilled slots back to calm.
+  const calmRows = calmDeck(req.band, calmCountFor(fresh), usedCalmIds, rng)
+  const rakeTarget = fresh - calmRows.length
+  let rakeRows: PuzzleRow[] = []
+  if (rakeTarget > 0) {
+    const drawn = await puzzleDeck({ band: req.band, count: rakeTarget + usedRakeKeys.size })
+    rakeRows = drawn
+      .filter((p) => !usedRakeKeys.has(rakeKey(p.fen, p.trap_uci)))
+      .slice(0, rakeTarget)
+  }
+  if (rakeRows.length < rakeTarget) {
+    const exclude = new Set([...usedCalmIds, ...calmRows.map((c) => c.id)])
+    calmRows.push(...calmDeck(req.band, rakeTarget - rakeRows.length, exclude, rng))
+  }
+
+  const freshItems: DeckItem[] = [
+    ...rakeRows.map((puzzle): DeckItem => ({ kind: "rake", puzzle, respawn: false })),
+    ...calmRows.map((calm): DeckItem => ({ kind: "calm", calm, respawn: false })),
+  ]
+  for (let i = freshItems.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[freshItems[i], freshItems[j]] = [freshItems[j], freshItems[i]]
+  }
+  return [...respawns, ...freshItems]
 }
 
 // ---------------------------------------------------------------------------

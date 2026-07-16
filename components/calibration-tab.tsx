@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import {
   sampleSession,
   saveResults,
+  loadPriorResults,
   coachFeedback,
   coachFollowup,
   coachInputFor,
@@ -39,8 +40,17 @@ import {
   type CoachInput,
   type DeckStat,
   type EvalRange,
+  type LabelerProfile,
   type PhaseStat,
 } from "@/lib/calibration"
+import {
+  applyLockIn,
+  buildProfileFromResults,
+  emptyProfile,
+  mergeProfiles,
+  profileOfSession,
+  PROFILE_LOCK_N,
+} from "@/lib/calibration-profile"
 import {
   summarize,
   scoredAnswers,
@@ -81,6 +91,12 @@ interface Saved {
   showCoach?: boolean
   /** Elicitation mode; saves that predate ranges omit it (⇒ point). */
   elicitation?: Elicitation
+  /** Phase A: size of the lock-in burst at the session's head (0 = the prior
+   *  profile was already locked). Saves that predate Phase A omit it (⇒ 0). */
+  lockInN?: number
+  /** Phase A: the labeler profile from prior saved results at session start,
+   *  or null for a fresh labeler. Older saves omit it. */
+  profilePrior?: LabelerProfile | null
 }
 
 /** A locked answer paired with its position, for the post-answer reveal card. */
@@ -154,6 +170,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   // Elicitation mode for the running session. New sessions are always "range";
   // only a resumed pre-range session runs in "point" mode.
   const [elicitation, setElicitation] = useState<Elicitation>("range")
+  // Phase A (spec 213 adaptive elicitation): how many opening positions are
+  // the profile lock-in burst, and the prior profile they were planned from.
+  // Fixed at session creation, like the elicitation mode.
+  const [lockInN, setLockInN] = useState(0)
+  const [profilePrior, setProfilePrior] = useState<LabelerProfile | null>(null)
   // Per-position input state.
   const [evalInput, setEvalInput] = useState("")
   const [evalRange, setEvalRange] = useState<EvalRange | null>(null)
@@ -205,7 +226,16 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   }, [])
 
   const persist = useCallback(
-    (s: CalibrationSession, a: CalibrationAnswer[], i: number, sr: boolean, sc: boolean, el: Elicitation) => {
+    (
+      s: CalibrationSession,
+      a: CalibrationAnswer[],
+      i: number,
+      sr: boolean,
+      sc: boolean,
+      el: Elicitation,
+      li: number,
+      pp: LabelerProfile | null,
+    ) => {
       try {
         localStorage.setItem(
           STORAGE_KEY,
@@ -216,6 +246,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
             showReveal: sr,
             showCoach: sc,
             elicitation: el,
+            lockInN: li,
+            profilePrior: pp,
           }),
         )
       } catch {
@@ -251,7 +283,19 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     setPhase("sampling")
     setProgress({ evaluated: 0, accepted: 0, target: size })
     try {
-      const s = await sampleSession(size, {}, (p) => setProgress(p))
+      const sampled = await sampleSession(size, {}, (p) => setProgress(p))
+      // Phase A (spec 213 adaptive elicitation): reorder the sampled set so
+      // the head of the session pins the labeler's least-pinned phase. Prior
+      // saved sessions are the prior — a returning user with a locked profile
+      // gets no burst at all. Best-effort: an unreadable prior means a fresh-
+      // labeler plan, never a blocked session.
+      let prior: LabelerProfile | null = null
+      try {
+        prior = buildProfileFromResults(await loadPriorResults())
+      } catch {
+        prior = null
+      }
+      const { session: s, lockInCount } = applyLockIn(sampled, prior)
       setSession(s)
       setAnswers([])
       setIndex(0)
@@ -259,9 +303,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       // Range elicitation applies at NEW session boundaries only — every fresh
       // session is a range session (spec 213).
       setElicitation("range")
+      setLockInN(lockInCount)
+      setProfilePrior(prior)
       resetInputs()
       setPhase("answering")
-      persist(s, [], 0, showReveal, showCoach, "range")
+      persist(s, [], 0, showReveal, showCoach, "range", lockInCount, prior)
     } catch (e) {
       setError(String(e))
       setPhase("intro")
@@ -278,6 +324,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     // A session that started with point answers finishes with point answers —
     // never mix elicitation modes mid-session.
     setElicitation(resume.elicitation ?? "point")
+    // A pre-Phase-A save had no lock-in burst; its order stands as saved.
+    setLockInN(resume.lockInN ?? 0)
+    setProfilePrior(resume.profilePrior ?? null)
     setRevealed(null)
     resetInputs()
     setPhase("answering")
@@ -301,6 +350,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           show_reveal: showReveal,
           show_coach: showCoach,
           elicitation,
+          lock_in_n: lockInN,
+          profile_prior: profilePrior,
           session: s,
           answers: finalAnswers,
           summary,
@@ -310,7 +361,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         setError(String(e))
       }
     },
-    [clearStorage, showReveal, showCoach, elicitation],
+    [clearStorage, showReveal, showCoach, elicitation, lockInN, profilePrior],
   )
 
   // Advance to the next position (or finish). Shared by every exit path.
@@ -326,9 +377,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       }
       setIndex(nextIndex)
       resetInputs()
-      persist(session, finalAnswers, nextIndex, showReveal, showCoach, elicitation)
+      persist(session, finalAnswers, nextIndex, showReveal, showCoach, elicitation, lockInN, profilePrior)
     },
-    [session, index, finish, resetInputs, persist, showReveal, showCoach, elicitation],
+    [session, index, finish, resetInputs, persist, showReveal, showCoach, elicitation, lockInN, profilePrior],
   )
 
   // After the (optional) second look: show the reveal, or advance if blind.
@@ -393,14 +444,14 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       setAnswers(nextAnswers)
       // Persist immediately at the locked index so a crash mid-step never loses
       // the answer (resume lands on the next position).
-      persist(session, nextAnswers, index + 1, showReveal, showCoach, elicitation)
+      persist(session, nextAnswers, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior)
       // Straight to the reveal. (The second-look step was retired 2026-07-14:
       // under the X/✓ commit model everything is editable until commit, so a
       // post-commit "revise" prompt added friction without adding data. Old
       // answers keep their revised_* fields.)
       proceedToReveal(answer, current, nextAnswers)
     },
-    [session, current, elicitation, evalRange, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, showCoach, proceedToReveal],
+    [session, current, elicitation, evalRange, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, showCoach, lockInN, profilePrior, proceedToReveal],
   )
 
   // Second look done: apply an optional revision (original stays immutable), then
@@ -419,11 +470,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         }
         finalAnswers = answers.map((a) => (a.index === answer.index ? answer : a))
         setAnswers(finalAnswers)
-        persist(session, finalAnswers, index + 1, showReveal, showCoach, elicitation)
+        persist(session, finalAnswers, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior)
       }
       proceedToReveal(answer, secondLook.position, finalAnswers)
     },
-    [secondLook, session, answers, index, persist, showReveal, showCoach, elicitation, proceedToReveal],
+    [secondLook, session, answers, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior, proceedToReveal],
   )
 
   const onContinueReveal = useCallback(() => advance(answers), [advance, answers])
@@ -434,11 +485,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     (answerIndex: number, coach: CoachFeedback) => {
       setAnswers((prev) => {
         const next = prev.map((a) => (a.index === answerIndex ? { ...a, coach } : a))
-        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation)
+        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior)
         return next
       })
     },
-    [session, index, persist, showReveal, showCoach, elicitation],
+    [session, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior],
   )
 
   // Store the user's rebuttal + the coach's follow-up reply on its answer.
@@ -447,11 +498,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     (answerIndex: number, rebuttal: string, reply: string | null) => {
       setAnswers((prev) => {
         const next = prev.map((a) => (a.index === answerIndex ? { ...a, rebuttal, coach_reply: reply } : a))
-        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation)
+        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior)
         return next
       })
     },
-    [session, index, persist, showReveal, showCoach, elicitation],
+    [session, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior],
   )
 
   // Input setters that also stop the think clock on first use.
@@ -583,6 +634,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         <AnsweringScreen
           session={session}
           index={index}
+          lockInN={lockInN}
           position={current}
           boardSize={boardSize}
           setBoardSize={setBoardSize}
@@ -626,6 +678,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         <ResultsScreen
           session={session}
           answers={answers}
+          profilePrior={profilePrior}
           savedPath={savedPath}
           onLoadPosition={onLoadPosition}
           onRestart={() => {
@@ -818,6 +871,7 @@ function SamplingScreen({ progress }: { progress: CalibrationProgress | null }) 
 function AnsweringScreen({
   session,
   index,
+  lockInN,
   position,
   boardSize,
   setBoardSize,
@@ -851,6 +905,8 @@ function AnsweringScreen({
 }: {
   session: CalibrationSession
   index: number
+  /** Phase A: positions before this index are the profile lock-in burst. */
+  lockInN: number
   position: CalibrationPosition
   boardSize: number
   setBoardSize: (n: number) => void
@@ -892,6 +948,18 @@ function AnsweringScreen({
           <span>
             Position {index + 1} <span className="text-muted-foreground">of {total}</span>
           </span>
+          {/* Phase-A lock-in chip: safe to show while answering — it says only
+              that this opening position pins the per-phase profile, nothing
+              about the eval (the phase is visible on the board anyway). */}
+          {index < lockInN && (
+            <span
+              data-testid="calib-lockin"
+              title="Profile lock-in (spec 213 Phase A): these opening positions pin your per-phase profile so the rest of your answers read as a known-level human's perception. Sessions after your profile locks skip this."
+              className="px-1.5 py-0.5 rounded text-[11px] font-normal bg-sky-500/15 text-sky-200/90"
+            >
+              lock-in {index + 1}/{lockInN}
+            </span>
+          )}
           {/* Deck chip only AFTER the answer is locked (reveal/second-look):
               during answering it would anchor — "level" literally says the
               eval is near zero, "conversion" says there's a real advantage. */}
@@ -1403,18 +1471,27 @@ function RevealCard({
 function ResultsScreen({
   session,
   answers,
+  profilePrior,
   savedPath,
   onLoadPosition,
   onRestart,
 }: {
   session: CalibrationSession
   answers: CalibrationAnswer[]
+  /** Phase A: the labeler profile before this session, or null (fresh). */
+  profilePrior: LabelerProfile | null
   savedPath: string | null
   onLoadPosition: (fen: string) => void
   onRestart: () => void
 }) {
   const summary = useMemo(() => summarize(session, answers), [session, answers])
   const points = useMemo(() => scoredAnswers(session, answers), [session, answers])
+  // The labeler profile with this session folded in — the Phase-A "fun
+  // by-product" display (design doc §6.1).
+  const profile = useMemo(
+    () => mergeProfiles(profilePrior ?? emptyProfile(), profileOfSession(session, answers)),
+    [profilePrior, session, answers],
+  )
 
   return (
     <div className="flex-1 min-h-0 overflow-auto p-6" data-testid="calib-results">
@@ -1479,6 +1556,8 @@ function ResultsScreen({
         <PhaseTable perPhase={summary.perPhase} />
 
         <DeckTable perDeck={summary.perDeck} />
+
+        <ProfileCard profile={profile} />
 
         {summary.biggestMisses.length > 0 && (
           <div className="space-y-2">
@@ -1622,6 +1701,56 @@ function DeckTable({ perDeck }: { perDeck: DeckStat[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+/** The labeler profile across ALL saved sessions, this one included — Phase A's
+ *  "fun by-product" (spec 213 adaptive elicitation). A locked phase means the
+ *  next session skips its share of the lock-in burst; the point is provenance:
+ *  labels read as THIS profile's perception. */
+function ProfileCard({ profile }: { profile: LabelerProfile }) {
+  const fmt = (v: number | null) => (v == null ? "—" : v.toFixed(2))
+  const signed = (v: number | null) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}`)
+  return (
+    <div className="space-y-2" data-testid="calib-profile">
+      <h2 className="text-sm font-semibold text-muted-foreground">Labeler profile</h2>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-muted-foreground text-left border-b border-white/10">
+            <th className="py-1.5 font-medium">Phase</th>
+            <th className="py-1.5 font-medium text-right">Answers</th>
+            <th className="py-1.5 font-medium text-right">MAE</th>
+            <th className="py-1.5 font-medium text-right">Bias</th>
+            <th className="py-1.5 font-medium text-right">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {profile.per_phase.map((c) => (
+            <tr key={c.phase} className="border-b border-white/5">
+              <td className="py-1.5 capitalize">{c.phase}</td>
+              <td className="py-1.5 text-right tabular-nums">{c.count}</td>
+              <td className="py-1.5 text-right tabular-nums">{fmt(c.mae)}</td>
+              <td className="py-1.5 text-right tabular-nums">{signed(c.bias)}</td>
+              <td className="py-1.5 text-right">
+                {c.count >= PROFILE_LOCK_N ? (
+                  <span className="text-emerald-300">locked ✓</span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {PROFILE_LOCK_N - c.count} more to lock
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-xs text-muted-foreground">
+        Across {profile.sessions} session{profile.sessions === 1 ? "" : "s"} ({profile.answers}{" "}
+        answers): overall bias {signed(profile.bias)} (+ = you lean White), spread ±{fmt(profile.sd)}{" "}
+        pawns. A locked phase means future sessions skip its lock-in burst — your labels then read
+        as a known-level human&apos;s perception (spec 213 Phase A).
+      </p>
     </div>
   )
 }

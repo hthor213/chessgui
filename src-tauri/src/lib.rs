@@ -2,6 +2,7 @@ pub mod cbh;
 pub mod calibration;
 pub mod coach;
 pub mod db;
+pub mod human_search;
 pub mod machine;
 pub mod maia;
 pub mod persona;
@@ -27,6 +28,7 @@ pub fn run() {
         .manage(match_runner::BatchControl::default())
         .manage(db::DbManager::default())
         .manage(maia::MaiaState::default())
+        .manage(human_search::HumanTreeState::default())
         .invoke_handler(tauri::generate_handler![
             ping,
             vision::recognize_fen,
@@ -58,10 +60,12 @@ pub fn run() {
             puzzles::puzzle_check_move,
             calibration::calibration_sample,
             calibration::calibration_save_results,
+            calibration::calibration_load_results,
             machine::machine_bench,
             machine::machine_profile_get,
             maia::maia_status,
             maia::maia_policy,
+            human_search::human_eval_tree,
             persona::maia_move,
             persona::persona_move,
             persona::rival_book,

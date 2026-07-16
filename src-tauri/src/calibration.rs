@@ -752,6 +752,41 @@ pub async fn calibration_sample(
     Ok(session)
 }
 
+/// Read every saved results file (`results-*.json`) in `dir`, oldest first, as
+/// raw JSON values. The `results-<unix_ms>.json` timestamp stays 13 digits
+/// until 2286, so lexicographic filename order IS chronological order.
+/// Unreadable or corrupt files are skipped, never fatal — a damaged old
+/// artifact degrades the profile prior; it must not block a new session.
+fn read_results_files(dir: &std::path::Path) -> Vec<serde_json::Value> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<std::path::PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("results-") && n.ends_with(".json"))
+        })
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .filter_map(|f| std::fs::read_to_string(f).ok())
+        .filter_map(|s| serde_json::from_str(&s).ok())
+        .collect()
+}
+
+/// All previously saved calibration results, oldest first — the labeler-profile
+/// prior for Phase-A lock-in (spec 213 adaptive elicitation): the frontend
+/// folds these into the profile that decides how much of the session's opening
+/// burst a returning user still needs.
+#[tauri::command]
+pub fn calibration_load_results(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    Ok(read_results_files(&calibration_dir(&app)?))
+}
+
 /// Persist a completed calibration result (session ref + answers + timings +
 /// summary stats, assembled by the frontend to the documented schema) to
 /// `<app_data_dir>/calibration/results-<timestamp>.json`. Returns the path.
@@ -867,6 +902,25 @@ mod tests {
         // conversion, critical, nor level → no deck, and it's rejected.
         assert_eq!(pos.deck, "");
         assert_eq!(bucket, None);
+    }
+
+    #[test]
+    fn reads_results_files_oldest_first_skipping_corrupt() {
+        let dir = std::env::temp_dir().join(format!("calib-results-test-{}", now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("results-2000.json"), r#"{"finished_at":2000}"#).unwrap();
+        std::fs::write(dir.join("results-1000.json"), r#"{"finished_at":1000}"#).unwrap();
+        // Corrupt results file → skipped, not fatal.
+        std::fs::write(dir.join("results-1500.json"), "not json").unwrap();
+        // Session files are not results and never load here.
+        std::fs::write(dir.join("session-999.json"), r#"{}"#).unwrap();
+        let got = read_results_files(&dir);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0]["finished_at"], 1000);
+        assert_eq!(got[1]["finished_at"], 2000);
+        // A missing directory reads as empty, not an error.
+        assert!(read_results_files(&dir.join("nope")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

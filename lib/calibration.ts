@@ -305,6 +305,38 @@ export type CalibrationSummary = {
  *  much into; the UI flags it. */
 export const MIN_PHASE_N = 8
 
+// ---------------------------------------------------------------------------
+// Labeler profile (spec 213 adaptive elicitation, Phase A)
+// ---------------------------------------------------------------------------
+
+/** One phase of the labeler's skill vector. */
+export type ProfilePhaseCell = {
+  phase: string
+  /** Usable (answered, eval-given) answers in this phase, across sessions. */
+  count: number
+  /** Mean absolute error in pawns, or null with no answers. */
+  mae: number | null
+  /** Mean signed error (user − SF, pawns; + = White-optimistic), or null. */
+  bias: number | null
+}
+
+/** The labeler's established profile — who is producing the labels (design doc
+ *  §6.1: "a ~1300 with a 1500-ish endgame perceived this as +1.2" is data; an
+ *  anonymous "+1.2" is not). Built from saved results files and merged exactly
+ *  across sessions; Phase-A lock-in fills whichever phase is least pinned. */
+export type LabelerProfile = {
+  /** Completed sessions folded into this profile. */
+  sessions: number
+  /** Usable answers across them. */
+  answers: number
+  /** Overall mean signed error, or null with no answers. */
+  bias: number | null
+  /** Population std-dev of the signed error, or null with no answers. */
+  sd: number | null
+  /** Per-phase skill vector, in PHASES order. */
+  per_phase: ProfilePhaseCell[]
+}
+
 /** The research artifact written on completion. Self-contained: it carries the
  *  full session so each file stands alone. Mirrors the schema documented in
  *  docs/research/calibration-data-format.md. */
@@ -326,6 +358,19 @@ export type CalibrationResults = {
    * answers muddies the per-player curve. Absent on pre-v3 files ⇒ point.
    */
   elicitation: "point" | "range"
+  /**
+   * Phase-A profile lock-in (spec 213 adaptive elicitation, v4): how many
+   * positions at the head of the session were the lock-in burst — chosen to
+   * pin the labeler's least-pinned phase. 0 when the prior profile was
+   * already locked. Absent on pre-v4 files (which had no lock-in).
+   */
+  lock_in_n?: number
+  /**
+   * Phase A (v4): the labeler profile computed from all PRIOR saved results
+   * at session start — the lock-in prior, i.e. who the labeler was believed
+   * to be BEFORE this session's answers. Null/absent when there were none.
+   */
+  profile_prior?: LabelerProfile | null
   session: CalibrationSession
   /** Answers in presentation order (each carries its `index`), so learning /
    *  drift effects over the session are analysable. */
@@ -334,8 +379,11 @@ export type CalibrationResults = {
 }
 
 /** On-disk schema version this build writes (v2 added known-Elo game context;
- *  v3 adds range elicitation: `elicitation` + per-answer `eval_lo`/`eval_hi`). */
-export const RESULTS_VERSION = 3
+ *  v3 added range elicitation: `elicitation` + per-answer `eval_lo`/`eval_hi`;
+ *  v4 adds Phase-A profile lock-in: `lock_in_n` + `profile_prior`, and the
+ *  embedded session's positions may be lock-in-reordered relative to the
+ *  sampler's `session-*.json`). */
+export const RESULTS_VERSION = 4
 
 // ---------------------------------------------------------------------------
 // Provider seam
@@ -442,6 +490,19 @@ export function sampleSession(
 export function saveResults(results: CalibrationResults): Promise<string> {
   if (!isTauri()) return Promise.resolve("")
   return invoke<string>("calibration_save_results", { results })
+}
+
+/**
+ * Load every previously saved results file (oldest first) — the labeler-profile
+ * prior for Phase-A lock-in (spec 213 adaptive elicitation): returning users'
+ * sessions open with a shorter (or no) lock-in burst. Outside Tauri the mock
+ * reads an optional localStorage seed so the flow stays drivable headless.
+ */
+export function loadPriorResults(): Promise<CalibrationResults[]> {
+  if (!isTauri()) {
+    return import("./calibration-mock").then((m) => m.mockPriorResults())
+  }
+  return invoke<CalibrationResults[]>("calibration_load_results")
 }
 
 /**

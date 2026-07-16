@@ -5,6 +5,7 @@ import { Slider } from "@/components/ui/slider"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { MAIA_SLIDER_BANDS } from "@/lib/maia"
 import { materialPawns } from "@/lib/human-eval"
+import { clampTreePawns } from "@/lib/human-eval-tree"
 import { useHumanEval } from "@/hooks/use-human-eval"
 import type { PvLine } from "@/lib/uci-parser"
 
@@ -53,7 +54,19 @@ export function HumanEvalSection({
   lines,
   engineRunning,
 }: HumanEvalSectionProps) {
-  const { available, band, setBand, result, loading, error } = useHumanEval({
+  const {
+    available,
+    band,
+    setBand,
+    result,
+    loading,
+    error,
+    tree,
+    setTree,
+    treeResult,
+    treeLoading,
+    treeError,
+  } = useHumanEval({
     analysisFen,
     scoreTurn,
     lines,
@@ -78,6 +91,10 @@ export function HumanEvalSection({
     setBand(i === 0 ? null : BANDS[i - 1]);
   };
 
+  // Tier-1 value when the tree toggle is on and a result matches the current
+  // position; otherwise the tier-0 blend keeps rendering (progressive display).
+  const treeValue = tree && treeResult ? clampTreePawns(treeResult.pawns) : null;
+
   return (
     <div className="mt-2 pt-2 border-t border-[#2a2825] flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-2">
@@ -96,9 +113,38 @@ export function HumanEvalSection({
               <TooltipContent className="max-w-[260px] text-xs">
                 Tier-0 instant estimate: blends the Stockfish eval toward a
                 no-resource baseline by how often rating-{band} players actually
-                play Stockfish&apos;s move. A one-pass approximation — the full
-                human-visible-tree eval is a later tier. Not yet win-prob
-                calibrated.
+                play Stockfish&apos;s move. A one-pass approximation — toggle
+                &quot;tree&quot; for the full human-visible-tree eval. Not yet
+                win-prob calibrated.
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {band !== null && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setTree(!tree)}
+                  aria-pressed={tree}
+                  aria-label="Toggle human-visible tree search (tier-1, experimental)"
+                >
+                  <Badge
+                    variant="secondary"
+                    className={`h-4 px-1.5 text-[10px] font-normal cursor-pointer ${
+                      tree
+                        ? "bg-blue-900 text-blue-200"
+                        : "bg-zinc-800 text-zinc-500"
+                    }`}
+                  >
+                    tree
+                  </Badge>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[260px] text-xs">
+                Tier-1 (experimental): a real search over only the moves
+                rating-{band} humans consider — each node&apos;s candidates are
+                the top-p of the Maia policy, leaves scored by Stockfish. Slower
+                (~0.2–4 s/position); the fast estimate shows until it lands.
               </TooltipContent>
             </Tooltip>
           )}
@@ -125,15 +171,31 @@ export function HumanEvalSection({
 
       {band !== null && (
         <div className="flex flex-col gap-0.5 mt-0.5">
-          {result ? (
+          {result || treeValue !== null ? (
             <>
               <EvalRow label="Material" value={materialPawns(analysisFen)} muted />
-              <EvalRow label={`Human@${band}`} value={result.evalR} />
-              <EvalRow label="Stockfish" value={result.sfPawns} muted />
-              <span className="text-[10px] text-muted-foreground mt-0.5">
-                {`${band} plays Stockfish's move ${Math.round(result.w * 100)}% of the time`}
-                {result.anchorSource === "material" && " · baseline = material"}
-              </span>
+              <EvalRow
+                label={`Human@${band}${treeValue !== null ? " (tree)" : ""}`}
+                value={treeValue !== null ? treeValue : result!.evalR}
+              />
+              {result && <EvalRow label="Stockfish" value={result.sfPawns} muted />}
+              {result && (
+                <span className="text-[10px] text-muted-foreground mt-0.5">
+                  {`${band} plays Stockfish's move ${Math.round(result.w * 100)}% of the time`}
+                  {result.anchorSource === "material" && " · baseline = material"}
+                </span>
+              )}
+              {tree && (
+                <span className="text-[10px] text-muted-foreground">
+                  {treeValue !== null && treeResult
+                    ? `tree: depth ${treeResult.depth} · ${treeResult.leaf_evals} Stockfish leaves · experimental`
+                    : treeLoading
+                      ? "Searching the human-visible tree…"
+                      : treeError
+                        ? humanizeError(treeError)
+                        : null}
+                </span>
+              )}
             </>
           ) : loading ? (
             <span className="text-[10px] text-muted-foreground">Reading Maia policy…</span>
@@ -160,5 +222,7 @@ function humanizeError(error: string): string {
   if (/download/i.test(error)) return "Couldn't download Maia weights — check your connection.";
   if (/terminal/i.test(error)) return "No human eval for a finished position.";
   if (/lc0 not found/i.test(error)) return "lc0 not found — brew install lc0.";
+  if (/stockfish not found/i.test(error))
+    return "Tree eval needs Stockfish — brew install stockfish.";
   return "Human eval unavailable for this position.";
 }

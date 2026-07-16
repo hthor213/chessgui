@@ -14,9 +14,14 @@
 // (setup screen: band, deck size, import) and the Training tab's rake_deck
 // exercise (passes `initialDeck` to jump straight into a session).
 //
-// Deliberately NOT here (spec 211 session-flow items, unticked): streaks,
-// spaced repetition, calm-position mixing. A session is just N puzzles and
-// an honest tally.
+// Session flow (spec 211): decks are built by lib/puzzles.buildDeck — due
+// respawns lead (failed puzzles on the 1d/3d/7d ladder, lib/puzzle-results),
+// the rest is a shuffled ~70/30 rake/calm mix. NOTHING pre-answer reveals
+// whether the position holds a rake or is calm (the anchor-leak lesson):
+// same prompt, same board, same progress line; the kind surfaces only on
+// the result card. Every graded answer is persisted to the local results
+// store, which also feeds the setup screen's per-band record and the
+// session streak in the header.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
@@ -29,19 +34,35 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { applyUci, dragToUci, turnOf, type SparColor } from "@/lib/spar"
 import {
+  buildDeck,
   checkMove,
+  deckItemBand,
+  deckItemFen,
+  deckItemKey,
   DEFAULT_DECK_SIZE,
+  gradeCalmMove,
   gradeMove,
   importPuzzles,
-  puzzleDeck,
   puzzleStats,
+  streak,
   summarize,
+  type DeckItem,
   type DeckRequest,
   type Grade,
-  type PuzzleRow,
   type PuzzleStats,
   type SessionResult,
 } from "@/lib/puzzles"
+import {
+  appendPuzzleResult,
+  bandRecords,
+  buildPuzzleResult,
+  dueRespawns,
+  failCountFor,
+  loadPuzzleResults,
+  persistPuzzleResults,
+  respawnIntervalDays,
+  type BandRecord,
+} from "@/lib/puzzle-results"
 
 const Board = dynamic(() => import("@/components/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -89,18 +110,32 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
     refreshStats()
   }, [refreshStats])
 
+  // Per-band record + due-respawn count from the local results store. Read
+  // in an effect (not render) so the static-export prerender stays empty.
+  const [record, setRecord] = useState<{ bands: BandRecord[]; due: number }>({ bands: [], due: 0 })
+  const refreshRecord = useCallback(() => {
+    const entries = loadPuzzleResults()
+    setRecord({ bands: bandRecords(entries), due: dueRespawns(entries).length })
+  }, [])
+  useEffect(() => {
+    refreshRecord()
+  }, [refreshRecord])
+
   // ---------------------------------------------------------------- session
-  const [deck, setDeck] = useState<PuzzleRow[] | null>(null)
+  const [deck, setDeck] = useState<DeckItem[] | null>(null)
   const [idx, setIdx] = useState(0)
   const [results, setResults] = useState<SessionResult[]>([])
   const [stage, setStage] = useState<Stage>("solve")
   const [fen, setFen] = useState<string>("")
   const [grade, setGrade] = useState<Grade | null>(null)
+  /** Spaced-repetition line on the result card ("comes back in 3d" / "review cleared"). */
+  const [respawnNote, setRespawnNote] = useState<string | null>(null)
   const [checkError, setCheckError] = useState<string | null>(null)
   const [shapes, setShapes] = useState<DrawShape[]>([])
   const [boardNonce, setBoardNonce] = useState(0)
 
-  const puzzle = deck && idx < deck.length ? deck[idx] : null
+  const item = deck && idx < deck.length ? deck[idx] : null
+  const itemFen = item ? deckItemFen(item) : ""
   const sessionOver = deck !== null && idx >= deck.length
 
   // Replay bookkeeping: the queue of refutation plies still to play, and the
@@ -114,19 +149,20 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
     (req: DeckRequest) => {
       clearInterval(replayTimer.current)
       setDeckError(null)
-      puzzleDeck(req)
-        .then((rows) => {
-          if (rows.length === 0) {
+      buildDeck(req, { entries: loadPuzzleResults() })
+        .then((items) => {
+          if (items.length === 0) {
             setDeckError("No puzzles in the database yet — import a generator batch below.")
             setDeck(null)
             return
           }
-          setDeck(rows)
+          setDeck(items)
           setIdx(0)
           setResults([])
           setStage("solve")
-          setFen(rows[0].fen)
+          setFen(deckItemFen(items[0]))
           setGrade(null)
+          setRespawnNote(null)
           setCheckError(null)
           setShapes([])
           setBoardNonce((n) => n + 1)
@@ -145,7 +181,7 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
     }
   }, [initialDeck, loadDeck])
 
-  const mover: SparColor = puzzle ? turnOf(puzzle.fen) : "white"
+  const mover: SparColor = item ? turnOf(itemFen) : "white"
 
   /** Walk the refutation from the position after the failed move, arrows on
    *  each move as it lands (red = the punishing side, yellow = the mover's
@@ -183,9 +219,40 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
   )
 
   const recordAndShow = useCallback(
-    (p: PuzzleRow, g: Grade, failedUci: string, afterFen: string) => {
+    (it: DeckItem, g: Grade, failedUci: string, afterFen: string) => {
       setGrade(g)
-      setResults((prev) => [...prev, { puzzleId: p.id, verdict: g.verdict, correct: g.correct }])
+      setResults((prev) => [
+        ...prev,
+        {
+          puzzleId: it.kind === "rake" ? it.puzzle.id : it.calm.id,
+          verdict: g.verdict,
+          correct: g.correct,
+        },
+      ])
+      // Persist to the local results store — this drives the per-band record
+      // and the spaced-repetition respawn of everything failed here.
+      const key = deckItemKey(it)
+      const entries = appendPuzzleResult(
+        loadPuzzleResults(),
+        buildPuzzleResult({
+          key,
+          kind: it.kind,
+          band: deckItemBand(it),
+          puzzleId: it.kind === "rake" ? it.puzzle.id : null,
+          fen: deckItemFen(it),
+          verdict: g.verdict,
+          correct: g.correct,
+        }),
+      )
+      persistPuzzleResults(entries)
+      if (!g.correct) {
+        const days = respawnIntervalDays(failCountFor(entries, key))
+        setRespawnNote(`This one comes back for review in ${days} day${days === 1 ? "" : "s"}.`)
+      } else if (it.respawn) {
+        setRespawnNote("Review cleared — this one had beaten you before.")
+      } else {
+        setRespawnNote(null)
+      }
       if (!g.correct && g.replayLine.length > 0) {
         startReplay(failedUci, g.replayLine, afterFen)
       } else {
@@ -197,28 +264,42 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
 
   const onBoardMove = useCallback(
     (from: Key, to: Key) => {
-      if (!puzzle || stage !== "solve") return
-      const uci = dragToUci(puzzle.fen, from as string, to as string)
-      const ply = applyUci(puzzle.fen, uci)
+      if (!item || stage !== "solve") return
+      const startFen = deckItemFen(item)
+      const uci = dragToUci(startFen, from as string, to as string)
+      const ply = applyUci(startFen, uci)
       if (!ply) return
       setFen(ply.fen)
-      if (uci === puzzle.trap_uci) {
+      if (item.kind === "rake" && uci === item.puzzle.trap_uci) {
         // The stored rake: no engine needed, the generator verified it.
-        recordAndShow(puzzle, gradeMove(puzzle, uci, null), uci, ply.fen)
+        recordAndShow(item, gradeMove(item.puzzle, uci, null), uci, ply.fen)
         return
       }
       setStage("checking")
       setCheckError(null)
-      checkMove(puzzle.fen, uci, puzzle.engine_verify_depth)
-        .then((check) => recordAndShow(puzzle, gradeMove(puzzle, uci, check), uci, ply.fen))
+      const depth = item.kind === "rake" ? item.puzzle.engine_verify_depth : item.calm.engine_verify_depth
+      checkMove(startFen, uci, depth)
+        .then((check) =>
+          recordAndShow(
+            item,
+            item.kind === "rake" ? gradeMove(item.puzzle, uci, check) : gradeCalmMove(item.calm, check),
+            uci,
+            ply.fen,
+          ),
+        )
         .catch((e) => {
           // Engine failed (missing binary, crash): grade as unverified and say
           // why — never invent a score, never block the session.
           setCheckError(String(e))
-          recordAndShow(puzzle, gradeMove(puzzle, uci, null), uci, ply.fen)
+          recordAndShow(
+            item,
+            item.kind === "rake" ? gradeMove(item.puzzle, uci, null) : gradeCalmMove(item.calm, null),
+            uci,
+            ply.fen,
+          )
         })
     },
-    [puzzle, stage, recordAndShow],
+    [item, stage, recordAndShow],
   )
 
   const nextPuzzle = useCallback(() => {
@@ -227,10 +308,11 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
     const next = idx + 1
     setIdx(next)
     setGrade(null)
+    setRespawnNote(null)
     setCheckError(null)
     setShapes([])
     setStage("solve")
-    if (next < deck.length) setFen(deck[next].fen)
+    if (next < deck.length) setFen(deckItemFen(deck[next]))
     setBoardNonce((n) => n + 1)
   }, [deck, idx])
 
@@ -238,12 +320,13 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
     clearInterval(replayTimer.current)
     setDeck(null)
     refreshStats()
+    refreshRecord()
     if (onExit) onExit()
-  }, [onExit, refreshStats])
+  }, [onExit, refreshStats, refreshRecord])
 
   const legalMoves = useMemo(
-    () => (puzzle && stage === "solve" ? legalDests(puzzle.fen) : new Map<Key, Key[]>()),
-    [puzzle, stage],
+    () => (item && stage === "solve" ? legalDests(deckItemFen(item)) : new Map<Key, Key[]>()),
+    [item, stage],
   )
 
   // ------------------------------------------------------------------------
@@ -257,6 +340,8 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
         count={count}
         importMsg={importMsg}
         deckError={deckError}
+        records={record.bands}
+        dueCount={record.due}
         onBand={setBand}
         onCount={setCount}
         onStart={() => loadDeck({ band, count })}
@@ -292,7 +377,7 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
           <p className="text-sm text-muted-foreground">
             {sum.rakes === 0
               ? "No rakes stepped on."
-              : `${sum.rakes} rake${sum.rakes === 1 ? "" : "s"} stepped on — each one was replayed; they come back once spaced repetition lands.`}
+              : `${sum.rakes} rake${sum.rakes === 1 ? "" : "s"} stepped on — each one was replayed, and each comes back for review (1d, then 3d, then 7d).`}
             {sum.unverified > 0 &&
               ` ${sum.unverified} answer${sum.unverified === 1 ? "" : "s"} unverified (no engine here).`}
           </p>
@@ -320,7 +405,13 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
           <span className="text-sm font-medium shrink-0">Avoidance</span>
           <span className="text-xs text-muted-foreground tabular-nums" data-testid="puzzles-progress">
             Puzzle {idx + 1} of {deck.length}
-            {puzzle?.band ? ` · band ${puzzle.band}` : ""}
+            {item && deckItemBand(item) ? ` · band ${deckItemBand(item)}` : ""}
+          </span>
+          <span
+            className={`text-xs tabular-nums ${streak(results) > 0 ? "text-emerald-300" : "text-muted-foreground"}`}
+            data-testid="puzzles-streak"
+          >
+            Streak {streak(results)}
           </span>
         </div>
         <Button variant="outline" size="sm" onClick={exitSession} data-testid="puzzles-session-exit">
@@ -361,7 +452,7 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
             )}
           </div>
 
-          {stage === "result" && grade && puzzle && (
+          {stage === "result" && grade && item && (
             <div
               className={`rounded-lg border p-3 space-y-1.5 ${
                 grade.correct
@@ -372,6 +463,7 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
               }`}
               data-testid="puzzles-result"
               data-verdict={grade.verdict}
+              data-kind={item.kind}
             >
               <div
                 className={`text-sm font-bold ${
@@ -385,10 +477,15 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
                 {grade.correct ? "Safe" : "You stepped on the rake"}
               </div>
               <p className="text-xs text-muted-foreground">{grade.note}</p>
-              {!grade.correct && puzzle.trap_san && (
+              {!grade.correct && item.kind === "rake" && item.puzzle.trap_san && (
                 <p className="text-xs text-muted-foreground">
-                  In the source game ({puzzle.band ? `~${puzzle.band} level` : "unknown band"}) a real
-                  player fell for {puzzle.trap_san} too.
+                  In the source game ({item.puzzle.band ? `~${item.puzzle.band} level` : "unknown band"}) a
+                  real player fell for {item.puzzle.trap_san} too.
+                </p>
+              )}
+              {respawnNote && (
+                <p className="text-xs text-muted-foreground" data-testid="puzzles-respawn-note">
+                  {respawnNote}
                 </p>
               )}
               {checkError && (
@@ -402,10 +499,12 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
             </div>
           )}
 
-          {puzzle?.site && stage === "result" && (
+          {stage === "result" && item && (item.kind === "rake" ? item.puzzle.site : item.calm.site) && (
             <p className="text-[11px] text-muted-foreground">
-              Source: {puzzle.site}
-              {puzzle.time_control ? ` · ${puzzle.time_control}` : ""}
+              Source: {item.kind === "rake" ? item.puzzle.site : item.calm.site}
+              {(item.kind === "rake" ? item.puzzle.time_control : item.calm.time_control)
+                ? ` · ${item.kind === "rake" ? item.puzzle.time_control : item.calm.time_control}`
+                : ""}
             </p>
           )}
         </div>
@@ -424,6 +523,8 @@ function SetupScreen({
   count,
   importMsg,
   deckError,
+  records,
+  dueCount,
   onBand,
   onCount,
   onStart,
@@ -435,6 +536,8 @@ function SetupScreen({
   count: number
   importMsg: string | null
   deckError: string | null
+  records: BandRecord[]
+  dueCount: number
   onBand: (b: string | null) => void
   onCount: (n: number) => void
   onStart: () => void
@@ -527,6 +630,42 @@ function SetupScreen({
             </p>
           )}
         </div>
+
+        {(records.length > 0 || dueCount > 0) && (
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
+            <div className="text-sm font-semibold">Your record</div>
+            {dueCount > 0 && (
+              <p className="text-xs text-amber-300" data-testid="puzzles-due">
+                {dueCount} failed puzzle{dueCount === 1 ? "" : "s"} due for review — they lead your
+                next deck.
+              </p>
+            )}
+            {records.length > 0 && (
+              <table className="text-xs tabular-nums w-full" data-testid="puzzles-record">
+                <thead>
+                  <tr className="text-muted-foreground text-left">
+                    <th className="font-normal py-0.5">Band</th>
+                    <th className="font-normal py-0.5 text-right">Solved / attempted</th>
+                    <th className="font-normal py-0.5 text-right">Last 7 days</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map((r) => (
+                    <tr key={r.band} data-testid={`puzzles-record-${r.band}`}>
+                      <td className="py-0.5">{r.band}</td>
+                      <td className="py-0.5 text-right">
+                        {r.solved}/{r.attempted}
+                      </td>
+                      <td className="py-0.5 text-right text-muted-foreground">
+                        {r.recentAttempted > 0 ? `${r.recentSolved}/${r.recentAttempted}` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
           <div className="text-sm font-semibold">Import puzzles</div>
