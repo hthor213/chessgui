@@ -33,10 +33,17 @@ chess.com account and reputation.
 ### A. Position setup: the active-game flag
 
 - In the position setup flow (position editor dialog, spec:014), a PROMINENT
-  checkbox — not buried in an options row — with wording along the lines of:
+  checkbox — not buried in an options row. Final wording (user asked for better
+  copy than their draft; label + helper pattern):
 
-  > **"This is an active game — I'm using the interface to play through options
-  > on an analysis board. All engine evaluation will be disabled."**
+  > **☐ Live game — analysis board only**
+  >
+  > *This position is from a game that's still being played. All engine help
+  > stays off for this game — explore lines by hand, like on a real board.
+  > Analysis unlocks once you mark the game finished.*
+
+  The list actions (sections C/D) are labeled **"Continue later"** and
+  **"Game finished"** to match.
 
 - Checking it flags the game as an **ACTIVE GAME** (OTB compliance mode).
 - Optional metadata fields appear when checked: opponent name, chess.com game
@@ -64,7 +71,7 @@ Enforcement rules:
   persists with the game, so the lockout survives restarts, "Continue later",
   and resume.
 - **No bypass toggle mid-game.** The flag cannot be unchecked while the game is
-  active. The only two exits are: (1) "Game is done" (section D), or (2) explicit
+  active. The only two exits are: (1) "Game finished" (section D), or (2) explicit
   deletion of the active game, behind a confirmation dialog that names the
   fair-play reason (wording along the lines of: "This game was flagged as an
   active chess.com daily game. Deleting the flag re-enables engine analysis on
@@ -138,7 +145,7 @@ position editor regardless of the active-game checkbox.
     time.
   - Etiquette per the Help Center: serial requests only (parallel may 429),
     descriptive `User-Agent` with contact info. Data is cached 12–24h server-side
-    — "Game is done" may need a retry the next day; the UI says so instead of
+    — "Game finished" may need a retry the next day; the UI says so instead of
     failing silently.
   - Endpoint field names are single-source (official announcement page, not
     hand-verified by a live call) — smoke-test with a real `curl` against one of
@@ -209,7 +216,7 @@ Source: [Help Center 8568369](https://support.chess.com/en/articles/8568369-what
 fetched 2026-07-15. Together: books/databases/Explorer allowed in Daily only;
 engine-generated evaluation of those resources is still banned.
 
-### Public API (for "Game is done")
+### Public API (for "Game finished")
 
 Base `https://api.chess.com/pub/` — read-only, public, no authentication
 (VERIFIED on both sources below). Endpoints and fields per the
@@ -274,7 +281,7 @@ cached/refreshed at most every 12–24 hours (single-source, announcement page).
       confirmation dialog naming the reason
 - [ ] "Continue later" writes the game (tree + metadata + last-updated) to the
       persisted active-games store; the list UI shows it and Resume restores it
-- [ ] "Game is done" fetches archives → month JSON for the stored username,
+- [ ] "Game finished" fetches archives → month JSON for the stored username,
       matches the game, imports the real PGN into the database (spec:200),
       marks the entry archived, and only then allows engine analysis on it;
       fetch failure (12–24h cache) leaves the lockout in place with a retry
