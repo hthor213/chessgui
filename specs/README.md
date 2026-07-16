@@ -42,10 +42,11 @@ Feature specs live here. They define **what** we're building and **when it's don
 | 222 | [PC Client (Windows & Linux)](222-pc-client.md) | Draft |
 | 223 | [Mobile Client (iOS/Android)](223-mobile-client.md) | Draft |
 | 224 | [Learn Tab — Rolling Elo Estimate](224-learn-elo-estimate.md) | Draft |
+| 225 | [Any-Player Profiles & "Beat X" Training](225-any-player-profiles.md) | Draft |
 | 900 | [Backlog](900-backlog.md) | Ideas |
 
 (Index gap fixed 2026-07-15: 214–217 existed on disk but were unlisted. Next free
-number: 225. 220–223 are the multi-client platform wave.)
+number: 226. 220–223 are the multi-client platform wave.)
 
 ## Dependency Graph
 
@@ -68,6 +69,7 @@ number: 225. 220–223 are the multi-client platform wave.)
 
 211 Avoidance Puzzles ─→ 215, 224 (rolling Elo estimate; renders on 215's Learn surface)
 213 Elo-Conditioned Evaluator ─→ 214, 215
+225 Any-Player Profiles & Beat-X Training (needs 214, 215, 218) ─→ feeds 217 (friend-on-request personas)
 014 Position Setup & Import ─→ 219 Active Game Mode — OTB compliance (also needs 200)
 
 220 Multi-Client Architecture & Shared Core (needs 002, 011, 217)

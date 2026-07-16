@@ -68,6 +68,8 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
    chess.com account or FIDE games, the pipeline builds his persona. Private-
    individual rules apply (local/server-private, family-room only); the friendly
    norm is that dad tells his friend, same as he was told.
+   (working identity 2026-07-15: Arnþór Einarsson FIDE 2300540, per user — dad's
+   confirmation still the gate; pipeline in spec:225)
 5. **The named roster**: Kasparov, Karpov, Spassky, Friðrik Ólafsson, Helgi
    Ólafsson, Jóhann Hjartarson, Jón L. Árnason, Margeir Pétursson, Guðmundur
    Sigurjónsson (peak), Fischer — all already extracted, book-built, and
