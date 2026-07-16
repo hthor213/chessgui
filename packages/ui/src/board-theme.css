@@ -4,3 +4,24 @@
 @import "@lichess-org/chessground/assets/chessground.base.css";
 @import "@lichess-org/chessground/assets/chessground.brown.css";
 @import "@lichess-org/chessground/assets/chessground.cburnett.css";
+
+/* Pieces pop off the board (spec:001 §4 "drop-shadow-lg"). drop-shadow (not
+   box-shadow) follows the piece sprite's alpha, so the shadow hugs the piece
+   silhouette instead of its square. Tuned darker than Tailwind's own
+   drop-shadow-lg — that value is calibrated for light backgrounds and reads
+   as nothing on the dark theme. */
+cg-board piece {
+  filter: drop-shadow(0 4px 3px rgba(0, 0, 0, 0.45)) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35));
+}
+
+/* The piece being dragged lifts higher: bigger, softer shadow. */
+cg-board piece.dragging {
+  filter: drop-shadow(0 10px 8px rgba(0, 0, 0, 0.5)) drop-shadow(0 4px 3px rgba(0, 0, 0, 0.4));
+}
+
+/* Touch containment (spec 223): a drag on the board must never scroll or
+   zoom the page. The Board wrapper sets touch-action inline too; this covers
+   the chessground element itself for any shell that mounts it directly. */
+.cg-wrap {
+  touch-action: none;
+}

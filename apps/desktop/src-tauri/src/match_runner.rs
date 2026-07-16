@@ -138,6 +138,143 @@ fn tb_result(verdict: TbVerdict, stm: Color) -> &'static str {
     }
 }
 
+// ---- Tablebase surfacing (spec 900 backlog: analysis-panel WDL/DTZ) ----
+//
+// The adjudication path above only needs a win/draw/loss verdict; the
+// analysis panel wants the raw category plus DTZ/DTM and the ranked move
+// list, so this richer probe keeps its own FEN-keyed cache while reusing the
+// shared HTTP client and rate-limit semaphore. It also seeds the verdict
+// cache, so an analysis lookup doubles as a warm adjudication entry.
+
+/// Positions with more men than this are not in the Lichess tablebase.
+pub const TABLEBASE_MAX_MEN: usize = 7;
+
+/// Count the men on the board from a FEN's piece-placement field.
+fn fen_men_count(fen: &str) -> usize {
+    fen.split_whitespace()
+        .next()
+        .map(|board| board.chars().filter(|c| c.is_ascii_alphabetic()).count())
+        .unwrap_or(0)
+}
+
+/// One ranked move from the tablebase response (best first, as Lichess
+/// sorts them). The API is one ply deep — there is no full PV to surface.
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TbMoveInfo {
+    pub uci: String,
+    pub san: String,
+    /// Outcome category AFTER the move, from the opponent's perspective
+    /// (Lichess convention): "loss" here means this move wins for us.
+    pub category: String,
+    pub dtz: Option<i64>,
+}
+
+/// Rich tablebase result for the analysis panel.
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TbProbe {
+    /// Outcome from the side-to-move's perspective ("win", "loss", "draw",
+    /// "cursed-win", "blessed-loss", ...).
+    pub category: String,
+    pub dtz: Option<i64>,
+    pub dtm: Option<i64>,
+    pub moves: Vec<TbMoveInfo>,
+}
+
+/// FEN-keyed cache of rich probes, mirroring [`TB_CACHE`] for verdicts.
+static TB_PROBE_CACHE: OnceLock<Mutex<HashMap<String, TbProbe>>> = OnceLock::new();
+
+fn tb_probe_cache() -> &'static Mutex<HashMap<String, TbProbe>> {
+    TB_PROBE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+// Spec 219: a tablebase lookup IS engine-class assistance — it hands the
+// user a perfect evaluation and best move. For a flagged active chess.com
+// daily game it must be structurally OFF, exactly like the UCI engine, so
+// this command mirrors uci.rs's defensive context refusal (layer 2; the
+// frontend gate in use-tablebase.ts is layer 1).
+const TABLEBASE_LOCKED_ERROR: &str = "Tablebase refused: this game is flagged as an active chess.com daily game (fair play lockout, spec 219)";
+
+/// Probe the Lichess tablebase for the analysis panel (spec 900 backlog).
+///
+/// `Ok(None)` when the position has more than [`TABLEBASE_MAX_MEN`] men or
+/// the lookup fails (offline, non-200, parse error) — the panel just shows
+/// nothing. `Err` only for the spec 219 lockout refusal.
+#[tauri::command]
+pub async fn tablebase_probe(fen: String, context: Option<String>) -> Result<Option<TbProbe>, String> {
+    if crate::uci::context_is_locked(context.as_deref()) {
+        return Err(TABLEBASE_LOCKED_ERROR.to_string());
+    }
+    if fen_men_count(&fen) > TABLEBASE_MAX_MEN {
+        return Ok(None);
+    }
+
+    if let Ok(cache) = tb_probe_cache().lock() {
+        if let Some(p) = cache.get(&fen) {
+            return Ok(Some(p.clone()));
+        }
+    }
+
+    // Same politeness budget as adjudication probes — they share the permit
+    // pool, so a running tournament and the panel can't stack requests.
+    let _permit = match tb_sem().acquire().await {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
+
+    let resp = match tb_client()
+        .get("https://tablebase.lichess.ovh/standard")
+        .query(&[("fen", fen.as_str())])
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Ok(None),
+    };
+    let json: serde_json::Value = match resp.json().await {
+        Ok(j) => j,
+        Err(_) => return Ok(None),
+    };
+
+    let category = match json.get("category").and_then(|c| c.as_str()) {
+        Some(c) => c.to_string(),
+        None => return Ok(None),
+    };
+    let moves = json
+        .get("moves")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    Some(TbMoveInfo {
+                        uci: m.get("uci")?.as_str()?.to_string(),
+                        san: m.get("san")?.as_str()?.to_string(),
+                        category: m.get("category")?.as_str()?.to_string(),
+                        dtz: m.get("dtz").and_then(|d| d.as_i64()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let probe = TbProbe {
+        category,
+        dtz: json.get("dtz").and_then(|d| d.as_i64()),
+        dtm: json.get("dtm").and_then(|d| d.as_i64()),
+        moves,
+    };
+
+    if let Ok(mut cache) = tb_probe_cache().lock() {
+        cache.insert(fen.clone(), probe.clone());
+    }
+    // Seed the adjudication cache too — the verdict is already in hand.
+    if let Ok(mut cache) = tb_cache().lock() {
+        cache.insert(fen, category_to_verdict(&probe.category));
+    }
+
+    Ok(Some(probe))
+}
+
 /// Result of a completed (or adjudicated) engine-vs-engine game.
 #[derive(Serialize, Debug, Clone)]
 pub struct GameResult {
@@ -2462,6 +2599,50 @@ mod tests {
         assert_eq!(lb, Some((Some(128), None)));
         // No score token → None (e.g. a currmove line).
         assert_eq!(parse_info_score("info depth 1 currmove e2e4 currmovenumber 1"), None);
+    }
+
+    // ---- tablebase_probe gating (spec 900 surfacing + spec 219 lockout) ----
+
+    #[test]
+    fn fen_men_count_counts_pieces_only() {
+        assert_eq!(fen_men_count(STANDARD_START_FEN), 32);
+        assert_eq!(fen_men_count("4k3/8/8/8/8/8/8/4K2Q w - - 0 1"), 3);
+        assert_eq!(fen_men_count(""), 0);
+    }
+
+    // Spec 219 layer 2: an active-game context is refused before any cache
+    // or network access — same defensive stance as uci.rs.
+    #[tokio::test]
+    async fn tablebase_probe_refuses_active_game_context() {
+        let err = tablebase_probe(
+            "4k3/8/8/8/8/8/8/4K2Q w - - 0 1".to_string(),
+            Some("active-game:https://chess.com/game/123".to_string()),
+        )
+        .await
+        .expect_err("locked context must be refused");
+        assert!(err.contains("fair play"), "got: {err}");
+    }
+
+    // >7 men is out of tablebase range: Ok(None) without touching the
+    // network (the start position would 404 anyway, but we never ask).
+    #[tokio::test]
+    async fn tablebase_probe_skips_positions_over_seven_men() {
+        let res = tablebase_probe(STANDARD_START_FEN.to_string(), None)
+            .await
+            .expect("no error for a big position");
+        assert!(res.is_none());
+    }
+
+    // Unrestricted context tag passes the gate (the probe itself may then
+    // fail offline, which is fine — it must not be a lockout refusal).
+    #[tokio::test]
+    async fn tablebase_probe_allows_unrestricted_context() {
+        let res = tablebase_probe(
+            "4k3/8/8/8/8/8/8/4K2Q w - - 0 1".to_string(),
+            Some("unrestricted".to_string()),
+        )
+        .await;
+        assert!(res.is_ok(), "unrestricted context must not be refused: {res:?}");
     }
 
     #[test]

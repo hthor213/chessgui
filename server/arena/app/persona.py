@@ -16,6 +16,7 @@ NOT implemented in Tier 0: step 4 Stockfish verification reweight (the visit
 head serves as verification), step 5 corpus error model, step 6 endgame arm,
 step 7 draw/resign model (a human opponent adjudicates their own games)."""
 
+import hashlib
 import json
 import os
 import random
@@ -48,13 +49,21 @@ class Persona:
 
 def _strength_label(cfg: dict) -> Optional[str]:
     """Honest lobby label (spec 216 hard rule: no unmeasured strength claims).
-    Private-rival configs (build_rival_configs.py) carry strength_label; GM
-    personas get theirs client-side from persona-manifest.ts, so None here."""
+    Private-rival configs (build_rival_configs.py / build_self_persona.py)
+    carry strength_label; GM personas get theirs client-side from
+    persona-manifest.ts, so None here. The qualifier comes from the config's
+    kind ("book + Maia band, <qualifier>") — the self persona's band IS
+    measured ("Maia-estimated", spec 218) and must not be relabeled
+    "unmeasured" here; configs without a qualifier keep the honest default."""
     sl = cfg.get("strength_label")
     if not sl:
         return None
     band = sl.get("maia_band")
-    return f"own book + Maia {band}, unmeasured" if band else sl.get("kind")
+    if not band:
+        return sl.get("kind")
+    kind = sl.get("kind") or ""
+    qualifier = kind.split(",", 1)[1].strip() if "," in kind else "unmeasured"
+    return f"own book + Maia {band}, {qualifier}"
 
 
 def _index_book(path: str) -> dict:
@@ -98,6 +107,26 @@ def load_roster() -> Dict[str, Persona]:
     return roster
 
 
+_verified_nets: set = set()
+
+
+def _net_verified(net_path: str) -> bool:
+    """Pinned-sha check for Maia nets (spec 218; config.MAIA_NET_SHA256,
+    digests recorded from maia.rs CHECKSUMS). Hashed once per process — nets
+    are read-only mounts. A basename with no pin passes: only known bands are
+    pinned, env-registered experimental nets stay usable."""
+    if net_path in _verified_nets:
+        return True
+    pinned = config.MAIA_NET_SHA256.get(os.path.basename(net_path))
+    if pinned is not None:
+        with open(net_path, "rb") as f:
+            got = hashlib.sha256(f.read()).hexdigest()
+        if got != pinned:
+            return False
+    _verified_nets.add(net_path)
+    return True
+
+
 def load_private_roster() -> Dict[str, Persona]:
     """spec 217 Promise 1: owner email -> that player's OWN persona, shown in
     their lobby and nobody else's. Never raises on missing artifacts — the
@@ -129,6 +158,10 @@ def load_private_roster() -> Dict[str, Persona]:
                 print(f"[persona] private '{slug}': missing Maia net "
                       f"{net_path}; skipped")
                 continue
+            if not _net_verified(net_path):
+                print(f"[persona] private '{slug}': Maia net checksum "
+                      f"mismatch {net_path}; skipped")
+                continue
         p = Persona(slug, cfg, _index_book(book_path), net_path)
         p.private = True  # gating fact, not a config opinion
         roster[email] = p
@@ -140,11 +173,16 @@ def _rng(seed: int, ply: int) -> random.Random:
 
 
 def select_move(persona: Persona, board: chess.Board, seed: int,
-                engine: Lc0Search) -> Tuple[chess.Move, str, Dict[str, Any]]:
+                engine: Lc0Search,
+                nodes: Optional[int] = None,
+                ) -> Tuple[chess.Move, str, Dict[str, Any]]:
     """Returns (move, arm, decision_log). Raises EngineStall upward if the
-    engine fails twice — the game stays active and resumable."""
+    engine fails twice — the game stays active and resumable. `nodes`
+    overrides the persona's own out-of-book budget (exhibitions cap it per
+    the spec-217 resource policy); None keeps persona.nodes."""
     rng = _rng(seed, board.ply())
     legal = {m.uci() for m in board.legal_moves}
+    budget = nodes if nodes is not None else persona.nodes
 
     booked = [(u, w) for u, w in persona.book.get(board.epd(), [])
               if u in legal]
@@ -154,7 +192,7 @@ def select_move(persona: Persona, board: chess.Board, seed: int,
         log = {"arm": "book", "candidates": booked}
         return chess.Move.from_uci(uci), "book", log
 
-    stats = engine.search(board.fen(), persona.nodes)
+    stats = engine.search(board.fen(), budget)
     cand = [(u, n, p) for (u, n, p, _q) in stats if u in legal]
     if not cand:  # should not happen on a legal position; fail loud, resumable
         raise RuntimeError("engine returned no legal candidates")
@@ -166,7 +204,7 @@ def select_move(persona: Persona, board: chess.Board, seed: int,
     else:
         weights = [max(float(n), 1e-9) ** inv for _, n, _ in top]
     uci = rng.choices([u for u, _, _ in top], weights=weights, k=1)[0]
-    log = {"arm": "search", "nodes": persona.nodes,
+    log = {"arm": "search", "nodes": budget,
            "top": [{"uci": u, "visits": n, "policy": round(p, 4)}
                    for u, n, p in top],
            "chosen": uci}

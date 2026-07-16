@@ -70,6 +70,38 @@ CREATE TABLE IF NOT EXISTS move_feedback (
   note TEXT DEFAULT '',      -- free text, optional ("...because he'd lose the bishop")
   created_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS exhibitions (
+  -- Spec 217 Promise 3: persona-vs-persona exhibitions ("watch Fischer vs
+  -- Kasparov"). Family-shared, not per-user: created_by records who started
+  -- it, but every allowlisted user can spectate and replay. One active
+  -- exhibition at a time is enforced in main.py (low-priority resource
+  -- policy), not here.
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  white_persona TEXT NOT NULL,
+  black_persona TEXT NOT NULL,
+  seed INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active','finished')),
+  result TEXT,               -- '1-0' / '0-1' / '1/2-1/2'; NULL = no result
+                             -- (stopped / engine stall — see result_reason)
+  result_reason TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS exhibition_moves (
+  -- Same persisted-as-it-happens rule as moves: each move commits before the
+  -- runner sleeps, so a restart resumes the exhibition mid-game (main.py
+  -- relaunches the runner for an active row at startup).
+  exhibition_id INTEGER NOT NULL REFERENCES exhibitions(id) ON DELETE CASCADE,
+  ply INTEGER NOT NULL,
+  uci TEXT NOT NULL,
+  san TEXT NOT NULL,
+  arm TEXT,                  -- 'book' / 'search' (both movers are personas)
+  decision_log TEXT,         -- JSON, same shape as moves.decision_log
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (exhibition_id, ply)
+);
 CREATE TABLE IF NOT EXISTS game_feedback (
   -- Spec 217 Tier 2: post-game "felt like him" verdict — whole-game realism,
   -- distinct from per-move move_feedback. game_id as PRIMARY KEY = one
@@ -258,6 +290,61 @@ def wdl_by_persona(user_id: int) -> List[Dict[str, Any]]:
         "    THEN 1 ELSE 0 END) AS losses "
         "FROM games WHERE user_id=? AND status='finished' "
         "GROUP BY persona ORDER BY persona", (user_id,))
+
+
+# --- exhibitions (spec 217 Promise 3: persona-vs-persona spectate/replay) ---
+
+def create_exhibition(created_by: int, white_persona: str,
+                      black_persona: str, seed: int) -> int:
+    return _exec(
+        "INSERT INTO exhibitions (created_by, white_persona, black_persona, "
+        "seed) VALUES (?,?,?,?)",
+        (created_by, white_persona, black_persona, seed))
+
+
+def get_exhibition(exhibition_id: int) -> Optional[Dict[str, Any]]:
+    r = _rows("SELECT * FROM exhibitions WHERE id=?", (exhibition_id,))
+    return r[0] if r else None
+
+
+def list_exhibitions() -> List[Dict[str, Any]]:
+    """Family-shared: every allowlisted user sees the same list (spec 217
+    Promise 3 — exhibitions are for watching together, not per-user)."""
+    return _rows(
+        "SELECT e.*, (SELECT COUNT(*) FROM exhibition_moves m "
+        "WHERE m.exhibition_id=e.id) AS n_moves "
+        "FROM exhibitions e ORDER BY id DESC")
+
+
+def active_exhibitions() -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM exhibitions WHERE status='active' ORDER BY id")
+
+
+def get_exhibition_moves(exhibition_id: int) -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM exhibition_moves WHERE exhibition_id=? "
+                 "ORDER BY ply", (exhibition_id,))
+
+
+def add_exhibition_move(exhibition_id: int, ply: int, uci: str, san: str,
+                        arm: Optional[str] = None,
+                        decision_log: Optional[dict] = None) -> None:
+    """Persisted-then-slept: commits before the runner pauses, same
+    disconnect/resume rule as add_move."""
+    _exec("INSERT INTO exhibition_moves (exhibition_id, ply, uci, san, arm, "
+          "decision_log) VALUES (?,?,?,?,?,?)",
+          (exhibition_id, ply, uci, san, arm,
+           json.dumps(decision_log) if decision_log else None))
+    _exec("UPDATE exhibitions SET updated_at=datetime('now') WHERE id=?",
+          (exhibition_id,))
+
+
+def finish_exhibition(exhibition_id: int, result: Optional[str],
+                      reason: str) -> None:
+    """result None = no chess result (stopped by a user, or an engine stall
+    aborted the run) — the reason says which."""
+    _exec("UPDATE exhibitions SET status='finished', result=?, "
+          "result_reason=?, updated_at=datetime('now') WHERE id=?",
+          (result, reason, exhibition_id))
 
 
 def set_clock(game_id: int, color: str, remaining_ms: int,

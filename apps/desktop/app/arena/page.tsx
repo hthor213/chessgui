@@ -22,6 +22,8 @@ import { LobbyScreen } from "@chessgui/ui/arena/lobby-screen"
 import { GameScreen } from "@chessgui/ui/arena/game-screen"
 import { HistoryScreen } from "@chessgui/ui/arena/history-screen"
 import { SharedReplayScreen } from "@chessgui/ui/arena/shared-replay-screen"
+import { ExhibitionsScreen } from "@chessgui/ui/arena/exhibitions-screen"
+import { ExhibitionScreen } from "@chessgui/ui/arena/exhibition-screen"
 import { ackDisclosure, hasAckedDisclosure } from "@/lib/arena-disclosure"
 import {
   ArenaApiError,
@@ -46,7 +48,15 @@ if (typeof window !== "undefined") {
   if (params.get("mock") === "1") installArenaApiMock()
 }
 
-type ArenaView = "login" | "disclosure" | "lobby" | "game" | "history" | "shared-replay"
+type ArenaView =
+  | "login"
+  | "disclosure"
+  | "lobby"
+  | "game"
+  | "history"
+  | "shared-replay"
+  | "exhibitions"
+  | "exhibition"
 
 export default function ArenaPage() {
   // null until the mount effect resolves auth + disclosure-ack — avoids a
@@ -56,6 +66,9 @@ export default function ArenaPage() {
   const [user, setUser] = useState<ArenaUser | null>(null)
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
   const [replayToken, setReplayToken] = useState<string | null>(null)
+  // Spec 217 Promise 3: which persona-vs-persona exhibition is open (spectate
+  // while active, replay once finished — one screen serves both).
+  const [exhibitionId, setExhibitionId] = useState<number | null>(null)
 
   const afterAuthView = useCallback((): ArenaView => (hasAckedDisclosure() ? "lobby" : "disclosure"), [])
 
@@ -75,6 +88,7 @@ export default function ArenaPage() {
     setUnauthorizedHandler(() => {
       setUser(null)
       setActiveGameId(null)
+      setExhibitionId(null)
       setView("login")
     })
 
@@ -116,16 +130,22 @@ export default function ArenaPage() {
     setView("game")
   }, [])
 
+  const onOpenExhibition = useCallback((id: number) => {
+    setExhibitionId(id)
+    setView("exhibition")
+  }, [])
+
   const signOut = useCallback(() => {
     setStoredToken(null)
     setUser(null)
     setActiveGameId(null)
+    setExhibitionId(null)
     setView("login")
   }, [])
 
   if (view === null) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#0a0a0a] text-muted-foreground">
+      <div className="h-dvh flex items-center justify-center bg-[#0a0a0a] text-muted-foreground">
         Loading…
       </div>
     )
@@ -134,7 +154,10 @@ export default function ArenaPage() {
   return (
     <ErrorBoundary>
       <TooltipProvider>
-        <div className="h-screen flex flex-col bg-[#0a0a0a]" data-testid="arena-root">
+        {/* h-dvh, not h-screen (spec 223): mobile Safari's 100vh includes
+            the collapsed URL bar, which would push the move list under it;
+            dvh tracks the visible height. Identical on desktop. */}
+        <div className="h-dvh flex flex-col bg-[#0a0a0a]" data-testid="arena-root">
           <header className="flex items-center justify-between px-6 py-3 border-b border-white/10">
             <span className="text-lg font-bold tracking-tight text-foreground">Persona Arena</span>
             <div className="flex items-center gap-3">
@@ -158,7 +181,11 @@ export default function ArenaPage() {
           {view === "disclosure" && <DisclosureScreen onAck={onAck} />}
 
           {view === "lobby" && (
-            <LobbyScreen onGameStarted={onGameStarted} onOpenHistory={() => setView("history")} />
+            <LobbyScreen
+              onGameStarted={onGameStarted}
+              onOpenHistory={() => setView("history")}
+              onOpenExhibitions={() => setView("exhibitions")}
+            />
           )}
 
           {view === "game" && activeGameId !== null && (
@@ -169,6 +196,17 @@ export default function ArenaPage() {
 
           {view === "shared-replay" && replayToken !== null && (
             <SharedReplayScreen token={replayToken} />
+          )}
+
+          {view === "exhibitions" && (
+            <ExhibitionsScreen
+              onOpenExhibition={onOpenExhibition}
+              onBack={() => setView("lobby")}
+            />
+          )}
+
+          {view === "exhibition" && exhibitionId !== null && (
+            <ExhibitionScreen exhibitionId={exhibitionId} onBack={() => setView("exhibitions")} />
           )}
         </div>
       </TooltipProvider>

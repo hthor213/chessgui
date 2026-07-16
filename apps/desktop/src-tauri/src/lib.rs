@@ -8,6 +8,7 @@ pub mod files;
 pub mod human_search;
 pub mod machine;
 pub mod maia;
+pub mod measure;
 pub mod persona;
 pub mod puzzles;
 mod uci;
@@ -54,6 +55,7 @@ pub fn run() {
             match_runner::load_tournament_result,
             match_runner::read_opening_positions,
             match_runner::tag_positions,
+            match_runner::tablebase_probe,
             db::db_import_pgn,
             db::db_import_cbh,
             db::db_list_games,
@@ -89,6 +91,7 @@ pub fn run() {
             coach::coach_followup,
             active_games::active_games_load,
             active_games::active_games_save,
+            measure::measure_monthly_run, measure::measure_monthly_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

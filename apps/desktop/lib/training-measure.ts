@@ -9,10 +9,10 @@
 //    self-analysis pipeline (scripts/measure_monthly.py, the rescued
 //    fetch→engage→analyze→maia→stats chain). The script writes
 //    data/rivals/training_metrics.json; the Training tab imports that file.
-//    Chosen as the smaller honest step over a Tauri spawn-command: the
-//    pipeline is a multi-minute lc0 job with network fetches — a fire-and-
-//    forget button with no progress surface would be dishonest UX, and the
-//    import path works identically in the plain browser and the shell.
+//    On the desktop shell the tab can now also SPAWN the script in place
+//    (src-tauri/src/measure.rs) with its output streamed live — the progress
+//    surface the earlier import-only step was waiting for. The import path
+//    stays for the plain browser and for terminal runs.
 //
 // Everything here is pure (no localStorage, no Tauri) — the component owns
 // persistence, same split as lib/training-program.
@@ -22,6 +22,9 @@ import {
   type MetricKey,
   type MetricPoint,
 } from "@/lib/training-program"
+import type { MeasureLine, MeasureReport } from "@chessgui/core/platform-types"
+
+export type { MeasureLine, MeasureReport }
 import { sparScore, type SparResultEntry } from "@/lib/spar-results"
 import { egConversion, type PlayoutResultEntry } from "@/lib/playout"
 
@@ -114,6 +117,59 @@ export function mergeMetricPoints(existing: MetricPoint[], imported: MetricPoint
     }
   }
   return { merged, added, replaced, unchanged }
+}
+
+// ---------------------------------------------------------------------------
+// In-app pipeline run (spec 215 Tier 2 spawn) — pure helpers for the panel
+// ---------------------------------------------------------------------------
+
+/** Storage key for the persisted chess.com username the run form remembers. */
+export const MEASURE_USER_KEY = "chessgui:training-measure-user"
+
+/** Tail cap for the streamed run log kept in state (memory bound — the run
+ *  emits one line per analyzed game; only the recent tail matters on screen). */
+export const MEASURE_LOG_TAIL = 200
+
+/** Human labels for the pipeline's `$ <cmd>` stage announcements (the script
+ *  prints one per stage on stderr — see scripts/measure_monthly.py run()). */
+const STAGE_LABELS: ReadonlyArray<readonly [string, string]> = [
+  ["fetch_chesscom.py", "Fetching chess.com archives"],
+  ["self_engage.py", "Filtering engaged games"],
+  ["self_analyze.py", "Profiling games (endgames, flags)"],
+  ["self_maia.py", "Maia policy matrix — the multi-minute lc0 stage"],
+  ["self_stats.py", "Estimating rating"],
+]
+
+/** Stage label for a streamed line, or null when the line isn't a stage
+ *  announcement (plain progress output). */
+export function stageForLine(line: string): string | null {
+  if (!line.startsWith("$ ")) return null
+  for (const [pat, label] of STAGE_LABELS) {
+    if (line.includes(pat)) return label
+  }
+  return null
+}
+
+/** Append one line to the run log, keeping only the last `cap` lines. */
+export function appendLogLine(log: string[], line: string, cap: number = MEASURE_LOG_TAIL): string[] {
+  const next = [...log, line]
+  return next.length > cap ? next.slice(next.length - cap) : next
+}
+
+/**
+ * Status message for a finished run, or null when the run succeeded with a
+ * readable metrics file — the caller then imports `metrics_json` and lets the
+ * merge report speak instead.
+ */
+export function measureRunMessage(report: MeasureReport): string | null {
+  if (report.cancelled) return "Measurement run cancelled — nothing imported."
+  if (report.exit_code !== 0) {
+    return `Pipeline failed (exit ${report.exit_code ?? "unknown"}) — see the run log.`
+  }
+  if (report.metrics_json == null) {
+    return "Pipeline finished but the metrics file was unreadable — use Import measurements…."
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------

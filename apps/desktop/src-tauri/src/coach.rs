@@ -54,6 +54,13 @@ and eval against the engine data, and invite them to reply with why they chose i
 coarse quick-select grid (0.5-pawn steps below 1, whole pawns above), so treat a miss of half a \
 grid step (~0.25 below 1.0, ~0.5 above) as input granularity, not misjudgment — do not scold \
 precision the input cannot express.\n\
+- If the student states a PLAN for the side to move, grade the plan's DIRECTION against the \
+engine line, SEPARATELY from their eval number: \"aligned\" when the plan pushes where the \
+engine's best play pushes, \"partial\" when it overlaps the engine line but misses its main \
+point, \"wrong\" when the engine line contradicts or ignores it, \"unclear\" when the provided \
+data cannot settle the direction. Grade only against the provided line and continuation — never \
+against consequences you cannot verify. A \"wrong\" plan normally warrants the \
+wrong_plan_priority cause tag. When no plan is stated, use \"no_plan\".\n\
 - If the engine's best move looks like it hangs or loses material, do NOT invent a positional \
 justification for it (\"gains space\", \"takes the initiative\"). When an engine line (best play) \
 IS provided, use it to explain the concrete tactical point: walk the student through those moves \
@@ -96,6 +103,13 @@ pub struct CoachInput {
     #[serde(default)]
     pub user_eval_hi: Option<f64>,
     pub user_why: String,
+    /// Plan elicitation (spec 213, v5): the user's one-line plan for the side
+    /// to move (and optional plan B), asked on plan decks only.
+    /// `#[serde(default)]` so pre-plan frontends that omit them deserialize.
+    #[serde(default)]
+    pub user_plan: Option<String>,
+    #[serde(default)]
+    pub user_plan_b: Option<String>,
     /// The move the user said they'd play (UCI), if any.
     pub user_move_uci: Option<String>,
     /// Second-look revision, if the user made one.
@@ -123,6 +137,11 @@ pub struct CoachFeedback {
     pub reasoning_quality: String,
     /// Direction right, magnitude off.
     pub scale_error: bool,
+    /// Plan elicitation (spec 213, v5): the stated plan's direction vs the
+    /// engine line — "aligned" | "partial" | "wrong" | "unclear" | "no_plan".
+    /// `#[serde(default)]` so pre-plan stored feedback deserializes as None.
+    #[serde(default)]
+    pub plan_grade: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +212,14 @@ fn user_text(input: &CoachInput) -> String {
             ));
         }
     }
+    // Plan elicitation (spec 213): the plan was stated BEFORE the eval, on
+    // plan decks only — render it so the coach can grade its direction.
+    if let Some(plan) = input.user_plan.as_deref().filter(|p| !p.trim().is_empty()) {
+        s.push_str(&format!("Their plan for the side to move: {}\n", plan.trim()));
+        if let Some(b) = input.user_plan_b.as_deref().filter(|p| !p.trim().is_empty()) {
+            s.push_str(&format!("Their backup plan: {}\n", b.trim()));
+        }
+    }
     s.push_str(&format!("Their reasoning: {}\n", if input.user_why.trim().is_empty() {
         "(they wrote nothing)"
     } else {
@@ -246,9 +273,14 @@ fn build_request(input: &CoachInput) -> serde_json::Value {
                     "scale_error": {
                         "type": "boolean",
                         "description": "True if the direction was right but the magnitude was off."
+                    },
+                    "plan_grade": {
+                        "type": "string",
+                        "enum": ["aligned", "partial", "wrong", "unclear", "no_plan"],
+                        "description": "Direction of the student's stated plan vs the engine line, graded separately from the eval number; no_plan when they stated none."
                     }
                 },
-                "required": ["note", "cause_tags", "reasoning_quality", "scale_error"]
+                "required": ["note", "cause_tags", "reasoning_quality", "scale_error", "plan_grade"]
             }
         }],
         "tool_choice": { "type": "tool", "name": "coach_feedback" },
@@ -408,6 +440,8 @@ mod tests {
             user_eval_lo: None,
             user_eval_hi: None,
             user_why: "White wins a pawn on e7 with the exchange sequence".to_string(),
+            user_plan: None,
+            user_plan_b: None,
             user_move_uci: Some("c4d5".to_string()),
             revised_eval: None,
             revision_note: None,
@@ -474,6 +508,33 @@ mod tests {
         // Range-elicitation bounds are absent on pre-range wires → None.
         assert!(input.user_eval_lo.is_none());
         assert!(input.user_eval_hi.is_none());
+        // v5's plan fields are absent on pre-plan wires → None.
+        assert!(input.user_plan.is_none());
+        assert!(input.user_plan_b.is_none());
+    }
+
+    /// Plan elicitation (spec 213): a stated plan (and plan B) renders in the
+    /// student's answer section; absent or blank plans render nothing.
+    #[test]
+    fn plan_renders_when_stated_and_not_otherwise() {
+        let mut input = sample_input();
+        assert!(!user_text(&input).contains("Their plan"));
+
+        input.user_plan = Some("queenside minority attack".to_string());
+        let text = user_text(&input);
+        assert!(text.contains("Their plan for the side to move: queenside minority attack"));
+        assert!(!text.contains("Their backup plan"));
+
+        input.user_plan_b = Some("trade into the pawn endgame".to_string());
+        let text = user_text(&input);
+        assert!(text.contains("Their backup plan: trade into the pawn endgame"));
+
+        // A blank plan is the same as no plan — and a plan B without a plan A
+        // never renders (the UI can't produce one, but the prompt stays sane).
+        input.user_plan = Some("   ".to_string());
+        let text = user_text(&input);
+        assert!(!text.contains("Their plan"));
+        assert!(!text.contains("Their backup plan"));
     }
 
     /// Range elicitation (spec 213): the prompt carries the asserted range —
@@ -510,6 +571,14 @@ mod tests {
         assert_eq!(req["tool_choice"]["type"], "tool");
         assert_eq!(req["tool_choice"]["name"], "coach_feedback");
         assert_eq!(req["tools"][0]["strict"], true);
+        // Plan grading (spec 213 plan elicitation) is a required schema field.
+        let schema = &req["tools"][0]["input_schema"];
+        assert!(schema["required"].as_array().unwrap().iter().any(|v| v == "plan_grade"));
+        assert!(schema["properties"]["plan_grade"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "no_plan"));
         // No sampling/thinking params (would 400 on Opus 4.8).
         assert!(req.get("temperature").is_none());
         assert!(req.get("thinking").is_none());
@@ -549,7 +618,8 @@ mod tests {
                         "note": "You counted the e7 capture as winning a pawn, but after cxd5 exd5 the pawn is recaptured — material is level, so your +1.5 is really about +0.3.",
                         "cause_tags": ["miscounted_exchange", "scale_miscalibration"],
                         "reasoning_quality": "partial",
-                        "scale_error": true
+                        "scale_error": true,
+                        "plan_grade": "wrong"
                     }
                 }
             ]
@@ -559,6 +629,28 @@ mod tests {
         assert_eq!(fb.reasoning_quality, "partial");
         assert!(fb.scale_error);
         assert_eq!(fb.cause_tags, vec!["miscounted_exchange", "scale_miscalibration"]);
+        assert_eq!(fb.plan_grade.as_deref(), Some("wrong"));
+    }
+
+    /// A response without plan_grade (pre-plan model output, or stored old
+    /// feedback re-parsed) still deserializes — the field defaults to None.
+    #[test]
+    fn parses_response_without_plan_grade() {
+        let v = json!({
+            "stop_reason": "tool_use",
+            "content": [{
+                "type": "tool_use",
+                "name": "coach_feedback",
+                "input": {
+                    "note": "Sound read.",
+                    "cause_tags": ["sound_reasoning"],
+                    "reasoning_quality": "sound",
+                    "scale_error": false
+                }
+            }]
+        });
+        let fb = parse_response(&v).unwrap();
+        assert!(fb.plan_grade.is_none());
     }
 
     #[test]

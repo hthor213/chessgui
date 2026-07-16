@@ -18,5 +18,12 @@
 
   body {
     @apply bg-background text-foreground;
+    /* Mobile shell (spec 223): suppress pull-to-refresh / rubber-banding —
+       a board drag near the top edge must never trigger a page refresh —
+       and keep content out of the notch/home-indicator areas (the viewport
+       is viewport-fit=cover). All zero-width on desktop browsers. */
+    overscroll-behavior-y: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 }

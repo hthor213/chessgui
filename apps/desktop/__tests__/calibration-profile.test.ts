@@ -13,6 +13,15 @@ import {
   lockInNeed,
   lockInPlan,
   applyLockIn,
+  SPARSITY_WEIGHT,
+  disagreementOf,
+  cellKey,
+  cellCounts,
+  countsWithSession,
+  phaseBScore,
+  pickNext,
+  promoteAt,
+  phaseBReadout,
 } from "@/lib/calibration-profile"
 import { scoredAnswers, PHASES } from "@/lib/calibration-stats"
 import type {
@@ -359,5 +368,127 @@ describe("lockInPlan / applyLockIn", () => {
     expect(reordered.positions[1].phase).toBe("endgame")
     // The original session object is not mutated.
     expect(s.positions[1].phase).toBe("middlegame")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase B — model-driven selection (spec 213 adaptive elicitation)
+// ---------------------------------------------------------------------------
+
+describe("disagreementOf", () => {
+  it("is the max−min Eval_R spread across the swept bands", () => {
+    expect(disagreementOf([1.2, 1.2, 3.1])).toBeCloseTo(1.9)
+    expect(disagreementOf([0.5, 0.5])).toBe(0)
+    expect(disagreementOf([-1.0, 0.5, 2.0])).toBeCloseTo(3.0)
+  })
+
+  it("clamps mate-magnitude points so one blowup can't dominate the ranking", () => {
+    // human_search collapses mates to ~±1000 pawns; the spread caps at ±12.
+    expect(disagreementOf([1000, 0])).toBe(12)
+    expect(disagreementOf([-1000, 1000])).toBe(24)
+  })
+
+  it("is null with fewer than two points (a cancelled sweep — retry, don't record)", () => {
+    expect(disagreementOf([])).toBeNull()
+    expect(disagreementOf([1.0])).toBeNull()
+  })
+})
+
+describe("cellCounts / countsWithSession", () => {
+  it("counts usable answers per phase × band cell across results, skipping skips and malformed files", () => {
+    const s = session([
+      pos({ phase: "middlegame", band: "0.5-1.5" }),
+      pos({ phase: "endgame", band: "3+" }),
+      pos({ phase: "middlegame", band: "0.5-1.5" }),
+    ])
+    const results = [
+      {
+        session: s,
+        answers: [
+          ans({ index: 0, eval: 1.0 }),
+          ans({ index: 1, eval: 3.0 }),
+          ans({ index: 2, eval: null, skipped: true }), // skipped → not a label
+        ],
+      } as unknown as CalibrationResults,
+      {} as CalibrationResults, // malformed → skipped, never fatal
+      null as unknown as CalibrationResults,
+    ]
+    expect(cellCounts(results)).toEqual({ "middlegame|0.5-1.5": 1, "endgame|3+": 1 })
+    expect(cellCounts([])).toEqual({})
+  })
+
+  it("countsWithSession folds the running session's answers on top of the prior", () => {
+    const s = session([pos({ phase: "endgame", band: "3+" }), pos({ phase: "middlegame", band: "0-0.5" })])
+    const counts = countsWithSession({ "endgame|3+": 2 }, s, [ans({ index: 0, eval: 3 })])
+    expect(counts["endgame|3+"]).toBe(3)
+    expect(counts["middlegame|0-0.5"]).toBeUndefined() // unanswered → no label yet
+    expect(cellKey(s.positions[1])).toBe("middlegame|0-0.5")
+  })
+})
+
+describe("phaseBScore / pickNext", () => {
+  it("an unlabeled cell is worth SPARSITY_WEIGHT, decaying as labels accumulate", () => {
+    expect(phaseBScore(null, 0)).toBe(SPARSITY_WEIGHT)
+    expect(phaseBScore(null, 1)).toBe(SPARSITY_WEIGHT / 2)
+    expect(phaseBScore(1.5, 3)).toBeCloseTo(1.5 + SPARSITY_WEIGHT / 4)
+  })
+
+  it("picks the highest evaluator disagreement when coverage is equal", () => {
+    const positions = [pos({ fen: "fenA" }), pos({ fen: "fenB" }), pos({ fen: "fenC" })]
+    const spreads = { fenA: 0.4, fenB: 2.5, fenC: 0.5 }
+    expect(pickNext(positions, 0, spreads, {})).toBe(1)
+  })
+
+  it("an unscored position in a thin cell outranks a small spread in a saturated cell", () => {
+    const positions = [
+      pos({ fen: "fenA", phase: "middlegame", band: "0.5-1.5" }), // scored, saturated cell
+      pos({ fen: "fenB", phase: "endgame", band: "3+" }), // unscored, unseen cell
+    ]
+    // fenA: 0.3 + 2/6 ≈ 0.63; fenB: 0 + 2 = 2 → sparsity wins.
+    const picked = pickNext(positions, 0, { fenA: 0.3 }, { "middlegame|0.5-1.5": 5 })
+    expect(picked).toBe(1)
+  })
+
+  it("is deterministic — ties keep the earliest remaining position, and `from` bounds the scan", () => {
+    const positions = [pos({ fen: "fenA" }), pos({ fen: "fenB" }), pos({ fen: "fenC" })]
+    // All identical: the sampled order stands.
+    expect(pickNext(positions, 0, {}, {})).toBe(0)
+    expect(pickNext(positions, 1, {}, {})).toBe(1)
+    // The best candidate BEFORE `from` (already presented) is never re-picked.
+    expect(pickNext(positions, 1, { fenA: 9 }, {})).toBe(1)
+    // Empty tail: returns `from` (the caller is at the end anyway).
+    expect(pickNext(positions, 3, {}, {})).toBe(3)
+  })
+})
+
+describe("promoteAt", () => {
+  it("moves the pick into the slot, preserving everyone else's relative order", () => {
+    const s = session([0, 1, 2, 3, 4].map((i) => pos({ game_id: i })))
+    const out = promoteAt(s, 2, 4)
+    expect(out.positions.map((p) => p.game_id)).toEqual([0, 1, 4, 2, 3])
+    // Already-answered slots (below `to`) never move — committed answer
+    // indices stay valid.
+    expect(out.positions[0].game_id).toBe(0)
+    expect(out.positions[1].game_id).toBe(1)
+    // The original session is not mutated.
+    expect(s.positions.map((p) => p.game_id)).toEqual([0, 1, 2, 3, 4])
+  })
+
+  it("is a no-op (same object) when the pick is already in the slot", () => {
+    const s = session([pos({}), pos({})])
+    expect(promoteAt(s, 1, 1)).toBe(s)
+  })
+})
+
+describe("phaseBReadout", () => {
+  it("is null until anything is labeled", () => {
+    expect(phaseBReadout({})).toBeNull()
+  })
+
+  it("names the most saturated cell and the bottleneck, deterministically", () => {
+    const readout = phaseBReadout({ "middlegame|0.5-1.5": 5, "endgame|3+": 1 })!
+    expect(readout).toContain("middlegame 0.5-1.5 is the most saturated (5 labels)")
+    // Bottleneck is the first zero-count cell in PHASES × BANDS order.
+    expect(readout).toContain("middlegame 0-0.5 is the bottleneck (0)")
   })
 })

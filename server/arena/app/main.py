@@ -28,6 +28,17 @@ Routes (all /api/* behind JWT except /health and /api/auth/google-login):
                                                  the token IS the capability
                                                  (unguessable, revocable)
   DELETE /api/game/{id}                       -> delete (spec: deletable on request)
+  POST /api/exhibition {white_persona,
+                        black_persona}        -> start a persona-vs-persona
+                                                 exhibition (217 Promise 3;
+                                                 one at a time -> 409)
+  GET  /api/exhibitions                       -> all exhibitions (family-
+                                                 shared, newest first)
+  GET  /api/exhibition/{id}                   -> full state — the spectate
+                                                 poll AND the replay fetch
+  POST /api/exhibition/{id}/stop              -> stop an active exhibition
+                                                 (any family member; frees
+                                                 the slot + the engine)
 """
 
 import hashlib
@@ -51,6 +62,11 @@ _roster = {}
 _private_roster = {}   # owner email -> their OWN persona (spec 217 Promise 1)
 _maia_engines = {}     # net_path -> warm Lc0Search, spawned on first use
 _move_lock = threading.Lock()  # Tier 0: persona moves serialized (1-2 games)
+# Spec 217 Promise 3 resource policy: ONE exhibition at a time. The runner
+# thread holds this for its whole life (acquired by whoever launches it,
+# released in the runner's finally), so the DB check and the slot can never
+# disagree for long.
+_exhibition_slot = threading.Lock()
 
 
 @asynccontextmanager
@@ -74,6 +90,18 @@ async def lifespan(app: FastAPI):
     if got != config.LC0_NET_SHA256:
         raise RuntimeError(f"BT3 net checksum mismatch: {got}")
     _engine = Lc0Search()  # warm net load at startup, not on first move
+    # Exhibition resume (spec 217 Promise 3, disconnect/resume rule): every
+    # move is persisted as it happens, so an exhibition interrupted by a
+    # restart picks up from its last move. One at a time — resume the newest
+    # active row, finish any older stragglers honestly rather than queue them.
+    actives = db.active_exhibitions()
+    for ex in actives[:-1]:
+        db.finish_exhibition(ex["id"], None, "interrupted")
+        print(f"[exhibition] #{ex['id']} finished as interrupted (stale)")
+    if actives and _exhibition_slot.acquire(blocking=False):
+        threading.Thread(target=_run_exhibition, args=(actives[-1]["id"],),
+                         daemon=True).start()
+        print(f"[exhibition] #{actives[-1]['id']} resumed after restart")
     yield
     _engine = None
 
@@ -127,6 +155,13 @@ class MoveFeedbackRequest(BaseModel):
 class GameRealismRequest(BaseModel):
     verdict: str    # 'felt_like' | 'did_not_feel_like' (spar vocabulary, spec 214)
     note: str = ""  # optional free text
+
+
+class CreateExhibitionRequest(BaseModel):
+    # Public roster slugs (spec 217 Promise 3). Same slug on both sides is
+    # allowed — "watch Fischer play himself" is a legitimate exhibit.
+    white_persona: str
+    black_persona: str
 
 
 @app.get("/health")
@@ -540,3 +575,179 @@ def delete_game(game_id: int, user: dict = Depends(current_user)):
     _own_active_game(game_id, user)
     db.delete_game(game_id)
     return {"deleted": game_id}
+
+
+# --- exhibitions (spec 217 Promise 3: persona-vs-persona spectate/replay) ---
+#
+# The server plays BOTH sides on a background daemon thread, reusing the
+# exact interactive move machinery (persona_mod.select_move under the shared
+# _move_lock, so a player's move never queues behind more than one exhibition
+# search). Low priority per the resource policy: one exhibition at a time
+# (_exhibition_slot), a per-move node cap (config.EXHIBITION_SEARCH_NODES),
+# and a pause between moves (config.EXHIBITION_MOVE_PAUSE_S). Spectating is a
+# plain poll of GET /api/exhibition/{id} — every move is persisted before the
+# runner sleeps, so the poll (and a restart) always sees an honest game.
+
+def _persona_display_name(slug: str) -> str:
+    p = _roster.get(slug)
+    return p.display_name if p else slug
+
+
+def _exhibition_board_of(ex_id: int) -> chess.Board:
+    board = chess.Board()
+    for m in db.get_exhibition_moves(ex_id):
+        board.push(chess.Move.from_uci(m["uci"]))
+    return board
+
+
+def _exhibition_state(ex: dict) -> dict:
+    moves = db.get_exhibition_moves(ex["id"])
+    board = chess.Board()
+    for m in moves:
+        board.push(chess.Move.from_uci(m["uci"]))
+    return {"id": ex["id"],
+            "white_persona": ex["white_persona"],
+            "black_persona": ex["black_persona"],
+            "white_name": _persona_display_name(ex["white_persona"]),
+            "black_name": _persona_display_name(ex["black_persona"]),
+            "status": ex["status"], "result": ex["result"],
+            "result_reason": ex["result_reason"],
+            "fen": board.fen(),
+            "created_at": ex["created_at"], "updated_at": ex["updated_at"],
+            "moves": [{"ply": m["ply"], "uci": m["uci"], "san": m["san"],
+                       "arm": m["arm"]} for m in moves]}
+
+
+def _run_exhibition(ex_id: int) -> None:
+    """Play one exhibition to completion. The caller has already acquired
+    _exhibition_slot; this thread releases it when the game ends, however it
+    ends (a plain Lock may be released by a different thread than acquired
+    it — that asymmetry is deliberate here)."""
+    try:
+        while True:
+            ex = db.get_exhibition(ex_id)
+            if not ex or ex["status"] != "active":
+                return
+            board = _exhibition_board_of(ex_id)
+            o = board.outcome(claim_draw=True)
+            if o is not None:
+                db.finish_exhibition(ex_id, o.result(),
+                                     o.termination.name.lower())
+                return
+            if board.ply() >= config.EXHIBITION_MAX_PLIES:
+                # Hard termination guarantee (resource policy): a shuffle
+                # game must not hold the slot and the engine for hours.
+                db.finish_exhibition(ex_id, "1/2-1/2", "move_cap")
+                return
+            slug = (ex["white_persona"] if board.turn == chess.WHITE
+                    else ex["black_persona"])
+            p = _roster.get(slug)
+            if p is None:
+                # Artifacts vanished between deploys. A thread can't answer
+                # 503 like _persona_of does — stop honestly instead of
+                # spinning; the reason is visible to spectators.
+                db.finish_exhibition(ex_id, None,
+                                     f"persona '{slug}' unavailable")
+                return
+            try:
+                with _move_lock:
+                    move, arm, log = persona_mod.select_move(
+                        p, board, ex["seed"], _engine_for(p),
+                        nodes=min(config.EXHIBITION_SEARCH_NODES, p.nodes))
+            except EngineStall as e:
+                # engine.search already did retry + respawn; a stall that
+                # still surfaces ends the exhibition visibly — never a
+                # silent hang (spec 217 failure modes).
+                print(f"[exhibition] #{ex_id} aborted: {e}")
+                db.finish_exhibition(ex_id, None, "engine stall")
+                return
+            # A stop may have landed while the engine searched — the stop
+            # wins and the computed move is thrown away, same arbiter rule
+            # as the clock flag in _persona_reply.
+            fresh = db.get_exhibition(ex_id)
+            if not fresh or fresh["status"] != "active":
+                return
+            san = board.san(move)
+            ply = board.ply()
+            board.push(move)
+            db.add_exhibition_move(ex_id, ply, move.uci(), san, arm, log)
+            if _finish_exhibition_if_over(ex_id, board):
+                return
+            time.sleep(config.EXHIBITION_MOVE_PAUSE_S)
+    finally:
+        _exhibition_slot.release()
+
+
+def _finish_exhibition_if_over(ex_id: int, board: chess.Board) -> bool:
+    o = board.outcome(claim_draw=True)
+    if o is None:
+        return False
+    db.finish_exhibition(ex_id, o.result(), o.termination.name.lower())
+    return True
+
+
+@app.post("/api/exhibition")
+def create_exhibition(req: CreateExhibitionRequest,
+                      user: dict = Depends(current_user)):
+    """Spec 217 Promise 3: start a persona-vs-persona exhibition. PUBLIC
+    roster only — a private persona (Promise 1) in a family-spectatable game
+    would leak its existence to everyone, so it can't be fielded here."""
+    for slug in (req.white_persona, req.black_persona):
+        if slug not in _roster:
+            raise HTTPException(400, f"Unknown persona: {slug}")
+    if not _exhibition_slot.acquire(blocking=False):
+        # Also covers the brief wind-down after a stop, while the runner
+        # finishes throwing away its in-flight search.
+        raise HTTPException(409, "An exhibition is already running — one at "
+                                 "a time (it's a shared hobby box).")
+    try:
+        seed = random.SystemRandom().randrange(2**31)
+        ex_id = db.create_exhibition(user["id"], req.white_persona,
+                                     req.black_persona, seed)
+        threading.Thread(target=_run_exhibition, args=(ex_id,),
+                         daemon=True).start()
+    except BaseException:
+        _exhibition_slot.release()
+        raise
+    return _exhibition_state(db.get_exhibition(ex_id))
+
+
+@app.get("/api/exhibitions")
+def list_exhibitions(user: dict = Depends(current_user)):
+    """Family-shared, newest first — everyone sees the same exhibit hall
+    (spec 217 Promise 3: watching together is the point)."""
+    return {"exhibitions": [
+        {"id": e["id"],
+         "white_persona": e["white_persona"],
+         "black_persona": e["black_persona"],
+         "white_name": _persona_display_name(e["white_persona"]),
+         "black_name": _persona_display_name(e["black_persona"]),
+         "status": e["status"], "result": e["result"],
+         "result_reason": e["result_reason"],
+         "created_at": e["created_at"], "updated_at": e["updated_at"],
+         "n_moves": e["n_moves"]}
+        for e in db.list_exhibitions()]}
+
+
+@app.get("/api/exhibition/{exhibition_id}")
+def get_exhibition(exhibition_id: int, user: dict = Depends(current_user)):
+    """The spectate poll AND the replay fetch — one endpoint, the client
+    polls while status is 'active' and stops when it flips."""
+    ex = db.get_exhibition(exhibition_id)
+    if not ex:
+        raise HTTPException(404, "Exhibition not found")
+    return _exhibition_state(ex)
+
+
+@app.post("/api/exhibition/{exhibition_id}/stop")
+def stop_exhibition(exhibition_id: int, user: dict = Depends(current_user)):
+    """Any family member may stop a running exhibition (it's shared compute,
+    not a personal game). The runner notices on its next look and frees the
+    slot; a search already in flight is discarded."""
+    ex = db.get_exhibition(exhibition_id)
+    if not ex:
+        raise HTTPException(404, "Exhibition not found")
+    if ex["status"] != "active":
+        raise HTTPException(409, "Exhibition is finished")
+    db.finish_exhibition(exhibition_id, None, "stopped")
+    return _exhibition_state(db.get_exhibition(exhibition_id))

@@ -80,6 +80,12 @@ export type CalibrationAnswer = {
   eval_hi?: number | null
   /** One-or-two-sentence reason. */
   why: string
+  /** Plan elicitation (spec 213, v5): the user's one-line plan for the side to
+   *  move, asked BEFORE the eval on plan decks (see PLAN_DECKS). Null when the
+   *  position's deck doesn't ask for one, on skips, and on pre-v5 answers. */
+  plan?: string | null
+  /** Optional backup plan ("plan B"), same lifecycle as `plan`. */
+  plan_b?: string | null
   /** UCI of the move they'd play, or null if they didn't pick one. */
   move_uci: string | null
   /** Wall time from position-shown to submit, milliseconds (includes typing). */
@@ -135,6 +141,10 @@ export type CoachFeedback = {
   reasoning_quality: string
   /** Direction right, magnitude off. */
   scale_error: boolean
+  /** Plan elicitation (spec 213, v5): the coach's grade of the stated plan's
+   *  DIRECTION vs the engine line, separate from the eval number — "aligned" |
+   *  "partial" | "wrong" | "unclear" | "no_plan". Absent on pre-plan feedback. */
+  plan_grade?: string | null
 }
 
 /** Everything the coach needs about one answered position. Mirrors Rust `CoachInput`. */
@@ -154,6 +164,10 @@ export type CoachInput = {
   user_eval_lo: number | null
   user_eval_hi: number | null
   user_why: string
+  /** Plan elicitation (spec 213, v5): the user's stated plan (and optional
+   *  plan B) for the side to move; null when the deck didn't ask for one. */
+  user_plan: string | null
+  user_plan_b: string | null
   user_move_uci: string | null
   revised_eval: number | null
   revision_note: string | null
@@ -233,6 +247,10 @@ export type CalibrationSummary = {
   perPhase: PhaseStat[]
   /** v3 training-deck rows; all-zero counts on v1/v2 sessions. */
   perDeck: DeckStat[]
+  /** Plan elicitation (spec 213, v5): `given` counts answers that stated a
+   *  plan; the grade counts cover only coach-graded ones ("unclear"/"no_plan"
+   *  and ungraded answers excluded). All zero on pre-plan sessions. */
+  planDirection: { given: number; aligned: number; partial: number; wrong: number }
   biggestMisses: Miss[]
 }
 // ---------------------------------------------------------------------------
@@ -301,6 +319,27 @@ export type CalibrationResults = {
    * to be BEFORE this session's answers. Null/absent when there were none.
    */
   profile_prior?: LabelerProfile | null
+  /**
+   * Plan elicitation (spec 213, v5): the decks on which "what's the plan?" was
+   * asked this session ([] = plans not asked, e.g. a resumed pre-plan session
+   * — plans switch on at new-session boundaries only). Absent on pre-v5 files.
+   */
+  plan_decks?: string[]
+  /**
+   * Phase-B adaptive selection (spec 213 adaptive elicitation, v6): present
+   * (non-null) when positions after the lock-in burst were model-chosen —
+   * each next slot filled by evaluator-variant disagreement (tier-1 Eval_R
+   * swept at `bands`) blended with (phase × |eval| band) coverage sparsity.
+   * `spreads` is each position's max−min Eval_R in pawns across `bands` at
+   * selection time, aligned with session.positions; a null entry was never
+   * scored (tier-1 unavailable, or the prefetcher hadn't reached it).
+   * Null/absent = fixed presentation order (pre-v6 file, or a resumed
+   * pre-Phase-B session — selection switches on at new-session boundaries
+   * only). NOTE the §6.4 caveat: adaptively-ordered answers bias naive
+   * sequential statistics; per-cell aggregates should account for this
+   * selection record.
+   */
+  phase_b?: { bands: number[]; spreads: (number | null)[] } | null
   session: CalibrationSession
   /** Answers in presentation order (each carries its `index`), so learning /
    *  drift effects over the session are analysable. */

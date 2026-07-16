@@ -20,7 +20,28 @@ measured (Maia policy-head on 1,224 real games), and the label says so.
 
 Refuses to run if data/rivals is not gitignored (same guard as
 build_rival_configs.py).
+
+Arena half (spec 218 own-persona entry / spec 217 Promise 1): the same two
+artifacts, staged server-side, put "You" in the owner's arena lobby via the
+existing private-persona gating (dad's mechanism — server/arena/app/config.py
+PRIVATE_PERSONAS + persona.load_private_roster). Export steps:
+
+  1. Build (run this script with no args), then run
+         build_self_persona.py --arena-staging
+     to print the staging list (paths + sha256) for the deploy agent.
+  2. scp self.config.json + self.book.json into the arena host's
+     server/arena/private-personas/ mount (gitignored — never committed,
+     never bundled; spec 214 hard rule).
+  3. Drop the config's Maia net (maia-<band>.pb.gz; pinned sha and download
+     URL in the staging list) into the server/arena/nets/ mount. The server
+     verifies it against config.MAIA_NET_SHA256 at startup and skips the
+     persona on mismatch.
+  4. Append "<owner-email>:self" to ARENA_PRIVATE_PERSONAS in
+     server/arena/.env (email = the owner's arena Google account; env-only —
+     no private identity in code or git) and restart the container. The "You"
+     entry then appears in that account's lobby and nobody else's.
 """
+import hashlib
 import json
 import subprocess
 import sys
@@ -52,6 +73,28 @@ SELF_ESTIMATE_SOURCE = (
 )
 
 
+# Pinned Maia-net digests, copied from apps/desktop/src-tauri/src/maia.rs
+# CHECKSUMS (our own record of the CSSLab v1.0 release bytes; mirrored in
+# server/arena/app/config.py MAIA_NET_SHA256 — three copies by design, each
+# side verifies independently with no cross-runtime import).
+MAIA_NET_SHA256 = {
+    1100: "e1cf1cd0c96b8a4fa6a275f4b9fd54ed1ffebf9fe44641b9fceded310e9619c4",
+    1200: "ead4ba953f233ae732999ebc1e2b675378148527ebcfad2f0acbc5e4c224d98e",
+    1300: "36195f87bf4761834baa0bf87472b18509a7261a9d7d6f1a8443261369a733f2",
+    1400: "d5353ea6766356dad2d28920c6692f37a5f30963767f1a3105d33b4d0af011e8",
+    1500: "35ab6f20421d59e1df3b17c5a5016947af4c6761368ef84044a9a9c7619a9a00",
+    1600: "d2c9e5948581acf4b9fc0b1e720c5dc0fe64ce80cfc4a239d3f8a42e1176c876",
+    1700: "d277eacd792d340a30abb464dc65127254e65cac57abca17facc469889b96478",
+    1800: "0031ad7c4256b1fd09fbebd28418d644d68b26cd2a45df4967ccf5c7ec9c4965",
+    1900: "e2f565f42d7cd9f122557e6dc4eb84e5bbaedceda1d404dc485d3611c7c97a12",
+}
+MAIA_RELEASE_BASE = "https://github.com/CSSLab/maia-chess/releases/download/v1.0"
+# The desktop app's net cache — a net already downloaded locally can be scp'd
+# from here instead of re-downloaded (same bytes, verified either way).
+MAIA_LOCAL_CACHE = (Path.home() / "Library" / "Application Support"
+                    / "com.hjalti.chessgui" / "maia")
+
+
 def nearest_band(rating: int) -> int:
     return min(MAIA_BANDS, key=lambda b: abs(b - rating))
 
@@ -64,7 +107,54 @@ def assert_gitignored() -> None:
                          "persona must never be committable (spec 214).")
 
 
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def arena_staging() -> int:
+    """Print the deploy-agent staging list (paths + sha256) for the arena
+    half of the spec-218 own-persona entry. Reads the built artifacts —
+    run the build first. Deliberately prints no email: the owner-email:slug
+    pair is env-only on the server (spec 214: no private identity in git)."""
+    cfg_path, book_path = R / "self.config.json", R / "self.book.json"
+    missing = [str(p) for p in (cfg_path, book_path) if not p.exists()]
+    if missing:
+        print(f"error: build first — missing {', '.join(missing)}",
+              file=sys.stderr)
+        return 1
+    cfg = json.loads(cfg_path.read_text())
+    band = cfg["backend"]["level"]
+    net_name = cfg["backend"]["net"]
+    cached = MAIA_LOCAL_CACHE / net_name
+
+    print("arena staging list (spec 218 own-persona entry — hand to the "
+          "deploy agent):")
+    print()
+    print("  copy to server/arena/private-personas/ (host mount; gitignored):")
+    for p in (cfg_path, book_path):
+        print(f"    {p}")
+        print(f"      sha256 {_sha256(p)}")
+    print()
+    print("  copy to server/arena/nets/ (host mount; verified at startup):")
+    print(f"    {net_name}")
+    print(f"      sha256 {MAIA_NET_SHA256[band]}  (pinned, maia.rs CHECKSUMS)")
+    if cached.exists():
+        print(f"      local copy: {cached}")
+    else:
+        print(f"      download: {MAIA_RELEASE_BASE}/{net_name}")
+    print()
+    print("  server/arena/.env:")
+    print("    ARENA_PRIVATE_PERSONAS += \"<owner-email>:self\"  "
+          "(owner's arena Google account; comma-separated pairs)")
+    print()
+    print("  then: docker compose restart; check /health private_personas "
+          "count and the startup log for '[persona] private' skips.")
+    return 0
+
+
 def main() -> int:
+    if "--arena-staging" in sys.argv[1:]:
+        return arena_staging()
     assert_gitignored()
     missing = [str(p) for _, p in SOURCES if not p.exists()]
     if missing:

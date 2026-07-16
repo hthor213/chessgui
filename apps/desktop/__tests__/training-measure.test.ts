@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest"
 import {
+  appendLogLine,
   egConversionPoint,
+  measureRunMessage,
   mergeMetricPoints,
   monthLabel,
   parseMeasurementJson,
   sparScorePoint,
+  stageForLine,
 } from "@/lib/training-measure"
 import type { MetricPoint } from "@/lib/training-program"
 import type { SparResultEntry } from "@/lib/spar-results"
@@ -126,5 +129,28 @@ describe("egConversionPoint", () => {
     expect(egConversionPoint([playout({ mode: "probe", countsTowardTraining: false })], NOW)).toBeNull()
     // Hold-claim playouts never feed the conversion rate.
     expect(egConversionPoint([playout({ claim: "draw" })], NOW)).toBeNull()
+  })
+})
+
+describe("in-app pipeline run helpers (spec 215 Tier 2 spawn)", () => {
+  it("stageForLine maps the script's stage announcements, ignores plain output", () => {
+    expect(stageForLine("$ /usr/bin/python3 scripts/fetch_chesscom.py me -o out.pgn")).toMatch(/Fetching/)
+    expect(stageForLine("$ python3 scripts/self_report/self_maia.py rapid 1200")).toMatch(/lc0/)
+    expect(stageForLine("$ python3 scripts/self_report/self_stats.py rapid")).toMatch(/rating/i)
+    expect(stageForLine("downloading maia-1500.pb.gz")).toBeNull()
+    expect(stageForLine("$ some_unknown_tool.py")).toBeNull()
+  })
+
+  it("appendLogLine keeps only the tail once past the cap", () => {
+    let log: string[] = []
+    for (let i = 0; i < 5; i++) log = appendLogLine(log, `line ${i}`, 3)
+    expect(log).toEqual(["line 2", "line 3", "line 4"])
+  })
+
+  it("measureRunMessage: cancelled and failed runs say so, success defers to the import", () => {
+    expect(measureRunMessage({ exit_code: null, cancelled: true, metrics_json: null })).toMatch(/cancelled/i)
+    expect(measureRunMessage({ exit_code: 3, cancelled: false, metrics_json: null })).toMatch(/exit 3/)
+    expect(measureRunMessage({ exit_code: 0, cancelled: false, metrics_json: null })).toMatch(/unreadable/)
+    expect(measureRunMessage({ exit_code: 0, cancelled: false, metrics_json: "{}" })).toBeNull()
   })
 })

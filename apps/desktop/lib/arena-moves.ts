@@ -8,7 +8,13 @@
 // used only where the server doesn't already hand back SAN (the replay
 // view's per-ply FEN stepping).
 
-import type { ArenaGameState, ArenaMove, ArenaSharedReplay } from "@chessgui/core/arena-api"
+import type {
+  ArenaExhibitionMove,
+  ArenaExhibitionState,
+  ArenaGameState,
+  ArenaMove,
+  ArenaSharedReplay,
+} from "@chessgui/core/arena-api"
 
 export interface ArenaMoveRow {
   no: number
@@ -56,6 +62,17 @@ export function humanizeArenaResultReason(reason: string | null): string | null 
       // The backend's literal reason for a loss on time (spec 217 Tier 1
       // clocks — server/arena/app/main.py `_flag_fall`).
       return "Flag fell"
+    case "move_cap":
+      // Exhibition adjudication (spec 217 Promise 3 resource policy): the
+      // runner draws a shuffle game at ARENA_EXHIBITION_MAX_PLIES rather
+      // than hold the engine for hours.
+      return "Adjudicated at the move cap"
+    case "stopped":
+      return "Stopped"
+    case "engine stall":
+      return "Engine stalled"
+    case "interrupted":
+      return "Interrupted by a server restart"
     default:
       return reason.replace(/_/g, " ")
   }
@@ -91,6 +108,34 @@ export function arenaSharedStatusLabel(replay: ArenaSharedReplay): string {
   // No result on a shared replay should be impossible (tokens exist for
   // finished games only) — degrade to the reason rather than invent one.
   return reason ?? ""
+}
+
+/** Pair an exhibition's flat move list into numbered rows — same parity rule
+ *  as pairArenaMoves; the structural type keeps one implementation serving
+ *  both shapes (ArenaMove has `mover`, exhibition moves don't). */
+export function pairExhibitionMoves(moves: ArenaExhibitionMove[]): {
+  no: number
+  white?: ArenaExhibitionMove
+  black?: ArenaExhibitionMove
+}[] {
+  return pairArenaMoves(moves as ArenaMove[])
+}
+
+/** Spectator-voice result label for a persona-vs-persona exhibition (spec
+ *  217 Promise 3) — nobody watching played the game, so names only. A null
+ *  result with a reason ("Stopped", "Engine stalled", …) is a run that ended
+ *  without a chess result. Null while the exhibition is still active. */
+export function arenaExhibitionStatusLabel(
+  ex: Pick<ArenaExhibitionState, "status" | "result" | "resultReason" | "whiteName" | "blackName">,
+): string | null {
+  if (ex.status !== "finished") return null
+  const reason = humanizeArenaResultReason(ex.resultReason)
+  if (ex.result === "1/2-1/2") return reason ? `Draw — ${reason}` : "Draw"
+  if (ex.result === "1-0" || ex.result === "0-1") {
+    const winner = ex.result === "1-0" ? ex.whiteName : ex.blackName
+    return reason ? `${winner} wins — ${reason}` : `${winner} wins`
+  }
+  return reason ?? "Finished"
 }
 
 /** The share link itself: same /arena route, `?replay=<token>` — the page

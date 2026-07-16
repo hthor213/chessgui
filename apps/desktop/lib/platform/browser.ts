@@ -38,9 +38,11 @@ import type { ClipboardImage } from "@/lib/recognize-position"
 import type { RivalBook } from "@/lib/rival-book"
 import type { LocalRivalPersona } from "@/lib/roster"
 import type { BenchResult, MachineProfile } from "@/hooks/use-machine-profile"
+import type { TbProbe } from "@chessgui/core/tablebase"
 import { readBrowserClipboardImage, readBrowserClipboardText } from "./clipboard"
 import { localStorageKV } from "./storage"
 import type {
+  MeasureReport,
   OpenedTextFile,
   PickFileOptions,
   PlatformProviders,
@@ -79,6 +81,13 @@ export const browserProviders: PlatformProviders = {
       return []
     },
     machineProfileRemove: (): Promise<void> => noEngine("Machine profile removal"),
+
+    // Null, not a rejection: "no tablebase verdict" is the quiet no-op the
+    // panel already handles. A real web shell (spec 221) can back this with
+    // a direct fetch to tablebase.lichess.ovh instead.
+    async tablebaseProbe(): Promise<TbProbe | null> {
+      return null
+    },
 
     maiaMove(fen: string, level: number): Promise<PersonaMove> {
       return import("@/lib/maia-mock").then((m) => m.mockMaiaMove(fen, level))
@@ -127,6 +136,13 @@ export const browserProviders: PlatformProviders = {
       return import("@/lib/calibration-mock").then((m) => m.mockCoachFollowup(rebuttal))
     },
     recognizeFen: (): Promise<string> => noEngine("Position recognition"),
+
+    // The run button is gated off (hasNativeEngine) — the reject is the
+    // honest backstop; the import-file path stays available everywhere.
+    measureMonthlyRun: (): Promise<MeasureReport> => noEngine("The monthly measurement pipeline"),
+    async measureMonthlyCancel(): Promise<boolean> {
+      return false // nothing ever runs here
+    },
   },
 
   database: {

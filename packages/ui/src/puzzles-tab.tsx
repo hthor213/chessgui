@@ -64,6 +64,7 @@ import {
   respawnIntervalDays,
   type BandRecord,
 } from "@/lib/puzzle-results"
+import { eloEstimateLine, estimateElo } from "@chessgui/core/elo-estimate"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -117,12 +118,19 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
     refreshStats()
   }, [refreshStats])
 
-  // Per-band record + due-respawn count from the local results store. Read
-  // in an effect (not render) so the static-export prerender stays empty.
-  const [record, setRecord] = useState<{ bands: BandRecord[]; due: number }>({ bands: [], due: 0 })
+  // Per-band record + due-respawn count + rolling Elo estimate (spec 224),
+  // all derived from the local results store. Read in an effect (not render)
+  // so the static-export prerender stays empty.
+  const [record, setRecord] = useState<{ bands: BandRecord[]; due: number; eloLine: string | null }>(
+    { bands: [], due: 0, eloLine: null },
+  )
   const refreshRecord = useCallback(() => {
     const entries = loadPuzzleResults()
-    setRecord({ bands: bandRecords(entries), due: dueRespawns(entries).length })
+    setRecord({
+      bands: bandRecords(entries),
+      due: dueRespawns(entries).length,
+      eloLine: eloEstimateLine(estimateElo(entries)),
+    })
   }, [])
   useEffect(() => {
     refreshRecord()
@@ -349,6 +357,7 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
         deckError={deckError}
         records={record.bands}
         dueCount={record.due}
+        eloLine={record.eloLine}
         openingOnly={openingOnly}
         onBand={setBand}
         onCount={setCount}
@@ -534,6 +543,7 @@ function SetupScreen({
   deckError,
   records,
   dueCount,
+  eloLine,
   openingOnly,
   onBand,
   onCount,
@@ -549,6 +559,9 @@ function SetupScreen({
   deckError: string | null
   records: BandRecord[]
   dueCount: number
+  /** Spec 224 rolling-Elo line body ("Elo 1238 ± 250" / "Elo —, need N more
+   *  puzzles"); null until the client effect has read the store. */
+  eloLine: string | null
   openingOnly: boolean
   onBand: (b: string | null) => void
   onCount: (n: number) => void
@@ -697,6 +710,19 @@ function SetupScreen({
               </table>
             )}
           </div>
+        )}
+
+        {/* Rolling avoidance-Elo estimate (spec 224) — immediately after the
+            resume-session / record card, the user's exact ask: "Unfinished
+            Session: Elo 1238 ± 250". An adaptive-window MLE over the attempt
+            log; below the minimum window it refuses to guess and says how many
+            puzzles are still needed. Hidden only until the client effect has
+            read the store (prerender stays empty, like the record card). */}
+        {eloLine && (
+          <p className="text-sm tabular-nums" data-testid="puzzles-elo-estimate">
+            <span className="text-muted-foreground">Unfinished Session: </span>
+            <span className="font-semibold">{eloLine}</span>
+          </p>
         )}
 
         <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">

@@ -24,6 +24,9 @@ import {
   type ArenaClock,
   type ArenaClockChoice,
   type ArenaColor,
+  type ArenaExhibitionMove,
+  type ArenaExhibitionState,
+  type ArenaExhibitionSummary,
   type ArenaGameState,
   type ArenaGameStatus,
   type ArenaGameSummary,
@@ -38,6 +41,12 @@ import { arenaResultBadge } from "@/lib/arena-moves"
 import { ARENA_DISCLOSURE_TEXT } from "@/lib/arena-disclosure"
 
 const MOCK_THINKING_MS = 350
+// Exhibition pacing (spec 217 Promise 3 mock): per-move delay for the
+// background persona-vs-persona runner, and a ply cap standing in for the
+// server's ARENA_EXHIBITION_MAX_PLIES adjudication (much smaller here — a
+// mock spectate should resolve while someone is still watching it).
+const MOCK_EXHIBITION_MOVE_MS = 350
+const MOCK_EXHIBITION_MAX_PLIES = 60
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -121,6 +130,21 @@ interface MockGame {
   clock: MockClock | null
   /** Family replay link token (spec 217 Tier 2); null until shared. */
   shareToken: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** Mock mirror of the server's exhibitions row (spec 217 Promise 3). */
+interface MockExhibition {
+  id: number
+  whitePersona: string
+  blackPersona: string
+  whiteName: string
+  blackName: string
+  moves: ArenaExhibitionMove[]
+  status: ArenaGameStatus
+  result: ArenaResult
+  resultReason: string | null
   createdAt: string
   updatedAt: string
 }
@@ -214,7 +238,50 @@ function toSummary(g: MockGame): ArenaGameSummary {
   }
 }
 
-export function createMockArenaApiClient(): ArenaApiClient {
+function exhibitionFenOf(ex: MockExhibition): string {
+  const fens = replayFens(INITIAL_FEN, ex.moves.map((m) => m.uci))
+  return fens[fens.length - 1]
+}
+
+function toExhibitionState(ex: MockExhibition): ArenaExhibitionState {
+  return {
+    id: ex.id,
+    whitePersona: ex.whitePersona,
+    blackPersona: ex.blackPersona,
+    whiteName: ex.whiteName,
+    blackName: ex.blackName,
+    status: ex.status,
+    result: ex.result,
+    resultReason: ex.resultReason,
+    fen: exhibitionFenOf(ex),
+    createdAt: ex.createdAt,
+    updatedAt: ex.updatedAt,
+    // Fresh copy for the same reference-equality reason as toGameState.
+    moves: [...ex.moves],
+  }
+}
+
+function toExhibitionSummary(ex: MockExhibition): ArenaExhibitionSummary {
+  return {
+    id: ex.id,
+    whitePersona: ex.whitePersona,
+    blackPersona: ex.blackPersona,
+    whiteName: ex.whiteName,
+    blackName: ex.blackName,
+    status: ex.status,
+    result: ex.result,
+    resultReason: ex.resultReason,
+    createdAt: ex.createdAt,
+    updatedAt: ex.updatedAt,
+    movesCount: ex.moves.length,
+  }
+}
+
+/** `exhibitionMoveMs` shortens the background runner's per-move delay so
+ *  tests can watch a whole exhibition finish without wall-clock minutes;
+ *  the browser default keeps a spectator-friendly pace. */
+export function createMockArenaApiClient(opts?: { exhibitionMoveMs?: number }): ArenaApiClient {
+  const exhibitionMoveMs = opts?.exhibitionMoveMs ?? MOCK_EXHIBITION_MOVE_MS
   const games = new Map<number, MockGame>()
   // Spec 217 Promise 2 mock store — in-memory only, mirrors the server's
   // validation (ply must name a persona move) so the UI's error path is
@@ -225,6 +292,42 @@ export function createMockArenaApiClient(): ArenaApiClient {
   const gameRealism = new Map<number, { persona: string; verdict: ArenaRealismVerdict; note: string }>()
   const rosterBySlug = new Map(buildArenaRoster().map((p) => [p.slug, p]))
   let nextId = 1
+  // Spec 217 Promise 3 mock store. One active exhibition at a time (server
+  // parity: the resource-policy slot); the runner is a detached async loop
+  // that re-checks status every move, so stopExhibition takes effect on the
+  // next tick — an in-flight "search" is thrown away, same as the server.
+  const exhibitions = new Map<number, MockExhibition>()
+  let nextExhibitionId = 1
+
+  async function runExhibition(ex: MockExhibition): Promise<void> {
+    for (;;) {
+      if (ex.status !== "active") return
+      const term = terminalStatus(exhibitionFenOf(ex))
+      if (term) {
+        ex.status = "finished"
+        ex.result = term.result
+        ex.resultReason = term.reason
+        ex.updatedAt = new Date().toISOString()
+        return
+      }
+      if (ex.moves.length >= MOCK_EXHIBITION_MAX_PLIES) {
+        // Server parity: adjudicated draw at the ply cap ("move_cap").
+        ex.status = "finished"
+        ex.result = "1/2-1/2"
+        ex.resultReason = "move_cap"
+        ex.updatedAt = new Date().toISOString()
+        return
+      }
+      await delay(exhibitionMoveMs)
+      if (ex.status !== "active") return // stopped while "thinking"
+      const reply = randomReply(exhibitionFenOf(ex))
+      if (!reply) return
+      ex.moves.push({ ply: ex.moves.length, uci: reply, san: "", arm: "search" })
+      const sans = sansFromUci(INITIAL_FEN, ex.moves.map((m) => m.uci))
+      ex.moves[ex.moves.length - 1].san = sans[sans.length - 1] ?? ""
+      ex.updatedAt = new Date().toISOString()
+    }
+  }
 
   function requireGame(gameId: number): MockGame {
     const g = games.get(gameId)
@@ -494,6 +597,63 @@ export function createMockArenaApiClient(): ArenaApiClient {
       await delay(50)
       requireGame(gameId)
       games.delete(gameId)
+    },
+
+    async createExhibition(whitePersona: string, blackPersona: string): Promise<ArenaExhibitionState> {
+      await delay(100)
+      // Server-parity validation (main.py create_exhibition): known public
+      // personas only, and one exhibition at a time.
+      for (const slug of [whitePersona, blackPersona]) {
+        const entry = rosterBySlug.get(slug)
+        if (!entry || !entry.available) throw new ArenaApiError(400, `Unknown persona: ${slug}`)
+      }
+      if ([...exhibitions.values()].some((e) => e.status === "active"))
+        throw new ArenaApiError(
+          409,
+          "An exhibition is already running — one at a time (it's a shared hobby box).",
+        )
+      const ex: MockExhibition = {
+        id: nextExhibitionId++,
+        whitePersona,
+        blackPersona,
+        whiteName: rosterBySlug.get(whitePersona)?.displayName ?? whitePersona,
+        blackName: rosterBySlug.get(blackPersona)?.displayName ?? blackPersona,
+        moves: [],
+        status: "active",
+        result: null,
+        resultReason: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      exhibitions.set(ex.id, ex)
+      // Detached, like the server's daemon thread — createExhibition returns
+      // immediately and the spectate poll watches the moves arrive.
+      void runExhibition(ex)
+      return toExhibitionState(ex)
+    },
+
+    async listExhibitions(): Promise<ArenaExhibitionSummary[]> {
+      await delay(80)
+      return [...exhibitions.values()].sort((a, b) => b.id - a.id).map(toExhibitionSummary)
+    },
+
+    async getExhibition(exhibitionId: number): Promise<ArenaExhibitionState> {
+      await delay(50)
+      const ex = exhibitions.get(exhibitionId)
+      if (!ex) throw new ArenaApiError(404, "Exhibition not found")
+      return toExhibitionState(ex)
+    },
+
+    async stopExhibition(exhibitionId: number): Promise<ArenaExhibitionState> {
+      await delay(50)
+      const ex = exhibitions.get(exhibitionId)
+      if (!ex) throw new ArenaApiError(404, "Exhibition not found")
+      if (ex.status !== "active") throw new ArenaApiError(409, "Exhibition is finished")
+      ex.status = "finished"
+      ex.result = null
+      ex.resultReason = "stopped"
+      ex.updatedAt = new Date().toISOString()
+      return toExhibitionState(ex)
     },
   }
 }

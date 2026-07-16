@@ -5,9 +5,9 @@
   "license": "GPL-3.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/prepare-engine.mjs",
+    "predev": "node scripts/prepare-engine.mjs && node scripts/generate-pwa-icons.mjs",
     "dev": "next dev --port 1421",
-    "prebuild": "node scripts/prepare-engine.mjs",
+    "prebuild": "node scripts/prepare-engine.mjs && node scripts/generate-pwa-icons.mjs",
     "build": "next build",
     "postbuild": "node scripts/check-no-tauri.mjs"
   },

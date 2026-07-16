@@ -9,6 +9,9 @@ cg-board square.last-move {
 
 cg-board square.selected {
   background-color: rgba(20, 85, 30, 0.5) !important;
+  /* Active-piece ring (spec:001 §4 "ring-4 ring-white/50"): inset box-shadow
+     so the 4px ring stays inside the square and can't bleed onto neighbors. */
+  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.5);
 }
 
 cg-board square.move-dest {

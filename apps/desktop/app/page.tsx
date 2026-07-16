@@ -1,8 +1,18 @@
 "use client"
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react"
 import dynamic from "next/dynamic"
+import { Bell, ChessKnight } from "lucide-react"
 import { TooltipProvider } from "@chessgui/ui/ui/tooltip"
+import { Avatar, AvatarFallback } from "@chessgui/ui/ui/avatar"
+import { Badge } from "@chessgui/ui/ui/badge"
+import { Button } from "@chessgui/ui/ui/button"
+import { Card } from "@chessgui/ui/ui/card"
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuList,
+} from "@chessgui/ui/ui/navigation-menu"
 import { MoveList } from "@chessgui/ui/move-list"
 import { AnnotationBar } from "@chessgui/ui/annotation-bar"
 import { EvalGraph } from "@chessgui/ui/eval-graph"
@@ -23,6 +33,7 @@ import { CalibrationTab } from "@chessgui/ui/calibration-tab"
 import { SparTab } from "@chessgui/ui/spar-tab"
 import { TrainingTab } from "@chessgui/ui/training-tab"
 import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
+import { RepertoireTab } from "@chessgui/ui/repertoire-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
 import {
   newActiveGameRecord,
@@ -31,6 +42,7 @@ import {
 } from "@chessgui/core/active-game"
 import {
   activeGameIdFor,
+  loadActiveGames,
   loadDefaultChesscomUsername,
   saveActiveGame,
   saveDefaultChesscomUsername,
@@ -112,9 +124,11 @@ export default function Home() {
   const [boardSize, setBoardSize] = useState(560)
   const [view, setView] = useState<"board" | "tournament" | "thinking" | "database" | "learn">("board")
   // Sub-view within the Learn tab: eval calibration, persona sparring (spec 214),
-  // avoidance puzzles (spec 211), or the training program (spec 215). The
-  // program launches into the others.
-  const [learnSub, setLearnSub] = useState<"calibrate" | "spar" | "puzzles" | "training">("calibrate")
+  // avoidance puzzles (spec 211), repertoire drilling (spec 900 backlog), or
+  // the training program (spec 215). The program launches into the others.
+  const [learnSub, setLearnSub] = useState<
+    "calibrate" | "spar" | "puzzles" | "repertoire" | "training"
+  >("calibrate")
   // Thinking mode has its own board instance; keep its size separate so the
   // hidden main board (kept mounted) can't clobber it.
   const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
@@ -174,6 +188,21 @@ export default function Home() {
   // the active-games list re-reads the store.
   const [activeGamesNonce, setActiveGamesNonce] = useState(0)
 
+  // Header bell badge (spec 001 §2): the one thing this app has to notify
+  // about is unfinished chess.com daily games — count the unarchived records.
+  const [activeGameCount, setActiveGameCount] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    loadActiveGames()
+      .then((games) => {
+        if (!cancelled) setActiveGameCount(games.filter((g) => !g.archived).length)
+      })
+      .catch(() => {}) // store unreadable — badge just stays off
+    return () => {
+      cancelled = true
+    }
+  }, [activeGamesNonce])
+
   // Position editor confirm: load the position and, when flagged, apply the
   // lockout AND persist the record immediately — the game is in the active
   // list from the moment of flagging, not only after "Continue later".
@@ -226,6 +255,7 @@ export default function Home() {
     (record: ActiveGameRecord) => {
       const meta = game.activeGame
       if (meta && activeGameIdFor(meta) === record.id) game.setActiveGame(null)
+      setActiveGamesNonce((n) => n + 1) // keep the header bell count honest
     },
     [game.activeGame, game.setActiveGame],
   )
@@ -291,6 +321,77 @@ export default function Home() {
     }
     return shapes
   }, [engine.settings.showArrows, engine.state.isAnalyzing, engine.state.lines, isPlayMode, engine.engineLocked, game.fen])
+
+  // Hint button (spec 001 §4 control bar). One click flashes the engine's
+  // best move as a green arrow for a few seconds — request/fulfill split
+  // because the answer may need the engine started (or a few plies of depth)
+  // first. The button itself is hidden while the spec 219 lockout holds;
+  // these guards are the engine-side belt.
+  const [hintPending, setHintPending] = useState(false)
+  const [hintShape, setHintShape] = useState<DrawShape | null>(null)
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  const requestHint = useCallback(() => {
+    if (engine.engineLocked || pvPreview) return
+    setHintPending(true)
+    if (!engine.state.isRunning) {
+      // Analysis mode start; the fulfill effect fires once lines arrive.
+      engine.startEngine().catch((err) => {
+        setHintPending(false)
+        setPasteStatus(err instanceof Error ? err.message : String(err))
+        setTimeout(() => setPasteStatus(null), 5000)
+      })
+    } else if (
+      !engine.state.isAnalyzing &&
+      (engine.state.mode !== "play" || !engine.state.isThinking)
+    ) {
+      // Paused analysis — resume it (in play mode this is the same call the
+      // play flow itself makes on the human's turn). While the engine is
+      // computing ITS move, never poke it — the pending hint simply clears
+      // when its reply lands and the position moves on.
+      engine.toggleAnalysis()
+    }
+  }, [engine.engineLocked, engine.state.isRunning, engine.state.isAnalyzing, engine.state.isThinking, engine.state.mode, engine.startEngine, engine.toggleAnalysis, pvPreview])
+
+  // Fulfill a pending hint once the engine has a credible line (depth >= 10)
+  // for the CURRENT position — analysisFen gates out lines computed for a
+  // position we've since left.
+  useEffect(() => {
+    if (!hintPending) return
+    if (engine.engineLocked) {
+      setHintPending(false)
+      return
+    }
+    if (engine.state.analysisFen !== game.fen) return
+    const best = engine.state.lines.find((l) => l.multipv === 1)
+    if (!best || best.depth < 10 || best.uciMoves.length === 0) return
+    setHintPending(false)
+    const arrow = uciToArrow(game.fen, best.uciMoves[0])
+    if (!arrow) return
+    setHintShape({
+      orig: arrow.orig as Key,
+      dest: arrow.dest as Key,
+      brush: "green",
+      modifiers: { lineWidth: 8 },
+    })
+    if (hintTimerRef.current) clearTimeout(hintTimerRef.current)
+    hintTimerRef.current = setTimeout(() => setHintShape(null), 4000)
+  }, [hintPending, engine.state.lines, engine.state.analysisFen, engine.engineLocked, game.fen])
+
+  // The position moved on (or the lockout engaged mid-flash) — a hint for
+  // it is stale, shown or pending.
+  useEffect(() => {
+    setHintShape(null)
+    setHintPending(false)
+  }, [game.fen, engine.engineLocked])
+  useEffect(() => () => clearTimeout(hintTimerRef.current), [])
+
+  // Everything the board draws for the engine: persistent best-move arrows
+  // plus the transient hint flash.
+  const boardAutoShapes = useMemo<DrawShape[]>(
+    () => (hintShape ? [...engineArrows, hintShape] : engineArrows),
+    [engineArrows, hintShape],
+  )
 
   // User-drawn arrows/circles saved on the current node (spec 202). Chessground
   // keeps these (drawable.shapes) separate from the engine's autoShapes.
@@ -631,81 +732,95 @@ export default function Home() {
     <ErrorBoundary>
     <TooltipProvider>
       <div className="h-screen flex flex-col bg-[#0a0a0a]">
-        {/* Header */}
+        {/* Header (spec 001 §2): knight logo + uppercase name, shadcn
+            NavigationMenu of ghost view-switch buttons, bell + avatar. */}
         <header className="flex items-center justify-between px-6 py-3 border-b border-white/10">
           <div className="flex items-baseline gap-2">
-            <span className="text-lg font-bold tracking-tight text-foreground">
+            <span className="flex items-center gap-1.5 text-lg font-bold uppercase tracking-tight text-foreground">
+              <ChessKnight className="h-5 w-5 shrink-0" aria-hidden="true" />
               ChessGUI
             </span>
             <span className="text-[11px] text-muted-foreground font-mono" title="version · commit · build date">
               v{process.env.NEXT_PUBLIC_APP_VERSION} · {process.env.NEXT_PUBLIC_BUILD_INFO}
             </span>
           </div>
-          <nav className="flex items-center gap-1">
-            <button
-              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
-                view === "board" && (tournamentRunning || isPlayMode) ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
-              }`}
-              onClick={() => {
-                setView("board")
-                // Don't start a human game while a tournament is in progress —
-                // just switch to the board to watch the live engine game.
-                if (!tournamentRunning) engine.setPlayMode(true, playerColor)
-              }}
-              title={tournamentRunning ? "Watch the live tournament game" : "Play against Stockfish"}
-            >
-              {tournamentRunning ? "View" : "Play"}
-            </button>
-            <button
-              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
-                view === "board" && engine.state.isRunning && !isPlayMode ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
-              }`}
-              onClick={() => {
-                setView("board")
-                engine.setPlayMode(false)
-              }}
-              title="Analyze the current position with Stockfish"
-            >
-              Analyze
-            </button>
-            {tournamentCapable && (
-              <button
-                className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
-                  view === "tournament" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
-                }`}
-                onClick={() => setView("tournament")}
-                title="Run headless engine-vs-engine tournaments"
+          <NavigationMenu>
+            <NavigationMenuList className="space-x-1">
+              <NavButton
+                active={view === "board" && (tournamentRunning || isPlayMode)}
+                onClick={() => {
+                  setView("board")
+                  // Don't start a human game while a tournament is in progress —
+                  // just switch to the board to watch the live engine game.
+                  if (!tournamentRunning) engine.setPlayMode(true, playerColor)
+                }}
+                title={tournamentRunning ? "Watch the live tournament game" : "Play against Stockfish"}
               >
-                Tournament
-              </button>
-            )}
-            <button
-              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
-                view === "database" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
-              }`}
-              onClick={() => setView("database")}
-              title="Browse the game database and search positions"
-            >
-              Database
-            </button>
-            {view === "thinking" && (
-              <button className="px-3 py-1.5 text-base rounded-md text-foreground font-medium bg-white/5" title="Thinking mode — board and eval bar only">
-                Thinking
-              </button>
-            )}
-            <button
-              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
-                view === "learn" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
-              }`}
-              onClick={() => setView("learn")}
-              title="Eval calibration — judge positions by eye and compare to Stockfish"
-            >
-              Learn
-            </button>
-          </nav>
+                {tournamentRunning ? "View" : "Play"}
+              </NavButton>
+              <NavButton
+                active={view === "board" && engine.state.isRunning && !isPlayMode}
+                onClick={() => {
+                  setView("board")
+                  engine.setPlayMode(false)
+                }}
+                title="Analyze the current position with Stockfish"
+              >
+                Analyze
+              </NavButton>
+              {tournamentCapable && (
+                <NavButton
+                  active={view === "tournament"}
+                  onClick={() => setView("tournament")}
+                  title="Run headless engine-vs-engine tournaments"
+                >
+                  Tournament
+                </NavButton>
+              )}
+              <NavButton
+                active={view === "database"}
+                onClick={() => setView("database")}
+                title="Browse the game database and search positions"
+              >
+                Database
+              </NavButton>
+              {view === "thinking" && (
+                <NavButton active title="Thinking mode — board and eval bar only">
+                  Thinking
+                </NavButton>
+              )}
+              <NavButton
+                active={view === "learn"}
+                onClick={() => setView("learn")}
+                title="Eval calibration — judge positions by eye and compare to Stockfish"
+              >
+                Learn
+              </NavButton>
+            </NavigationMenuList>
+          </NavigationMenu>
           <div className="flex items-center gap-2">
-            <div className="relative w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
-              <span className="text-xs font-medium text-foreground">H</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative h-8 w-8 hover:bg-white/5 hover:text-foreground"
+              onClick={() => setView("database")}
+              title="Active chess.com daily games (engine locked until finished)"
+              data-testid="header-bell"
+            >
+              <Bell className="h-4 w-4" />
+              {activeGameCount > 0 && (
+                <Badge
+                  className="pointer-events-none absolute -right-1 -top-1 h-4 min-w-4 justify-center border-transparent bg-amber-400 px-1 text-[10px] leading-none text-amber-950 hover:bg-amber-400"
+                  data-testid="header-bell-badge"
+                >
+                  {activeGameCount}
+                </Badge>
+              )}
+            </Button>
+            <div className="relative">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className="bg-secondary text-xs font-medium">H</AvatarFallback>
+              </Avatar>
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#0a0a0a] animate-pulse" />
             </div>
           </div>
@@ -804,6 +919,17 @@ export default function Home() {
                 Avoidance
               </button>
               <button
+                data-testid="learn-sub-repertoire"
+                onClick={() => setLearnSub("repertoire")}
+                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                  learnSub === "repertoire"
+                    ? "text-foreground font-medium border-b-2 border-emerald-500"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Repertoire
+              </button>
+              <button
                 data-testid="learn-sub-training"
                 onClick={() => setLearnSub("training")}
                 className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
@@ -822,6 +948,8 @@ export default function Home() {
                 <SparTab />
               ) : learnSub === "puzzles" ? (
                 <PuzzlesTab />
+              ) : learnSub === "repertoire" ? (
+                <RepertoireTab />
               ) : (
                 <TrainingTab onLaunch={setLearnSub} />
               )}
@@ -917,15 +1045,21 @@ export default function Home() {
           </main>
         )}
 
-        {/* Main content - three-column grid */}
+        {/* Main content - three-column grid. gap-6 per spec 001 §1
+            ("consistent gap-6 or gap-8") — was gap-4/p-4 before the spec
+            pass; flagged for the user's eyeball in case tighter was better.
+            Below lg (spec 223 phone widths) the three columns stack into one
+            scrollable column, board first; every lg: guard below exists to
+            keep desktop (≥1024px) byte-for-byte identical to the old
+            layout. */}
         <main
-          className="flex-1 grid grid-cols-[220px_1fr_220px] gap-4 p-4 min-h-0"
+          className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_220px] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible"
           style={view !== "board" || liveViewing ? { display: "none" } : undefined}
         >
           {/* Left column: Player Panel */}
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-6 order-2 lg:order-none">
             {/* Opponent card (top of board) */}
-            <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-4">
+            <Card className="bg-secondary/40 backdrop-blur-md border-white/10 p-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
                   <span className="text-sm font-medium">
@@ -948,7 +1082,7 @@ export default function Home() {
               <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider">
                 {isPlayMode ? formatClock(engineLiveTime) : "--:--"}
               </div>
-            </div>
+            </Card>
 
             {/* Pieces the top player has captured (+x when ahead on points) */}
             <CapturedPieces
@@ -959,7 +1093,7 @@ export default function Home() {
 
             {/* Game info */}
             {game.headers["White"] && (
-              <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-3">
+              <Card className="bg-secondary/40 backdrop-blur-md border-white/10 p-3">
                 <p className="text-sm font-semibold text-[#bababa]">
                   {game.headers["White"]} vs {game.headers["Black"] || "?"}
                 </p>
@@ -983,7 +1117,7 @@ export default function Home() {
                     {game.headers["Opening"] || ecoLabel(game.headers["ECO"])}
                   </p>
                 )}
-              </div>
+              </Card>
             )}
 
             {/* Game status (check / checkmate / draw). Lives in the left
@@ -1014,7 +1148,7 @@ export default function Home() {
             </div>
 
             {/* Player card (bottom of board) */}
-            <div className="bg-secondary/40 backdrop-blur-md border border-white/10 rounded-lg p-4">
+            <Card className="bg-secondary/40 backdrop-blur-md border-white/10 p-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
                   <span className="text-sm font-medium">
@@ -1035,12 +1169,15 @@ export default function Home() {
               <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider opacity-80">
                 {isPlayMode ? formatClock(humanLiveTime) : "--:--"}
               </div>
-            </div>
+            </Card>
           </div>
 
           {/* Center column: Board */}
-          <div className="flex flex-col items-center gap-4 min-h-0 overflow-hidden">
-            <div className="flex-1 flex items-center justify-center w-full overflow-hidden">
+          <div className="flex flex-col items-center gap-6 min-h-0 overflow-hidden order-1 lg:order-none">
+            {/* Stacked mode gives the board slot a real height (it is
+                content-driven in a single grid column); square-capped by
+                viewport width so nothing scrolls sideways at 375px. */}
+            <div className="flex-1 flex items-center justify-center w-full overflow-hidden h-[min(100vw,60dvh)] lg:h-auto">
               <Board
                 fen={previewStep ? previewStep.fen : game.fen}
                 orientation={game.orientation}
@@ -1056,7 +1193,7 @@ export default function Home() {
                 }
                 lastMove={previewStep ? (previewStep.lastMove as [Key, Key]) : game.lastMove}
                 onBoardSize={setBoardSize}
-                autoShapes={previewStep ? [] : engineArrows}
+                autoShapes={previewStep ? [] : boardAutoShapes}
                 userShapes={previewStep ? [] : userShapes}
                 onShapesChange={handleShapesChange}
               >
@@ -1119,10 +1256,11 @@ export default function Home() {
               </div>
             )}
 
-            {/* Control bar */}
-            <div className="flex items-center gap-2">
-              <button
-                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+            {/* Control bar (spec 001 §4): ghost Buttons under the board.
+                Wraps below lg so nine buttons never force sideways scroll
+                on a phone. */}
+            <div className="flex items-center gap-2 flex-wrap justify-center lg:flex-nowrap">
+              <ControlBtn
                 onClick={() => {
                   if (isPlayMode) {
                     // Take-back: cancel any in-flight engine search, reset the
@@ -1137,54 +1275,47 @@ export default function Home() {
                 title="Undo"
               >
                 Undo
-              </button>
-              <button
-                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
-                onClick={() => game.flipBoard()}
-                title="Flip board (F)"
-              >
+              </ControlBtn>
+              {/* Hint: hidden — not merely disabled — while the spec 219
+                  active-game lockout holds; a hint is engine assistance. */}
+              {!engine.engineLocked && (
+                <ControlBtn
+                  onClick={requestHint}
+                  disabled={hintPending || !!pvPreview}
+                  title="Hint — flash the engine's best move (starts analysis if needed)"
+                  testId="hint-button"
+                >
+                  {hintPending ? "Hint…" : "Hint"}
+                </ControlBtn>
+              )}
+              <ControlBtn onClick={() => game.flipBoard()} title="Flip board (F)">
                 Flip
-              </button>
-              <button
-                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
-                onClick={() => game.newGame()}
-                title="New game"
-              >
+              </ControlBtn>
+              <ControlBtn onClick={() => game.newGame()} title="New game">
                 New
-              </button>
-              <button
-                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+              </ControlBtn>
+              <ControlBtn
                 onClick={() => { setPgnInitialText(""); setPgnDialogOpen(true) }}
                 title="Import PGN or FEN (⌘V)"
               >
                 Import
-              </button>
-              <button
-                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
-                onClick={handleExport}
-                title="Export game as PGN"
-              >
+              </ControlBtn>
+              <ControlBtn onClick={handleExport} title="Export game as PGN">
                 Export
-              </button>
-              <button
-                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+              </ControlBtn>
+              <ControlBtn
                 onClick={handleSaveToDb}
                 title="Save game (with annotations) to the database"
-                data-testid="save-to-db"
+                testId="save-to-db"
               >
                 Save
-              </button>
-              <button
-                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
-                onClick={() => setEditorOpen(true)}
-                title="Set up position (⌘E)"
-              >
+              </ControlBtn>
+              <ControlBtn onClick={() => setEditorOpen(true)} title="Set up position (⌘E)">
                 Set up
-              </button>
+              </ControlBtn>
               {!isPlayMode && tournamentCapable && (
-                <button
-                  data-testid="play-this-out"
-                  className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                <ControlBtn
+                  testId="play-this-out"
                   onClick={() => {
                     setTournamentPresetNonce((n) => n + 1)
                     setView("tournament")
@@ -1192,13 +1323,13 @@ export default function Home() {
                   title="Let the tournament engines play this position out (Stockfish takes your side)"
                 >
                   Play this out
-                </button>
+                </ControlBtn>
               )}
             </div>
           </div>
 
           {/* Right column: Game Analytics */}
-          <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+          <div className="flex flex-col gap-6 min-h-0 overflow-hidden order-3 lg:order-none">
             <div className="shrink-0">
               {/* Spec 219 B: for an active game every engine surface —
                   analysis panel, eval bar, human eval — is replaced by the
@@ -1216,6 +1347,8 @@ export default function Home() {
                   turn={turn}
                   onPreviewPv={isPlayMode ? undefined : handlePreviewPv}
                   previewPv={pvPreview ? { multipv: pvPreview.multipv, ply: pvPreview.ply } : null}
+                  fen={game.fen}
+                  activeGame={game.activeGame}
                 />
               )}
             </div>
@@ -1318,6 +1451,62 @@ function fmtClock(ms: number): string {
   if (t < 10_000) return (t / 1000).toFixed(1)
   const s = Math.floor(t / 1000)
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`
+}
+
+/** Header view-switch entry (spec 001 §2): ghost Button in a NavigationMenuItem. */
+function NavButton({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean
+  onClick?: () => void
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <NavigationMenuItem>
+      <Button
+        variant="ghost"
+        onClick={onClick}
+        title={title}
+        className={`h-auto px-3 py-1.5 text-base transition-colors hover:bg-white/5 hover:text-foreground ${
+          active ? "font-medium text-foreground" : "font-normal text-muted-foreground"
+        }`}
+      >
+        {children}
+      </Button>
+    </NavigationMenuItem>
+  )
+}
+
+/** Control-bar action under the board (spec 001 §4): shadcn ghost Button. */
+function ControlBtn({
+  onClick,
+  title,
+  testId,
+  disabled,
+  children,
+}: {
+  onClick: () => void
+  title: string
+  testId?: string
+  disabled?: boolean
+  children: ReactNode
+}) {
+  return (
+    <Button
+      variant="ghost"
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      data-testid={testId}
+      className="h-auto px-3 py-1.5 text-base font-normal text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+    >
+      {children}
+    </Button>
+  )
 }
 
 /** One player's name + remaining clock, shown above/below the live board. */

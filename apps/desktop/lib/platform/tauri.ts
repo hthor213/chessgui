@@ -48,8 +48,11 @@ import type { BenchResult, MachineProfile } from "@/hooks/use-machine-profile"
 import { readBrowserClipboardImage, readBrowserClipboardText } from "./clipboard"
 import { localStorageKV } from "./storage"
 import { engineOutputEvent } from "@chessgui/core/engine-session"
+import type { TbProbe } from "@chessgui/core/tablebase"
 import type {
   EngineStartResult,
+  MeasureLine,
+  MeasureReport,
   OpenedTextFile,
   PickFileOptions,
   PlatformProviders,
@@ -143,6 +146,11 @@ export const tauriProviders: PlatformProviders = {
       await invoke("machine_profile_remove", { hostname })
     },
 
+    tablebaseProbe(fen: string, context?: string): Promise<TbProbe | null> {
+      // Rides the match runner's shared probe cache/rate-limit (spec 900).
+      return invoke<TbProbe | null>("tablebase_probe", { fen, context: context ?? null })
+    },
+
     maiaMove(fen: string, level: number): Promise<PersonaMove> {
       return invoke<PersonaMove>("maia_move", { fen, level })
     },
@@ -218,6 +226,24 @@ export const tauriProviders: PlatformProviders = {
     },
     recognizeFen(imageBase64: string, mediaType: string, prompt?: string): Promise<string> {
       return invoke<string>("recognize_fen", { imageBase64, mediaType, prompt })
+    },
+
+    // Monthly measurement pipeline (spec 215 Tier 2, src-tauri/src/measure.rs).
+    measureMonthlyRun(
+      opts: { user: string; skipFetch: boolean; skipMaia: boolean },
+      onLine?: (l: MeasureLine) => void,
+    ): Promise<MeasureReport> {
+      const channel = new Channel<MeasureLine>()
+      if (onLine) channel.onmessage = onLine
+      return invoke<MeasureReport>("measure_monthly_run", {
+        user: opts.user,
+        skipFetch: opts.skipFetch,
+        skipMaia: opts.skipMaia,
+        onLine: channel,
+      })
+    },
+    measureMonthlyCancel(): Promise<boolean> {
+      return invoke<boolean>("measure_monthly_cancel")
     },
   },
 

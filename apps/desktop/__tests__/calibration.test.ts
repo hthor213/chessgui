@@ -16,7 +16,9 @@ import {
   coachInputFor,
   answerRange,
   rangePoint,
+  asksPlan,
   EVAL_RANGES,
+  PLAN_DECKS,
   POSITIVE_RANGES,
   LEVEL_RANGE,
 } from "@/lib/calibration"
@@ -545,6 +547,17 @@ describe("coachInputFor — v1 session tolerance", () => {
     expect(withoutPv.sf_pv_san).toBeNull()
   })
 
+  it("carries the plan (and plan B) as values or explicit nulls, never dropped keys", () => {
+    const input = coachInputFor(ans({ plan: "queenside minority attack", plan_b: "trade queens" }), pos({}))
+    expect(input.user_plan).toBe("queenside minority attack")
+    expect(input.user_plan_b).toBe("trade queens")
+    // Pre-plan stored answers (and non-plan decks): explicit nulls on the wire
+    // (Rust's #[serde(default)] tolerates both null and absent).
+    const wire = JSON.parse(JSON.stringify(coachInputFor(ans({}), pos({}))))
+    expect(wire.user_plan).toBeNull()
+    expect(wire.user_plan_b).toBeNull()
+  })
+
   it("carries the asserted range so the coach critiques the range, not the derived point", () => {
     const input = coachInputFor(ans({ eval: 1.5, eval_lo: 1, eval_hi: 2 }), pos({}))
     expect(input.user_eval_lo).toBe(1)
@@ -559,5 +572,50 @@ describe("coachInputFor — v1 session tolerance", () => {
     const open = JSON.parse(JSON.stringify(coachInputFor(ans({ eval: 4, eval_lo: 4, eval_hi: null }), pos({}))))
     expect(open.user_eval_lo).toBe(4)
     expect(open.user_eval_hi).toBeNull()
+  })
+})
+
+describe("plan elicitation (spec 213, v5)", () => {
+  const coachWith = (plan_grade: string) => ({
+    note: "n",
+    cause_tags: [],
+    reasoning_quality: "partial",
+    scale_error: false,
+    plan_grade,
+  })
+
+  it("asksPlan is true exactly on plan decks, false with no deck (v1/v2 positions)", () => {
+    for (const deck of PLAN_DECKS) expect(asksPlan(pos({ deck }))).toBe(true)
+    expect(asksPlan(pos({ deck: "critical" }))).toBe(false)
+    expect(asksPlan(pos({ deck: "level" }))).toBe(false)
+    expect(asksPlan(pos({}))).toBe(false)
+  })
+
+  it("normalizeAnswer defaults plan fields to null on pre-plan answers", () => {
+    const old = { index: 0, eval: 1, why: "", move_uci: null, elapsed_ms: 1, skipped: false }
+    const up = normalizeAnswer(old as unknown as CalibrationAnswer)
+    expect(up.plan).toBeNull()
+    expect(up.plan_b).toBeNull()
+    // A current answer's plan is left as-is.
+    expect(normalizeAnswer(ans({ plan: "attack the king" })).plan).toBe("attack the king")
+  })
+
+  it("summarize rolls up plan direction from coach grades; ungraded plans still count as given", () => {
+    const s = session([pos({}), pos({}), pos({}), pos({}), pos({})])
+    const answers = [
+      ans({ index: 0, plan: "a", coach: coachWith("aligned") }),
+      ans({ index: 1, plan: "b", coach: coachWith("wrong") }),
+      ans({ index: 2, plan: "c", coach: null }), // coach off / not yet arrived
+      ans({ index: 3, plan: null }), // not a plan deck
+      ans({ index: 4, plan: "d", skipped: true, eval: null }), // skips never count
+    ]
+    const sum = summarize(s, answers)
+    expect(sum.planDirection).toEqual({ given: 3, aligned: 1, partial: 0, wrong: 1 })
+  })
+
+  it("pre-plan sessions summarize with a zero planDirection (history survives the v5 upgrade)", () => {
+    const s = session([pos({})])
+    const sum = summarize(s, [ans({ eval: 1 })])
+    expect(sum.planDirection).toEqual({ given: 0, aligned: 0, partial: 0, wrong: 0 })
   })
 })

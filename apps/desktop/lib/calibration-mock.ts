@@ -220,5 +220,8 @@ export async function mockCoachFeedback(input: CoachInput): Promise<CoachFeedbac
     cause_tags: ["scale_miscalibration"],
     reasoning_quality: "partial",
     scale_error: true,
+    // Plan elicitation: grade a stated plan so the reveal chip is exercised
+    // headless; "no_plan" (never rendered) when none was given.
+    plan_grade: input.user_plan ? "partial" : "no_plan",
   }
 }

@@ -41,11 +41,30 @@ import type {
   CoachInput,
 } from "./calibration-types"
 import type { ClipboardImage } from "./clipboard-types"
+import type { TbProbe } from "./tablebase"
 
 /** `start_engine`'s handshake result. */
 export interface EngineStartResult {
   name: string
   ready: boolean
+}
+
+/** One output line streamed from the monthly measurement pipeline (spec 215
+ *  Tier 2). The script narrates stages on stderr as `$ <cmd>` lines. */
+export interface MeasureLine {
+  stream: "stdout" | "stderr"
+  line: string
+}
+
+/** Final report of a monthly measurement run (spec 215 Tier 2). */
+export interface MeasureReport {
+  /** Pipeline exit code; null means killed by a signal (i.e. cancelled). */
+  exit_code: number | null
+  cancelled: boolean
+  /** training_metrics.json text after a successful run — merged by the
+   *  frontend through the same path as a manual file import. Null on
+   *  failure, cancellation, or an unreadable file. */
+  metrics_json: string | null
 }
 
 /**
@@ -96,6 +115,17 @@ export interface EngineProvider {
   /** Remove an imported profile by hostname; no-op when absent. */
   machineProfileRemove(hostname: string): Promise<void>
 
+  // --- Tablebase surfacing (spec 900 backlog; hooks/use-tablebase.ts) ---
+  /**
+   * Rich Lichess tablebase probe for the analysis panel (WDL/DTZ/DTM +
+   * ranked moves). Resolves null when the position is out of tablebase
+   * range (>7 men) or the lookup fails — never a rejection for those.
+   * `context` is the spec 219 game-context tag: a tablebase verdict is
+   * engine-class assistance, so the desktop shell's Rust side refuses
+   * locked contexts defensively, mirroring the UCI commands above.
+   */
+  tablebaseProbe(fen: string, context?: string): Promise<TbProbe | null>
+
   // --- Persona / AI move sources (spec 213/214) ---
   maiaMove(fen: string, level: number): Promise<PersonaMove>
   maiaStatus(): Promise<MaiaStatus>
@@ -132,6 +162,23 @@ export interface EngineProvider {
   coachFeedback(input: CoachInput): Promise<CoachFeedback>
   coachFollowup(input: CoachInput, note: string, rebuttal: string): Promise<string>
   recognizeFen(imageBase64: string, mediaType: string, prompt?: string): Promise<string>
+
+  // --- Monthly measurement pipeline (spec 215 Tier 2) ---
+  /**
+   * Spawn scripts/measure_monthly.py (fetch → profile → Maia estimate) and
+   * stream its output lines until it exits. A dev-checkout desktop
+   * capability — shells without a native process host reject, and the UI
+   * gates the run button on `hasNativeEngine` (the import-file path stays
+   * available everywhere). Resolves with the final report; a successful run
+   * carries the metrics file's text for the standard import/merge path.
+   */
+  measureMonthlyRun(
+    opts: { user: string; skipFetch: boolean; skipMaia: boolean },
+    onLine?: (l: MeasureLine) => void,
+  ): Promise<MeasureReport>
+  /** Cancel the in-flight run (kills the pipeline's whole process group);
+   *  resolves false when nothing is running. */
+  measureMonthlyCancel(): Promise<boolean>
 }
 
 /**

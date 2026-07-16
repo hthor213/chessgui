@@ -16,7 +16,7 @@
 // Migration path: a native training_metrics file can replace the metrics key
 // later; the shapes are already dated append-only points.
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@chessgui/ui/ui/button"
 import { Input } from "@chessgui/ui/ui/input"
 import { getProviders } from "@/lib/platform"
@@ -45,10 +45,14 @@ import {
   type TrainingOverlay,
 } from "@/lib/training-program"
 import {
+  appendLogLine,
   egConversionPoint,
+  MEASURE_USER_KEY,
+  measureRunMessage,
   mergeMetricPoints,
   parseMeasurementJson,
   sparScorePoint,
+  stageForLine,
 } from "@/lib/training-measure"
 import { projectMetric, winsPerTen, type Projection } from "@/lib/training-projection"
 import {
@@ -122,6 +126,14 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   // the per-game counts-toward-training reclassification (spec 215 Tier 1).
   const [playoutResults, setPlayoutResults] = useState<PlayoutResultEntry[]>([])
   const [now] = useState(() => Date.now())
+  // Monthly measurement run (spec 215 Tier 2 spawn). Held HERE, not in the
+  // panel, so a launched playout/rake deck (which swaps the tab's content)
+  // can't drop an in-flight run's log and handlers.
+  const [canSpawnMeasure, setCanSpawnMeasure] = useState(false)
+  const [measureUser, setMeasureUser] = useState("")
+  const [measureRunning, setMeasureRunning] = useState(false)
+  const [measureStage, setMeasureStage] = useState<string | null>(null)
+  const [measureLog, setMeasureLog] = useState<string[]>([])
 
   // Hydrate from storage once, on the client.
   useEffect(() => {
@@ -143,6 +155,10 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     }
     setSparResults(loadSparResults())
     setPlayoutResults(loadPlayoutResults())
+    setMeasureUser(storage.get(MEASURE_USER_KEY) ?? "")
+    // Spawn capability, read on the client so the static render stays stable
+    // (the browser/web shells keep the terminal-run + import path instead).
+    setCanSpawnMeasure(getProviders().engine.hasNativeEngine)
   }, [])
 
   const write = useCallback((key: string, value: unknown) => {
@@ -261,6 +277,48 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     },
     [mergePoints],
   )
+
+  // Spawn the monthly pipeline in place (desktop dev checkout only), streaming
+  // its output into the run log. A successful run's metrics file goes through
+  // the SAME import path as the manual button — one merge rule, one message.
+  const runMeasurement = useCallback(
+    (opts: { skipFetch: boolean; skipMaia: boolean }) => {
+      const user = measureUser.trim()
+      if (!user || measureRunning) return
+      setMeasureRunning(true)
+      setMeasureStage("Starting pipeline…")
+      setMeasureLog([])
+      setMeasureMsg(null)
+      getProviders().storage.set(MEASURE_USER_KEY, user)
+      getProviders()
+        .engine.measureMonthlyRun({ user, skipFetch: opts.skipFetch, skipMaia: opts.skipMaia }, (l) => {
+          setMeasureLog((prev) => appendLogLine(prev, l.line))
+          const stage = stageForLine(l.line)
+          if (stage) setMeasureStage(stage)
+        })
+        .then((report) => {
+          const msg = measureRunMessage(report)
+          if (msg) setMeasureMsg(msg)
+          else importMeasurementText(report.metrics_json ?? "")
+        })
+        .catch((e) => {
+          setMeasureMsg(`Measurement run failed: ${e instanceof Error ? e.message : String(e)}`)
+        })
+        .finally(() => {
+          setMeasureRunning(false)
+          setMeasureStage(null)
+        })
+    },
+    [measureUser, measureRunning, importMeasurementText],
+  )
+
+  // Cancel kills the pipeline's whole process group (orchestrator + the
+  // running stage child); the run promise then resolves cancelled=true.
+  const cancelMeasurement = useCallback(() => {
+    getProviders()
+      .engine.measureMonthlyCancel()
+      .catch((e) => setMeasureMsg(`Cancel failed: ${e instanceof Error ? e.message : String(e)}`))
+  }, [])
 
   // Reclassify one spar game's counts-toward-training intent (flag, never
   // silently drop — the user decides, and probe can never be flipped on).
@@ -425,6 +483,16 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
             onRefreshEg={refreshEgConversion}
             onImportText={importMeasurementText}
             measureMsg={measureMsg}
+            run={{
+              canSpawn: canSpawnMeasure,
+              user: measureUser,
+              onUserChange: setMeasureUser,
+              running: measureRunning,
+              stage: measureStage,
+              log: measureLog,
+              onRun: runMeasurement,
+              onCancel: cancelMeasurement,
+            }}
           />
 
           <SparGamesCard results={sparResults} onReclassify={reclassifySpar} now={now} />
@@ -1003,6 +1071,22 @@ function CriterionGauge({ criterion, metrics }: { criterion: ExitCriterion; metr
 // Metrics panel — history + manual entry
 // ---------------------------------------------------------------------------
 
+/** State + actions for the in-place monthly pipeline run (spec 215 Tier 2
+ *  spawn) — owned by TrainingTab so it survives playout/deck launches. */
+interface MeasureRun {
+  /** Whether this shell can spawn the pipeline (desktop native host). */
+  canSpawn: boolean
+  user: string
+  onUserChange: (user: string) => void
+  running: boolean
+  /** Current pipeline stage label while running. */
+  stage: string | null
+  /** Streamed output tail (capped). */
+  log: string[]
+  onRun: (opts: { skipFetch: boolean; skipMaia: boolean }) => void
+  onCancel: () => void
+}
+
 function MetricsPanel({
   metrics,
   onAdd,
@@ -1010,6 +1094,7 @@ function MetricsPanel({
   onRefreshEg,
   onImportText,
   measureMsg,
+  run,
 }: {
   metrics: MetricPoint[]
   onAdd: (p: MetricPoint) => void
@@ -1021,6 +1106,7 @@ function MetricsPanel({
   /** Import a measurement file's text (scripts/measure_monthly.py output). */
   onImportText: (text: string) => void
   measureMsg: string | null
+  run: MeasureRun
 }) {
   const [metric, setMetric] = useState<MetricKey>("maia_rapid")
   const [value, setValue] = useState("")
@@ -1083,6 +1169,8 @@ function MetricsPanel({
           {measureMsg}
         </p>
       )}
+
+      <MonthlyRunSection run={run} />
 
       {/* Latest per metric */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
@@ -1165,6 +1253,115 @@ function MetricsPanel({
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Monthly pipeline run — spawn + live log (spec 215, Tier 2)
+// ---------------------------------------------------------------------------
+
+/** Run scripts/measure_monthly.py in place with streamed output. Honest about
+ *  cost (the lc0 stage is minutes) and about capability: shells without a
+ *  native process host keep the terminal-run + import path instead. */
+function MonthlyRunSection({ run }: { run: MeasureRun }) {
+  const [skipFetch, setSkipFetch] = useState(false)
+  const [skipMaia, setSkipMaia] = useState(false)
+  const logRef = useRef<HTMLPreElement>(null)
+
+  // Follow the stream: pin the log view to its newest line as it grows.
+  useEffect(() => {
+    const el = logRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [run.log])
+
+  const canRun = run.canSpawn && run.user.trim() !== "" && !run.running
+
+  return (
+    <div className="border-t border-white/10 pt-3 space-y-2" data-testid="training-measure-run">
+      <div>
+        <div className="text-xs font-semibold text-muted-foreground">Monthly measurement</div>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Runs the full pipeline in place — fetch, profile, then the Maia rating estimate. The lc0
+          stage takes minutes; output streams below. Results land via the same import as the file
+          button.
+        </p>
+      </div>
+
+      {!run.canSpawn && (
+        <p className="text-[11px] text-muted-foreground" data-testid="training-measure-nospawn">
+          Running in place needs the desktop app — run{" "}
+          <code className="font-mono">scripts/measure_monthly.py</code> in a terminal and use Import
+          measurements… above.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="space-y-1 text-xs text-muted-foreground">
+          <span>chess.com username</span>
+          <Input
+            value={run.user}
+            onChange={(e) => run.onUserChange(e.target.value)}
+            placeholder="your account"
+            disabled={run.running}
+            data-testid="training-measure-user"
+            className="w-44"
+          />
+        </label>
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground pb-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={skipFetch}
+            disabled={run.running}
+            onChange={(e) => setSkipFetch(e.target.checked)}
+            data-testid="training-measure-skip-fetch"
+          />
+          reuse fetched games
+        </label>
+        <label
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground pb-2 cursor-pointer"
+          title="Profile-only metrics (endgame conversion, flag net) — skips the multi-minute lc0 rating stage."
+        >
+          <input
+            type="checkbox"
+            checked={skipMaia}
+            disabled={run.running}
+            onChange={(e) => setSkipMaia(e.target.checked)}
+            data-testid="training-measure-skip-maia"
+          />
+          skip Maia estimate
+        </label>
+        {run.running ? (
+          <Button size="sm" variant="outline" onClick={run.onCancel} data-testid="training-measure-cancel">
+            Cancel run
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            disabled={!canRun}
+            onClick={() => run.onRun({ skipFetch, skipMaia })}
+            data-testid="training-measure-start"
+          >
+            Run measurement
+          </Button>
+        )}
+      </div>
+
+      {run.running && run.stage && (
+        <p className="text-xs" data-testid="training-measure-stage">
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse mr-1.5 align-middle" />
+          {run.stage}
+        </p>
+      )}
+      {(run.running || run.log.length > 0) && (
+        <pre
+          ref={logRef}
+          data-testid="training-measure-log"
+          className="max-h-40 overflow-auto rounded bg-black/40 p-2 text-[10px] leading-4 font-mono text-muted-foreground whitespace-pre-wrap"
+        >
+          {run.log.join("\n")}
+        </pre>
       )}
     </div>
   )

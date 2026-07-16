@@ -1,14 +1,32 @@
 "use client"
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import type { PendingPromotion, PromotionRole } from "@/hooks/use-chess-game";
 
-const PIECES: { role: PromotionRole; white: string; black: string }[] = [
-  { role: "queen", white: "\u2655", black: "\u265B" },
-  { role: "rook", white: "\u2656", black: "\u265C" },
-  { role: "bishop", white: "\u2657", black: "\u265D" },
-  { role: "knight", white: "\u2658", black: "\u265E" },
+const PIECES: { role: PromotionRole; white: string; black: string; label: string }[] = [
+  { role: "queen", white: "\u2655", black: "\u265B", label: "Queen" },
+  { role: "rook", white: "\u2656", black: "\u265C", label: "Rook" },
+  { role: "bishop", white: "\u2657", black: "\u265D", label: "Bishop" },
+  { role: "knight", white: "\u2658", black: "\u265E", label: "Knight" },
 ];
+
+// Bottom-sheet cutover (spec 223): the in-board column picker is too small
+// for thumbs, so phone-width viewports get a fixed bottom sheet with four
+// large targets instead. Media-query gated \u2014 desktop keeps the exact
+// existing overlay.
+const SHEET_QUERY = "(max-width: 640px)";
+
+function useIsSheetViewport(): boolean {
+  const [sheet, setSheet] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(SHEET_QUERY);
+    const update = () => setSheet(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return sheet;
+}
 
 interface PromotionDialogProps {
   promotion: PendingPromotion;
@@ -38,6 +56,43 @@ export function PromotionDialog({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
+
+  const isSheet = useIsSheetViewport();
+
+  if (isSheet) {
+    // position:fixed escapes the board's absolutely-positioned overlay slot
+    // (no transformed ancestors), so the sheet spans the real viewport.
+    return (
+      <>
+        <div
+          onClick={onCancel}
+          className="fixed inset-0 z-[100] bg-black/50"
+          data-testid="promotion-sheet-backdrop"
+        />
+        <div
+          className="fixed inset-x-0 bottom-0 z-[101] rounded-t-2xl border-t border-white/10 bg-[#1a1a1a] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+          data-testid="promotion-sheet"
+        >
+          <p className="text-center text-xs text-muted-foreground mb-2">Promote to</p>
+          <div className="grid grid-cols-4 gap-2">
+            {PIECES.map(({ role, white, black, label }) => (
+              <button
+                key={role}
+                onClick={() => onConfirm(role)}
+                data-testid={`promotion-sheet-${role}`}
+                className="flex flex-col items-center justify-center gap-1 rounded-xl bg-[#f0d9b5] py-3 active:bg-[#e6c9a0]"
+              >
+                <span className="text-4xl leading-none text-black">
+                  {promotion.color === "white" ? white : black}
+                </span>
+                <span className="text-[11px] font-medium text-black/70">{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   const squareSize = boardSize / 8;
   const file = promotion.to.charCodeAt(0) - 97; // 0-7

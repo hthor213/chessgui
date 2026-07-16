@@ -372,7 +372,11 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-4 md:gap-8 p-4 md:p-6 overflow-auto">
-        <div className="flex-1 min-w-0 flex items-center justify-center shrink-0" data-testid="arena-board">
+        {/* Phone stack (spec 223): when the md: row collapses to a column the
+            board container's height is content-driven, so give it a real
+            height — capped by viewport width (square board) and by 60dvh so
+            the clocks/move list stay reachable below. md:+ is unchanged. */}
+        <div className="flex-1 min-w-0 flex items-center justify-center shrink-0 h-[min(100vw,60dvh)] md:h-auto" data-testid="arena-board">
           <Board
             fen={game.fen}
             orientation={playerSide}

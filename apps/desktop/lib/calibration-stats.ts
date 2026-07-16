@@ -192,6 +192,20 @@ export function summarize(
     .map((a) => a.think_ms as number)
   const medianThinkMs = median(thinkTimes)
 
+  // Plan elicitation (v5): how many answers stated a plan, and how the coach
+  // graded plan DIRECTION vs the engine line. Only aligned/partial/wrong are
+  // counted as grades — "unclear"/"no_plan" and ungraded (coach off / not yet
+  // arrived) plans still count in `given`. Zero across the board on pre-plan
+  // sessions.
+  const withPlan = answers.filter((a) => !a.skipped && (a.plan ?? "").trim() !== "")
+  const gradeCount = (g: string) => withPlan.filter((a) => a.coach?.plan_grade === g).length
+  const planDirection = {
+    given: withPlan.length,
+    aligned: gradeCount("aligned"),
+    partial: gradeCount("partial"),
+    wrong: gradeCount("wrong"),
+  }
+
   const biggestMisses: Miss[] = [...scored]
     .sort((a, b) => b.absError - a.absError)
     .slice(0, missCount)
@@ -217,6 +231,7 @@ export function summarize(
     perBand,
     perPhase,
     perDeck,
+    planDirection,
     biggestMisses,
   }
 }

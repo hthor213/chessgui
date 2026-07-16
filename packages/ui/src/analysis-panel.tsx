@@ -14,6 +14,9 @@ import { HumanEvalSection } from "@chessgui/ui/human-eval"
 import { EngineSettingsDialog } from "@chessgui/ui/engine-settings-dialog"
 import { DEFAULT_PRIOR_CURVE, paceStrength, type EloCurve } from "@chessgui/core/time-elo"
 import { useMachineProfile } from "@/hooks/use-machine-profile"
+import { useTablebase } from "@/hooks/use-tablebase"
+import { TablebaseSection } from "@chessgui/ui/tablebase-section"
+import type { ActiveGameMeta } from "@chessgui/core/active-game"
 import type { EngineSettings } from "@/lib/engine-settings"
 import type { EngineState, EngineMode, PlayerColor } from "@/hooks/use-engine"
 
@@ -37,6 +40,13 @@ interface AnalysisPanelProps {
   onPreviewPv?: (line: PvLine, ply: number) => void;
   /** Which line/ply is currently being previewed (highlights the prefix). */
   previewPv?: { multipv: number; ply: number } | null;
+  /** Current position, for the tablebase verdict row (spec 900 backlog).
+   *  Omitted → no tablebase surfacing. */
+  fen?: string;
+  /** Spec 219 context: tablebase lookups are engine-class assistance, so
+   *  they follow the exact same active-game lockout as the engine (the
+   *  gate itself lives in use-tablebase.ts + the Rust command). */
+  activeGame?: ActiveGameMeta | null;
 }
 
 // The curve's own top anchor (216: b shrinks to its flattest, ~full-strength
@@ -166,8 +176,14 @@ export function PvLineRow({
   );
 }
 
-export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: AnalysisPanelProps) {
+export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv, fen, activeGame }: AnalysisPanelProps) {
   const { state } = engine;
+
+  // Tablebase verdict for the position on the board (spec 900 backlog).
+  // Independent of the engine session — it renders in the no-engine card and
+  // in play mode too. Null unless <=7 men, reachable, and NOT an active game
+  // (spec 219: engine-class assistance, gated in the hook + Rust command).
+  const tbProbe = useTablebase(fen ?? "", activeGame);
 
   const isPlayWhite = state.mode === "play" && state.playerColor === "white";
   const isPlayBlack = state.mode === "play" && state.playerColor === "black";
@@ -199,7 +215,7 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
 
   if (!state.isRunning) {
     return (
-      <Card className="bg-[#1e1c19] border-[#2a2825] p-4">
+      <Card className="bg-card/50 backdrop-blur-sm border-white/10 p-4">
         <div className="flex flex-col items-center gap-3 py-6">
           <div className="flex items-center gap-1">
             <span className="text-sm text-muted-foreground">
@@ -237,6 +253,7 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
               </span>
             )}
           </div>
+          <TablebaseSection probe={tbProbe} turn={turn} />
           <div className="w-full border-t border-[#2a2825] pt-3">
             <EnginePaceControl
               paceSeconds={engine.enginePaceSeconds}
@@ -256,7 +273,7 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
   return (
     <div className="flex flex-nowrap items-stretch gap-0">
       {topLine && <EvalBar score={topLine.score} turn={scoreTurn} />}
-      <Card className="bg-[#1e1c19] border-[#2a2825] p-3 flex-1 min-w-0">
+      <Card className="bg-card/50 backdrop-blur-sm border-white/10 p-3 flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1 mb-1.5">
           {/* Informational text — clips at its box edge (overflow-hidden) so
               the action buttons always stay on screen, even in a narrow
@@ -411,6 +428,9 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
             </>
           )}
         </div>
+
+        {/* Verdict for the LIVE position, so `turn` (not scoreTurn) orients it. */}
+        <TablebaseSection probe={tbProbe} turn={turn} />
 
         <HumanEvalSection
           analysisFen={state.analysisFen}

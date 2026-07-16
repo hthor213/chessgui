@@ -51,6 +51,19 @@
 //        member without a login can open the link. 404 covers unknown,
 //        revoked, and deleted alike.)
 //   DELETE /api/game/{id}                            -> 200 {deleted: id} | 401 | 404
+//   POST /api/exhibition {white_persona, black_persona}
+//                                                    -> 200 ArenaExhibitionState | 400 | 401 | 409
+//        (spec 217 Promise 3: the server plays both personas on a background
+//        thread. 409 = an exhibition is already running — one at a time per
+//        the resource policy. Public roster only: private personas never
+//        appear in a family-spectatable game.)
+//   GET  /api/exhibitions                            -> 200 {exhibitions: [...]} | 401
+//        (family-shared: everyone sees the same exhibit hall, newest first)
+//   GET  /api/exhibition/{id}                        -> 200 ArenaExhibitionState | 401 | 404
+//        (the spectate poll AND the replay fetch — poll while status is
+//        'active', stop when it flips to 'finished')
+//   POST /api/exhibition/{id}/stop                   -> 200 ArenaExhibitionState | 401 | 404 | 409
+//        (any family member may stop a running exhibition — shared compute)
 //
 // NOT a server capability in Tier 0 (checked against persona.py's own
 // "honest inventory" docstring: "step 7 draw/resign model... NOT
@@ -209,6 +222,51 @@ export interface ArenaSharedReplay {
   moves: ArenaMove[]
 }
 
+/** One move of a persona-vs-persona exhibition (spec 217 Promise 3). Both
+ *  sides are personas, so unlike ArenaMove there is no `mover` — the side is
+ *  the ply's parity (even = White). `arm` is which persona arm produced it. */
+export interface ArenaExhibitionMove {
+  ply: number
+  uci: string
+  san: string
+  arm: "book" | "search" | null
+}
+
+/** Full exhibition state (GET /api/exhibition/{id}) — the spectate poll and
+ *  the replay fetch share this shape. `result` is null with a `resultReason`
+ *  of "stopped" / "engine stall" / "interrupted" when the run ended without
+ *  a chess result; "move_cap" is an adjudicated draw (result "1/2-1/2"). */
+export interface ArenaExhibitionState {
+  id: number
+  whitePersona: string
+  blackPersona: string
+  /** Roster display names, resolved server-side (slug fallback). */
+  whiteName: string
+  blackName: string
+  status: ArenaGameStatus
+  result: ArenaResult
+  resultReason: string | null
+  fen: string
+  createdAt: string
+  updatedAt: string
+  moves: ArenaExhibitionMove[]
+}
+
+/** One row of the exhibit hall (GET /api/exhibitions). */
+export interface ArenaExhibitionSummary {
+  id: number
+  whitePersona: string
+  blackPersona: string
+  whiteName: string
+  blackName: string
+  status: ArenaGameStatus
+  result: ArenaResult
+  resultReason: string | null
+  createdAt: string
+  updatedAt: string
+  movesCount: number
+}
+
 export class ArenaApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -253,6 +311,16 @@ export interface ArenaApiClient {
    *  recipient has no login; the token is the capability). */
   getSharedReplay(token: string): Promise<ArenaSharedReplay>
   deleteGame(gameId: number): Promise<void>
+  /** POST /api/exhibition — start a persona-vs-persona exhibition (spec 217
+   *  Promise 3). Throws 409 when one is already running (one at a time). */
+  createExhibition(whitePersona: string, blackPersona: string): Promise<ArenaExhibitionState>
+  /** GET /api/exhibitions — every exhibition, family-shared, newest first. */
+  listExhibitions(): Promise<ArenaExhibitionSummary[]>
+  /** GET /api/exhibition/{id} — spectate poll (while active) and replay
+   *  fetch (once finished), one endpoint. */
+  getExhibition(exhibitionId: number): Promise<ArenaExhibitionState>
+  /** POST /api/exhibition/{id}/stop — stop a running exhibition. */
+  stopExhibition(exhibitionId: number): Promise<ArenaExhibitionState>
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +458,64 @@ function gameSummaryFromWire(g: {
   }
 }
 
+function exhibitionStateFromWire(e: {
+  id: number
+  white_persona: string
+  black_persona: string
+  white_name: string
+  black_name: string
+  status: ArenaGameStatus
+  result: ArenaResult
+  result_reason: string | null
+  fen: string
+  created_at: string
+  updated_at: string
+  moves: { ply: number; uci: string; san: string; arm: "book" | "search" | null }[]
+}): ArenaExhibitionState {
+  return {
+    id: e.id,
+    whitePersona: e.white_persona,
+    blackPersona: e.black_persona,
+    whiteName: e.white_name,
+    blackName: e.black_name,
+    status: e.status,
+    result: e.result,
+    resultReason: e.result_reason,
+    fen: e.fen,
+    createdAt: e.created_at,
+    updatedAt: e.updated_at,
+    moves: e.moves,
+  }
+}
+
+function exhibitionSummaryFromWire(e: {
+  id: number
+  white_persona: string
+  black_persona: string
+  white_name: string
+  black_name: string
+  status: ArenaGameStatus
+  result: ArenaResult
+  result_reason: string | null
+  created_at: string
+  updated_at: string
+  n_moves: number
+}): ArenaExhibitionSummary {
+  return {
+    id: e.id,
+    whitePersona: e.white_persona,
+    blackPersona: e.black_persona,
+    whiteName: e.white_name,
+    blackName: e.black_name,
+    status: e.status,
+    result: e.result,
+    resultReason: e.result_reason,
+    createdAt: e.created_at,
+    updatedAt: e.updated_at,
+    movesCount: e.n_moves,
+  }
+}
+
 function createFetchArenaApiClient(): ArenaApiClient {
   return {
     async googleLogin(idToken) {
@@ -510,6 +636,36 @@ function createFetchArenaApiClient(): ArenaApiClient {
 
     async deleteGame(gameId) {
       await request<{ deleted: number }>(`/api/game/${gameId}`, { method: "DELETE" })
+    },
+
+    async createExhibition(whitePersona, blackPersona) {
+      const e = await request<Parameters<typeof exhibitionStateFromWire>[0]>("/api/exhibition", {
+        method: "POST",
+        body: JSON.stringify({ white_persona: whitePersona, black_persona: blackPersona }),
+      })
+      return exhibitionStateFromWire(e)
+    },
+
+    async listExhibitions() {
+      const res = await request<{ exhibitions: Parameters<typeof exhibitionSummaryFromWire>[0][] }>(
+        "/api/exhibitions",
+      )
+      return res.exhibitions.map(exhibitionSummaryFromWire)
+    },
+
+    async getExhibition(exhibitionId) {
+      const e = await request<Parameters<typeof exhibitionStateFromWire>[0]>(
+        `/api/exhibition/${exhibitionId}`,
+      )
+      return exhibitionStateFromWire(e)
+    },
+
+    async stopExhibition(exhibitionId) {
+      const e = await request<Parameters<typeof exhibitionStateFromWire>[0]>(
+        `/api/exhibition/${exhibitionId}/stop`,
+        { method: "POST" },
+      )
+      return exhibitionStateFromWire(e)
     },
   }
 }

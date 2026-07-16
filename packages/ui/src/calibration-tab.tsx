@@ -28,6 +28,8 @@ import {
   normalizeAnswer,
   answerRange,
   rangePoint,
+  asksPlan,
+  PLAN_DECKS,
   POSITIVE_RANGES,
   LEVEL_RANGE,
   RESULTS_VERSION,
@@ -46,11 +48,21 @@ import {
 import {
   applyLockIn,
   buildProfileFromResults,
+  cellCounts,
+  countsWithSession,
+  disagreementOf,
+  DISAGREEMENT_BANDS,
   emptyProfile,
   mergeProfiles,
+  phaseBReadout,
+  PHASE_B_KNOBS,
+  PHASE_B_PREFETCH,
+  pickNext,
   profileOfSession,
   PROFILE_LOCK_N,
+  promoteAt,
 } from "@/lib/calibration-profile"
+import { humanEvalSweep } from "@/lib/human-eval-tree"
 import {
   summarize,
   scoredAnswers,
@@ -92,13 +104,33 @@ interface Saved {
   showCoach?: boolean
   /** Elicitation mode; saves that predate ranges omit it (⇒ point). */
   elicitation?: Elicitation
+  /** Plan elicitation on plan decks; saves that predate plans omit it
+   *  (⇒ off — plans switch on at new-session boundaries only). */
+  plans?: boolean
   /** Phase A: size of the lock-in burst at the session's head (0 = the prior
    *  profile was already locked). Saves that predate Phase A omit it (⇒ 0). */
   lockInN?: number
   /** Phase A: the labeler profile from prior saved results at session start,
    *  or null for a fresh labeler. Older saves omit it. */
   profilePrior?: LabelerProfile | null
+  /** Phase B: adaptive-selection state (see PhaseBState). Saves that predate
+   *  Phase B omit it (⇒ fixed order — selection switches on at new-session
+   *  boundaries only, like ranges and plans). */
+  phaseB?: PhaseBState
 }
+
+/** Phase-B selection state (spec 213 adaptive elicitation): fixed at session
+ *  creation (`enabled`, `priorCells` — the sparsity stream's starting counts
+ *  per phase × |eval| band cell) plus the evaluator-disagreement spread cache
+ *  (fen → pawns) the prefetcher fills as the session runs. Lives in a ref —
+ *  mutated in place between renders, persisted with every save. */
+interface PhaseBState {
+  enabled: boolean
+  priorCells: Record<string, number>
+  spreads: Record<string, number>
+}
+
+const PHASE_B_OFF: PhaseBState = { enabled: false, priorCells: {}, spreads: {} }
 
 /** A locked answer paired with its position, for the post-answer reveal card. */
 interface Reveal {
@@ -176,9 +208,15 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   // Fixed at session creation, like the elicitation mode.
   const [lockInN, setLockInN] = useState(0)
   const [profilePrior, setProfilePrior] = useState<LabelerProfile | null>(null)
+  // Plan elicitation (spec 213): asked on plan decks. Like the elicitation
+  // mode, fixed at session creation — a resumed pre-plan session never starts
+  // asking mid-session.
+  const [plansEnabled, setPlansEnabled] = useState(true)
   // Per-position input state.
   const [evalInput, setEvalInput] = useState("")
   const [evalRange, setEvalRange] = useState<EvalRange | null>(null)
+  const [plan, setPlan] = useState("")
+  const [planB, setPlanB] = useState("")
   const [why, setWhy] = useState("")
   const [moveUci, setMoveUci] = useState<string | null>(null)
   const [timeExcluded, setTimeExcluded] = useState(false)
@@ -202,6 +240,16 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const startedAt = useRef<number>(Date.now())
   const firstInteractionAt = useRef<number | null>(null)
   const [boardSize, setBoardSize] = useState(480)
+  // Phase B (spec 213 adaptive elicitation): selection state in a ref — the
+  // prefetcher mutates `spreads` in place between renders; `phaseBOn` mirrors
+  // `enabled` for the chip. `sweepDead` flips on the first failed sweep (no
+  // lc0 / no stockfish): selection then runs on coverage sparsity alone.
+  const phaseBRef = useRef<PhaseBState>(PHASE_B_OFF)
+  const [phaseBOn, setPhaseBOn] = useState(false)
+  const sweepDead = useRef(false)
+  // Serialises prefetch sweeps across effect firings — a new backend sweep
+  // cancels the in-flight one, so two loops must never overlap.
+  const prefetchChain = useRef(Promise.resolve())
 
   // The think clock stops at the first sign the user has formed a view — first
   // keystroke or board move. Typing time is not thinking time.
@@ -236,6 +284,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       el: Elicitation,
       li: number,
       pp: LabelerProfile | null,
+      pl: boolean,
     ) => {
       // Storage full / unavailable — the session still runs in memory.
       getProviders().storage.set(
@@ -249,6 +298,10 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           elicitation: el,
           lockInN: li,
           profilePrior: pp,
+          plans: pl,
+          // Read from the ref so the prefetcher's latest spreads ride along
+          // without threading another positional parameter through.
+          phaseB: phaseBRef.current,
         }),
       )
     },
@@ -262,9 +315,15 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   const current: CalibrationPosition | null =
     session && index < session.positions.length ? session.positions[index] : null
 
+  // Plan elicitation (spec 213): the current position asks "what's the plan?"
+  // when its deck is a plan deck and this session elicits plans at all.
+  const wantsPlan = plansEnabled && current != null && asksPlan(current)
+
   const resetInputs = useCallback(() => {
     setEvalInput("")
     setEvalRange(null)
+    setPlan("")
+    setPlanB("")
     setWhy("")
     setMoveUci(null)
     setTimeExcluded(false)
@@ -284,12 +343,21 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       // gets no burst at all. Best-effort: an unreadable prior means a fresh-
       // labeler plan, never a blocked session.
       let prior: LabelerProfile | null = null
+      let priorCells: Record<string, number> = {}
       try {
-        prior = buildProfileFromResults(await loadPriorResults())
+        const priorResults = await loadPriorResults()
+        prior = buildProfileFromResults(priorResults)
+        priorCells = cellCounts(priorResults)
       } catch {
         prior = null
       }
       const { session: s, lockInCount } = applyLockIn(sampled, prior)
+      // Phase B switches on at new-session boundaries, like ranges and plans:
+      // post-burst slots are model-chosen (evaluator disagreement + coverage
+      // sparsity) instead of following the sampled order.
+      phaseBRef.current = { enabled: true, priorCells, spreads: {} }
+      sweepDead.current = false
+      setPhaseBOn(true)
       setSession(s)
       setAnswers([])
       setIndex(0)
@@ -297,11 +365,13 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       // Range elicitation applies at NEW session boundaries only — every fresh
       // session is a range session (spec 213).
       setElicitation("range")
+      // Plans arrive at new-session boundaries too.
+      setPlansEnabled(true)
       setLockInN(lockInCount)
       setProfilePrior(prior)
       resetInputs()
       setPhase("answering")
-      persist(s, [], 0, showReveal, showCoach, "range", lockInCount, prior)
+      persist(s, [], 0, showReveal, showCoach, "range", lockInCount, prior, true)
     } catch (e) {
       setError(String(e))
       setPhase("intro")
@@ -318,9 +388,16 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     // A session that started with point answers finishes with point answers —
     // never mix elicitation modes mid-session.
     setElicitation(resume.elicitation ?? "point")
+    // A session that started without plan prompts finishes without them.
+    setPlansEnabled(resume.plans ?? false)
     // A pre-Phase-A save had no lock-in burst; its order stands as saved.
     setLockInN(resume.lockInN ?? 0)
     setProfilePrior(resume.profilePrior ?? null)
+    // A pre-Phase-B save keeps its fixed order (selection is new-session
+    // only); a Phase-B save resumes with its prior cells and spread cache.
+    phaseBRef.current = resume.phaseB ?? PHASE_B_OFF
+    sweepDead.current = false
+    setPhaseBOn(phaseBRef.current.enabled)
     setRevealed(null)
     resetInputs()
     setPhase("answering")
@@ -338,6 +415,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       setPhase("results")
       clearStorage()
       try {
+        const pb = phaseBRef.current
         const path = await saveResults({
           version: RESULTS_VERSION,
           finished_at: Date.now(),
@@ -346,6 +424,16 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           elicitation,
           lock_in_n: lockInN,
           profile_prior: profilePrior,
+          plan_decks: plansEnabled ? [...PLAN_DECKS] : [],
+          // Phase B's selection record (§6.4: adaptive ordering biases naive
+          // sequential stats, so the artifact says what drove the order).
+          // Spreads align with the FINAL presentation order of s.positions.
+          phase_b: pb.enabled
+            ? {
+                bands: [...DISAGREEMENT_BANDS],
+                spreads: s.positions.map((p) => pb.spreads[p.fen] ?? null),
+              }
+            : null,
           session: s,
           answers: finalAnswers,
           summary,
@@ -355,7 +443,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         setError(String(e))
       }
     },
-    [clearStorage, showReveal, showCoach, elicitation, lockInN, profilePrior],
+    [clearStorage, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled],
   )
 
   // Advance to the next position (or finish). Shared by every exit path.
@@ -369,12 +457,69 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         finish(finalAnswers, session)
         return
       }
+      // Phase B (spec 213 adaptive elicitation): fill each post-burst slot
+      // with the model's most-needed remaining position — evaluator
+      // disagreement (prefetched spreads) + coverage sparsity — promoted from
+      // the unanswered tail. Reordering only touches indices ≥ nextIndex, so
+      // committed answers keep their positions; deterministic, so with no
+      // spreads and uniform coverage the sampled order simply stands.
+      let s = session
+      const pb = phaseBRef.current
+      if (pb.enabled && nextIndex >= lockInN) {
+        const counts = countsWithSession(pb.priorCells, s, finalAnswers)
+        const pick = pickNext(s.positions, nextIndex, pb.spreads, counts)
+        if (pick !== nextIndex) {
+          s = promoteAt(s, nextIndex, pick)
+          setSession(s)
+        }
+      }
       setIndex(nextIndex)
       resetInputs()
-      persist(session, finalAnswers, nextIndex, showReveal, showCoach, elicitation, lockInN, profilePrior)
+      persist(s, finalAnswers, nextIndex, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled)
     },
-    [session, index, finish, resetInputs, persist, showReveal, showCoach, elicitation, lockInN, profilePrior],
+    [session, index, finish, resetInputs, persist, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled],
   )
+
+  // Phase-B prefetcher: while the user thinks, score upcoming positions'
+  // evaluator disagreement — tier-1 Eval_R swept at DISAGREEMENT_BANDS via the
+  // existing `human_eval_sweep` command (read-only reuse of the tree search;
+  // its band-free leaf cache makes the three stops cheap) — so the next
+  // slot's pick is informed by the time they hit Continue. Sweeps run
+  // strictly one at a time through `prefetchChain` (a new backend sweep
+  // cancels an in-flight one). The first rejection (no lc0 / no stockfish)
+  // turns the stream off for the session; selection degrades to coverage
+  // sparsity alone.
+  useEffect(() => {
+    if (phase !== "answering" || !session) return
+    const pb = phaseBRef.current
+    if (!pb.enabled || sweepDead.current) return
+    let live = true
+    const positions = session.positions
+    const from = Math.max(index + 1, lockInN)
+    prefetchChain.current = prefetchChain.current.then(async () => {
+      let scored = 0
+      for (let i = from; i < positions.length && live && !sweepDead.current; i++) {
+        if (scored >= PHASE_B_PREFETCH) break
+        const fen = positions[i].fen
+        if (pb.spreads[fen] !== undefined) continue
+        try {
+          const sweep = await humanEvalSweep(fen, [...DISAGREEMENT_BANDS], PHASE_B_KNOBS)
+          const spread = disagreementOf(sweep.points.map((p) => p.pawns))
+          // A cancelled sweep yields < 2 points — leave the position unscored
+          // and retry on a later pass rather than record a partial spread.
+          if (spread != null) {
+            pb.spreads[fen] = spread
+            scored++
+          }
+        } catch {
+          sweepDead.current = true
+        }
+      }
+    })
+    return () => {
+      live = false
+    }
+  }, [phase, session, index, lockInN])
 
   // After the (optional) second look: show the reveal, or advance if blind.
   const proceedToReveal = useCallback(
@@ -416,6 +561,9 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         eval_lo: evalLo,
         eval_hi: evalHi,
         why: why.trim(),
+        // Plan elicitation: only plan decks ask; null elsewhere and on skips.
+        plan: !skipped && wantsPlan ? plan.trim() || null : null,
+        plan_b: !skipped && wantsPlan ? planB.trim() || null : null,
         move_uci: moveUci,
         elapsed_ms: now - startedAt.current,
         think_ms:
@@ -438,14 +586,14 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       setAnswers(nextAnswers)
       // Persist immediately at the locked index so a crash mid-step never loses
       // the answer (resume lands on the next position).
-      persist(session, nextAnswers, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior)
+      persist(session, nextAnswers, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled)
       // Straight to the reveal. (The second-look step was retired 2026-07-14:
       // under the X/✓ commit model everything is editable until commit, so a
       // post-commit "revise" prompt added friction without adding data. Old
       // answers keep their revised_* fields.)
       proceedToReveal(answer, current, nextAnswers)
     },
-    [session, current, elicitation, evalRange, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, showCoach, lockInN, profilePrior, proceedToReveal],
+    [session, current, elicitation, evalRange, evalInput, why, moveUci, timeExcluded, index, answers, persist, showReveal, showCoach, lockInN, profilePrior, plansEnabled, wantsPlan, plan, planB, proceedToReveal],
   )
 
   // Second look done: apply an optional revision (original stays immutable), then
@@ -464,11 +612,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         }
         finalAnswers = answers.map((a) => (a.index === answer.index ? answer : a))
         setAnswers(finalAnswers)
-        persist(session, finalAnswers, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior)
+        persist(session, finalAnswers, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled)
       }
       proceedToReveal(answer, secondLook.position, finalAnswers)
     },
-    [secondLook, session, answers, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior, proceedToReveal],
+    [secondLook, session, answers, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled, proceedToReveal],
   )
 
   const onContinueReveal = useCallback(() => advance(answers), [advance, answers])
@@ -479,11 +627,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     (answerIndex: number, coach: CoachFeedback) => {
       setAnswers((prev) => {
         const next = prev.map((a) => (a.index === answerIndex ? { ...a, coach } : a))
-        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior)
+        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled)
         return next
       })
     },
-    [session, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior],
+    [session, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled],
   )
 
   // Store the user's rebuttal + the coach's follow-up reply on its answer.
@@ -492,11 +640,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     (answerIndex: number, rebuttal: string, reply: string | null) => {
       setAnswers((prev) => {
         const next = prev.map((a) => (a.index === answerIndex ? { ...a, rebuttal, coach_reply: reply } : a))
-        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior)
+        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled)
         return next
       })
     },
-    [session, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior],
+    [session, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled],
   )
 
   // Input setters that also stop the think clock on first use.
@@ -521,15 +669,30 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     },
     [markInteraction],
   )
+  const onPlanChange = useCallback(
+    (v: string) => {
+      markInteraction()
+      setPlan(v)
+    },
+    [markInteraction],
+  )
+  const onPlanBChange = useCallback(
+    (v: string) => {
+      markInteraction()
+      setPlanB(v)
+    },
+    [markInteraction],
+  )
 
   // Committing requires a move AND an eval (2026-07-14). The written "why" is
   // bonus — the coach evaluates the move alone and the dialogue can fill in
-  // the reasoning afterwards.
+  // the reasoning afterwards. On plan decks the one-line plan is required too
+  // (it's the datapoint the deck exists to collect); plan B stays optional.
   const evalGiven =
     elicitation === "range"
       ? evalRange !== null
       : evalInput.trim() !== "" && !Number.isNaN(parseFloat(evalInput))
-  const canSubmit = evalGiven && moveUci !== null
+  const canSubmit = evalGiven && moveUci !== null && (!wantsPlan || plan.trim() !== "")
 
   const legalMoves = useMemo(() => (current ? legalDests(current.fen) : new Map<Key, Key[]>()), [current])
   const arrow = (uci: string, brush: string): DrawShape => ({
@@ -629,6 +792,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           session={session}
           index={index}
           lockInN={lockInN}
+          adaptive={phaseBOn}
           position={current}
           boardSize={boardSize}
           setBoardSize={setBoardSize}
@@ -649,6 +813,11 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           setEvalInput={onEvalChange}
           evalRange={evalRange}
           onRangeSelect={onRangeSelect}
+          wantsPlan={wantsPlan}
+          plan={plan}
+          setPlan={onPlanChange}
+          planB={planB}
+          setPlanB={onPlanBChange}
           why={why}
           setWhy={onWhyChange}
           onEvalKeyDown={onEvalKeyDown}
@@ -673,6 +842,7 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           session={session}
           answers={answers}
           profilePrior={profilePrior}
+          priorCells={phaseBRef.current.priorCells}
           savedPath={savedPath}
           onLoadPosition={onLoadPosition}
           onRestart={() => {
@@ -732,6 +902,11 @@ function IntroScreen({
               ranges are the honest scale.
             </li>
             <li>Write <span className="text-foreground">why</span> in a sentence or two.</li>
+            <li>
+              On some positions, first state <span className="text-foreground">the plan</span> for
+              the side to move in one line — the coach grades its direction separately from your
+              eval.
+            </li>
             <li>Optionally click the move you&apos;d play.</li>
             <li>Work at a glance-then-think pace — first instinct, then a moment to check.</li>
           </ul>
@@ -866,6 +1041,7 @@ function AnsweringScreen({
   session,
   index,
   lockInN,
+  adaptive,
   position,
   boardSize,
   setBoardSize,
@@ -880,6 +1056,11 @@ function AnsweringScreen({
   setEvalInput,
   evalRange,
   onRangeSelect,
+  wantsPlan,
+  plan,
+  setPlan,
+  planB,
+  setPlanB,
   why,
   setWhy,
   onEvalKeyDown,
@@ -901,6 +1082,8 @@ function AnsweringScreen({
   index: number
   /** Phase A: positions before this index are the profile lock-in burst. */
   lockInN: number
+  /** Phase B: post-burst positions are model-chosen (adaptive selection). */
+  adaptive: boolean
   position: CalibrationPosition
   boardSize: number
   setBoardSize: (n: number) => void
@@ -915,6 +1098,12 @@ function AnsweringScreen({
   setEvalInput: (s: string) => void
   evalRange: EvalRange | null
   onRangeSelect: (r: EvalRange) => void
+  /** Plan elicitation (spec 213): this position asks for a one-line plan. */
+  wantsPlan: boolean
+  plan: string
+  setPlan: (s: string) => void
+  planB: string
+  setPlanB: (s: string) => void
   why: string
   setWhy: (s: string) => void
   onEvalKeyDown: (e: React.KeyboardEvent) => void
@@ -952,6 +1141,18 @@ function AnsweringScreen({
               className="px-1.5 py-0.5 rounded text-[11px] font-normal bg-sky-500/15 text-sky-200/90"
             >
               lock-in {index + 1}/{lockInN}
+            </span>
+          )}
+          {/* Phase-B chip: safe while answering — every post-burst position
+              in an adaptive session shows it, so it carries no per-position
+              information (naming the spread or the coverage cell WOULD). */}
+          {adaptive && index >= lockInN && (
+            <span
+              data-testid="calib-adaptive"
+              title="Model-chosen (spec 213 Phase B): after the lock-in burst, each next position is picked by model need — where evaluator variants disagree most and where your label coverage is thinnest — not by a fixed order. Your written 'why' is the label's provenance."
+              className="px-1.5 py-0.5 rounded text-[11px] font-normal bg-violet-500/15 text-violet-200/90"
+            >
+              adaptive
             </span>
           )}
           {/* Deck chip only AFTER the answer is locked (reveal/second-look):
@@ -1014,6 +1215,29 @@ function AnsweringScreen({
             />
           ) : (
           <>
+
+          {/* Plan elicitation (spec 213): asked BEFORE the eval on plan decks
+              — the plan is formed first, so the eval can't anchor it. */}
+          {wantsPlan && (
+            <div className="space-y-2" data-testid="calib-plan">
+              <label className="text-sm font-medium">
+                What&apos;s the plan for the side to move?
+              </label>
+              <Input
+                value={plan}
+                onChange={(e) => setPlan(e.target.value)}
+                data-testid="calib-plan-input"
+                placeholder='One line — e.g. "queenside minority attack"'
+              />
+              <Input
+                value={planB}
+                onChange={(e) => setPlanB(e.target.value)}
+                data-testid="calib-plan-b-input"
+                placeholder="Plan B (optional)"
+                className="text-sm"
+              />
+            </div>
+          )}
 
           {elicitation === "range" ? (
             <RangePicker selected={evalRange} onSelect={onRangeSelect} />
@@ -1095,7 +1319,13 @@ function AnsweringScreen({
                 onClick={onNext}
                 disabled={!canSubmit}
                 className="flex-1 text-base bg-emerald-600 hover:bg-emerald-500 text-white"
-                title={canSubmit ? "Commit this answer" : "A move and an eval are required to commit"}
+                title={
+                  canSubmit
+                    ? "Commit this answer"
+                    : wantsPlan
+                      ? "A move, an eval, and a one-line plan are required to commit"
+                      : "A move and an eval are required to commit"
+                }
                 data-testid="calib-next"
               >
                 ✓ Commit
@@ -1246,6 +1476,16 @@ function SecondLookCard({
   )
 }
 
+/** Chip colors for the coach's plan-direction grade (spec 213 plan
+ *  elicitation). "no_plan" never renders a chip; unknown values fall back to
+ *  the neutral style at the render site. */
+const PLAN_GRADE_STYLE: Record<string, string> = {
+  aligned: "bg-emerald-500/15 text-emerald-300",
+  partial: "bg-amber-500/15 text-amber-300",
+  wrong: "bg-red-500/15 text-red-300",
+  unclear: "bg-white/10 text-muted-foreground",
+}
+
 /** Post-answer feedback: shown only after the answer is locked (so it can't
  *  anchor the eval). Compares the user's eval to Stockfish, names the best move
  *  and its margin, what the rated human actually played, and — when the coach is
@@ -1288,6 +1528,12 @@ function RevealCard({
   const [coachReply, setCoachReply] = useState<string | null>(answer.coach_reply)
   const [replyLoading, setReplyLoading] = useState(false)
   const wantCoach = showCoach && !answer.skipped
+  // Plan-direction chip: only when a plan was actually stated and the coach
+  // graded it ("no_plan" grades never render).
+  const planGrade =
+    (answer.plan ?? "").trim() !== "" && coach?.plan_grade && coach.plan_grade !== "no_plan"
+      ? coach.plan_grade
+      : null
 
   const sendRebuttal = useCallback(() => {
     const text = rebuttalText.trim()
@@ -1394,7 +1640,7 @@ function RevealCard({
           {coach && (
             <>
               <p className="text-sm text-foreground/90">{coach.note}</p>
-              {coach.cause_tags.length > 0 && (
+              {(coach.cause_tags.length > 0 || planGrade != null) && (
                 <div className="flex flex-wrap gap-1">
                   {coach.cause_tags.map((t) => (
                     <span
@@ -1404,6 +1650,15 @@ function RevealCard({
                       {t.replace(/_/g, " ")}
                     </span>
                   ))}
+                  {planGrade != null && (
+                    <span
+                      data-testid="calib-plan-grade"
+                      title="Your stated plan's direction vs the engine line — graded separately from your eval number (spec 213 plan elicitation)."
+                      className={`px-1.5 py-0.5 rounded text-[11px] ${PLAN_GRADE_STYLE[planGrade] ?? "bg-white/10 text-muted-foreground"}`}
+                    >
+                      plan {planGrade}
+                    </span>
+                  )}
                 </div>
               )}
               {sentRebuttal == null ? (
@@ -1466,6 +1721,7 @@ function ResultsScreen({
   session,
   answers,
   profilePrior,
+  priorCells,
   savedPath,
   onLoadPosition,
   onRestart,
@@ -1474,6 +1730,9 @@ function ResultsScreen({
   answers: CalibrationAnswer[]
   /** Phase A: the labeler profile before this session, or null (fresh). */
   profilePrior: LabelerProfile | null
+  /** Phase B: prior per-cell label counts (sparsity stream) — the readout
+   *  folds this session on top. Empty on pre-Phase-B sessions. */
+  priorCells: Record<string, number>
   savedPath: string | null
   onLoadPosition: (fen: string) => void
   onRestart: () => void
@@ -1485,6 +1744,13 @@ function ResultsScreen({
   const profile = useMemo(
     () => mergeProfiles(profilePrior ?? emptyProfile(), profileOfSession(session, answers)),
     [profilePrior, session, answers],
+  )
+  // Phase B's diminishing-returns readout (design doc §6.4): there is no
+  // "session complete" for data collection — report where labels saturate
+  // and where the next budget goes instead.
+  const readout = useMemo(
+    () => phaseBReadout(countsWithSession(priorCells, session, answers)),
+    [priorCells, session, answers],
   )
 
   return (
@@ -1551,7 +1817,23 @@ function ResultsScreen({
 
         <DeckTable perDeck={summary.perDeck} />
 
+        {summary.planDirection.given > 0 && (
+          <p className="text-xs text-muted-foreground" data-testid="calib-plan-direction">
+            Plan direction (coach-graded vs the engine line, separate from your eval numbers):{" "}
+            {summary.planDirection.aligned} aligned · {summary.planDirection.partial} partial ·{" "}
+            {summary.planDirection.wrong} wrong, of {summary.planDirection.given} plans given.
+          </p>
+        )}
+
         <ProfileCard profile={profile} />
+
+        {readout && (
+          <p className="text-xs text-muted-foreground" data-testid="calib-phase-b-readout">
+            Coverage (drives the adaptive selector, spec 213 Phase B — there is no
+            &ldquo;collection complete&rdquo;, the budget spends itself on the scarcest data):{" "}
+            {readout}.
+          </p>
+        )}
 
         {summary.biggestMisses.length > 0 && (
           <div className="space-y-2">

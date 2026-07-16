@@ -44,9 +44,12 @@ const CLOCK_OPTIONS: { id: string; label: string; clock: ArenaClockChoice | null
 export function LobbyScreen({
   onGameStarted,
   onOpenHistory,
+  onOpenExhibitions,
 }: {
   onGameStarted: (gameId: number) => void
   onOpenHistory: () => void
+  /** Spec 217 Promise 3: the exhibit hall — persona-vs-persona spectate/replay. */
+  onOpenExhibitions: () => void
 }) {
   // Per-user personas from the backend (spec 217 Promise 1: your OWN private
   // persona appears in your lobby and nobody else's — the server decides, the
@@ -100,9 +103,18 @@ export function LobbyScreen({
               measured strength.
             </p>
           </div>
-          <Button variant="outline" onClick={onOpenHistory} data-testid="arena-open-history">
-            My games
-          </Button>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              variant="outline"
+              onClick={onOpenExhibitions}
+              data-testid="arena-open-exhibitions"
+            >
+              Watch them compete
+            </Button>
+            <Button variant="outline" onClick={onOpenHistory} data-testid="arena-open-history">
+              My games
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2" data-testid="arena-clock-picker">
@@ -131,7 +143,9 @@ export function LobbyScreen({
           </p>
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="arena-roster-grid">
+        {/* Phone widths get a single-column card list (spec 223 — the lobby
+            is the app's front door on mobile); ≥480px keeps the old grid. */}
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 sm:grid-cols-3 gap-3" data-testid="arena-roster-grid">
           {roster.map((entry) => (
             <RosterCard
               key={entry.slug}

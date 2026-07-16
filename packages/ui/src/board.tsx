@@ -93,6 +93,14 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       apiRef.current = null;
     }
 
+    // Touch-first tuning (spec 223): on coarse pointers tap-tap is the
+    // primary move entry (selectable, already on), so a drag must not start
+    // from the jitter of a tap — require a real pull before Chessground
+    // treats the gesture as a drag. autoDistance would override the value
+    // after the first drag, so it's pinned off here.
+    const coarsePointer =
+      typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+
     apiRef.current = Chessground(boardRef.current, {
       fen,
       orientation,
@@ -116,6 +124,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       draggable: {
         enabled: !viewOnly,
         showGhost: true,
+        ...(coarsePointer ? { distance: 12, autoDistance: false } : {}),
       },
       selectable: {
         enabled: !viewOnly,
@@ -157,7 +166,10 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
   const ranks = orientation === "white" ? [...RANKS].reverse() : RANKS;
 
   return (
-    <div style={{ position: "relative", width: boardSize + COORD_GUTTER, height: boardSize + COORD_GUTTER, flexShrink: 0 }}>
+    // touchAction none (spec 223): the whole board area — gutters included —
+    // owns its touch gestures, so a piece drag never scrolls or zooms the
+    // page. No effect on mouse input.
+    <div style={{ position: "relative", width: boardSize + COORD_GUTTER, height: boardSize + COORD_GUTTER, flexShrink: 0, touchAction: "none" }}>
       {/* Rank labels, left of the board */}
       <div style={{ position: "absolute", left: 0, top: 0, width: COORD_GUTTER, height: boardSize, display: "flex", flexDirection: "column" }}>
         {ranks.map((r) => (

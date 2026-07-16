@@ -109,14 +109,36 @@ export function answerRange(a: CalibrationAnswer): EvalRange | null {
  *  much into; the UI flags it. */
 export const MIN_PHASE_N = 8
 
+// ---------------------------------------------------------------------------
+// Plan elicitation (spec 213 Phase 0)
+// ---------------------------------------------------------------------------
+
+/** The v3 decks on which "what's the plan for the side to move?" is asked
+ *  before the eval — the spec's own examples ("queenside minority attack",
+ *  "trade into the pawn endgame") are conversion/endgame plans, and those are
+ *  the decks where plan direction (not tactics) decides the position. Asking
+ *  on a deck subset mildly hints the deck (a middlegame with a plan prompt is
+ *  conversion), accepted by the spec's "on selected decks, before the eval";
+ *  endgame is board-visible anyway. */
+export const PLAN_DECKS = ["conversion", "endgame"] as const
+
+/** Whether this position's deck asks for a plan. v1/v2 positions carry no
+ *  deck and never ask. */
+export function asksPlan(pos: CalibrationPosition): boolean {
+  return pos.deck != null && (PLAN_DECKS as readonly string[]).includes(pos.deck)
+}
+
 
 
 /** On-disk schema version this build writes (v2 added known-Elo game context;
  *  v3 added range elicitation: `elicitation` + per-answer `eval_lo`/`eval_hi`;
  *  v4 adds Phase-A profile lock-in: `lock_in_n` + `profile_prior`, and the
  *  embedded session's positions may be lock-in-reordered relative to the
- *  sampler's `session-*.json`). */
-export const RESULTS_VERSION = 4
+ *  sampler's `session-*.json`; v5 adds plan elicitation: `plan_decks` +
+ *  per-answer `plan`/`plan_b` + coach `plan_grade`; v6 adds Phase-B adaptive
+ *  selection: `phase_b` — post-burst positions are model-chosen, so the
+ *  embedded session's order diverges further from the sampler artifact). */
+export const RESULTS_VERSION = 6
 
 // ---------------------------------------------------------------------------
 // Provider seam
@@ -139,6 +161,9 @@ export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
     // ranges (spec 213: range answers arrive at new-session boundaries only).
     eval_lo: a.eval_lo ?? null,
     eval_hi: a.eval_hi ?? null,
+    // Pre-plan answers never asked for a plan; explicit nulls, like the ranges.
+    plan: a.plan ?? null,
+    plan_b: a.plan_b ?? null,
     revised_eval: a.revised_eval ?? null,
     revision_note: a.revision_note ?? null,
     revised_at: a.revised_at ?? null,
@@ -172,6 +197,8 @@ export function coachInputFor(answer: CalibrationAnswer, position: CalibrationPo
     user_eval_lo: answer.eval_lo ?? null,
     user_eval_hi: answer.eval_hi ?? null,
     user_why: answer.why ?? "",
+    user_plan: answer.plan ?? null,
+    user_plan_b: answer.plan_b ?? null,
     user_move_uci: answer.move_uci ?? null,
     revised_eval: answer.revised_eval ?? null,
     revision_note: answer.revision_note ?? null,
