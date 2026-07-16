@@ -1,49 +1,40 @@
 # Backlog
 
-## Current Priority — Foundation & Migration
-- ~~Board & gameplay~~ → spec:001 (mostly done)
-- UX/UI migration (Next.js + Tailwind + shadcn) → spec:002
-- ~~Engine analysis~~ → spec:011 (partially done, engine wiring works)
-- ~~PGN import~~ → spec:013 (import works, export pending)
+This file is a thin index. The working detail — status, verification evidence,
+and open items — lives in the numbered specs and in `specs/900-backlog.md`
+(the parking lot for ideas with no spec home yet). Reconciled against both
+2026-07-16 per the requirements-audit box in `specs/900-backlog.md:66-69`.
 
-## Next Up — Game Tree & V2
-- Game Tree data model → spec:016 (foundational, blocks V2)
-- Game database + opening explorer → spec:200
-- Annotations + eval graph → spec:202
+## Foundation & Migration
+- Board & gameplay → spec:001 (status: active, mostly done — UX design pass remaining)
+- UX/UI migration (Next.js + Tailwind + shadcn) → spec:002 (status: done)
+- Engine analysis → spec:011 (status: active, partially done)
+- PGN import/export → spec:013 (status: implemented — full round-trip import+export with variations/annotations; native Tauri file dialog deferred)
 
-## Engine Tournament (spec:210) — follow-ups
-- **Past-competitions selector**: persist each tournament run (config + outcomes + summary) and add a UI picker to browse/reload past results — so you can review a result (and its charts) without re-running. (Right now the report is in-memory only; a chart/analysis fix isn't visible until you run another tournament.)
-- Curated position pool: bounded re-run of scripts/curate_positions.py (explorer-validated, denser per-bin to ±1.5). The full run over-scoped and was killed; explorer cache is warmed at data/openings/explorer_cache.json.
-- Narrow-range presets (e.g. ±0.6) where engine skill, not the advantage size, decides — more discriminating power per game.
+## Game Tree & V2
+- Game Tree data model → spec:016 (status: implemented (core); PGN variation import/export deferred to 013)
+- Game database + opening explorer → spec:200 (status: draft)
+- Annotations + eval graph → spec:202 (status: draft)
 
-## Error observability (from the coach "request failed" post-mortem, 2026-07-14)
-The AI coach silently failed for an entire session because (a) no Rust-side
-logging exists anywhere (no tauri-plugin-log, no eprintln), and (b) the
-calibration UI collapses every error into "request failed" via substring
-matching (components/calibration-tab.tsx RevealCard). The real error —
-`invalid args: missing field to_move` — was sitting in React state, unreadable.
-- Register tauri-plugin-log (or at minimum eprintln on command errors) so
-  installed-app failures leave a trace in Console.app.
-- Surface the raw error string in the coach hint (e.g. title/tooltip) instead
-  of a two-bucket substring match.
-- Also observed once in the live smoke test: the coach note contained leaked
-  tool-call markup (`</antml...><parameter name="note">` prefix) under strict
-  tool mode — watch for it; add a sanitizer in parse_response if it recurs.
+## Engine Tournament
+- All follow-up items (past-competitions persistence/browser, curated position
+  pool re-run, narrow-range presets, live-in-Tauri verification pass) are
+  tracked in spec:210's "Later / uncaptured requirements" section — see
+  `specs/210-engine-tournament.md`. Do not duplicate them here.
 
-## Rival mode ("beat dad", 2026-07-14)
-Named-opponent prep at family scale — composes existing modules, no new dossier
-machinery: import/enter games vs one named rival → explorer filtered to them
-(their book, where each line's depth ends, which lines are objectively weakest)
-→ anti-lines: per rival opening, one sound low-theory deviation that exits their
-prep by move ~6 → rake decks mined from THEIR games → play-vs-engine sparring at
-their strength from their pet positions. User's explicit sub-goal: beat his dad
-(peak ~1850 OTB; online he's a correspondence + Chess960 player with a SHALLOW
-standard book — the dossier busted the "his opening depth costs me -1/-2" story:
-head-to-head losses are 1 opening / 7 middlegame / 5 endgame, and dad's
-simplified-endgame record is 12-4-2). Allocation confirmed by data: one evening
-of Rossolimo/Italian anti-lines as insurance; the hours go to middlegame rake
-avoidance and endgame conversion ("play it out"), which is where the games are
-actually decided.
+## Error observability / Rival mode / other parked ideas
+Retired from this file 2026-07-16 — both were exact duplicates of items
+already tracked in `specs/900-backlog.md`'s "Requirements audit 2026-07-16 —
+no-home / NEW-spec bucket" (Rust-side error logging) and now fully absorbed
+into spec:225 (Any-Player Profiles & "Beat X" Training) plus spec:215
+(Training Program), which generalize the original "beat dad" rival-mode idea
+(explorer filtering, anti-lines, rake decks, spar sessions) to any named
+rival. See those specs for current status.
 
 ## Ideas — See spec:900
-Play vs engine (advanced), full-game analysis, multi-engine, opening repertoire, Lichess/Chess.com import, themes, FEN editor, engine tournament, tablebases, cloud sync, move sounds.
+Play vs engine (advanced), full-game analysis, multi-engine, opening
+repertoire, Lichess/Chess.com import, themes, FEN editor, engine tournament,
+tablebases, cloud sync, move sounds — `specs/900-backlog.md` is the
+authoritative, actively-maintained index of these; several are already
+shipped there (verified 2026-07-16) even though the short list above still
+names them as "ideas."
