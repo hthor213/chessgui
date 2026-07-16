@@ -61,6 +61,7 @@ describe("TrainingTab renders headless", () => {
   it("renders the measurement refresh controls (spec 215 Tier 2)", () => {
     const html = renderToStaticMarkup(createElement(TrainingTab, { onLaunch: noop }))
     expect(html).toContain('data-testid="training-refresh-spar"')
+    expect(html).toContain('data-testid="training-refresh-eg"')
     expect(html).toContain('data-testid="training-import-file"')
   })
 
@@ -82,5 +83,14 @@ describe("TrainingTab renders headless", () => {
     expect(html).toContain("never silently dropped")
     // Empty store under SSR — the honest empty states.
     expect(html).toContain("No games recorded yet")
+  })
+
+  it("renders the playout-verdicts section feeding eg_conversion (spec 215)", () => {
+    const html = renderToStaticMarkup(createElement(TrainingTab, { onLaunch: noop }))
+    expect(html).toContain('data-testid="training-playout-games"')
+    expect(html).toContain('data-testid="training-eg-conversion"')
+    // Empty store under SSR — the honest empty states.
+    expect(html).toContain("No playouts recorded yet")
+    expect(html).toContain("probe never counts")
   })
 })

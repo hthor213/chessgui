@@ -235,6 +235,19 @@ impl EngineHandle {
         }
     }
 
+    /// Set one UCI option and re-sync (`isready` -> `readyok`) so the engine
+    /// has applied it before the next command. Engines ignore unknown option
+    /// names per the UCI protocol, so this is safe against engines that don't
+    /// expose the option (they still answer `readyok`).
+    async fn set_option(&mut self, name: &str, value: &str) -> Result<(), String> {
+        self.send(&format!("setoption name {} value {}", name, value))
+            .await?;
+        self.send("isready").await?;
+        self.read_until(Duration::from_secs(10), |l| l == "readyok")
+            .await?;
+        Ok(())
+    }
+
     /// Run the UCI handshake: `uci` -> `uciok`, `isready` -> `readyok`,
     /// then `ucinewgame`.
     async fn init(&mut self) -> Result<(), String> {
@@ -313,6 +326,21 @@ impl EngineHandle {
         movetime_ms: u64,
         read_wait: Duration,
     ) -> Result<(Option<i64>, Option<i64>, Option<String>), String> {
+        self.eval_with(fen, &format!("go movetime {}", movetime_ms), read_wait)
+            .await
+    }
+
+    /// Evaluate a position (given by FEN) under an arbitrary `go ...` command,
+    /// returning the last-seen score converted to White's POV. Shared core of
+    /// [`Self::eval_at`] (movetime, the live neutral evaluator) and the
+    /// fixed-depth eval-tagging pass (spec 210 Phase 3), which wants
+    /// machine-independent tags rather than a wall-clock budget.
+    async fn eval_with(
+        &mut self,
+        fen: &str,
+        go_cmd: &str,
+        read_wait: Duration,
+    ) -> Result<(Option<i64>, Option<i64>, Option<String>), String> {
         self.send(&format!("position fen {}", fen)).await?;
         let mut cp: Option<i64> = None;
         let mut mate: Option<i64> = None;
@@ -320,7 +348,7 @@ impl EngineHandle {
         // evaluator's best move in this position (spec 212 "best-move gap if
         // the evaluator reported a PV"). No POV flip: it is a move, not a score.
         let mut best: Option<String> = None;
-        self.send(&format!("go movetime {}", movetime_ms)).await?;
+        self.send(go_cmd).await?;
         // Read info lines until bestmove, keeping the most recent score. A mate
         // score supersedes a cp score and vice-versa (only one is meaningful).
         self.read_until(read_wait, |line| {
@@ -540,8 +568,14 @@ impl Player {
 
 /// How to build a [`Player`] for one side, before the (post-FEN-validation)
 /// spawn. Borrows so the runner core needs no owned/resolved copies.
+/// `threads` (spec 210 Phase 6 "engine thread count per game") is applied via
+/// `setoption name Threads` right after the UCI handshake; `None` leaves the
+/// engine at its own default (the byte-for-byte historical behavior).
 pub(crate) enum PlayerSpec<'a> {
-    Uci(&'a str),
+    Uci {
+        path: &'a str,
+        threads: Option<u32>,
+    },
     Persona(&'a PersonaRuntime),
 }
 
@@ -551,11 +585,19 @@ impl<'a> PlayerSpec<'a> {
     /// historical error strings.
     async fn spawn(self, side: &str) -> Result<Player, String> {
         match self {
-            PlayerSpec::Uci(path) => {
+            PlayerSpec::Uci { path, threads } => {
                 let mut h = EngineHandle::spawn(path).await?;
                 h.init()
                     .await
                     .map_err(|e| format!("{side} engine init failed: {}", e))?;
+                // Per-game thread count. Only sent when configured (>= 1), so
+                // the no-threads path is unchanged; unknown-option engines
+                // ignore the name and still ack the isready sync.
+                if let Some(t) = threads.filter(|t| *t >= 1) {
+                    h.set_option("Threads", &t.to_string())
+                        .await
+                        .map_err(|e| format!("{side} engine init failed: {}", e))?;
+                }
                 Ok(Player::Uci(h))
             }
             PlayerSpec::Persona(rt) => Ok(Player::Persona(Box::new(PersonaPlayer::spawn(rt).await?))),
@@ -777,8 +819,8 @@ pub async fn play_game_streamed(
     move_delay_ms: &AtomicU64,
 ) -> Result<GameResult, String> {
     play_game_streamed_impl(
-        PlayerSpec::Uci(white_path),
-        PlayerSpec::Uci(black_path),
+        PlayerSpec::Uci { path: white_path, threads: None },
+        PlayerSpec::Uci { path: black_path, threads: None },
         start_fen,
         white_base_ms,
         white_inc_ms,
@@ -1285,6 +1327,13 @@ pub struct GameSpec {
     pub black_base_ms: Option<u64>,
     #[serde(default)]
     pub black_inc_ms: Option<u64>,
+    /// Per-game UCI `Threads` for BOTH players (spec 210 Phase 6 "engine
+    /// thread count per game"), applied via `setoption name Threads` after
+    /// each engine's handshake. `None` (the default, and every pre-existing
+    /// payload) leaves the engines at their own defaults. Personas ignore it
+    /// (lc0's backend threading is its own concern).
+    #[serde(default)]
+    pub threads: Option<u32>,
     /// Optional participant for White (spec 218). When present it supersedes
     /// `white_path`: the command layer normalizes a UCI participant's
     /// `engine_path` into `white_path` and resolves a persona participant into
@@ -1587,11 +1636,11 @@ pub async fn run_batch_core_evaluated(
             // pure-UCI game reads the (byte-for-byte) legacy `*_path` fields.
             let white_spec = match &spec.white_runtime {
                 Some(rt) => PlayerSpec::Persona(rt),
-                None => PlayerSpec::Uci(&spec.white_path),
+                None => PlayerSpec::Uci { path: &spec.white_path, threads: spec.threads },
             };
             let black_spec = match &spec.black_runtime {
                 Some(rt) => PlayerSpec::Persona(rt),
-                None => PlayerSpec::Uci(&spec.black_path),
+                None => PlayerSpec::Uci { path: &spec.black_path, threads: spec.threads },
             };
             let (result, persona_logs) = match play_game_streamed_impl(
                 white_spec,
@@ -2201,6 +2250,97 @@ pub fn read_opening_positions(path: String) -> Result<String, String> {
     read_opening_positions_in(&path, OPENING_FILE_MAX_BYTES)
 }
 
+// ============================================================================
+// Phase 3 — in-app eval-tagging of opening positions (spec 210)
+// ============================================================================
+//
+// "Stockfish evaluates each candidate position (fixed depth, e.g. depth 12),
+// stores (fen, eval_cp) in a session cache." One engine process evaluates the
+// batch sequentially at a FIXED DEPTH — not movetime like the live neutral
+// evaluator — so the tags are machine-independent (the point of tagging is a
+// stable label, not keeping pace with a stream). The session cache itself is
+// frontend-owned (keyed by FEN in the tournament tab), so re-tagging the same
+// pool costs nothing; this side just evaluates whatever FENs it is handed.
+
+/// One eval-tagged position: the engine's score converted to White's POV.
+/// Exactly one of `cp`/`mate` is set (both `None` if no score was produced).
+#[derive(Serialize, Debug, Clone)]
+pub struct PositionTag {
+    pub fen: String,
+    pub cp: Option<i64>,
+    pub mate: Option<i64>,
+}
+
+/// Progress event streamed once per tagged position.
+#[derive(Serialize, Debug, Clone)]
+pub struct TagProgress {
+    pub completed: usize,
+    pub total: usize,
+}
+
+/// Default tagging depth — spec 210 Phase 3's own example ("fixed depth, e.g.
+/// depth 12"): deep enough for a stable opening eval, shallow enough that a
+/// few hundred positions tag in well under a minute.
+pub const DEFAULT_TAG_DEPTH: u32 = 12;
+
+/// Generous per-position wait for the fixed-depth search. Depth 12 resolves in
+/// well under a second on any machine that runs this app; the cap only exists
+/// so a hung engine fails the pass instead of wedging it forever.
+const TAG_READ_WAIT: Duration = Duration::from_secs(60);
+
+/// Evaluate every FEN at a fixed depth with one engine process, streaming
+/// per-position progress. Pure core (no Tauri) so it is unit-testable against
+/// a real engine. Fails fast on the first engine error — the FENs are
+/// syntax-validated client-side before they get here, so an error means the
+/// engine itself is broken and every later eval would fail the same way.
+pub async fn tag_positions_core(
+    engine_path: &str,
+    fens: &[String],
+    depth: u32,
+    on_progress: impl Fn(TagProgress),
+) -> Result<Vec<PositionTag>, String> {
+    let mut engine = EngineHandle::spawn(engine_path).await?;
+    engine
+        .init()
+        .await
+        .map_err(|e| format!("Tagging engine init failed: {}", e))?;
+    let go_cmd = format!("go depth {}", depth.max(1));
+    let mut tags = Vec::with_capacity(fens.len());
+    for (i, fen) in fens.iter().enumerate() {
+        let (cp, mate, _best) = engine
+            .eval_with(fen, &go_cmd, TAG_READ_WAIT)
+            .await
+            .map_err(|e| format!("Eval-tagging failed at position {} ({}): {}", i + 1, fen, e))?;
+        tags.push(PositionTag { fen: fen.clone(), cp, mate });
+        on_progress(TagProgress { completed: i + 1, total: fens.len() });
+    }
+    engine.quit().await;
+    Ok(tags)
+}
+
+/// Tauri command: eval-tag a batch of opening positions (spec 210 Phase 3
+/// "Eval-tagging step") at a fixed depth, streaming progress per position.
+#[tauri::command]
+pub async fn tag_positions(
+    engine_path: String,
+    fens: Vec<String>,
+    depth: Option<u32>,
+    on_progress: tauri::ipc::Channel<TagProgress>,
+) -> Result<Vec<PositionTag>, String> {
+    // Same up-front pre-flight the batch players and evaluator get.
+    check_engine_path(&engine_path)?;
+    tag_positions_core(
+        &engine_path,
+        &fens,
+        depth.unwrap_or(DEFAULT_TAG_DEPTH),
+        move |p| {
+            // Best-effort: a closed channel (window gone) must not abort the pass.
+            let _ = on_progress.send(p);
+        },
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2653,6 +2793,97 @@ mod tests {
         assert!(spec.white_runtime.is_none() && spec.black_runtime.is_none());
     }
 
+    // Per-game Threads (spec 210 Phase 6 "engine thread count per game") is
+    // additive on the wire: absent on every pre-existing payload (None), and a
+    // plain number when the tab sends it.
+    #[test]
+    fn game_spec_threads_is_additive_on_the_wire() {
+        let without = r#"{"id":0,"white_path":"a","black_path":"b","max_plies":4}"#;
+        let spec: GameSpec = serde_json::from_str(without).expect("legacy spec deserializes");
+        assert_eq!(spec.threads, None);
+
+        let with = r#"{"id":0,"white_path":"a","black_path":"b","max_plies":4,"threads":4}"#;
+        let spec: GameSpec = serde_json::from_str(with).expect("threads spec deserializes");
+        assert_eq!(spec.threads, Some(4));
+    }
+
+    // Real-engine game with a per-game thread count: the `setoption name
+    // Threads` + isready sync must not wedge the handshake, and the game must
+    // still complete normally. Same deterministic mate-in-1 seed as
+    // real_engine_game_terminal_result_is_checkmate. Skips without Stockfish.
+    #[tokio::test]
+    async fn real_engine_game_with_threads_completes() {
+        let Some(sf) = find_stockfish() else {
+            eprintln!("skipping real_engine_game_with_threads_completes: no stockfish");
+            return;
+        };
+        let mate_in_1_fen = "6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1";
+        let mut s = spec(0, &sf, &sf, Some(mate_in_1_fen));
+        s.threads = Some(2);
+
+        let outcomes = run_batch_core(
+            vec![s],
+            1,
+            |_p| {},
+            Arc::new(|_ev| {}),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert_eq!(outcomes.len(), 1);
+        let g = outcomes[0]
+            .result
+            .as_ref()
+            .unwrap_or_else(|e| panic!("expected a completed game, got error: {e}"));
+        assert_eq!(g.result, "1-0");
+        assert_eq!(g.termination, "checkmate");
+    }
+
+    // Fixed-depth eval-tagging (spec 210 Phase 3): one engine process tags a
+    // small batch, scores are White-POV regardless of the side to move, and
+    // progress fires once per position. Skips without Stockfish.
+    #[tokio::test]
+    async fn tag_positions_core_tags_white_pov_with_progress() {
+        let Some(sf) = find_stockfish() else {
+            eprintln!("skipping tag_positions_core_tags_white_pov_with_progress: no stockfish");
+            return;
+        };
+        let fens = vec![
+            // Standard start: roughly balanced.
+            STANDARD_START_FEN.to_string(),
+            // White up a rook with BLACK to move: the raw side-to-move score is
+            // negative, so a large positive tag proves the White-POV flip.
+            "1nbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b Kk - 0 1".to_string(),
+        ];
+        let progress = std::sync::Mutex::new(Vec::new());
+        let tags = tag_positions_core(&sf, &fens, 8, |p| {
+            progress.lock().unwrap().push((p.completed, p.total));
+        })
+        .await
+        .expect("tagging should succeed");
+
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].fen, fens[0]);
+        // The start position must score, and score near equality.
+        let start_cp = tags[0].cp.expect("start position has a cp score");
+        assert!(start_cp.abs() < 150, "start ~balanced, got {start_cp}cp");
+        // A clean rook up is decisively White-positive from White's POV even
+        // though Black is to move (cp, or an eventual mate for White).
+        let rook_up = &tags[1];
+        let decisive = rook_up.cp.map(|v| v > 150).unwrap_or(false)
+            || rook_up.mate.map(|m| m > 0).unwrap_or(false);
+        assert!(
+            decisive,
+            "rook-up-for-White should tag White-positive, got cp={:?} mate={:?}",
+            rook_up.cp, rook_up.mate
+        );
+        assert_eq!(
+            *progress.lock().unwrap(),
+            vec![(1, 2), (2, 2)],
+            "one progress event per position"
+        );
+    }
+
     /// Resolve a usable lc0 + maia-1500 weights for the persona-arm test, or
     /// `None` so it skips cleanly on a box without lc0 or offline.
     async fn find_persona_deps() -> Option<(PathBuf, PathBuf)> {
@@ -2702,7 +2933,7 @@ mod tests {
         let delay = AtomicU64::new(0);
         let (result, logs) = play_game_streamed_impl(
             PlayerSpec::Persona(&rt),
-            PlayerSpec::Uci(&sf),
+            PlayerSpec::Uci { path: &sf, threads: None },
             None,
             5000, 0, 5000, 0,
             2,      // two half-moves then max_plies adjudication

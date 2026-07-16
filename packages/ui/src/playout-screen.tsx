@@ -25,6 +25,7 @@ import { Chess } from "chessops/chess"
 import { parseFen } from "chessops/fen"
 import { chessgroundDests } from "chessops/compat"
 import { Button } from "@chessgui/ui/ui/button"
+import { Switch } from "@chessgui/ui/ui/switch"
 import { personaMove, DEFAULT_PERSONA_PARAMS } from "@/lib/persona"
 import {
   applyUci,
@@ -45,6 +46,7 @@ import {
   type PlayoutRequest,
 } from "@/lib/playout"
 import { usePlayoutRecorder } from "@/hooks/use-playout-recorder"
+import type { SparResultMode } from "@/lib/spar-results"
 import { MAIA_ROSTER_BANDS } from "@/lib/roster"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
@@ -122,6 +124,14 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
 
   const [phase, setPhase] = useState<"config" | "playing">("config")
   const [level, setLevel] = useState(request.defaultLevel ?? DEFAULT_PLAYOUT_LEVEL)
+  // Declared intent (spec 215, the spar template): serious playouts feed the
+  // eg_conversion metric by default; probe playouts are stored flagged and
+  // never count. Defaults to serious + counting for every launch surface.
+  const [playoutMode, setPlayoutMode] = useState<SparResultMode>("serious")
+  const [countsTowardTraining, setCountsTowardTraining] = useState(true)
+  // Rendered disabled and forced off for probe, but this is the actual
+  // recorded value — never trust the UI state alone.
+  const effectiveCountsTowardTraining = playoutMode === "probe" ? false : countsTowardTraining
 
   const [fen, setFen] = useState(startFen)
   const [plies, setPlies] = useState<SparPly[]>([])
@@ -165,8 +175,10 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
     evalPawns: request.evalPawns,
     userSide,
     level,
+    mode: playoutMode,
     plies: plies.length,
     gameKey: boardNonce,
+    countsTowardTraining: effectiveCountsTowardTraining,
   })
 
   const startGame = useCallback(() => {
@@ -362,6 +374,59 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
             band when one is known.
           </p>
 
+          {/* Declared intent (spec 215, the spar template): mode picker +
+              counts toggle. Probe forces the toggle off and disabled rather
+              than lying about it. */}
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">Mode:</span>
+            <div className="flex gap-1">
+              {(
+                [
+                  ["serious", "Serious playout"],
+                  ["probe", "Probe (experiment)"],
+                ] as [SparResultMode, string][]
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  data-testid={`playout-mode-${id}`}
+                  onClick={() => setPlayoutMode(id)}
+                  className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                    playoutMode === id
+                      ? "border-white/30 bg-white/10 text-foreground"
+                      : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {playoutMode === "probe" && (
+            <p className="text-xs text-muted-foreground -mt-2">
+              Probe playouts are stored flagged and never feed the endgame-conversion metric —
+              experiment freely without polluting the signal.
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={effectiveCountsTowardTraining}
+              onCheckedChange={setCountsTowardTraining}
+              disabled={playoutMode === "probe"}
+              className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-white/15"
+              data-testid="playout-counts-toggle"
+            />
+            <span
+              className={`text-sm ${playoutMode === "probe" ? "text-muted-foreground/50" : "text-muted-foreground"}`}
+              title={
+                playoutMode === "probe"
+                  ? "Probe playouts never count toward training (spec 215)."
+                  : "This playout's verdict feeds the Training tab's endgame conversion."
+              }
+            >
+              Counts toward training
+            </span>
+          </div>
+
           <Button
             onClick={startGame}
             size="lg"
@@ -392,6 +457,15 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
           <span className="text-xs text-muted-foreground truncate" data-testid="playout-claim">
             {claimLine} vs Maia {level}
           </span>
+          {playoutMode === "probe" && (
+            <span
+              className="shrink-0 text-[10px] uppercase tracking-wide text-violet-300 border border-violet-300/30 rounded px-1.5 py-0.5"
+              data-testid="playout-mode-badge"
+              title="Probe playout: stored flagged, never counts toward training."
+            >
+              probe
+            </span>
+          )}
         </div>
         <span
           className={`inline-block px-2.5 py-1 rounded-md text-xs font-medium shrink-0 ${
@@ -468,7 +542,7 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
                 The eval claimed {recorded.claim === "win" ? "a win" : "a hold"} (expected ~
                 {Math.round(recorded.expectedScore * 100)}%); you scored{" "}
                 {recorded.actualScore === 1 ? "1" : recorded.actualScore === 0.5 ? "½" : "0"}. Saved to
-                your playout record.
+                your playout record{recorded.countsTowardTraining ? "" : " (doesn't count toward training)"}.
               </p>
             </div>
           )}

@@ -93,7 +93,9 @@ function EnginePaceControl({
   )
 }
 
-function formatNodes(n: number): string {
+// Exported for the spec 900 compare panel (engine-compare-panel.tsx), which
+// reuses this panel's readout building blocks instead of restyling them.
+export function formatNodes(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return `${n}`;
@@ -117,7 +119,8 @@ function ScoreBadge({ score, turn }: { score: PvLine["score"]; turn: "white" | "
   );
 }
 
-function PvLineRow({
+// Exported for the spec 900 compare panel — same eval-badge + SAN row there.
+export function PvLineRow({
   line,
   turn,
   onPreview,

@@ -19,11 +19,20 @@
 //     Stockfish at a FIXED depth (reproducible per SF build, same determinism
 //     claim as persona.rs verify_candidates). `ucinewgame` is sent before
 //     every leaf so hash carry-over can't make results order-dependent.
-//   * TRANSPOSITION CACHE — keyed (EPD, band, knobs); an entry stores the
-//     depth it was searched to and is reused when that depth ≥ the remaining
-//     depth. Leaf evals are cached at depth 0, so slider revisits and the
-//     future background sweep (Phase-3 follow-up) reuse work across
-//     invocations. The cache persists in Tauri state for the app session.
+//   * PHASE CONDITIONING — skill is a phase vector, not a scalar (spec 213
+//     §1.5): the band that defines "visible" is chosen PER NODE from
+//     R⃗ = (R_opening, R_middlegame, R_endgame) by the node's game phase,
+//     using the calibration.rs heuristic (non-pawn weight ≤ 8 = endgame;
+//     else ply < 16 = opening), as ported to persona.rs. A middlegame line
+//     that trades down mid-line switches to the endgame band at the boundary
+//     — "good for you *if* you can play the resulting endgame". The scalar
+//     slider is the linked special case (all three bands equal).
+//   * TRANSPOSITION CACHE — interior entries keyed (EPD, band vector, knobs);
+//     an entry stores the depth it was searched to and is reused when that
+//     depth ≥ the remaining depth. Leaf evals are keyed (EPD, leaf_depth)
+//     only — a leaf is pure Stockfish, band-independent — so slider revisits
+//     AND the background sweep's stops share leaves across bands. The cache
+//     persists in Tauri state for the app session.
 //   * DETERMINISM — there is no sampling anywhere: candidate selection is a
 //     stable sort + deterministic cutoff, and leaves are fixed-depth on a
 //     single-threaded SF process. Same (fen, band, config, SF build) ⇒ same
@@ -38,17 +47,22 @@ use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 use shakmaty::fen::{Epd, Fen};
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Position};
+use tauri::ipc::Channel;
 use tauri::State;
 use tokio::io::BufReader;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::maia::{self, MaiaMove, MaiaState};
-use crate::persona::{fen_after, parse_score_cp, read_until, resolve_stockfish, sf_send, MATE_CP};
+use crate::persona::{
+    fen_after, parse_score_cp, phase_for, phase_weight_of, read_until, resolve_stockfish, sf_send,
+    Phase, MATE_CP, OPENING_MAX_PLY,
+};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -66,10 +80,46 @@ pub const DEFAULT_LEAF_DEPTH: u32 = 10;
 /// (crude but sufficient — entries are tiny and a clear only costs re-search).
 const TT_CAP: usize = 20_000;
 
+/// R⃗ = (R_opening, R_middlegame, R_endgame) — spec 213 §1.5's phase vector.
+/// The scalar rating slider is the linked special case (all three equal).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BandVector {
+    pub opening: u32,
+    pub middlegame: u32,
+    pub endgame: u32,
+}
+
+impl BandVector {
+    /// Linked scalar: one slider sets all three phase ratings.
+    pub fn linked(band: u32) -> Self {
+        Self {
+            opening: band,
+            middlegame: band,
+            endgame: band,
+        }
+    }
+
+    pub fn for_phase(&self, phase: Phase) -> u32 {
+        match phase {
+            Phase::Opening => self.opening,
+            Phase::Middlegame => self.middlegame,
+            Phase::Endgame => self.endgame,
+        }
+    }
+
+    /// Ply enters a node's band choice only through the opening-vs-middlegame
+    /// test (endgame is material-only, already captured by the EPD), so a
+    /// subtree's value can depend on the game ply iff those two bands differ.
+    fn ply_sensitive(&self) -> bool {
+        self.opening != self.middlegame
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct HumanSearchConfig {
-    /// Maia rating band R (the policy that defines "visible").
-    pub band: u32,
+    /// Maia rating bands per game phase (the policy that defines "visible" —
+    /// chosen per node by the node's phase).
+    pub bands: BandVector,
     /// Cumulative policy mass a node's candidate set must reach.
     pub top_p: f64,
     /// Hard cap on candidates per node (breadth bound).
@@ -85,7 +135,7 @@ pub struct HumanSearchConfig {
 impl HumanSearchConfig {
     pub fn new(band: u32) -> Self {
         Self {
-            band,
+            bands: BandVector::linked(band),
             top_p: DEFAULT_TOP_P,
             max_candidates: DEFAULT_MAX_CANDIDATES,
             depth: DEFAULT_DEPTH,
@@ -101,10 +151,12 @@ impl HumanSearchConfig {
 
 pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// Source of the rating-R move distribution for a position. Production wraps
-/// maia::query_policy; tests use hand-built tables.
+/// Source of the rating-R move distribution for a position. `band` is chosen
+/// per node by the node's phase. Production wraps maia::query_policy (whose
+/// LRU pool holds up to 3 warm bands — exactly R⃗'s size); tests use
+/// hand-built tables.
 pub trait PolicySource: Send + Sync {
-    fn policy<'a>(&'a self, fen: &'a str) -> BoxFut<'a, Result<Vec<MaiaMove>, String>>;
+    fn policy<'a>(&'a self, fen: &'a str, band: u32) -> BoxFut<'a, Result<Vec<MaiaMove>, String>>;
 }
 
 /// Fixed-depth leaf scorer, side-to-move POV centipawns. Production is a warm
@@ -162,24 +214,59 @@ pub struct TtEntry {
 
 pub type TranspositionTable = HashMap<String, TtEntry>;
 
+fn parse_fen(fen: &str) -> Result<Chess, String> {
+    Fen::from_ascii(fen.as_bytes())
+        .map_err(|e| format!("bad FEN: {e}"))?
+        .into_position(CastlingMode::Standard)
+        .map_err(|e| format!("illegal position: {e}"))
+}
+
 /// EPD (FEN minus the move counters) — two positions equal-for-eval share a
 /// key even when reached at different move numbers.
 pub fn epd_key(fen: &str) -> Result<String, String> {
-    let pos: Chess = Fen::from_ascii(fen.as_bytes())
-        .map_err(|e| format!("bad FEN: {e}"))?
-        .into_position(CastlingMode::Standard)
-        .map_err(|e| format!("illegal position: {e}"))?;
+    let pos = parse_fen(fen)?;
     Ok(Epd::from_position(&pos, EnPassantMode::Legal).to_string())
 }
 
-/// Cache key: position + every knob that changes the value (band, leaf depth,
-/// nucleus shape). Search depth is NOT in the key — reuse is depth-aware via
-/// `TtEntry::depth` instead, so a deep entry serves shallower lookups.
-fn tt_key(epd: &str, cfg: &HumanSearchConfig) -> String {
+/// Game ply (0 = the starting position) from the FEN's move counters — the
+/// ply input to the phase heuristic. Distinct from the SEARCH ply: child FENs
+/// carry their own advanced counters, so each node's phase is its own.
+fn game_ply_of(pos: &Chess) -> u32 {
+    2 * (pos.fullmoves().get() - 1) + u32::from(pos.turn() == Color::Black)
+}
+
+/// The rating band that defines "visible" at this node: R⃗ indexed by the
+/// node's phase (calibration.rs heuristic via persona::phase_for).
+fn node_band(bands: &BandVector, pos: &Chess) -> u32 {
+    bands.for_phase(phase_for(phase_weight_of(pos), game_ply_of(pos)))
+}
+
+/// Cache key: position + every knob that changes the value (band vector, leaf
+/// depth, nucleus shape). Search depth is NOT in the key — reuse is
+/// depth-aware via `TtEntry::depth` instead, so a deep entry serves shallower
+/// lookups. When opening and middlegame bands differ the subtree value also
+/// depends on the game ply (the opening boundary can fall inside the
+/// subtree); the ply is clamped to the boundary so every post-opening node
+/// still shares entries across move numbers.
+fn tt_key(epd: &str, game_ply: u32, cfg: &HumanSearchConfig) -> String {
+    let b = &cfg.bands;
+    let ply_part = if b.ply_sensitive() {
+        format!("|p{}", game_ply.min(OPENING_MAX_PLY))
+    } else {
+        String::new()
+    };
     format!(
-        "{epd}|{}|{}|{:.3}|{}",
-        cfg.band, cfg.leaf_depth, cfg.top_p, cfg.max_candidates
+        "{epd}|{}-{}-{}|{}|{:.3}|{}{}",
+        b.opening, b.middlegame, b.endgame, cfg.leaf_depth, cfg.top_p, cfg.max_candidates, ply_part
     )
+}
+
+/// Leaf-eval cache key. A leaf is pure fixed-depth Stockfish — no band, no
+/// nucleus knobs — so entries are shared across every band that reaches the
+/// position: the background sweep's stops mostly re-score each other's
+/// leaves from the cache instead of the engine.
+fn leaf_tt_key(epd: &str, leaf_depth: u32) -> String {
+    format!("{epd}|leaf|{leaf_depth}")
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +275,11 @@ fn tt_key(epd: &str, cfg: &HumanSearchConfig) -> String {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct HumanSearchResult {
+    /// The middlegame (reference-phase) band; equals the slider band for the
+    /// linked scalar case, kept for back-compat with the tier-1 readout.
     pub band: u32,
+    /// The full R⃗ actually used: [opening, middlegame, endgame].
+    pub bands: [u32; 3],
     /// Eval_R, White-POV centipawns (mates collapsed to ~±MATE_CP).
     pub cp_white: i64,
     /// Eval_R in White-POV pawns (cp_white / 100).
@@ -205,11 +296,18 @@ pub struct HumanSearchResult {
     pub pv: Vec<String>,
 }
 
+/// Error string a cancelled search/sweep surfaces (same literal as
+/// match_runner's batch cancellation — callers match on it, never display it).
+pub const CANCELLED: &str = "cancelled";
+
 struct Searcher<'s> {
     cfg: &'s HumanSearchConfig,
     policy: &'s dyn PolicySource,
     leaf: &'s mut dyn LeafEvaluator,
     tt: &'s mut TranspositionTable,
+    /// Polled at every node (~tens of ms apart), so a cancelled sweep releases
+    /// the shared TT lock promptly instead of finishing a multi-second stop.
+    cancel: &'s (dyn Fn() -> bool + Send + Sync),
     nodes: usize,
     leaf_evals: usize,
     tt_hits: usize,
@@ -224,10 +322,10 @@ impl<'s> Searcher<'s> {
         ply: u32,
     ) -> BoxFut<'a, Result<(i64, Vec<String>), String>> {
         Box::pin(async move {
-            let pos: Chess = Fen::from_ascii(fen.as_bytes())
-                .map_err(|e| format!("bad FEN: {e}"))?
-                .into_position(CastlingMode::Standard)
-                .map_err(|e| format!("illegal position: {e}"))?;
+            if (self.cancel)() {
+                return Err(CANCELLED.to_string());
+            }
+            let pos = parse_fen(&fen)?;
 
             // Terminal nodes need no policy and no engine.
             let legal = pos.legal_moves();
@@ -243,7 +341,8 @@ impl<'s> Searcher<'s> {
                 return Ok((0, Vec::new()));
             }
 
-            let key = tt_key(&Epd::from_position(&pos, EnPassantMode::Legal).to_string(), self.cfg);
+            let epd = Epd::from_position(&pos, EnPassantMode::Legal).to_string();
+            let key = tt_key(&epd, game_ply_of(&pos), self.cfg);
             if let Some(e) = self.tt.get(&key) {
                 if e.depth >= depth {
                     self.tt_hits += 1;
@@ -257,16 +356,16 @@ impl<'s> Searcher<'s> {
 
             // Leaf: depth exhausted or node budget spent.
             if depth == 0 || self.nodes > self.cfg.max_nodes {
-                let cp = self.leaf.eval_cp(&fen).await?;
-                self.leaf_evals += 1;
-                self.tt.insert(key, TtEntry { depth: 0, cp, best: None });
-                return Ok((cp, Vec::new()));
+                return self.leaf_value(&fen, &epd).await;
             }
 
-            // Interior: restrict to the rating-R nucleus. lc0 policies only
-            // list legal moves; the legality filter guards synthetic tables
-            // and any upstream anomaly.
-            let policy = self.policy.policy(&fen).await?;
+            // Interior: restrict to the rating-R nucleus, R chosen by THIS
+            // node's phase — a line that trades into an endgame switches to
+            // the endgame band at the boundary. lc0 policies only list legal
+            // moves; the legality filter guards synthetic tables and any
+            // upstream anomaly.
+            let band = node_band(&self.cfg.bands, &pos);
+            let policy = self.policy.policy(&fen, band).await?;
             let legal_ucis: HashSet<String> = legal
                 .iter()
                 .map(|m| m.to_uci(CastlingMode::Standard).to_string())
@@ -280,10 +379,7 @@ impl<'s> Searcher<'s> {
             if visible.is_empty() {
                 // Policy carried no legal move (synthetic-table gap / lc0
                 // anomaly): score the node as a leaf rather than fail the run.
-                let cp = self.leaf.eval_cp(&fen).await?;
-                self.leaf_evals += 1;
-                self.tt.insert(key, TtEntry { depth: 0, cp, best: None });
-                return Ok((cp, Vec::new()));
+                return self.leaf_value(&fen, &epd).await;
             }
 
             let mut best_cp = i64::MIN;
@@ -312,14 +408,30 @@ impl<'s> Searcher<'s> {
         })
     }
 
+    /// Score a node as a leaf, through the band-free leaf cache: any earlier
+    /// search that reached this position as a leaf — same slider stop or not
+    /// — already paid the Stockfish call.
+    async fn leaf_value(&mut self, fen: &str, epd: &str) -> Result<(i64, Vec<String>), String> {
+        let lkey = leaf_tt_key(epd, self.cfg.leaf_depth);
+        if let Some(e) = self.tt.get(&lkey) {
+            self.tt_hits += 1;
+            return Ok((e.cp, Vec::new()));
+        }
+        let cp = self.leaf.eval_cp(fen).await?;
+        self.leaf_evals += 1;
+        self.tt.insert(lkey, TtEntry { depth: 0, cp, best: None });
+        Ok((cp, Vec::new()))
+    }
+
     /// Rebuild a PV from cached best moves after a TT hit; stops at the first
     /// gap. Bounded by `depth` so a cache cycle can't loop.
     fn reconstruct_pv(&self, fen: &str, depth: u32) -> Vec<String> {
         let mut pv = Vec::new();
         let mut cur = fen.to_string();
         for _ in 0..depth {
-            let Ok(epd) = epd_key(&cur) else { break };
-            let Some(entry) = self.tt.get(&tt_key(&epd, self.cfg)) else {
+            let Ok(pos) = parse_fen(&cur) else { break };
+            let epd = Epd::from_position(&pos, EnPassantMode::Legal).to_string();
+            let Some(entry) = self.tt.get(&tt_key(&epd, game_ply_of(&pos), self.cfg)) else {
                 break;
             };
             let Some(best) = entry.best.clone() else { break };
@@ -340,10 +452,21 @@ pub async fn search_root(
     tt: &mut TranspositionTable,
     fen: &str,
 ) -> Result<HumanSearchResult, String> {
-    let pos: Chess = Fen::from_ascii(fen.as_bytes())
-        .map_err(|e| format!("bad FEN: {e}"))?
-        .into_position(CastlingMode::Standard)
-        .map_err(|e| format!("illegal position: {e}"))?;
+    search_root_cancellable(cfg, policy, leaf, tt, fen, &|| false).await
+}
+
+/// `search_root` with a cancellation probe, polled per node. On cancellation
+/// the search aborts with `Err(CANCELLED)`; every TT entry already written is
+/// a completed subtree value, so a restarted search reuses the partial work.
+pub async fn search_root_cancellable(
+    cfg: &HumanSearchConfig,
+    policy: &dyn PolicySource,
+    leaf: &mut dyn LeafEvaluator,
+    tt: &mut TranspositionTable,
+    fen: &str,
+    cancel: &(dyn Fn() -> bool + Send + Sync),
+) -> Result<HumanSearchResult, String> {
+    let pos = parse_fen(fen)?;
     let white_to_move = pos.turn() == Color::White;
 
     let mut s = Searcher {
@@ -351,6 +474,7 @@ pub async fn search_root(
         policy,
         leaf,
         tt,
+        cancel,
         nodes: 0,
         leaf_evals: 0,
         tt_hits: 0,
@@ -360,7 +484,8 @@ pub async fn search_root(
 
     let cp_white = if white_to_move { cp_mover } else { -cp_mover };
     Ok(HumanSearchResult {
-        band: cfg.band,
+        band: cfg.bands.middlegame,
+        bands: [cfg.bands.opening, cfg.bands.middlegame, cfg.bands.endgame],
         cp_white,
         pawns: cp_white as f64 / 100.0,
         depth: cfg.depth,
@@ -368,6 +493,60 @@ pub async fn search_root(
         leaf_evals,
         tt_hits,
         pv,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Background sweep — the perception curve (spec 213's flagship visual)
+// ---------------------------------------------------------------------------
+
+/// A finished (or cancelled-partway) sweep across slider stops. `points` holds
+/// one HumanSearchResult per completed band, in sweep order.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct HumanSweepResult {
+    pub points: Vec<HumanSearchResult>,
+    pub cancelled: bool,
+}
+
+/// Eval_R at every band in `bands` for one position — the perception curve's
+/// data. One linked-R⃗ search per stop, all stops sharing `tt`, so the curve
+/// costs far less than bands × cold searches (leaves reached through moves
+/// both bands consider are scored once). `on_point` fires as each stop lands
+/// (progressive chart fill); `cancel` is polled per node, and cancellation
+/// returns the points already computed rather than an error.
+pub async fn sweep_bands(
+    base: &HumanSearchConfig,
+    bands: &[u32],
+    policy: &dyn PolicySource,
+    leaf: &mut dyn LeafEvaluator,
+    tt: &mut TranspositionTable,
+    fen: &str,
+    cancel: &(dyn Fn() -> bool + Send + Sync),
+    on_point: &mut (dyn FnMut(&HumanSearchResult) + Send),
+) -> Result<HumanSweepResult, String> {
+    let mut points: Vec<HumanSearchResult> = Vec::with_capacity(bands.len());
+    for &band in bands {
+        let cfg = HumanSearchConfig {
+            bands: BandVector::linked(band),
+            ..base.clone()
+        };
+        match search_root_cancellable(&cfg, policy, leaf, tt, fen, cancel).await {
+            Ok(r) => {
+                on_point(&r);
+                points.push(r);
+            }
+            Err(e) if e == CANCELLED => {
+                return Ok(HumanSweepResult {
+                    points,
+                    cancelled: true,
+                })
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(HumanSweepResult {
+        points,
+        cancelled: false,
     })
 }
 
@@ -443,13 +622,12 @@ impl LeafEvaluator for SfLeaf {
 struct MaiaPolicySource<'a> {
     app: &'a tauri::AppHandle,
     state: &'a MaiaState,
-    band: u32,
 }
 
 impl PolicySource for MaiaPolicySource<'_> {
-    fn policy<'a>(&'a self, fen: &'a str) -> BoxFut<'a, Result<Vec<MaiaMove>, String>> {
+    fn policy<'a>(&'a self, fen: &'a str, band: u32) -> BoxFut<'a, Result<Vec<MaiaMove>, String>> {
         Box::pin(async move {
-            maia::query_policy(self.app, self.state, fen, self.band)
+            maia::query_policy(self.app, self.state, fen, band)
                 .await
                 .map(|p| p.moves)
         })
@@ -462,15 +640,22 @@ impl PolicySource for MaiaPolicySource<'_> {
 
 /// Session-lived transposition cache (spec: "transposition cache keyed
 /// (fen, R)"). Also serializes concurrent tree searches — one slider, one
-/// search at a time is the intended shape.
+/// search at a time is the intended shape. `sweep_gen` is the sweep
+/// cancellation token: a sweep records the generation it started under and
+/// aborts (per node) once any later sweep or an explicit cancel bumps it —
+/// so a stale sweep can never hold the TT lock hostage for seconds.
 #[derive(Default)]
 pub struct HumanTreeState {
     tt: AsyncMutex<TranspositionTable>,
+    sweep_gen: AtomicU64,
 }
 
-/// Tier-1 Eval_R for `fen` at rating `band` (spec 213 Phase 3). All knobs
-/// optional; defaults sized for the 1–4 s/stop budget. Deterministic for a
-/// given (fen, band, knobs, Stockfish build).
+/// Tier-1 Eval_R for `fen` at rating `band` (spec 213 Phase 3). `band` is the
+/// scalar slider = linked R⃗; the optional per-phase overrides
+/// (`band_opening`/`band_middlegame`/`band_endgame`) unlink it — the band is
+/// chosen per node by the node's phase either way. All knobs optional;
+/// defaults sized for the 1–4 s/stop budget. Deterministic for a given
+/// (fen, bands, knobs, Stockfish build).
 #[tauri::command]
 pub async fn human_eval_tree(
     app: tauri::AppHandle,
@@ -478,19 +663,27 @@ pub async fn human_eval_tree(
     tree_state: State<'_, HumanTreeState>,
     fen: String,
     band: u32,
+    band_opening: Option<u32>,
+    band_middlegame: Option<u32>,
+    band_endgame: Option<u32>,
     depth: Option<u32>,
     top_p: Option<f64>,
     max_candidates: Option<usize>,
     max_nodes: Option<usize>,
     leaf_depth: Option<u32>,
 ) -> Result<HumanSearchResult, String> {
-    if !maia::is_valid_band(band) {
-        return Err(format!(
-            "no Maia-1 net for band {band} (available: 1100–1900)"
-        ));
+    let bands = BandVector {
+        opening: band_opening.unwrap_or(band),
+        middlegame: band_middlegame.unwrap_or(band),
+        endgame: band_endgame.unwrap_or(band),
+    };
+    for b in [band, bands.opening, bands.middlegame, bands.endgame] {
+        if !maia::is_valid_band(b) {
+            return Err(format!("no Maia-1 net for band {b} (available: 1100–1900)"));
+        }
     }
     let cfg = HumanSearchConfig {
-        band,
+        bands,
         top_p: top_p.unwrap_or(DEFAULT_TOP_P).clamp(0.05, 1.0),
         max_candidates: max_candidates.unwrap_or(DEFAULT_MAX_CANDIDATES).clamp(1, 8),
         depth: depth.unwrap_or(DEFAULT_DEPTH).clamp(1, 6),
@@ -504,7 +697,6 @@ pub async fn human_eval_tree(
     let policy = MaiaPolicySource {
         app: &app,
         state: maia_state.inner(),
-        band,
     };
 
     let mut tt = tree_state.tt.lock().await;
@@ -512,6 +704,79 @@ pub async fn human_eval_tree(
         tt.clear();
     }
     search_root(&cfg, &policy, &mut leaf, &mut tt, &fen).await
+}
+
+/// Background sweep across slider stops → the perception curve (spec 213
+/// Phase 3). Runs tier-1 Eval_R at every band in `bands` (the frontend passes
+/// the slider's stops), streaming each point over `on_point` as it lands and
+/// returning the full set. Shares the session TT with `human_eval_tree` —
+/// the current band's stop is usually already cached when the sweep starts.
+/// Starting a new sweep cancels any sweep still in flight; a cancelled sweep
+/// returns its partial points with `cancelled: true`, never an error.
+#[tauri::command]
+pub async fn human_eval_sweep(
+    app: tauri::AppHandle,
+    maia_state: State<'_, MaiaState>,
+    tree_state: State<'_, HumanTreeState>,
+    fen: String,
+    bands: Vec<u32>,
+    depth: Option<u32>,
+    top_p: Option<f64>,
+    max_candidates: Option<usize>,
+    max_nodes: Option<usize>,
+    leaf_depth: Option<u32>,
+    on_point: Channel<HumanSearchResult>,
+) -> Result<HumanSweepResult, String> {
+    if bands.is_empty() {
+        return Err("sweep needs at least one band".to_string());
+    }
+    for &b in &bands {
+        if !maia::is_valid_band(b) {
+            return Err(format!("no Maia-1 net for band {b} (available: 1100–1900)"));
+        }
+    }
+    let base = HumanSearchConfig {
+        bands: BandVector::linked(bands[0]), // overwritten per stop by sweep_bands
+        top_p: top_p.unwrap_or(DEFAULT_TOP_P).clamp(0.05, 1.0),
+        max_candidates: max_candidates.unwrap_or(DEFAULT_MAX_CANDIDATES).clamp(1, 8),
+        depth: depth.unwrap_or(DEFAULT_DEPTH).clamp(1, 6),
+        max_nodes: max_nodes.unwrap_or(DEFAULT_MAX_NODES).clamp(1, 5_000),
+        leaf_depth: leaf_depth.unwrap_or(DEFAULT_LEAF_DEPTH).clamp(1, 20),
+    };
+
+    // Claim the generation BEFORE waiting on the TT lock: the sweep holding
+    // it sees the bump at its next node and releases within ~one node's work.
+    let my_gen = tree_state.sweep_gen.fetch_add(1, Ordering::SeqCst) + 1;
+
+    let sf = resolve_stockfish()
+        .ok_or("stockfish not found — install it with: brew install stockfish")?;
+    let mut leaf = SfLeaf::spawn(&sf, base.leaf_depth).await?;
+    let policy = MaiaPolicySource {
+        app: &app,
+        state: maia_state.inner(),
+    };
+
+    let mut tt = tree_state.tt.lock().await;
+    if tt.len() > TT_CAP {
+        tt.clear();
+    }
+    let gen = &tree_state.sweep_gen;
+    let cancel = move || gen.load(Ordering::SeqCst) != my_gen;
+    let mut emit = |r: &HumanSearchResult| {
+        let _ = on_point.send(r.clone());
+    };
+    sweep_bands(&base, &bands, &policy, &mut leaf, &mut tt, &fen, &cancel, &mut emit).await
+}
+
+/// Cancel any in-flight perception-curve sweep (position changed, tree mode
+/// toggled off, panel unmounted). Deliberately does not touch the TT lock,
+/// so it returns immediately even while a sweep is mid-search.
+#[tauri::command]
+pub async fn human_eval_sweep_cancel(
+    tree_state: State<'_, HumanTreeState>,
+) -> Result<(), String> {
+    tree_state.sweep_gen.fetch_add(1, Ordering::SeqCst);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -533,25 +798,41 @@ mod tests {
     }
 
     /// Hand-built policy table keyed by EPD — the spec's synthetic policies.
-    struct TablePolicy(HashMap<String, Vec<MaiaMove>>);
+    /// `set` installs a band-agnostic policy; `set_for_band` a band-specific
+    /// one (looked up first), so tests can prove WHICH band a node consulted.
+    struct TablePolicy {
+        any: HashMap<String, Vec<MaiaMove>>,
+        by_band: HashMap<(String, u32), Vec<MaiaMove>>,
+    }
 
     impl TablePolicy {
         fn new() -> Self {
-            Self(HashMap::new())
+            Self {
+                any: HashMap::new(),
+                by_band: HashMap::new(),
+            }
         }
         fn set(&mut self, fen: &str, moves: Vec<MaiaMove>) {
-            self.0.insert(epd_key(fen).unwrap(), moves);
+            self.any.insert(epd_key(fen).unwrap(), moves);
+        }
+        fn set_for_band(&mut self, fen: &str, band: u32, moves: Vec<MaiaMove>) {
+            self.by_band.insert((epd_key(fen).unwrap(), band), moves);
         }
     }
 
     impl PolicySource for TablePolicy {
-        fn policy<'a>(&'a self, fen: &'a str) -> BoxFut<'a, Result<Vec<MaiaMove>, String>> {
+        fn policy<'a>(
+            &'a self,
+            fen: &'a str,
+            band: u32,
+        ) -> BoxFut<'a, Result<Vec<MaiaMove>, String>> {
             Box::pin(async move {
                 let epd = epd_key(fen)?;
-                self.0
-                    .get(&epd)
+                self.by_band
+                    .get(&(epd.clone(), band))
+                    .or_else(|| self.any.get(&epd))
                     .cloned()
-                    .ok_or(format!("test policy table has no entry for {epd}"))
+                    .ok_or(format!("test policy table has no entry for {epd} @ {band}"))
             })
         }
     }
@@ -598,7 +879,7 @@ mod tests {
 
     fn cfg(band: u32, top_p: f64, depth: u32) -> HumanSearchConfig {
         HumanSearchConfig {
-            band,
+            bands: BandVector::linked(band),
             top_p,
             max_candidates: 4,
             depth,
@@ -855,6 +1136,276 @@ mod tests {
         assert_eq!(a, b, "no sampling anywhere: identical runs, identical results");
     }
 
+    // -- Per-node phase conditioning (spec 213: band chosen by the node's phase) --
+
+    /// Same starting board, move counter advanced past the opening boundary
+    /// (ply 16 = 2×(9−1)) — same EPD, different phase.
+    const STARTPOS_MOVE_9: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 9";
+
+    #[test]
+    fn game_ply_derives_from_the_fen_move_counters() {
+        assert_eq!(game_ply_of(&parse_fen(STARTPOS).unwrap()), 0);
+        let after_e4 = after(STARTPOS, &["e2e4"]);
+        assert_eq!(game_ply_of(&parse_fen(&after_e4).unwrap()), 1);
+        let after_e4_e5 = after(STARTPOS, &["e2e4", "e7e5"]);
+        assert_eq!(game_ply_of(&parse_fen(&after_e4_e5).unwrap()), 2);
+        assert_eq!(game_ply_of(&parse_fen(STARTPOS_MOVE_9).unwrap()), 16);
+    }
+
+    #[test]
+    fn node_band_follows_the_calibration_phase_heuristic() {
+        let bands = BandVector {
+            opening: 1100,
+            middlegame: 1500,
+            endgame: 1900,
+        };
+        // Full material, ply 0 → opening.
+        assert_eq!(node_band(&bands, &parse_fen(STARTPOS).unwrap()), 1100);
+        // Same board out of the opening (ply 16) → middlegame.
+        assert_eq!(node_band(&bands, &parse_fen(STARTPOS_MOVE_9).unwrap()), 1500);
+        // Q+R vs bare king (non-pawn weight 6 ≤ 8) at ply 3: endgame wins
+        // over the ply test — an early trade-down IS an endgame.
+        let early_endgame = "6k1/8/3Q4/8/8/8/8/R5K1 b - - 0 2";
+        assert_eq!(node_band(&bands, &parse_fen(early_endgame).unwrap()), 1900);
+        // Linked scalar: one band regardless of phase.
+        let linked = BandVector::linked(1700);
+        assert_eq!(node_band(&linked, &parse_fen(STARTPOS).unwrap()), 1700);
+        assert_eq!(node_band(&linked, &parse_fen(early_endgame).unwrap()), 1700);
+    }
+
+    /// The spec's named synthetic case — phase differs root vs leaf side of
+    /// the line. Root (move 20, ply 38): White Qd4+Ra1 vs Black Qd6, non-pawn
+    /// weight 10 → MIDDLEGAME. White's only visible move trades queens
+    /// (Qxd6), dropping the weight to 6 → the reply node is an ENDGAME and
+    /// must consult the endgame band, mid-line. The two bands' policies pick
+    /// different king moves with opposite leaf evals, so which band was
+    /// consulted is visible in the eval itself.
+    #[tokio::test]
+    async fn band_switches_mid_line_when_the_line_trades_into_an_endgame() {
+        let root = "6k1/8/3q4/8/3Q4/8/8/R5K1 w - - 0 20";
+        let after_trade = after(root, &["d4d6"]);
+
+        let mut policy = TablePolicy::new();
+        policy.set_for_band(root, 1500, vec![mv("d4d6", 1.0)]);
+        // Endgame-band human steps toward the center; middlegame-band human
+        // hides in the corner. Only one of these policies may be consulted.
+        policy.set_for_band(&after_trade, 1100, vec![mv("g8f7", 1.0)]);
+        policy.set_for_band(&after_trade, 1500, vec![mv("g8h8", 1.0)]);
+
+        let mut leaf = TableLeaf::new();
+        leaf.set(&after(root, &["d4d6", "g8f7"]), 100);
+        leaf.set(&after(root, &["d4d6", "g8h8"]), -500);
+
+        // Unlinked R⃗: middlegame 1500, endgame 1100 — the reply node is past
+        // the phase boundary and switches to 1100.
+        let mut tt = TranspositionTable::new();
+        let unlinked = HumanSearchConfig {
+            bands: BandVector {
+                opening: 1500,
+                middlegame: 1500,
+                endgame: 1100,
+            },
+            ..cfg(1500, 1.0, 2)
+        };
+        let r = search_root(&unlinked, &policy, &mut leaf, &mut tt, root)
+            .await
+            .unwrap();
+        assert_eq!(r.pv, vec!["d4d6", "g8f7"], "reply came from the endgame band");
+        assert_eq!(r.cp_white, 100);
+        assert_eq!(r.bands, [1500, 1500, 1100]);
+
+        // Linked scalar: the same node consults 1500 and the eval flips.
+        let mut tt = TranspositionTable::new();
+        let r = search_root(&cfg(1500, 1.0, 2), &policy, &mut leaf, &mut tt, root)
+            .await
+            .unwrap();
+        assert_eq!(r.pv, vec!["d4d6", "g8h8"], "linked R⃗ never switches band");
+        assert_eq!(r.cp_white, -500);
+        assert_eq!(r.band, 1500, "back-compat scalar band field");
+    }
+
+    /// Opening conditioning + cache hygiene: the same EPD on either side of
+    /// the ply-16 boundary picks different bands, so with an unlinked
+    /// opening band the TT must NOT serve one from the other.
+    #[tokio::test]
+    async fn opening_band_applies_below_ply_16_and_does_not_pollute_the_cache() {
+        let mut policy = TablePolicy::new();
+        policy.set_for_band(STARTPOS, 1100, vec![mv("e2e4", 1.0)]);
+        policy.set_for_band(STARTPOS, 1900, vec![mv("d2d4", 1.0)]);
+
+        let mut leaf = TableLeaf::new();
+        // Leaves are Black to move: mover-POV −30/−70 ⇒ White-POV +30/+70.
+        leaf.set(&after(STARTPOS, &["e2e4"]), -30);
+        leaf.set(&after(STARTPOS, &["d2d4"]), -70);
+
+        let unlinked = HumanSearchConfig {
+            bands: BandVector {
+                opening: 1100,
+                middlegame: 1900,
+                endgame: 1900,
+            },
+            ..cfg(1900, 1.0, 1)
+        };
+        let mut tt = TranspositionTable::new();
+        let opening = search_root(&unlinked, &policy, &mut leaf, &mut tt, STARTPOS)
+            .await
+            .unwrap();
+        assert_eq!(opening.pv, vec!["e2e4"], "ply 0 consults the opening band");
+        assert_eq!(opening.cp_white, 30);
+
+        // Same EPD at ply 16, SAME tt: middlegame band, distinct cache entry.
+        let mid = search_root(&unlinked, &policy, &mut leaf, &mut tt, STARTPOS_MOVE_9)
+            .await
+            .unwrap();
+        assert_eq!(mid.pv, vec!["d2d4"], "ply 16 consults the middlegame band");
+        assert_eq!(mid.cp_white, 70);
+        assert_eq!(mid.tt_hits, 0, "opening-phase entry must not answer a middlegame node");
+    }
+
+    /// Regression: with a LINKED R⃗ the ply plays no part in the band choice,
+    /// so the same EPD at a different move number is a pure cache hit.
+    #[tokio::test]
+    async fn linked_bands_share_cache_entries_across_move_numbers() {
+        let (policy, mut leaf) = minimax_fixture();
+        let mut tt = TranspositionTable::new();
+        let c = cfg(1500, 1.0, 2);
+        let first = search_root(&c, &policy, &mut leaf, &mut tt, STARTPOS)
+            .await
+            .unwrap();
+        let second = search_root(&c, &policy, &mut leaf, &mut tt, STARTPOS_MOVE_9)
+            .await
+            .unwrap();
+        assert_eq!(second.cp_white, first.cp_white);
+        assert_eq!(second.tt_hits, 1, "root answered by the ply-0 search's entry");
+        assert_eq!(second.leaf_evals, 0);
+    }
+
+    // -- Background sweep → perception curve (spec 213 Phase 3) -----------------
+
+    /// Perception-curve fixture: the refutation resource (b8a6, White POV
+    /// −300 after e4) is inside the 1900 nucleus but outside the 1100 one —
+    /// the +0.5 → −3.0 jump between stops IS the flagship visual's semantics.
+    fn perception_fixture() -> (TablePolicy, TableLeaf) {
+        let root = STARTPOS;
+        let after_e4 = after(root, &["e2e4"]);
+        let mut policy = TablePolicy::new();
+        policy.set(root, vec![mv("e2e4", 1.0)]);
+        // 1100 nucleus at top_p 0.8: e7e5 alone reaches the mass. 1900 puts
+        // real weight on the resource, so both replies are visible.
+        policy.set_for_band(&after_e4, 1100, vec![mv("e7e5", 0.90), mv("b8a6", 0.09)]);
+        policy.set_for_band(&after_e4, 1900, vec![mv("e7e5", 0.55), mv("b8a6", 0.44)]);
+
+        let mut leaf = TableLeaf::new();
+        leaf.set(&after(root, &["e2e4", "e7e5"]), 50);
+        leaf.set(&after(root, &["e2e4", "b8a6"]), -300);
+        (policy, leaf)
+    }
+
+    #[tokio::test]
+    async fn sweep_produces_one_point_per_band_and_the_curve_jumps() {
+        let (policy, mut leaf) = perception_fixture();
+        let mut tt = TranspositionTable::new();
+        let mut streamed: Vec<u32> = Vec::new();
+        let r = sweep_bands(
+            &cfg(1100, 0.80, 2),
+            &[1100, 1900],
+            &policy,
+            &mut leaf,
+            &mut tt,
+            STARTPOS,
+            &|| false,
+            &mut |p| streamed.push(p.band),
+        )
+        .await
+        .unwrap();
+
+        assert!(!r.cancelled);
+        assert_eq!(streamed, vec![1100, 1900], "one point streamed per stop, in order");
+        assert_eq!(r.points.len(), 2);
+        assert_eq!(r.points[0].band, 1100);
+        assert_eq!(r.points[0].cp_white, 50, "1100 doesn't see the resource");
+        assert_eq!(r.points[1].band, 1900);
+        assert_eq!(r.points[1].cp_white, -300, "the resource enters sight at 1900");
+    }
+
+    #[tokio::test]
+    async fn sweep_stops_share_the_tt_and_reruns_are_free() {
+        let (policy, mut leaf) = perception_fixture();
+        let mut tt = TranspositionTable::new();
+        let base = cfg(1100, 0.80, 2);
+        let first = sweep_bands(
+            &base, &[1100, 1900], &policy, &mut leaf, &mut tt, STARTPOS, &|| false, &mut |_| {},
+        )
+        .await
+        .unwrap();
+        // The e4·e5 leaf lies inside both bands' trees but hits the engine
+        // once — leaf entries are band-free: 1100 sees {e5} → 1 eval; 1900
+        // sees {e5, Na6} → e5 from the cache, Na6 evaluated. 2 calls total.
+        assert_eq!(leaf.calls, 2, "shared leaf scored once across the stops");
+
+        let rerun = sweep_bands(
+            &base, &[1100, 1900], &policy, &mut leaf, &mut tt, STARTPOS, &|| false, &mut |_| {},
+        )
+        .await
+        .unwrap();
+        // Same curve (values + PVs); the per-invocation counters legitimately
+        // differ — the rerun is all cache hits.
+        let curve = |r: &HumanSweepResult| -> Vec<(u32, i64, Vec<String>)> {
+            r.points.iter().map(|p| (p.band, p.cp_white, p.pv.clone())).collect()
+        };
+        assert_eq!(curve(&rerun), curve(&first), "same TT, same curve");
+        assert_eq!(leaf.calls, 2, "rerun served entirely from the cache");
+        assert!(rerun.points.iter().all(|p| p.leaf_evals == 0));
+    }
+
+    #[tokio::test]
+    async fn cancelled_sweep_returns_partial_points_not_an_error() {
+        let (policy, mut leaf) = perception_fixture();
+        let mut tt = TranspositionTable::new();
+        // Cancel as soon as the first point has landed.
+        let done = std::sync::atomic::AtomicBool::new(false);
+        let cancel = || done.load(std::sync::atomic::Ordering::SeqCst);
+        let mut on_point = |_: &HumanSearchResult| {
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+        };
+        let r = sweep_bands(
+            &cfg(1100, 0.80, 2),
+            &[1100, 1900],
+            &policy,
+            &mut leaf,
+            &mut tt,
+            STARTPOS,
+            &cancel,
+            &mut on_point,
+        )
+        .await
+        .unwrap();
+        assert!(r.cancelled);
+        assert_eq!(r.points.len(), 1, "only the first stop completed");
+        assert_eq!(r.points[0].band, 1100);
+    }
+
+    #[tokio::test]
+    async fn sweep_cancelled_before_the_first_node_computes_nothing() {
+        let (policy, mut leaf) = perception_fixture();
+        let mut tt = TranspositionTable::new();
+        let r = sweep_bands(
+            &cfg(1100, 0.80, 2),
+            &[1100, 1900],
+            &policy,
+            &mut leaf,
+            &mut tt,
+            STARTPOS,
+            &|| true,
+            &mut |_| panic!("no point should stream"),
+        )
+        .await
+        .unwrap();
+        assert!(r.cancelled);
+        assert!(r.points.is_empty());
+        assert_eq!(leaf.calls, 0, "the engine was never consulted");
+    }
+
     // -- Real engines (gated; skips cleanly when lc0/stockfish are absent) ------
 
     #[tokio::test]
@@ -880,7 +1431,12 @@ mod tests {
 
         struct ProcPolicy(maia::MaiaProcess);
         impl PolicySource for ProcPolicy {
-            fn policy<'a>(&'a self, fen: &'a str) -> BoxFut<'a, Result<Vec<MaiaMove>, String>> {
+            // One warm 1500 process; the linked config only ever asks for it.
+            fn policy<'a>(
+                &'a self,
+                fen: &'a str,
+                _band: u32,
+            ) -> BoxFut<'a, Result<Vec<MaiaMove>, String>> {
                 Box::pin(async move { self.0.query(fen).await.map(|p| p.moves) })
             }
         }
@@ -893,7 +1449,7 @@ mod tests {
         let mut leaf = SfLeaf::spawn(&sf, 8).await.expect("spawn stockfish");
 
         let c = HumanSearchConfig {
-            band: 1500,
+            bands: BandVector::linked(1500),
             top_p: 0.80,
             max_candidates: 3,
             depth: 2,

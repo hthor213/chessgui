@@ -15,6 +15,7 @@ import type { Key } from "@lichess-org/chessground/types"
 import { Button } from "@chessgui/ui/ui/button"
 import { replayFens } from "@chessgui/core/game-replay"
 import { ArenaApiError, getArenaApi, type ArenaGameState, type ArenaGameSummary, type ArenaPersonaRecord } from "@chessgui/core/arena-api"
+import { ShareReplayControl } from "@chessgui/ui/arena/share-replay"
 import { arenaResultBadge, pairArenaMoves } from "@/lib/arena-moves"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
@@ -273,6 +274,13 @@ function ReplayView({
               ))}
             </ol>
           </div>
+          {/* Family replay link (spec 217 Tier 2) — old finished games are as
+              shareable as the one just played on the game-over panel. */}
+          {game.status === "finished" && (
+            <div className="border-t border-white/10 pt-3">
+              <ShareReplayControl gameId={game.id} />
+            </div>
+          )}
         </div>
       </div>
     </div>

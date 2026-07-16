@@ -14,14 +14,28 @@ written as:
       "source": "measured",
       "b": [{"log2Sec": ..., "b": ...}, ...],   # ascending in log2Sec
       "rungs": N,
-      "fitted_at": "<ISO-8601 UTC>"
+      "fitted_at": "<ISO-8601 UTC>",
+      "machine_min_seconds": <float>           # fastest clean rung, see below
     }
+
+`machine_min_seconds` is the LADDER-MEASURED per-move floor (spec 216 tier-0
+checklist: the 0.05s machine-min is a placeholder "until the ladder measures
+it"): the fastest per-move budget (fast_ms) of any rung that finished all its
+games without engine errors — demonstrated playable on this machine, not
+guessed. The UI's pacing floor reads it off the curve.
 
 Spec 216 gate: a rung only anchors the curve if its 95% CI excludes zero. With
 fewer than 2 such rungs we stay on the PRIOR curve and write nothing (216:30).
 
+Per-engine curves (216 Tier 2): the curve lands in the profile's
+`engines[<name>].curve` entry (creating it if needed) — `--engine` names the
+entry, defaulting to the profile's top-level `engine_name`. When the target IS
+the top-level engine the top-level `curve` is written too, keeping legacy
+consumers on the same figures.
+
     python3 scripts/calibration/fit_curve.py [--ladder PATH] [--profile PATH]
-                                             [--hostname NAME] [--dry-run]
+                                             [--hostname NAME] [--engine NAME]
+                                             [--dry-run]
 """
 
 from __future__ import annotations
@@ -82,11 +96,28 @@ def build_curve(ladder: dict) -> tuple[list[dict], int, int]:
     return anchors, len(qualifying), len(rungs)
 
 
+def machine_min_seconds(ladder: dict) -> float | None:
+    """The ladder-measured per-move floor: the fastest fast-side budget among
+    rungs that completed games with zero engine errors. A rung needn't anchor
+    the curve (CI gate) to prove the machine can PLAY at its speed. None when
+    no rung ran cleanly."""
+    clean = [
+        float(r["fast_ms"]) / 1000.0
+        for r in ladder.values()
+        if isinstance(r, dict)
+        and r.get("games", 0) > 0
+        and r.get("errors", 0) == 0
+        and r.get("fast_ms")
+    ]
+    return min(clean) if clean else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Fit the measured b(t) curve into the machine profile.")
     ap.add_argument("--ladder", type=Path, default=None, help="ladder_<host>.json (default: data/calibration/ladder_<host>.json)")
     ap.add_argument("--profile", type=Path, default=DEFAULT_PROFILE, help="machine_profile.json to merge into")
     ap.add_argument("--hostname", type=str, default=None, help="override hostname used to locate the default ladder file")
+    ap.add_argument("--engine", type=str, default=None, help="engine `id name` this ladder measured (default: the profile's top-level engine_name) — the curve lands in that engines[] entry (spec 216 Tier 2 per-engine curves)")
     ap.add_argument("--dry-run", action="store_true", help="print the fitted curve but do not write the profile")
     args = ap.parse_args()
 
@@ -106,6 +137,12 @@ def main() -> int:
     for a in anchors:
         print(f"  anchor  log2Sec {a['log2Sec']:+.3f}  ({2 ** a['log2Sec']:.3f}s/move)  b {a['b']:+.1f} Elo/doubling")
 
+    floor = machine_min_seconds(ladder)
+    if floor is not None:
+        print(f"  machine-min floor  {floor:.3f}s/move (fastest clean rung)")
+    else:
+        print("  no clean rung -- machine-min floor stays at the tier-0 placeholder")
+
     # Spec 216: MEASURED requires >= 2 rungs whose CI excludes zero.
     if n_qual < 2:
         print(
@@ -120,6 +157,8 @@ def main() -> int:
         "rungs": n_qual,
         "fitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
+    if floor is not None:
+        curve["machine_min_seconds"] = floor
 
     if args.dry_run:
         print("\n--dry-run: curve that WOULD be written:")
@@ -138,10 +177,24 @@ def main() -> int:
         print(f"machine profile {args.profile} is malformed (expected a JSON object)", file=sys.stderr)
         return 1
 
-    profile["curve"] = curve
+    # Per-engine curve (spec 216 Tier 2): land the fit in this engine's
+    # engines[] entry; mirror to the top-level curve only when the target IS
+    # the top-level engine (a Reckless ladder must not overwrite SF's curve).
+    target = args.engine or profile.get("engine_name")
+    wrote = []
+    if target:
+        engines = profile.setdefault("engines", {})
+        entry = engines.setdefault(target, {})
+        if not isinstance(entry, dict):
+            entry = engines[target] = {}
+        entry["curve"] = curve
+        wrote.append(f'engines["{target}"].curve')
+    if not target or target == profile.get("engine_name"):
+        profile["curve"] = curve
+        wrote.append("curve (top-level)")
     args.profile.parent.mkdir(parents=True, exist_ok=True)
     args.profile.write_text(json.dumps(profile, indent=2) + "\n")
-    print(f"\nwrote MEASURED curve ({n_qual} anchors) into {args.profile}")
+    print(f"\nwrote MEASURED curve ({n_qual} anchors) into {args.profile}: {', '.join(wrote)}")
     return 0
 
 

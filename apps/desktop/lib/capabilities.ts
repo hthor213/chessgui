@@ -1,7 +1,7 @@
 // Platform capability flags (spec 220 step 1). A shell that lacks a
 // capability hides the corresponding UI outright — no stubs, no dead tabs.
 
-import { isTauri } from "@/lib/platform"
+import { getProviders, isTauri } from "@/lib/platform"
 
 /**
  * Headless engine-vs-engine tournaments ride the native match runner
@@ -11,4 +11,13 @@ import { isTauri } from "@/lib/platform"
  */
 export function hasTournamentRunner(): boolean {
   return isTauri()
+}
+
+/**
+ * Side-by-side engine comparison (spec 900 backlog item): a second engine
+ * process needs the native UCI host — the web shell's single WASM worker
+ * can't run two, so its provider only backs the default session.
+ */
+export function hasEngineCompare(): boolean {
+  return getProviders().engine.hasNativeEngine
 }

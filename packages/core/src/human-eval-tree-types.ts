@@ -2,6 +2,14 @@
 // @chessgui/core (spec 220 step 5).
 
 export interface HumanTreeOptions {
+  /**
+   * Per-phase band overrides (spec 213 §1.5 "unlock phases"): the band is
+   * chosen per NODE by the node's game phase; unset phases fall back to the
+   * scalar `band` (the linked R⃗ case).
+   */
+  bandOpening?: number;
+  bandMiddlegame?: number;
+  bandEndgame?: number;
   /** Search depth in plies (backend default 3, clamped 1–6). */
   depth?: number;
   /** Cumulative policy mass per node's candidate set (default 0.8). */
@@ -14,8 +22,21 @@ export interface HumanTreeOptions {
   leafDepth?: number;
 }
 
+/**
+ * A background sweep across slider stops (the perception-curve data). Each
+ * point is one band's full tree result, in sweep order; a cancelled sweep
+ * carries the points that landed before cancellation.
+ */
+export interface HumanSweepResult {
+  points: HumanTreeResult[];
+  cancelled: boolean;
+}
+
 export interface HumanTreeResult {
+  /** Middlegame (reference-phase) band; equals the slider band when linked. */
   band: number;
+  /** The full R⃗ used: [opening, middlegame, endgame]. */
+  bands: [number, number, number];
   /** Eval_R, White-POV centipawns (mates collapse to ~±100000). */
   cp_white: number;
   /** Eval_R, White-POV pawns. Mate-magnitude values need clampTreePawns. */

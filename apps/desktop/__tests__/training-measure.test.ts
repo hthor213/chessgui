@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  egConversionPoint,
   mergeMetricPoints,
   monthLabel,
   parseMeasurementJson,
@@ -7,6 +8,7 @@ import {
 } from "@/lib/training-measure"
 import type { MetricPoint } from "@/lib/training-program"
 import type { SparResultEntry } from "@/lib/spar-results"
+import { buildPlayoutResult, type PlayoutResultEntry } from "@/lib/playout"
 
 describe("parseMeasurementJson", () => {
   it("accepts the script's { points } shape and bare arrays", () => {
@@ -87,5 +89,42 @@ describe("sparScorePoint", () => {
   it("returns null with nothing to measure (no fake zeros)", () => {
     expect(sparScorePoint([], NOW)).toBeNull()
     expect(sparScorePoint([game({ mode: "probe", countsTowardTraining: false })], NOW)).toBeNull()
+  })
+})
+
+describe("egConversionPoint", () => {
+  const NOW = Date.parse("2026-07-15T12:00:00Z")
+  const playout = (over: Partial<PlayoutResultEntry>): PlayoutResultEntry => ({
+    ...buildPlayoutResult({
+      source: "training",
+      fen: "8/8/4k3/8/4K3/8/3R4/8 w - - 0 1",
+      evalPawns: 2.1, // win claim
+      userSide: "white",
+      level: 1700,
+      mode: "serious",
+      plies: 40,
+      resultLabel: "Checkmate — White wins",
+      at: "2026-07-10T10:00:00Z",
+    })!,
+    ...over,
+  })
+
+  it("emits this month's point with in-app provenance in the note", () => {
+    const p = egConversionPoint(
+      [playout({}), playout({ verdict: "dropped", anomalyFlags: ["short_game"] })],
+      NOW,
+    )!
+    expect(p.metric).toBe("eg_conversion")
+    expect(p.at).toBe(monthLabel(new Date(NOW)))
+    expect(p.value).toBeCloseTo(0.5)
+    expect(p.note).toContain("2 in-app playouts")
+    expect(p.note).toContain("1 flagged")
+  })
+
+  it("returns null with nothing to measure (no fake zeros)", () => {
+    expect(egConversionPoint([], NOW)).toBeNull()
+    expect(egConversionPoint([playout({ mode: "probe", countsTowardTraining: false })], NOW)).toBeNull()
+    // Hold-claim playouts never feed the conversion rate.
+    expect(egConversionPoint([playout({ claim: "draw" })], NOW)).toBeNull()
   })
 })

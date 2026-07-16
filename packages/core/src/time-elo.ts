@@ -38,6 +38,14 @@ export type BAnchor = { log2Sec: number; b: number }
 export type EloCurve = {
   source: "prior" | "measured"
   b: number | BAnchor[]
+  /**
+   * Ladder-measured per-move floor (seconds): the fastest rung the time-odds
+   * ladder completed cleanly on this machine, written by
+   * `scripts/calibration/fit_curve.py`. Replaces the tier-0 0.05s machine-min
+   * placeholder (216:75) when present; absent on prior curves and on measured
+   * curves fitted before the field existed.
+   */
+  machine_min_seconds?: number
 }
 
 function anchor(seconds: number, b: number): BAnchor {
@@ -190,6 +198,123 @@ export function equivalenceLine(
     `${remote.hostname} ${formatEquivSeconds(refSeconds)}/move` +
     ` ≈ ${local.hostname} ${formatEquivSeconds(localSeconds)}/move`
   )
+}
+
+// ---------------------------------------------------------------------------
+// Per-engine curves & profile plumbing (216 Tier 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The slice of a machine profile the per-engine helpers consume — structural,
+ * so both the local `MachineProfile` and imported remote profiles fit without
+ * this module importing the transport types.
+ */
+export type SpeedProfileLike = {
+  hostname?: string
+  engine_name?: string
+  nps?: number
+  curve?: unknown
+  engines?: Record<string, { nps?: number; curve?: unknown } | undefined> | null
+}
+
+/**
+ * Validate an unknown profile `curve` value (the Rust side stores it as
+ * opaque JSON) into an `EloCurve`, or null if it isn't one. Extra fields the
+ * fitter writes (`rungs`, `fitted_at`, `machine_min_seconds`) ride along.
+ */
+export function asEloCurve(raw: unknown): EloCurve | null {
+  if (typeof raw !== "object" || raw === null) return null
+  const c = raw as { source?: unknown; b?: unknown }
+  if (c.source !== "prior" && c.source !== "measured") return null
+  if (typeof c.b === "number" && Number.isFinite(c.b)) return raw as EloCurve
+  if (
+    Array.isArray(c.b) &&
+    c.b.every(
+      (a: unknown): a is BAnchor =>
+        typeof a === "object" &&
+        a !== null &&
+        typeof (a as BAnchor).log2Sec === "number" &&
+        typeof (a as BAnchor).b === "number",
+    )
+  ) {
+    return raw as EloCurve
+  }
+  return null
+}
+
+/**
+ * The b(t) curve to use for one engine on a machine (216 Tier 2 "per-engine
+ * curves"): that engine's own measured curve when the ladder has fitted one,
+ * else the profile's top-level curve (the last-benched engine's), else the
+ * literature prior. Safe on null/legacy profiles.
+ */
+export function curveForEngine(
+  profile: SpeedProfileLike | null | undefined,
+  engineName?: string | null,
+): EloCurve {
+  const engineCurve = engineName
+    ? asEloCurve(profile?.engines?.[engineName]?.curve)
+    : null
+  return engineCurve ?? asEloCurve(profile?.curve) ?? DEFAULT_PRIOR_CURVE
+}
+
+/**
+ * One engine's benched nps on a machine, falling back to the profile's
+ * top-level (last-benched) figure. 0 = never benched (no honest equivalence).
+ */
+export function npsForEngine(
+  profile: SpeedProfileLike | null | undefined,
+  engineName?: string | null,
+): number {
+  const n = engineName ? profile?.engines?.[engineName]?.nps : undefined
+  if (typeof n === "number" && n > 0) return n
+  const top = profile?.nps
+  return typeof top === "number" && top > 0 ? top : 0
+}
+
+/**
+ * The machine's minimum seconds/move for pacing floors: the ladder-measured
+ * `machine_min_seconds` riding on a fitted curve when present, else
+ * `fallbackSeconds` (the tier-0 placeholder, 216:75). Takes the raw curve
+ * value so callers can pass `profile?.curve` straight through.
+ */
+export function machineMinSeconds(curve: unknown, fallbackSeconds: number): number {
+  const v = (curve as { machine_min_seconds?: unknown } | null | undefined)
+    ?.machine_min_seconds
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : fallbackSeconds
+}
+
+/**
+ * Per-engine cross-machine equivalence (216 Tier 2 "per-engine curves"): one
+ * line per engine BOTH machines have benched, each at equal nodes using that
+ * engine's own nps on each side — Reckless and SF scale differently across
+ * machines, so a single shared line misstates one of them. Engines only one
+ * side knows are skipped; empty when there's no overlap (callers fall back
+ * to the top-level `equivalenceLine`).
+ */
+export function engineEquivalenceLines(
+  local: SpeedProfileLike & { hostname: string },
+  remote: SpeedProfileLike & { hostname: string },
+  refSeconds = 60,
+): { engine: string; line: string }[] {
+  // Entry nps only — no top-level fallback here, which would silently pit
+  // one engine's speed against a DIFFERENT engine's (the last one benched).
+  const entryNps = (p: SpeedProfileLike, engine: string): number => {
+    const n = p.engines?.[engine]?.nps
+    return typeof n === "number" && n > 0 ? n : 0
+  }
+  const lines: { engine: string; line: string }[] = []
+  for (const engine of Object.keys(local.engines ?? {}).sort()) {
+    if (!(remote.engines && engine in remote.engines)) continue
+    const line = equivalenceLine(
+      curveForEngine(local, engine),
+      { hostname: local.hostname, nps: entryNps(local, engine) },
+      { hostname: remote.hostname, nps: entryNps(remote, engine) },
+      refSeconds,
+    )
+    if (line !== null) lines.push({ engine, line })
+  }
+  return lines
 }
 
 // ---------------------------------------------------------------------------

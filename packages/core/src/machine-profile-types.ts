@@ -18,6 +18,24 @@ export interface MachineProfile {
   measured_at: string; // ISO-8601 UTC
   hw_fingerprint: string;
   curve: unknown | null;
+  /**
+   * Per-engine measurements keyed by engine `id name` (spec 216 Tier 2
+   * "per-engine curves" — Reckless and Stockfish differ in nps and b(t)).
+   * The top-level fields stay the most recent bench; absent on profiles
+   * written before the map existed (the Rust side seeds it on read).
+   */
+  engines?: Record<string, EngineSpeed | undefined>;
+}
+
+/** One engine's speed measurement on a machine (mirrors Rust `EngineSpeed`).
+ *  Fields may be missing on partially-written entries (e.g. a fit_curve.py
+ *  curve landed before that engine was benched). */
+export interface EngineSpeed {
+  engine_path?: string;
+  nps?: number;
+  threads?: number;
+  measured_at?: string; // ISO-8601 UTC
+  curve?: unknown | null;
 }
 
 /** The bench measurement returned by `machine_bench` (profile is persisted separately). */

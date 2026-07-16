@@ -83,6 +83,13 @@ export type GameSpec = {
   /** Adjudicate <=7-man positions via the tablebase (perfect play). */
   adjudicate_tb: boolean
   /**
+   * Per-game UCI `Threads` for BOTH engines (spec 210 Phase 6 "engine thread
+   * count per game"), applied server-side via `setoption name Threads` after
+   * each engine's handshake. Additive: absent = engine defaults (the
+   * behavior of every existing payload). Personas ignore it.
+   */
+  threads?: number
+  /**
    * Optional Participant for White/Black (spec 218). When present it
    * supersedes `white_path`/`black_path` server-side — the command layer
    * normalizes a UCI participant's `enginePath` into the legacy path field
@@ -364,6 +371,14 @@ export type TaggedPosition = {
   eval_cp: number
   eval_pawns: number
   source: string
+  /**
+   * ECO code ("B90") when the position's source carried one (EPD `eco`
+   * opcode) — the substrate for the ECO/opening tournament filter (spec 210
+   * Phase 6 "filter by ECO code, opening family"). Absent on the curated
+   * set and on files without eco opcodes; those positions are excluded when
+   * an ECO filter is active (never silently matched).
+   */
+  eco?: string
 }
 
 /** Result of parsing a user-picked EPD/FEN opening-positions file
@@ -423,9 +438,67 @@ export function parseOpeningPositions(text: string, source: string): ParsedPosit
       evalCp = fields[1] === "b" ? -stmCp : stmCp
       tagged++
     }
-    positions.push({ fen, eval_cp: evalCp, eval_pawns: evalCp / 100, source })
+    // EPD `eco` opcode (string operand, quoted per the EPD standard):
+    // `eco "B90";` — feeds the ECO/opening filter (spec 210 Phase 6).
+    const eco = /(?:^|;)\s*eco\s+"([^"]+)"/.exec(ops)?.[1]?.trim().toUpperCase()
+    positions.push({
+      fen,
+      eval_cp: evalCp,
+      eval_pawns: evalCp / 100,
+      source,
+      ...(eco ? { eco } : {}),
+    })
   }
   return { positions, tagged, skipped }
+}
+
+// ---------------------------------------------------------------------------
+// In-app eval-tagging (spec 210 Phase 3: "Eval-tagging step ... stores
+// (fen, eval_cp) in a session cache")
+// ---------------------------------------------------------------------------
+
+/**
+ * One fixed-depth engine eval of a position, White-POV. Mirrors Rust
+ * `PositionTag` (match_runner.rs `tag_positions` command). At most one of
+ * `cp`/`mate` is set; both null means the engine produced no score.
+ */
+export type PositionTag = {
+  fen: string
+  cp: number | null
+  mate: number | null
+}
+
+/**
+ * cp value a mate tag maps to: the same visual bound the charts clamp to
+ * ([`MATE_EVAL_PAWNS`] pawns), so a (freak) mate-tagged opening position pins
+ * to the scale edge instead of blowing the eval buckets apart.
+ */
+export const MATE_TAG_CP = 1000
+
+/**
+ * Fold fresh engine tags into a position pool: every position whose FEN has a
+ * scored tag gets its `eval_cp`/`eval_pawns` replaced by the engine's number
+ * (spec 210 Phase 3: "Re-evaluate each position with Stockfish to get its
+ * current eval — not just the file's label"). Unmatched/unscored positions
+ * are returned unchanged. Pure; `tagged` counts positions carrying a scored
+ * tag after the merge (matching `ParsedPositionsFile.tagged` semantics).
+ */
+export function applyEvalTags(
+  positions: TaggedPosition[],
+  tags: PositionTag[],
+): { positions: TaggedPosition[]; tagged: number } {
+  const byFen = new Map(tags.map((t) => [t.fen, t]))
+  let tagged = 0
+  const out = positions.map((p) => {
+    const t = byFen.get(p.fen)
+    if (!t) return p
+    const cp =
+      t.mate != null ? (t.mate >= 0 ? MATE_TAG_CP : -MATE_TAG_CP) : t.cp
+    if (cp == null) return p
+    tagged++
+    return { ...p, eval_cp: cp, eval_pawns: cp / 100 }
+  })
+  return { positions: out, tagged }
 }
 
 /** A seed for a pair of (color-flipped) games. */

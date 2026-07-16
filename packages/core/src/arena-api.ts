@@ -16,7 +16,12 @@
 //
 //   POST /api/auth/google-login  {id_token}         -> 200 {jwt, user} | 401 | 403 (not on allowlist)
 //   GET  /api/personas                              -> 200 {disclosure, personas: [...]} | 401
-//   POST /api/game  {persona, player_color}         -> 200 ArenaGameState | 400 | 401 | 503 (engine stall)
+//   POST /api/game  {persona, player_color,
+//                    clock_initial_s?, clock_increment_s?}
+//                                                    -> 200 ArenaGameState | 400 | 401 | 503 (engine stall)
+//        (spec 217 Tier 1 "clocks with increment": both clock fields omitted
+//        = no clock, the Tier-0 behavior. The server validates the range —
+//        30s..3h initial, 0..180s increment.)
 //   GET  /api/games                                 -> 200 {games: ArenaGameSummary[]} | 401
 //   GET  /api/stats                                  -> 200 {records: ArenaPersonaRecord[]} | 401
 //        (spec 217 Tier 1: per-opponent W/D/L history — finished games only,
@@ -31,6 +36,20 @@
 //        the spec-214 realism-feedback capture ported to the arena; the
 //        server reads move + persona back from its own DB, the client only
 //        names the ply. Valid on active AND finished games.)
+//   POST /api/game/{id}/realism  {verdict, note?}    -> 200 {game_id, verdict} | 400 | 401 | 404 | 409
+//        (spec 217 Tier 2: post-game "felt like him" / "didn't feel like him"
+//        verdict — whole-game realism, distinct from the per-move feedback
+//        above. Finished games only (409 while active); one verdict per game,
+//        re-submitting updates it.)
+//   POST /api/game/{id}/share                        -> 200 {token} | 401 | 404 | 409
+//        (spec 217 Tier 2: mint the read-only family replay token for a
+//        finished game. Idempotent — the same token comes back every time
+//        until revoked.)
+//   DELETE /api/game/{id}/share                      -> 200 {revoked: id} | 401 | 404
+//   GET  /api/replay/{token}                         -> 200 shared replay | 404
+//        (NO auth — the unguessable token IS the capability, so a family
+//        member without a login can open the link. 404 covers unknown,
+//        revoked, and deleted alike.)
 //   DELETE /api/game/{id}                            -> 200 {deleted: id} | 401 | 404
 //
 // NOT a server capability in Tier 0 (checked against persona.py's own
@@ -93,6 +112,28 @@ export interface ArenaPersonaInfo {
   strengthLabel: string | null
 }
 
+/** Per-game clock state (spec 217 Tier 1 "clocks with increment"). The
+ *  server is authoritative: `whiteMs`/`blackMs` are the remaining times
+ *  already adjusted to the moment the response was built, so the client
+ *  only counts the `running` side down locally — no turn-timestamp or
+ *  clock-skew arithmetic client-side. Flag = loss is adjudicated lazily
+ *  server-side on the next request that looks at the game (a move, or a
+ *  plain GET when the client sees a clock hit zero). */
+export interface ArenaClock {
+  initialS: number
+  incrementS: number
+  whiteMs: number
+  blackMs: number
+  /** Whose clock is burning — null when the game is finished. */
+  running: ArenaColor | null
+}
+
+/** Client-side time-control choice for createGame. */
+export interface ArenaClockChoice {
+  initialS: number
+  incrementS: number
+}
+
 export interface ArenaMove {
   ply: number
   uci: string
@@ -116,6 +157,9 @@ export interface ArenaGameState {
   resultReason: string | null
   fen: string
   disclosure: string
+  /** Null for clockless games (every pre-clock game, and games created
+   *  without a time control). */
+  clock: ArenaClock | null
   moves: ArenaMove[]
 }
 
@@ -144,6 +188,27 @@ export interface ArenaPersonaRecord {
   losses: number
 }
 
+/** Post-game whole-game realism verdict (spec 217 Tier 2) — the spar's
+ *  vocabulary (packages/ui/src/spar-tab.tsx FeedbackVerdict), reused verbatim
+ *  so the Tier-2 retune reads one verdict language across both surfaces. */
+export type ArenaRealismVerdict = "felt_like" | "did_not_feel_like"
+
+/** A shared read-only replay (GET /api/replay/{token}, spec 217 Tier 2) —
+ *  fetched WITHOUT auth: the recipient of a family replay link has no login.
+ *  Deliberately smaller than ArenaGameState: no game id, no clock, no
+ *  disclosure — just the game record a spectator needs. */
+export interface ArenaSharedReplay {
+  persona: string
+  playerColor: ArenaColor
+  /** The sharing player's display name; may be empty (client shows a
+   *  neutral fallback). Never their email. */
+  playerName: string
+  result: ArenaResult
+  resultReason: string | null
+  createdAt: string
+  moves: ArenaMove[]
+}
+
 export class ArenaApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -159,7 +224,12 @@ export interface ArenaApiClient {
    *  in this client instance attaches it automatically. */
   googleLogin(idToken: string): Promise<{ token: string; user: ArenaUser }>
   listPersonas(): Promise<{ disclosure: string; personas: ArenaPersonaInfo[] }>
-  createGame(persona: string, playerColor: ArenaColor): Promise<ArenaGameState>
+  /** `clock` omitted/null = no clock (Tier-0 behavior, unchanged). */
+  createGame(
+    persona: string,
+    playerColor: ArenaColor,
+    clock?: ArenaClockChoice | null,
+  ): Promise<ArenaGameState>
   getGame(gameId: number): Promise<ArenaGameState>
   listGames(): Promise<ArenaGameSummary[]>
   /** GET /api/stats — the player's W/D/L record per persona faced (spec 217
@@ -171,6 +241,17 @@ export interface ArenaApiClient {
    *  move (spec 217 Promise 2). `ply` must name a persona move of this game;
    *  the note is optional free text. */
   submitMoveFeedback(gameId: number, ply: number, note?: string): Promise<void>
+  /** POST /api/game/{id}/realism — post-game "felt like him" verdict (spec
+   *  217 Tier 2). Finished games only; re-submitting updates the verdict. */
+  submitGameRealism(gameId: number, verdict: ArenaRealismVerdict, note?: string): Promise<void>
+  /** POST /api/game/{id}/share — mint (or fetch) the read-only family replay
+   *  token for a finished game (spec 217 Tier 2). Idempotent. */
+  shareGame(gameId: number): Promise<{ token: string }>
+  /** DELETE /api/game/{id}/share — revoke the replay link. */
+  revokeShare(gameId: number): Promise<void>
+  /** GET /api/replay/{token} — read-only replay, no auth attached (the
+   *  recipient has no login; the token is the capability). */
+  getSharedReplay(token: string): Promise<ArenaSharedReplay>
   deleteGame(gameId: number): Promise<void>
 }
 
@@ -254,6 +335,13 @@ function gameStateFromWire(g: {
   result_reason: string | null
   fen: string
   disclosure: string
+  clock: {
+    initial_s: number
+    increment_s: number
+    white_ms: number
+    black_ms: number
+    running: ArenaColor | null
+  } | null
   moves: { ply: number; uci: string; san: string; mover: "player" | "persona"; arm: "book" | "search" | null }[]
 }): ArenaGameState {
   return {
@@ -265,6 +353,15 @@ function gameStateFromWire(g: {
     resultReason: g.result_reason,
     fen: g.fen,
     disclosure: g.disclosure,
+    clock: g.clock
+      ? {
+          initialS: g.clock.initial_s,
+          incrementS: g.clock.increment_s,
+          whiteMs: g.clock.white_ms,
+          blackMs: g.clock.black_ms,
+          running: g.clock.running,
+        }
+      : null,
     moves: g.moves,
   }
 }
@@ -321,10 +418,16 @@ function createFetchArenaApiClient(): ArenaApiClient {
       }
     },
 
-    async createGame(persona, playerColor) {
+    async createGame(persona, playerColor, clock) {
       const g = await request<Parameters<typeof gameStateFromWire>[0]>("/api/game", {
         method: "POST",
-        body: JSON.stringify({ persona, player_color: playerColor }),
+        body: JSON.stringify({
+          persona,
+          player_color: playerColor,
+          ...(clock
+            ? { clock_initial_s: clock.initialS, clock_increment_s: clock.incrementS }
+            : {}),
+        }),
       })
       return gameStateFromWire(g)
     },
@@ -364,6 +467,45 @@ function createFetchArenaApiClient(): ArenaApiClient {
         method: "POST",
         body: JSON.stringify({ ply, note: note ?? "" }),
       })
+    },
+
+    async submitGameRealism(gameId, verdict, note) {
+      await request<{ game_id: number; verdict: string }>(`/api/game/${gameId}/realism`, {
+        method: "POST",
+        body: JSON.stringify({ verdict, note: note ?? "" }),
+      })
+    },
+
+    async shareGame(gameId) {
+      return await request<{ token: string }>(`/api/game/${gameId}/share`, { method: "POST" })
+    },
+
+    async revokeShare(gameId) {
+      await request<{ revoked: number }>(`/api/game/${gameId}/share`, { method: "DELETE" })
+    },
+
+    async getSharedReplay(token) {
+      // auth=false: the whole point is that this works without a login — and
+      // it also keeps a stale stored JWT from ever being attached to (or
+      // cleared by) a public replay fetch.
+      const r = await request<{
+        persona: string
+        player_color: ArenaColor
+        player_name: string
+        result: ArenaResult
+        result_reason: string | null
+        created_at: string
+        moves: ArenaMove[]
+      }>(`/api/replay/${encodeURIComponent(token)}`, undefined, false)
+      return {
+        persona: r.persona,
+        playerColor: r.player_color,
+        playerName: r.player_name,
+        result: r.result,
+        resultReason: r.result_reason,
+        createdAt: r.created_at,
+        moves: r.moves,
+      }
     },
 
     async deleteGame(gameId) {

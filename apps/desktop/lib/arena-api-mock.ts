@@ -21,13 +21,17 @@ import { buildArenaRoster } from "@/lib/arena-roster"
 import {
   ArenaApiError,
   type ArenaApiClient,
+  type ArenaClock,
+  type ArenaClockChoice,
   type ArenaColor,
   type ArenaGameState,
   type ArenaGameStatus,
   type ArenaGameSummary,
   type ArenaMove,
   type ArenaPersonaRecord,
+  type ArenaRealismVerdict,
   type ArenaResult,
+  type ArenaSharedReplay,
   type ArenaUser,
 } from "@chessgui/core/arena-api"
 import { arenaResultBadge } from "@/lib/arena-moves"
@@ -88,6 +92,23 @@ function terminalStatus(fen: string): { result: ArenaResult; reason: string } | 
   return { result: "1/2-1/2", reason: "insufficient_material" }
 }
 
+// Clock bounds mirrored from the server (server/arena/app/main.py
+// CLOCK_INITIAL_MIN_S etc.) so the mock rejects what the server would.
+const CLOCK_INITIAL_MIN_S = 30
+const CLOCK_INITIAL_MAX_S = 3 * 3600
+const CLOCK_INCREMENT_MAX_S = 180
+
+/** Mock mirror of the server's clock columns: remaining ms per side AT
+ *  `turnStartedAt`, the side to move burning wall-clock from there — same
+ *  lazy flag adjudication (checked on move/GET, no background timer). */
+interface MockClock {
+  initialS: number
+  incrementS: number
+  whiteMs: number
+  blackMs: number
+  turnStartedAt: number | null // Date.now() ms; null once finished
+}
+
 interface MockGame {
   id: number
   persona: string
@@ -97,8 +118,58 @@ interface MockGame {
   status: ArenaGameStatus
   result: ArenaResult
   resultReason: string | null
+  clock: MockClock | null
+  /** Family replay link token (spec 217 Tier 2); null until shared. */
+  shareToken: string | null
   createdAt: string
   updatedAt: string
+}
+
+function sideToMove(g: MockGame): ArenaColor {
+  return g.moves.length % 2 === 0 ? "white" : "black"
+}
+
+function remainingMs(g: MockGame, color: ArenaColor): number {
+  const c = g.clock!
+  const stored = color === "white" ? c.whiteMs : c.blackMs
+  return stored - (Date.now() - (c.turnStartedAt ?? Date.now()))
+}
+
+function flagFall(g: MockGame, color: ArenaColor): void {
+  const c = g.clock!
+  if (color === "white") c.whiteMs = 0
+  else c.blackMs = 0
+  c.turnStartedAt = null
+  g.status = "finished"
+  g.result = color === "white" ? "0-1" : "1-0"
+  g.resultReason = "flag"
+  g.updatedAt = new Date().toISOString()
+}
+
+/** Server parity: an expired flag falls on the next request that looks at
+ *  the game (main.py `_flag_if_overdue`). Returns true if it fell. */
+function flagIfOverdue(g: MockGame): boolean {
+  if (g.status !== "active" || !g.clock) return false
+  const color = sideToMove(g)
+  if (remainingMs(g, color) <= 0) {
+    flagFall(g, color)
+    return true
+  }
+  return false
+}
+
+function clockState(g: MockGame): ArenaClock | null {
+  if (!g.clock) return null
+  const c = g.clock
+  let { whiteMs, blackMs } = c
+  let running: ArenaColor | null = null
+  if (g.status === "active" && c.turnStartedAt !== null) {
+    running = sideToMove(g)
+    const rem = Math.max(0, remainingMs(g, running))
+    if (running === "white") whiteMs = rem
+    else blackMs = rem
+  }
+  return { initialS: c.initialS, incrementS: c.incrementS, whiteMs, blackMs, running }
 }
 
 function currentFenOf(g: MockGame): string {
@@ -116,6 +187,7 @@ function toGameState(g: MockGame): ArenaGameState {
     resultReason: g.resultReason,
     fen: currentFenOf(g),
     disclosure: ARENA_DISCLOSURE_TEXT,
+    clock: clockState(g),
     // A fresh array copy, not `g.moves` itself: `g.moves` is mutated in place
     // (push) as the mock game progresses, so handing back the SAME reference
     // on every call would break React's reference-equality memoization
@@ -148,6 +220,9 @@ export function createMockArenaApiClient(): ArenaApiClient {
   // validation (ply must name a persona move) so the UI's error path is
   // drivable headlessly too.
   const feedback: { gameId: number; ply: number; uci: string; san: string; persona: string; note: string }[] = []
+  // Spec 217 Tier 2 post-game realism verdict — one per game, latest wins
+  // (server parity: game_feedback's game_id PRIMARY KEY upsert).
+  const gameRealism = new Map<number, { persona: string; verdict: ArenaRealismVerdict; note: string }>()
   const rosterBySlug = new Map(buildArenaRoster().map((p) => [p.slug, p]))
   let nextId = 1
 
@@ -169,6 +244,20 @@ export function createMockArenaApiClient(): ArenaApiClient {
       return
     }
     await delay(MOCK_THINKING_MS)
+    // Server parity (main.py _persona_reply): the persona's think time burns
+    // its clock; if the search outlasts the flag, the flag wins and the
+    // computed move is thrown away.
+    if (g.clock) {
+      const color = sideToMove(g)
+      const rem = remainingMs(g, color)
+      if (rem <= 0) {
+        flagFall(g, color)
+        return
+      }
+      if (color === "white") g.clock.whiteMs = rem + g.clock.incrementS * 1000
+      else g.clock.blackMs = rem + g.clock.incrementS * 1000
+      g.clock.turnStartedAt = Date.now()
+    }
     const fen = currentFenOf(g)
     const reply = randomReply(fen)
     if (!reply) return
@@ -222,8 +311,22 @@ export function createMockArenaApiClient(): ArenaApiClient {
       }
     },
 
-    async createGame(persona: string, playerColor: ArenaColor): Promise<ArenaGameState> {
+    async createGame(
+      persona: string,
+      playerColor: ArenaColor,
+      clock?: ArenaClockChoice | null,
+    ): Promise<ArenaGameState> {
       await delay(150)
+      // Server-parity validation (main.py create_game clock bounds).
+      if (clock) {
+        if (clock.initialS < CLOCK_INITIAL_MIN_S || clock.initialS > CLOCK_INITIAL_MAX_S)
+          throw new ArenaApiError(
+            400,
+            `clock_initial_s must be ${CLOCK_INITIAL_MIN_S}-${CLOCK_INITIAL_MAX_S}`,
+          )
+        if (clock.incrementS < 0 || clock.incrementS > CLOCK_INCREMENT_MAX_S)
+          throw new ArenaApiError(400, `clock_increment_s must be 0-${CLOCK_INCREMENT_MAX_S}`)
+      }
       const entry = rosterBySlug.get(persona)
       const g: MockGame = {
         id: nextId++,
@@ -234,6 +337,18 @@ export function createMockArenaApiClient(): ArenaApiClient {
         status: "active",
         result: null,
         resultReason: null,
+        // White's clock starts at creation — including the persona's, when
+        // the player takes Black and the persona opens (server parity).
+        clock: clock
+          ? {
+              initialS: clock.initialS,
+              incrementS: clock.incrementS,
+              whiteMs: clock.initialS * 1000,
+              blackMs: clock.initialS * 1000,
+              turnStartedAt: Date.now(),
+            }
+          : null,
+        shareToken: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
@@ -244,7 +359,9 @@ export function createMockArenaApiClient(): ArenaApiClient {
 
     async getGame(gameId: number): Promise<ArenaGameState> {
       await delay(50)
-      return toGameState(requireGame(gameId))
+      const g = requireGame(gameId)
+      flagIfOverdue(g)
+      return toGameState(g)
     },
 
     async listGames(): Promise<ArenaGameSummary[]> {
@@ -278,9 +395,21 @@ export function createMockArenaApiClient(): ArenaApiClient {
     async submitMove(gameId: number, uci: string): Promise<ArenaGameState> {
       const g = requireGame(gameId)
       if (g.status !== "active") throw new ArenaApiError(409, "Game is finished")
+      // The player's flag may have fallen before this move arrived — the
+      // flag wins over the move (200 with the finished state, server parity).
+      if (flagIfOverdue(g)) return toGameState(g)
       const fenBefore = currentFenOf(g)
       if (!isLegalUci(fenBefore, uci)) throw new ArenaApiError(400, "Illegal move")
 
+      if (g.clock) {
+        // Increment applied "server-side" on completing the move; the same
+        // stamp starts the persona's clock.
+        const color = sideToMove(g)
+        const rem = remainingMs(g, color)
+        if (color === "white") g.clock.whiteMs = rem + g.clock.incrementS * 1000
+        else g.clock.blackMs = rem + g.clock.incrementS * 1000
+        g.clock.turnStartedAt = Date.now()
+      }
       g.moves.push({ ply: g.moves.length, uci, san: "", mover: "player", arm: null })
       const sansAfter = sansFromUci(INITIAL_FEN, g.moves.map((m) => m.uci))
       g.moves[g.moves.length - 1].san = sansAfter[sansAfter.length - 1] ?? ""
@@ -315,6 +444,50 @@ export function createMockArenaApiClient(): ArenaApiClient {
       if (!target) throw new ArenaApiError(400, `No move at ply ${ply}`)
       if (target.mover !== "persona") throw new ArenaApiError(400, "Feedback targets a persona move")
       feedback.push({ gameId, ply, uci: target.uci, san: target.san, persona: g.persona, note: (note ?? "").trim() })
+    },
+
+    async submitGameRealism(gameId: number, verdict: ArenaRealismVerdict, note?: string): Promise<void> {
+      await delay(50)
+      const g = requireGame(gameId)
+      // Server-parity validation (main.py game_realism): finished only, spar
+      // verdict vocabulary only, one row per game (latest wins).
+      if (g.status !== "finished") throw new ArenaApiError(409, "Game not finished")
+      if (verdict !== "felt_like" && verdict !== "did_not_feel_like")
+        throw new ArenaApiError(400, "verdict must be felt_like or did_not_feel_like")
+      gameRealism.set(gameId, { persona: g.persona, verdict, note: (note ?? "").trim() })
+    },
+
+    async shareGame(gameId: number): Promise<{ token: string }> {
+      await delay(50)
+      const g = requireGame(gameId)
+      if (g.status !== "finished") throw new ArenaApiError(409, "Game not finished")
+      // Idempotent, like the server; "unguessable" is out of scope for a
+      // mock that never leaves the page — a stable readable token is better
+      // for headless assertions.
+      if (!g.shareToken) g.shareToken = `mock-share-${gameId}`
+      return { token: g.shareToken }
+    },
+
+    async revokeShare(gameId: number): Promise<void> {
+      await delay(50)
+      const g = requireGame(gameId)
+      g.shareToken = null
+    },
+
+    async getSharedReplay(token: string): Promise<ArenaSharedReplay> {
+      await delay(50)
+      // Server parity: 404 covers unknown, revoked, and deleted alike.
+      const g = [...games.values()].find((x) => x.shareToken === token)
+      if (!g || g.status !== "finished") throw new ArenaApiError(404, "Replay not found")
+      return {
+        persona: g.persona,
+        playerColor: g.playerColor,
+        playerName: "Mock Player",
+        result: g.result,
+        resultReason: g.resultReason,
+        createdAt: g.createdAt,
+        moves: [...g.moves],
+      }
     },
 
     async deleteGame(gameId: number): Promise<void> {

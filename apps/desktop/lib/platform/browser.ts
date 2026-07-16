@@ -24,7 +24,7 @@ import type {
   SaveReport,
   Sort,
 } from "@/lib/database"
-import type { HumanTreeResult } from "@/lib/human-eval-tree"
+import type { HumanSweepResult, HumanTreeResult } from "@/lib/human-eval-tree"
 import type { MaiaPolicy, MaiaStatus, PersonaMove } from "@/lib/maia"
 import type { PersonaDecision, PersonaParams } from "@/lib/persona"
 import type {
@@ -91,6 +91,10 @@ export const browserProviders: PlatformProviders = {
       return import("@/lib/persona-mock").then((m) => m.mockPersonaMove(fen, params))
     },
     humanEvalTree: (): Promise<HumanTreeResult> => noEngine("The human-eval tree"),
+    humanEvalSweep: (): Promise<HumanSweepResult> => noEngine("The perception-curve sweep"),
+    async humanEvalSweepCancel(): Promise<void> {
+      // nothing to cancel — a no-op keeps unmount cleanup silent
+    },
     rivalBook(): Promise<RivalBook> {
       return import("@/lib/rival-book-mock").then((m) => m.mockRivalBook())
     },

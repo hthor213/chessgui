@@ -7,6 +7,7 @@ import { MoveList } from "@chessgui/ui/move-list"
 import { AnnotationBar } from "@chessgui/ui/annotation-bar"
 import { EvalGraph } from "@chessgui/ui/eval-graph"
 import { AnalysisPanel } from "@chessgui/ui/analysis-panel"
+import { EngineComparePanel } from "@chessgui/ui/engine-compare-panel"
 import { EvalBar } from "@chessgui/ui/eval-bar"
 import { PromotionDialog } from "@chessgui/ui/promotion-dialog"
 import { PgnImportDialog } from "@chessgui/ui/pgn-import-dialog"
@@ -44,7 +45,7 @@ import { walkPv, type PvStep } from "@/lib/pv-preview"
 import { ecoLabel } from "@chessgui/core/eco"
 import type { LiveGame, ViewerControls } from "@chessgui/core/tournament"
 import { MOVE_DELAY_OPTIONS } from "@chessgui/core/tournament"
-import { hasTournamentRunner } from "@/lib/capabilities"
+import { hasEngineCompare, hasTournamentRunner } from "@/lib/capabilities"
 import { sansFromUci, numberMoves } from "@chessgui/core/game-replay"
 import type { Key } from "@lichess-org/chessground/types"
 import type { DrawShape } from "@lichess-org/chessground/draw"
@@ -125,6 +126,15 @@ export default function Home() {
   const [tournamentCapable, setTournamentCapable] = useState(false)
   useEffect(() => {
     setTournamentCapable(hasTournamentRunner())
+  }, [])
+  // Spec 900 multi-engine comparison: a second engine process needs the
+  // native UCI host (web's single WASM worker can't run two). Same
+  // effect-resolved pattern as tournamentCapable, for the same hydration
+  // reason. Gating the COMPONENT (not just its UI) keeps the second
+  // useEngine instance from ever mounting on an engine-less shell.
+  const [compareCapable, setCompareCapable] = useState(false)
+  useEffect(() => {
+    setCompareCapable(hasEngineCompare())
   }, [])
   const [liveGame, setLiveGame] = useState<LiveGame | null>(null)
   // Whether to show the eval bar beside the live tournament board (driven by the
@@ -1209,6 +1219,23 @@ export default function Home() {
                 />
               )}
             </div>
+            {/* Spec 900 multi-engine comparison: a second engine on the SAME
+                position, its own session slot (never touches the main
+                engine). Analysis mode only, and the same activeGame context
+                as the primary hook so the spec 219 lockout gates both
+                sessions — plus the whole component is hidden (and its hook
+                unmounted) while the lockout notice is up. */}
+            {compareCapable && !isPlayMode && !engine.engineLocked && (
+              <div className="shrink-0">
+                <EngineComparePanel
+                  fen={game.fen}
+                  uciMoves={game.uciMoves}
+                  startFen={game.startFen}
+                  currentMoveIndex={game.currentMoveIndex}
+                  activeGame={game.activeGame}
+                />
+              </div>
+            )}
             <MoveList
               tree={game.tree}
               currentId={game.currentNodeId}

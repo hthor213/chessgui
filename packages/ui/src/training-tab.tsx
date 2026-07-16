@@ -45,6 +45,7 @@ import {
   type TrainingOverlay,
 } from "@/lib/training-program"
 import {
+  egConversionPoint,
   mergeMetricPoints,
   parseMeasurementJson,
   sparScorePoint,
@@ -59,7 +60,17 @@ import {
   SPAR_SCORE_WINDOW_DAYS,
   type SparResultEntry,
 } from "@/lib/spar-results"
-import { pickTrainingPlayout, type PlayoutRequest } from "@/lib/playout"
+import {
+  EG_CONVERSION_WINDOW_DAYS,
+  egConversion,
+  loadPlayoutResults,
+  persistPlayoutResults,
+  pickTrainingPlayout,
+  setPlayoutCountsToward,
+  VERDICT_LABELS,
+  type PlayoutRequest,
+  type PlayoutResultEntry,
+} from "@/lib/playout"
 import { PlayoutScreen } from "@chessgui/ui/playout-screen"
 import { bandForRating, DEFAULT_DECK_SIZE, type DeckRequest } from "@/lib/puzzles"
 import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
@@ -106,6 +117,10 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   // hooks/use-spar-results) — read here for the spar-score refresh and the
   // per-game counts-toward-training reclassification (spec 215 Tier 1).
   const [sparResults, setSparResults] = useState<SparResultEntry[]>([])
+  // Locally recorded playout verdicts (written by the playout screen via
+  // hooks/use-playout-recorder) — read here for the eg_conversion refresh and
+  // the per-game counts-toward-training reclassification (spec 215 Tier 1).
+  const [playoutResults, setPlayoutResults] = useState<PlayoutResultEntry[]>([])
   const [now] = useState(() => Date.now())
 
   // Hydrate from storage once, on the client.
@@ -127,6 +142,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
       /* malformed storage — fall back to defaults already in state */
     }
     setSparResults(loadSparResults())
+    setPlayoutResults(loadPlayoutResults())
   }, [])
 
   const write = useCallback((key: string, value: unknown) => {
@@ -210,6 +226,25 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     setMeasureMsg(`Spar score refreshed: ${METRIC_META.spar_score.format(point.value)} (${point.note}).`)
   }, [mergePoints])
 
+  // In-app refresh: recompute this month's endgame conversion from the stored
+  // playout verdicts (spec 215: playouts now carry declared intent, so the
+  // in-app rate is honest to feed the panel).
+  const refreshEgConversion = useCallback(() => {
+    const results = loadPlayoutResults() // re-read: the playout screen appends independently
+    setPlayoutResults(results)
+    const point = egConversionPoint(results)
+    if (!point) {
+      setMeasureMsg(
+        `No counting win-claim playouts in the last ${EG_CONVERSION_WINDOW_DAYS} days — play one out first.`,
+      )
+      return
+    }
+    mergePoints([point])
+    setMeasureMsg(
+      `Endgame conversion refreshed: ${METRIC_META.eg_conversion.format(point.value)} (${point.note}).`,
+    )
+  }, [mergePoints])
+
   // Script-produced measurement file import (scripts/measure_monthly.py →
   // data/rivals/training_metrics.json) — the Tier-2 monthly path.
   const importMeasurementText = useCallback(
@@ -233,6 +268,15 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     setSparResults((prev) => {
       const next = setCountsToward(prev, id, counts)
       persistSparResults(next)
+      return next
+    })
+  }, [])
+
+  // Same contract for playout verdicts (probe can never be flipped on).
+  const reclassifyPlayout = useCallback((id: string, counts: boolean) => {
+    setPlayoutResults((prev) => {
+      const next = setPlayoutCountsToward(prev, id, counts)
+      persistPlayoutResults(next)
       return next
     })
   }, [])
@@ -265,7 +309,14 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   if (playout) {
     return (
       <div className="h-full flex flex-col text-foreground" data-testid="training-tab">
-        <PlayoutScreen request={playout} onExit={() => setPlayout(null)} />
+        <PlayoutScreen
+          request={playout}
+          onExit={() => {
+            setPlayout(null)
+            // Pick up whatever the playout recorder just stored.
+            setPlayoutResults(loadPlayoutResults())
+          }}
+        />
       </div>
     )
   }
@@ -371,11 +422,14 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
             metrics={metrics}
             onAdd={addMetric}
             onRefreshSpar={refreshSparScore}
+            onRefreshEg={refreshEgConversion}
             onImportText={importMeasurementText}
             measureMsg={measureMsg}
           />
 
           <SparGamesCard results={sparResults} onReclassify={reclassifySpar} now={now} />
+
+          <PlayoutGamesCard results={playoutResults} onReclassify={reclassifyPlayout} now={now} />
         </div>
       </div>
     </div>
@@ -953,6 +1007,7 @@ function MetricsPanel({
   metrics,
   onAdd,
   onRefreshSpar,
+  onRefreshEg,
   onImportText,
   measureMsg,
 }: {
@@ -960,6 +1015,9 @@ function MetricsPanel({
   onAdd: (p: MetricPoint) => void
   /** Recompute this month's spar score from the stored spar games (in-app). */
   onRefreshSpar: () => void
+  /** Recompute this month's endgame conversion from the stored playout
+   *  verdicts (in-app). */
+  onRefreshEg: () => void
   /** Import a measurement file's text (scripts/measure_monthly.py output). */
   onImportText: (text: string) => void
   measureMsg: string | null
@@ -1000,6 +1058,9 @@ function MetricsPanel({
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" onClick={onRefreshSpar} data-testid="training-refresh-spar">
           Refresh spar score
+        </Button>
+        <Button size="sm" variant="outline" onClick={onRefreshEg} data-testid="training-refresh-eg">
+          Refresh endgame conversion
         </Button>
         <label className="inline-flex">
           <input
@@ -1201,6 +1262,120 @@ function SparGamesCard({
                       disabled={g.mode === "probe"}
                       onChange={(e) => onReclassify(g.id, e.target.checked)}
                       data-testid={`training-spar-counts-${g.id}`}
+                    />
+                    counts
+                  </label>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Playout verdicts — the recorded playouts feeding eg_conversion (spec 215)
+// ---------------------------------------------------------------------------
+
+const PLAYOUTS_SHOWN = 15
+
+function PlayoutGamesCard({
+  results,
+  onReclassify,
+  now,
+}: {
+  results: PlayoutResultEntry[]
+  onReclassify: (id: string, counts: boolean) => void
+  now: number
+}) {
+  const conv = egConversion(results, now)
+  const recent = results.slice(-PLAYOUTS_SHOWN).reverse()
+  return (
+    <div data-testid="training-playout-games" className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-3">
+      <div>
+        <h2 className="font-bold">Playout verdicts</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Recorded automatically at game end. Serious playouts count by default; probe never counts.
+          Only win-claim playouts feed the conversion rate (holding a level position is a different
+          skill). Flagged games STAY in the rate until you untick them — flagged, never silently
+          dropped.
+        </p>
+      </div>
+
+      <div className="text-sm" data-testid="training-eg-conversion">
+        {conv.rate === null ? (
+          <span className="text-muted-foreground italic">
+            No counting win-claim playouts in the last {EG_CONVERSION_WINDOW_DAYS} days.
+          </span>
+        ) : (
+          <>
+            <span className="font-bold tabular-nums">{Math.round(conv.rate * 100)}%</span>{" "}
+            <span className="text-muted-foreground">
+              converted over {conv.games} counting playout{conv.games === 1 ? "" : "s"} ({conv.converted}{" "}
+              converted, {conv.held} held, {conv.dropped} dropped
+              {conv.flagged > 0 ? `; ${conv.flagged} flagged, included` : ""}) · last{" "}
+              {EG_CONVERSION_WINDOW_DAYS} days
+            </span>
+          </>
+        )}
+      </div>
+
+      {recent.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
+          No playouts recorded yet — finish a Play-it-out game and it lands here.
+        </p>
+      ) : (
+        <table className="w-full text-sm">
+          <tbody data-testid="training-playout-list">
+            {recent.map((g) => (
+              <tr key={g.id} className="border-b border-white/5 last:border-0" data-testid={`training-playout-game-${g.id}`}>
+                <td className="py-1 tabular-nums text-muted-foreground w-24">{g.at.slice(0, 10)}</td>
+                <td className="py-1 tabular-nums text-muted-foreground">
+                  {g.evalPawns > 0 ? `+${g.evalPawns}` : g.evalPawns} vs {g.level}
+                </td>
+                <td className="py-1">
+                  <span
+                    className={
+                      g.verdict === "converted"
+                        ? "text-emerald-300"
+                        : g.verdict === "dropped"
+                          ? "text-red-300"
+                          : "text-amber-300"
+                    }
+                  >
+                    {VERDICT_LABELS[g.verdict]}
+                  </span>
+                  {g.mode === "probe" && (
+                    <span className="ml-1.5 text-[10px] uppercase tracking-wide text-violet-300">probe</span>
+                  )}
+                  {g.claim === "draw" && (
+                    <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground" title="Hold-claim playouts never feed the conversion rate.">
+                      hold claim
+                    </span>
+                  )}
+                </td>
+                <td className="py-1 text-xs text-amber-300/90">
+                  {g.anomalyFlags.map((f) => ANOMALY_LABELS[f]).join(", ")}
+                </td>
+                <td className="py-1 text-right">
+                  <label
+                    className={`inline-flex items-center gap-1.5 text-xs ${
+                      g.mode === "probe" ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+                    }`}
+                    title={
+                      g.mode === "probe"
+                        ? "Probe playouts never count toward training."
+                        : "Counts toward the endgame conversion rate."
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={g.countsTowardTraining}
+                      disabled={g.mode === "probe"}
+                      onChange={(e) => onReclassify(g.id, e.target.checked)}
+                      data-testid={`training-playout-counts-${g.id}`}
                     />
                     counts
                   </label>

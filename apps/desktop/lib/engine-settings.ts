@@ -31,17 +31,24 @@ export function defaultEnginePath(): string {
   return getProviders().engine.defaultEnginePath;
 }
 
-export function loadEnginePath(): string {
+// The default engine session keeps the historical bare key; a non-default
+// session (spec 900's second-engine "compare" slot) persists its own pick
+// under "engine-path:<session>" so the two never clobber each other.
+function enginePathKey(sessionId?: string): string {
+  return sessionId ? `${ENGINE_PATH_KEY}:${sessionId}` : ENGINE_PATH_KEY;
+}
+
+export function loadEnginePath(sessionId?: string): string {
   // StorageProvider absorbs the SSR/unavailable cases (returns null).
-  return getProviders().storage.get(ENGINE_PATH_KEY) || defaultEnginePath();
+  return getProviders().storage.get(enginePathKey(sessionId)) || defaultEnginePath();
 }
 
-export function saveEnginePath(path: string): void {
-  getProviders().storage.set(ENGINE_PATH_KEY, path);
+export function saveEnginePath(path: string, sessionId?: string): void {
+  getProviders().storage.set(enginePathKey(sessionId), path);
 }
 
-export function clearEnginePath(): void {
-  getProviders().storage.remove(ENGINE_PATH_KEY);
+export function clearEnginePath(sessionId?: string): void {
+  getProviders().storage.remove(enginePathKey(sessionId));
 }
 
 export const HASH_MIN = 16;

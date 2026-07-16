@@ -23,7 +23,13 @@ import {
 } from "@chessgui/core/win-prob"
 import { MATE_EVAL_PAWNS } from "@chessgui/core/tournament"
 import { getProviders } from "@/lib/platform"
-import { resultFromLabel, type SparResultOutcome } from "@/lib/spar-results"
+import {
+  detectAnomalies,
+  resultFromLabel,
+  type SparAnomalyFlag,
+  type SparResultMode,
+  type SparResultOutcome,
+} from "@/lib/spar-results"
 import type { SparColor } from "@/lib/spar"
 
 // ---------------------------------------------------------------------------
@@ -222,13 +228,17 @@ export function pickTrainingPlayout(random: () => number = Math.random): Playout
 // ---------------------------------------------------------------------------
 
 export interface PlayoutResultEntry {
-  /** Unique id (timestamp + entropy). */
+  /** Unique id (timestamp + entropy) — the reclassification handle. */
   id: string
   /** ISO datetime the game ended. */
   at: string
   /** Distinct entry kind — this store never mixes with spar results. */
   kind: "playout"
   source: PlayoutSourceKind
+  /** Declared intent, the spar template (spec 215 Tier 1): serious playouts
+   *  feed eg_conversion by default; probe playouts are stored flagged and
+   *  NEVER count. */
+  mode: SparResultMode
   /** The start position played out. */
   fen: string
   /** The claim tested, White-POV pawns. */
@@ -245,6 +255,14 @@ export interface PlayoutResultEntry {
   actualScore: number
   verdict: PlayoutVerdict
   plies: number
+  /** Serious playouts count by default; probe never counts and can never be
+   *  flipped on (same rule as spar results). */
+  countsTowardTraining: boolean
+  /** Anomaly flags (shared spar proxies: short game / early resign) — shown
+   *  next to the number they feed, never used to exclude. */
+  anomalyFlags: SparAnomalyFlag[]
+  /** Set when the user manually reclassified countsTowardTraining. */
+  reclassifiedAt?: string
 }
 
 export const PLAYOUT_STORAGE_KEY = "chessgui:playout-results"
@@ -261,9 +279,15 @@ export function buildPlayoutResult(input: {
   evalPawns: number
   userSide: SparColor
   level: number
+  mode: SparResultMode
   resultLabel: string
   plies: number
   at?: string
+  /** Explicit per-game intent (the playout config's "Counts toward training"
+   *  toggle). Omitted = serious counts, probe doesn't. A probe playout is
+   *  ALWAYS forced false — spec 215 "probe never counts" is not overridable
+   *  at record time (same refusal as buildSparResult). */
+  countsTowardTraining?: boolean
 }): PlayoutResultEntry | null {
   const result = resultFromLabel(input.resultLabel, input.userSide)
   if (result === null) return null
@@ -275,6 +299,7 @@ export function buildPlayoutResult(input: {
     at: input.at ?? new Date().toISOString(),
     kind: "playout",
     source: input.source,
+    mode: input.mode,
     fen: input.fen,
     evalPawns: input.evalPawns,
     userSide: input.userSide,
@@ -286,6 +311,8 @@ export function buildPlayoutResult(input: {
     actualScore: actual,
     verdict: playoutVerdict(claim, actual),
     plies: input.plies,
+    countsTowardTraining: input.mode === "serious" ? (input.countsTowardTraining ?? true) : false,
+    anomalyFlags: detectAnomalies({ result, resultLabel: input.resultLabel, plies: input.plies }),
   }
 }
 
@@ -300,6 +327,102 @@ export function removePlayoutResult(entries: PlayoutResultEntry[], id: string): 
   return entries.filter((e) => e.id !== id)
 }
 
+/**
+ * Reclassify one playout's counts-toward-training intent. Probe playouts can
+ * never be flipped to counting (spec 215: "probe never counts") — the call is
+ * a no-op for them. Mirrors lib/spar-results' setCountsToward.
+ */
+export function setPlayoutCountsToward(
+  entries: PlayoutResultEntry[],
+  id: string,
+  counts: boolean,
+  at: string = new Date().toISOString(),
+): PlayoutResultEntry[] {
+  return entries.map((e) => {
+    if (e.id !== id) return e
+    if (e.mode === "probe" && counts) return e
+    if (e.countsTowardTraining === counts) return e
+    return { ...e, countsTowardTraining: counts, reclassifiedAt: at }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// The eg_conversion metric (feeds the Training tab measurement panel)
+// ---------------------------------------------------------------------------
+
+/** Rolling window the in-app conversion rate is computed over — same monthly
+ *  cadence doubled for sample size as the spar score. */
+export const EG_CONVERSION_WINDOW_DAYS = 60
+
+export interface EgConversion {
+  /** converted / games over the counting win-claim playouts, or null with
+   *  nothing to measure. */
+  rate: number | null
+  /** Counting playouts in the window (serious + countsTowardTraining +
+   *  win claim — hold-claim playouts test defence, not conversion). */
+  games: number
+  converted: number
+  held: number
+  dropped: number
+  /** Of the counting games, how many carry anomaly flags (INCLUDED in the
+   *  rate — flag, don't drop). */
+  flagged: number
+}
+
+/**
+ * The in-app endgame-conversion rate: over the last `windowDays`, the fraction
+ * of counting WIN-claim playouts the user actually converted. Hold-claim
+ * playouts (level positions) are excluded — holding a draw is a different
+ * skill than the conversion this metric measures, and the monthly pipeline's
+ * eg_conversion counts won positions only. Probe / unticked games never count;
+ * flagged games count and are reported.
+ */
+export function egConversion(
+  entries: PlayoutResultEntry[],
+  now: number = Date.now(),
+  windowDays: number = EG_CONVERSION_WINDOW_DAYS,
+): EgConversion {
+  const cutoff = now - windowDays * 24 * 60 * 60 * 1000
+  let converted = 0
+  let held = 0
+  let dropped = 0
+  let flagged = 0
+  for (const e of entries) {
+    if (e.mode !== "serious" || !e.countsTowardTraining) continue
+    if (e.claim !== "win") continue
+    const t = Date.parse(e.at)
+    if (!Number.isFinite(t) || t < cutoff || t > now) continue
+    if (e.anomalyFlags.length > 0) flagged++
+    if (e.verdict === "converted") converted++
+    else if (e.verdict === "held") held++
+    else dropped++
+  }
+  const games = converted + held + dropped
+  return { rate: games > 0 ? converted / games : null, games, converted, held, dropped, flagged }
+}
+
+/**
+ * Backfill the declared-intent fields on entries stored before they existed.
+ * Legacy playouts were all played straight (there was no probe mode to pick),
+ * so serious + counting is the honest reading; anomaly flags are recomputed
+ * from the stored result fields, which detectAnomalies is pure over.
+ */
+export function normalizePlayoutResult(
+  e: Omit<PlayoutResultEntry, "mode" | "countsTowardTraining" | "anomalyFlags"> &
+    Partial<Pick<PlayoutResultEntry, "mode" | "countsTowardTraining" | "anomalyFlags">>,
+): PlayoutResultEntry {
+  const mode = e.mode ?? "serious"
+  return {
+    ...e,
+    mode,
+    countsTowardTraining:
+      mode === "serious" ? (e.countsTowardTraining ?? true) : false,
+    anomalyFlags:
+      e.anomalyFlags ??
+      detectAnomalies({ result: e.result, resultLabel: e.resultLabel, plies: e.plies }),
+  }
+}
+
 // StorageProvider glue (client-only; the provider absorbs unavailability).
 
 export function loadPlayoutResults(): PlayoutResultEntry[] {
@@ -307,7 +430,9 @@ export function loadPlayoutResults(): PlayoutResultEntry[] {
     const raw = getProviders().storage.get(PLAYOUT_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as PlayoutResultEntry[]) : []
+    return Array.isArray(parsed)
+      ? (parsed as PlayoutResultEntry[]).map(normalizePlayoutResult)
+      : []
   } catch {
     return []
   }

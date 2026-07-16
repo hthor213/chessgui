@@ -11,7 +11,7 @@ import { listen } from "@tauri-apps/api/event"
 // safe cycle: only a hoisted function declaration crosses it, called long
 // after both modules evaluate. Kept so the test-pinned camelCase arg contract
 // (treeInvokeArgs) has exactly one definition.
-import { treeInvokeArgs } from "@/lib/human-eval-tree"
+import { sweepInvokeArgs, treeInvokeArgs } from "@/lib/human-eval-tree"
 import type {
   CalibrationProgress,
   CalibrationResults,
@@ -31,7 +31,7 @@ import type {
   SaveReport,
   Sort,
 } from "@/lib/database"
-import type { HumanTreeOptions, HumanTreeResult } from "@/lib/human-eval-tree"
+import type { HumanSweepResult, HumanTreeOptions, HumanTreeResult } from "@/lib/human-eval-tree"
 import type { MaiaPolicy, MaiaStatus, PersonaMove } from "@/lib/maia"
 import type { PersonaDecision, PersonaParams } from "@/lib/persona"
 import type {
@@ -47,6 +47,7 @@ import type { LocalRivalPersona } from "@/lib/roster"
 import type { BenchResult, MachineProfile } from "@/hooks/use-machine-profile"
 import { readBrowserClipboardImage, readBrowserClipboardText } from "./clipboard"
 import { localStorageKV } from "./storage"
+import { engineOutputEvent } from "@chessgui/core/engine-session"
 import type {
   EngineStartResult,
   OpenedTextFile,
@@ -103,17 +104,24 @@ export const tauriProviders: PlatformProviders = {
 
     // The spec 219 game-context tag rides along so the Rust UCI manager can
     // refuse active-game contexts defensively (uci.rs context_is_locked).
-    startEngine(path: string, context?: string): Promise<EngineStartResult> {
-      return invoke<EngineStartResult>("start_engine", { path, context: context ?? null })
+    // The spec 900 session id selects which engine slot the call addresses
+    // (uci.rs session_key); absent means the default (main analysis) engine.
+    startEngine(path: string, context?: string, sessionId?: string): Promise<EngineStartResult> {
+      return invoke<EngineStartResult>("start_engine", {
+        path,
+        context: context ?? null,
+        session: sessionId ?? null,
+      })
     },
-    async sendCommand(command: string, context?: string): Promise<void> {
-      await invoke("send_command", { command, context: context ?? null })
+    async sendCommand(command: string, context?: string, sessionId?: string): Promise<void> {
+      await invoke("send_command", { command, context: context ?? null, session: sessionId ?? null })
     },
-    async stopEngine(): Promise<void> {
-      await invoke("stop_engine")
+    async stopEngine(sessionId?: string): Promise<void> {
+      await invoke("stop_engine", { session: sessionId ?? null })
     },
-    onEngineLine(onLine: (line: string) => void): Promise<() => void> {
-      return listen<string>("engine-output", (event) => onLine(event.payload))
+    onEngineLine(onLine: (line: string) => void, sessionId?: string): Promise<() => void> {
+      // Per-session event name (core/engine-session.ts mirrors uci.rs).
+      return listen<string>(engineOutputEvent(sessionId), (event) => onLine(event.payload))
     },
 
     machineProfileGet(): Promise<MachineProfile | null> {
@@ -153,6 +161,22 @@ export const tauriProviders: PlatformProviders = {
       opts: HumanTreeOptions = {},
     ): Promise<HumanTreeResult> {
       return invoke<HumanTreeResult>("human_eval_tree", treeInvokeArgs(fen, band, opts))
+    },
+    humanEvalSweep(
+      fen: string,
+      bands: number[],
+      opts: HumanTreeOptions = {},
+      onPoint?: (p: HumanTreeResult) => void,
+    ): Promise<HumanSweepResult> {
+      const channel = new Channel<HumanTreeResult>()
+      if (onPoint) channel.onmessage = onPoint
+      return invoke<HumanSweepResult>("human_eval_sweep", {
+        ...sweepInvokeArgs(fen, bands, opts),
+        onPoint: channel,
+      })
+    },
+    async humanEvalSweepCancel(): Promise<void> {
+      await invoke("human_eval_sweep_cancel")
     },
     rivalBook(): Promise<RivalBook> {
       return invoke<RivalBook>("rival_book")

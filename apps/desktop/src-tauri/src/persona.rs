@@ -338,7 +338,7 @@ impl Phase {
 /// Non-pawn phase weight of a position: knights + bishops ×1, rooks ×2,
 /// queens ×4, both sides (24 at the standard start). The calibration.rs
 /// formula, computed here from a parsed position.
-fn phase_weight_of(pos: &Chess) -> u32 {
+pub(crate) fn phase_weight_of(pos: &Chess) -> u32 {
     let b = pos.board();
     (b.knights().count() + b.bishops().count()) as u32
         + 2 * b.rooks().count() as u32

@@ -29,7 +29,7 @@ import type {
 } from "./puzzle-types"
 import type { MaiaPolicy, MaiaStatus, PersonaMove } from "./maia-types"
 import type { PersonaDecision, PersonaParams } from "./persona-types"
-import type { HumanTreeOptions, HumanTreeResult } from "./human-eval-tree-types"
+import type { HumanSweepResult, HumanTreeOptions, HumanTreeResult } from "./human-eval-tree-types"
 import type { RivalBook } from "./rival-book-types"
 import type { LocalRivalPersona } from "./roster-types"
 import type { BenchResult, MachineProfile } from "./machine-profile-types"
@@ -71,13 +71,19 @@ export interface EngineProvider {
   // non-game callers (engine lab, tests) stay unchanged — an untagged
   // command is treated as unrestricted; the per-game scoping gate lives in
   // the use-engine hook, not here.
-  startEngine(path: string, context?: string): Promise<EngineStartResult>
-  sendCommand(command: string, context?: string): Promise<void>
-  stopEngine(): Promise<void>
-  /** Subscribe to the engine's stdout line stream — the app's only event
+  //
+  // `sessionId` (spec 900 multi-engine comparison, core/engine-session.ts)
+  // selects which engine slot a call addresses so two engines can run side
+  // by side. Optional: absent means the default session, i.e. the pre-900
+  // single-engine behavior. Shells with only one engine slot (the WASM
+  // worker) refuse/no-op non-default sessions rather than sharing the slot.
+  startEngine(path: string, context?: string, sessionId?: string): Promise<EngineStartResult>
+  sendCommand(command: string, context?: string, sessionId?: string): Promise<void>
+  stopEngine(sessionId?: string): Promise<void>
+  /** Subscribe to one session's stdout line stream — the app's only event
    *  stream. Resolves an unsubscribe function. Designed so a WASM worker
    *  (postMessage) or a server engine (WebSocket) can back it (spec 220). */
-  onEngineLine(onLine: (line: string) => void): Promise<() => void>
+  onEngineLine(onLine: (line: string) => void, sessionId?: string): Promise<() => void>
 
   // --- Machine speed profile (spec 216, hooks/use-machine-profile.ts) ---
   machineProfileGet(): Promise<MachineProfile | null>
@@ -96,6 +102,19 @@ export interface EngineProvider {
   maiaPolicy(fen: string, band: number): Promise<MaiaPolicy>
   personaMove(fen: string, params: PersonaParams): Promise<PersonaDecision>
   humanEvalTree(fen: string, band: number, opts?: HumanTreeOptions): Promise<HumanTreeResult>
+  /**
+   * Background sweep across slider stops → perception-curve points (spec 213
+   * Phase 3). `onPoint` streams each band's result as it lands; starting a
+   * new sweep cancels the previous one backend-side.
+   */
+  humanEvalSweep(
+    fen: string,
+    bands: number[],
+    opts?: HumanTreeOptions,
+    onPoint?: (p: HumanTreeResult) => void,
+  ): Promise<HumanSweepResult>
+  /** Cancel any in-flight perception-curve sweep (position left, panel gone). */
+  humanEvalSweepCancel(): Promise<void>
   rivalBook(): Promise<RivalBook>
   rivalPersonas(): Promise<LocalRivalPersona[]>
 

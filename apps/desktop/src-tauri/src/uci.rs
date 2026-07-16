@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -7,33 +8,77 @@ use tokio::sync::mpsc;
 
 use crate::engine_path::engine_command;
 
-/// UCI engine state managed by Tauri
-pub struct EngineState {
+/// One running analysis engine process. Spec 900 multi-engine comparison
+/// runs two of these side by side, keyed by session id — the main analysis
+/// engine is the `default` session (untagged callers), the comparison panel
+/// uses its own id, and each session's stdout is emitted on its own event.
+struct EngineSession {
     child: Option<Child>,
     stdin_tx: Option<mpsc::Sender<String>>,
 }
 
-impl Default for EngineState {
-    fn default() -> Self {
-        Self {
-            child: None,
-            stdin_tx: None,
-        }
-    }
-}
-
-impl EngineState {
-    /// Synchronous best-effort teardown for app exit (spec 011 "Engine process
-    /// cleaned up on app quit"). Dropping `stdin_tx` closes the writer task's
-    /// channel, which closes the engine's stdin (a well-behaved UCI engine
-    /// exits on EOF); `start_kill` then makes sure of it without needing an
-    /// async context — the exit handler runs on the main thread, outside a
-    /// runtime. `kill_on_drop` on the spawn is the last-resort backstop.
-    pub fn shutdown(&mut self) {
+impl EngineSession {
+    /// Synchronous best-effort teardown (see `EngineState::shutdown`).
+    fn shutdown(&mut self) {
         self.stdin_tx.take();
         if let Some(mut child) = self.child.take() {
             let _ = child.start_kill();
         }
+    }
+}
+
+/// UCI engine state managed by Tauri: every live session, keyed by id.
+#[derive(Default)]
+pub struct EngineState {
+    sessions: HashMap<String, EngineSession>,
+}
+
+impl EngineState {
+    /// Synchronous best-effort teardown of EVERY session for app exit
+    /// (spec 011 "Engine process cleaned up on app quit"). Dropping a
+    /// session's `stdin_tx` closes the writer task's channel, which closes
+    /// the engine's stdin (a well-behaved UCI engine exits on EOF);
+    /// `start_kill` then makes sure of it without needing an async context —
+    /// the exit handler runs on the main thread, outside a runtime.
+    /// `kill_on_drop` on the spawn is the last-resort backstop.
+    pub fn shutdown(&mut self) {
+        for (_, mut session) in self.sessions.drain() {
+            session.shutdown();
+        }
+    }
+}
+
+/// The untagged callers' session (pre-900 single-engine behavior) and its
+/// pre-900 event name, kept verbatim so existing listeners stay untouched.
+const DEFAULT_SESSION: &str = "default";
+
+/// Resolve the optional frontend session id to a map key, refusing ids that
+/// could break out of the per-session event name (Tauri event names only
+/// allow alphanumeric + `-` `/` `:` `_`). Mirrored by
+/// core/engine-session.ts `isValidEngineSessionId` — keep the rule in sync.
+fn session_key(session: Option<&str>) -> Result<String, String> {
+    match session {
+        None => Ok(DEFAULT_SESSION.to_string()),
+        Some("") => Ok(DEFAULT_SESSION.to_string()),
+        Some(s)
+            if s.len() <= 64
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') =>
+        {
+            Ok(s.to_string())
+        }
+        Some(s) => Err(format!("Invalid engine session id: {s:?}")),
+    }
+}
+
+/// Per-session stdout event: the default session keeps the historical
+/// `engine-output` name; any other session gets `engine-output:<id>`.
+/// Mirrored by core/engine-session.ts `engineOutputEvent`.
+fn output_event(session_key: &str) -> String {
+    if session_key == DEFAULT_SESSION {
+        "engine-output".to_string()
+    } else {
+        format!("engine-output:{session_key}")
     }
 }
 
@@ -60,17 +105,22 @@ pub fn context_is_locked(context: Option<&str>) -> bool {
 const ENGINE_LOCKED_ERROR: &str =
     "Engine refused: this game is flagged as an active chess.com daily game (fair play lockout, spec 219)";
 
-/// Start a UCI engine process at the given binary path.
+/// Start a UCI engine process at the given binary path. `session` (spec 900)
+/// selects which engine slot to start — absent means the default session.
 #[tauri::command]
 pub async fn start_engine(
     path: String,
     context: Option<String>,
+    session: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, Mutex<EngineState>>,
 ) -> Result<EngineInfo, String> {
     if context_is_locked(context.as_deref()) {
         return Err(ENGINE_LOCKED_ERROR.to_string());
     }
+    // Validate the session id BEFORE spawning anything.
+    let key = session_key(session.as_deref())?;
+    let event = output_event(&key);
     // engine_command sets CREATE_NO_WINDOW on Windows (spec 222 quirks
     // ledger: no console flash per engine start). Line handling below is
     // \r\n-tolerant by construction — every read_line result goes through
@@ -137,26 +187,28 @@ pub async fn start_engine(
 
     // Spawn a background task to forward engine stdout to frontend events
     let app_clone = app.clone();
+    let reader_key = key.clone();
+    let reader_event = event.clone();
     tokio::spawn(async move {
-        eprintln!("[uci] stdout reader started");
+        eprintln!("[uci:{reader_key}] stdout reader started");
         let mut line = String::new();
         loop {
             line.clear();
             match reader.read_line(&mut line).await {
                 Ok(0) => {
-                    eprintln!("[uci] stdout EOF");
+                    eprintln!("[uci:{reader_key}] stdout EOF");
                     break;
                 }
                 Ok(_) => {
                     let trimmed = line.trim().to_string();
-                    eprintln!("[uci] << {}", trimmed);
+                    eprintln!("[uci:{reader_key}] << {}", trimmed);
                     // emit_to targets the main webview directly
-                    if let Err(e) = app_clone.emit_to("main", "engine-output", trimmed) {
-                        eprintln!("[uci] emit error: {}", e);
+                    if let Err(e) = app_clone.emit_to("main", &reader_event, trimmed) {
+                        eprintln!("[uci:{reader_key}] emit error: {}", e);
                     }
                 }
                 Err(e) => {
-                    eprintln!("[uci] stdout error: {}", e);
+                    eprintln!("[uci:{reader_key}] stdout error: {}", e);
                     break;
                 }
             }
@@ -165,31 +217,40 @@ pub async fn start_engine(
 
     // Channel for sending commands to engine stdin
     let (tx, mut rx) = mpsc::channel::<String>(128);
+    let writer_key = key.clone();
     tokio::spawn(async move {
-        eprintln!("[uci] stdin writer started");
+        eprintln!("[uci:{writer_key}] stdin writer started");
         while let Some(cmd) = rx.recv().await {
-            eprintln!("[uci] >> {}", cmd);
+            eprintln!("[uci:{writer_key}] >> {}", cmd);
             if let Err(e) = stdin.write_all(cmd.as_bytes()).await {
-                eprintln!("[uci] stdin write error: {}", e);
+                eprintln!("[uci:{writer_key}] stdin write error: {}", e);
                 break;
             }
             if let Err(e) = stdin.write_all(b"\n").await {
-                eprintln!("[uci] stdin newline error: {}", e);
+                eprintln!("[uci:{writer_key}] stdin newline error: {}", e);
                 break;
             }
             if let Err(e) = stdin.flush().await {
-                eprintln!("[uci] stdin flush error: {}", e);
+                eprintln!("[uci:{writer_key}] stdin flush error: {}", e);
                 break;
             }
         }
-        eprintln!("[uci] stdin writer exited");
+        eprintln!("[uci:{writer_key}] stdin writer exited");
     });
 
-    // Store in managed state
+    // Store in managed state; a start-over-running on the same session kills
+    // the old process explicitly (start_kill; kill_on_drop is the backstop).
     {
         let mut guard = state.lock().map_err(|e| e.to_string())?;
-        guard.child = Some(child);
-        guard.stdin_tx = Some(tx);
+        if let Some(mut old) = guard.sessions.insert(
+            key,
+            EngineSession {
+                child: Some(child),
+                stdin_tx: Some(tx),
+            },
+        ) {
+            old.shutdown();
+        }
     }
 
     Ok(EngineInfo {
@@ -198,11 +259,12 @@ pub async fn start_engine(
     })
 }
 
-/// Send a raw UCI command to the running engine.
+/// Send a raw UCI command to the running engine of the given session.
 #[tauri::command]
 pub async fn send_command(
     command: String,
     context: Option<String>,
+    session: Option<String>,
     state: State<'_, Mutex<EngineState>>,
 ) -> Result<(), String> {
     // Checked per command, not just at start: an engine started by an
@@ -211,17 +273,41 @@ pub async fn send_command(
     if context_is_locked(context.as_deref()) {
         return Err(ENGINE_LOCKED_ERROR.to_string());
     }
+    let key = session_key(session.as_deref())?;
     let tx = {
         let guard = state.lock().map_err(|e| e.to_string())?;
         guard
-            .stdin_tx
-            .as_ref()
+            .sessions
+            .get(&key)
+            .and_then(|s| s.stdin_tx.as_ref())
             .ok_or_else(|| "No engine running".to_string())?
             .clone()
     };
     tx.send(command)
         .await
         .map_err(|e| format!("Send error: {}", e))?;
+    Ok(())
+}
+
+/// Stop the running engine of the given session (others keep running).
+#[tauri::command]
+pub async fn stop_engine(
+    session: Option<String>,
+    state: State<'_, Mutex<EngineState>>,
+) -> Result<(), String> {
+    let key = session_key(session.as_deref())?;
+    let removed = {
+        let mut guard = state.lock().map_err(|e| e.to_string())?;
+        guard.sessions.remove(&key)
+    };
+    if let Some(mut sess) = removed {
+        if let Some(tx) = sess.stdin_tx.take() {
+            let _ = tx.send("quit".to_string()).await;
+        }
+        if let Some(mut child) = sess.child.take() {
+            let _ = child.kill().await;
+        }
+    }
     Ok(())
 }
 
@@ -253,27 +339,69 @@ mod tests {
         assert!(!context_is_locked(Some("not-an-active-game")));
     }
 
-    // The exit-handler path: a spawned child put into EngineState must be dead
-    // after shutdown(). Uses /bin/sleep as a stand-in engine process.
-    #[tokio::test]
-    async fn shutdown_kills_child() {
+    // Spec 900 session plumbing: absent/empty ids resolve to the default
+    // session; explicit ids pass through; anything that couldn't be embedded
+    // in a Tauri event name is refused.
+    #[test]
+    fn session_key_resolves_default_and_explicit_ids() {
+        assert_eq!(session_key(None).unwrap(), DEFAULT_SESSION);
+        assert_eq!(session_key(Some("")).unwrap(), DEFAULT_SESSION);
+        assert_eq!(session_key(Some("compare")).unwrap(), "compare");
+        assert_eq!(session_key(Some("engine_2")).unwrap(), "engine_2");
+        assert_eq!(session_key(Some("a-b-3")).unwrap(), "a-b-3");
+    }
+
+    #[test]
+    fn session_key_refuses_ids_unsafe_for_event_names() {
+        assert!(session_key(Some("has space")).is_err());
+        assert!(session_key(Some("semi;colon")).is_err());
+        assert!(session_key(Some("colon:inside")).is_err());
+        assert!(session_key(Some(&"x".repeat(65))).is_err());
+    }
+
+    // The default session must keep the pre-900 event name verbatim so
+    // existing listeners (use-engine's default subscription) stay untouched.
+    #[test]
+    fn output_event_names_are_per_session() {
+        assert_eq!(output_event(DEFAULT_SESSION), "engine-output");
+        assert_eq!(output_event("compare"), "engine-output:compare");
+    }
+
+    fn sleeper_session() -> (u32, EngineSession) {
         let child = Command::new("/bin/sleep")
             .arg("30")
             .kill_on_drop(true)
             .spawn()
             .expect("spawn sleep");
         let pid = child.id().expect("pid");
-        let mut state = EngineState {
-            child: Some(child),
-            stdin_tx: None,
-        };
+        (
+            pid,
+            EngineSession {
+                child: Some(child),
+                stdin_tx: None,
+            },
+        )
+    }
+
+    // The exit-handler path: every spawned child in EngineState — across ALL
+    // sessions (spec 900) — must be dead after shutdown(). Uses /bin/sleep
+    // as a stand-in engine process.
+    #[tokio::test]
+    async fn shutdown_kills_children_of_all_sessions() {
+        let (pid_a, session_a) = sleeper_session();
+        let (pid_b, session_b) = sleeper_session();
+        let mut state = EngineState::default();
+        state.sessions.insert(DEFAULT_SESSION.to_string(), session_a);
+        state.sessions.insert("compare".to_string(), session_b);
         state.shutdown();
-        assert!(state.child.is_none() && state.stdin_tx.is_none());
+        assert!(state.sessions.is_empty());
         // start_kill sends SIGKILL immediately; give the OS a moment to reap.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         // kill(pid, 0) probes existence: ESRCH (Err) once the process is gone.
-        let alive = unsafe { libc_kill_probe(pid as i32) };
-        assert!(!alive, "engine child (pid {pid}) still alive after shutdown");
+        for pid in [pid_a, pid_b] {
+            let alive = unsafe { libc_kill_probe(pid as i32) };
+            assert!(!alive, "engine child (pid {pid}) still alive after shutdown");
+        }
     }
 
     // Minimal existence probe without adding a libc dependency: signal 0.
@@ -283,20 +411,4 @@ mod tests {
         }
         kill(pid, 0) == 0
     }
-}
-
-/// Stop the running engine.
-#[tauri::command]
-pub async fn stop_engine(state: State<'_, Mutex<EngineState>>) -> Result<(), String> {
-    let (tx, child) = {
-        let mut guard = state.lock().map_err(|e| e.to_string())?;
-        (guard.stdin_tx.take(), guard.child.take())
-    };
-    if let Some(tx) = tx {
-        let _ = tx.send("quit".to_string()).await;
-    }
-    if let Some(mut child) = child {
-        let _ = child.kill().await;
-    }
-    Ok(())
 }

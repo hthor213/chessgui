@@ -20,13 +20,16 @@ import {
   buildEngineCurves,
   expectedWinPct,
   buildTournamentResultExport,
+  applyEvalTags,
   MATE_EVAL_PAWNS,
+  MATE_TAG_CP,
   TIME_CONTROLS,
   type GameOutcome,
   type Participant,
   type PlyEval,
   type Seed,
   type EvalMap,
+  type TaggedPosition,
 } from "@chessgui/core/tournament"
 
 const FEN_AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
@@ -590,5 +593,68 @@ describe("parseOpeningPositions — user-picked EPD/FEN files (spec 210 Phase 3)
     expect(seeds).toHaveLength(4)
     // Only the balanced position qualifies; the pool cycles it.
     expect(seeds.every((s) => s.fen === `${START_BOARD} w KQkq - 0 1`)).toBe(true)
+  })
+
+  it("reads the EPD `eco` opcode (quoted, normalized uppercase) alongside `ce`", () => {
+    const text = [
+      `${START_BOARD} w KQkq - eco "B90"; ce 60;`,
+      `${START_BOARD} b KQkq - ce -25; eco "c65";`, // order-independent, case-normalized
+      `${START_BOARD} w KQkq - ce 10;`, // no eco opcode -> field absent
+    ].join("\n")
+    const parsed = parseOpeningPositions(text, "uho.epd")
+    expect(parsed.positions.map((p) => p.eco)).toEqual(["B90", "C65", undefined])
+    // ce parsing is unaffected by the eco opcode either side of it.
+    expect(parsed.positions.map((p) => p.eval_cp)).toEqual([60, 25, 10])
+  })
+})
+
+describe("applyEvalTags — in-app eval-tagging merge (spec 210 Phase 3)", () => {
+  const pos = (fen: string, cp: number): TaggedPosition => ({
+    fen,
+    eval_cp: cp,
+    eval_pawns: cp / 100,
+    source: "uho.epd",
+  })
+
+  it("replaces eval_cp/eval_pawns from scored tags and counts them", () => {
+    const pool = [pos("fen-a", 0), pos("fen-b", 999)]
+    const { positions, tagged } = applyEvalTags(pool, [
+      { fen: "fen-a", cp: 85, mate: null },
+      { fen: "fen-b", cp: -40, mate: null },
+    ])
+    expect(tagged).toBe(2)
+    expect(positions.map((p) => p.eval_cp)).toEqual([85, -40])
+    expect(positions.map((p) => p.eval_pawns)).toEqual([0.85, -0.4])
+    // Pure: the input pool is untouched.
+    expect(pool[0].eval_cp).toBe(0)
+  })
+
+  it("leaves unmatched and unscored positions unchanged", () => {
+    const pool = [pos("fen-a", 30), pos("fen-b", 50)]
+    const { positions, tagged } = applyEvalTags(pool, [
+      { fen: "fen-b", cp: null, mate: null }, // engine produced no score
+      { fen: "fen-zzz", cp: 500, mate: null }, // not in the pool
+    ])
+    expect(tagged).toBe(0)
+    expect(positions).toEqual(pool)
+  })
+
+  it("pins a mate tag to ±MATE_TAG_CP so buckets stay on scale", () => {
+    const { positions } = applyEvalTags(
+      [pos("fen-a", 0), pos("fen-b", 0)],
+      [
+        { fen: "fen-a", cp: null, mate: 3 },
+        { fen: "fen-b", cp: null, mate: -2 },
+      ],
+    )
+    expect(positions.map((p) => p.eval_cp)).toEqual([MATE_TAG_CP, -MATE_TAG_CP])
+  })
+
+  it("preserves eco/source metadata through the merge", () => {
+    const withEco: TaggedPosition = { ...pos("fen-a", 0), eco: "B90" }
+    const { positions } = applyEvalTags([withEco], [{ fen: "fen-a", cp: 70, mate: null }])
+    expect(positions[0].eco).toBe("B90")
+    expect(positions[0].source).toBe("uho.epd")
+    expect(positions[0].eval_cp).toBe(70)
   })
 })

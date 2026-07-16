@@ -21,6 +21,7 @@ import { DisclosureScreen } from "@chessgui/ui/arena/disclosure-screen"
 import { LobbyScreen } from "@chessgui/ui/arena/lobby-screen"
 import { GameScreen } from "@chessgui/ui/arena/game-screen"
 import { HistoryScreen } from "@chessgui/ui/arena/history-screen"
+import { SharedReplayScreen } from "@chessgui/ui/arena/shared-replay-screen"
 import { ackDisclosure, hasAckedDisclosure } from "@/lib/arena-disclosure"
 import {
   ArenaApiError,
@@ -45,7 +46,7 @@ if (typeof window !== "undefined") {
   if (params.get("mock") === "1") installArenaApiMock()
 }
 
-type ArenaView = "login" | "disclosure" | "lobby" | "game" | "history"
+type ArenaView = "login" | "disclosure" | "lobby" | "game" | "history" | "shared-replay"
 
 export default function ArenaPage() {
   // null until the mount effect resolves auth + disclosure-ack — avoids a
@@ -54,10 +55,23 @@ export default function ArenaPage() {
   const [view, setView] = useState<ArenaView | null>(null)
   const [user, setUser] = useState<ArenaUser | null>(null)
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
+  const [replayToken, setReplayToken] = useState<string | null>(null)
 
   const afterAuthView = useCallback((): ArenaView => (hasAckedDisclosure() ? "lobby" : "disclosure"), [])
 
   useEffect(() => {
+    // Family replay link (spec 217 Tier 2): ?replay=<token> opens the
+    // read-only replay view and skips auth ENTIRELY — the recipient has no
+    // login, and the token (checked server-side, no JWT) is the whole
+    // capability. Checked before the token/login flow so a shared link never
+    // bounces a logged-out family member to the Google sign-in screen.
+    const replay = new URLSearchParams(window.location.search).get("replay")
+    if (replay) {
+      setReplayToken(replay)
+      setView("shared-replay")
+      return
+    }
+
     setUnauthorizedHandler(() => {
       setUser(null)
       setActiveGameId(null)
@@ -152,6 +166,10 @@ export default function ArenaPage() {
           )}
 
           {view === "history" && <HistoryScreen onResume={onGameStarted} onBack={() => setView("lobby")} />}
+
+          {view === "shared-replay" && replayToken !== null && (
+            <SharedReplayScreen token={replayToken} />
+          )}
         </div>
       </TooltipProvider>
     </ErrorBoundary>

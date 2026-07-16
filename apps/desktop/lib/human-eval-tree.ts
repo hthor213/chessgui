@@ -12,8 +12,12 @@ import { getProviders } from "@/lib/platform";
 
 // Extracted to @chessgui/core (spec 220 step 5); re-exported so existing
 // importers keep working.
-import type { HumanTreeOptions, HumanTreeResult } from "@chessgui/core/human-eval-tree-types";
-export type { HumanTreeOptions, HumanTreeResult };
+import type {
+  HumanSweepResult,
+  HumanTreeOptions,
+  HumanTreeResult,
+} from "@chessgui/core/human-eval-tree-types";
+export type { HumanSweepResult, HumanTreeOptions, HumanTreeResult };
 
 /**
  * Display clamp for tree pawns, mirroring tier-0's MATE_PAWNS: the backend
@@ -37,12 +41,57 @@ export function treeInvokeArgs(
   opts: HumanTreeOptions = {}
 ): Record<string, unknown> {
   const args: Record<string, unknown> = { fen, band };
+  if (opts.bandOpening !== undefined) args.bandOpening = opts.bandOpening;
+  if (opts.bandMiddlegame !== undefined) args.bandMiddlegame = opts.bandMiddlegame;
+  if (opts.bandEndgame !== undefined) args.bandEndgame = opts.bandEndgame;
   if (opts.depth !== undefined) args.depth = opts.depth;
   if (opts.topP !== undefined) args.topP = opts.topP;
   if (opts.maxCandidates !== undefined) args.maxCandidates = opts.maxCandidates;
   if (opts.maxNodes !== undefined) args.maxNodes = opts.maxNodes;
   if (opts.leafDepth !== undefined) args.leafDepth = opts.leafDepth;
   return args;
+}
+
+/**
+ * Invoke args for `human_eval_sweep` (pure, vitest-pinned like treeInvokeArgs).
+ * Sweeps the SCALAR slider — per-phase band overrides are meaningless when
+ * the band itself is the swept variable, so only the shape knobs pass through.
+ * The progress channel is added by the desktop provider, not here.
+ */
+export function sweepInvokeArgs(
+  fen: string,
+  bands: number[],
+  opts: HumanTreeOptions = {}
+): Record<string, unknown> {
+  const args: Record<string, unknown> = { fen, bands };
+  if (opts.depth !== undefined) args.depth = opts.depth;
+  if (opts.topP !== undefined) args.topP = opts.topP;
+  if (opts.maxCandidates !== undefined) args.maxCandidates = opts.maxCandidates;
+  if (opts.maxNodes !== undefined) args.maxNodes = opts.maxNodes;
+  if (opts.leafDepth !== undefined) args.leafDepth = opts.leafDepth;
+  return args;
+}
+
+/**
+ * Background sweep across `bands` → the perception curve (spec 213's flagship
+ * visual): Eval_R per slider stop for one position. `onPoint` fires as each
+ * stop lands, so the chart fills in progressively. Shares the backend session
+ * TT with `humanEvalTree` — the selected band's stop is usually cached
+ * already. Starting a new sweep cancels the previous one; a cancelled sweep
+ * resolves (partial points, `cancelled: true`) rather than rejecting.
+ */
+export async function humanEvalSweep(
+  fen: string,
+  bands: number[],
+  opts: HumanTreeOptions = {},
+  onPoint?: (p: HumanTreeResult) => void
+): Promise<HumanSweepResult> {
+  return getProviders().engine.humanEvalSweep(fen, bands, opts, onPoint);
+}
+
+/** Cancel any in-flight sweep (position changed, tree mode off, unmount). */
+export async function humanEvalSweepCancel(): Promise<void> {
+  return getProviders().engine.humanEvalSweepCancel();
 }
 
 /**

@@ -12,14 +12,19 @@ import {
   buildPlayoutResult,
   claimFor,
   claimedScore,
+  egConversion,
+  EG_CONVERSION_WINDOW_DAYS,
   evalPawnsOf,
   expectedScoreFor,
   levelForEloBand,
+  normalizePlayoutResult,
   outcomeScore,
   pickTrainingPlayout,
   playoutUserSide,
   playoutVerdict,
   removePlayoutResult,
+  setPlayoutCountsToward,
+  type PlayoutResultEntry,
 } from "@/lib/playout"
 import { turnOf } from "@/lib/spar"
 
@@ -149,6 +154,7 @@ describe("buildPlayoutResult", () => {
     evalPawns: 2.1,
     userSide: "white" as const,
     level: 1700,
+    mode: "serious" as const,
     plies: 40,
   }
 
@@ -199,6 +205,35 @@ describe("buildPlayoutResult", () => {
   it("returns null on an unknown label (record nothing, never guess)", () => {
     expect(buildPlayoutResult({ ...base, resultLabel: "Game ended (not recorded)" })).toBeNull()
   })
+
+  it("declared intent: serious counts by default, explicit toggle respected", () => {
+    const label = "Checkmate — White wins"
+    expect(buildPlayoutResult({ ...base, resultLabel: label })!.countsTowardTraining).toBe(true)
+    expect(
+      buildPlayoutResult({ ...base, resultLabel: label, countsTowardTraining: false })!
+        .countsTowardTraining,
+    ).toBe(false)
+  })
+
+  it("probe never counts, even when the toggle claims otherwise", () => {
+    const e = buildPlayoutResult({
+      ...base,
+      mode: "probe",
+      resultLabel: "Checkmate — White wins",
+      countsTowardTraining: true,
+    })!
+    expect(e.mode).toBe("probe")
+    expect(e.countsTowardTraining).toBe(false)
+  })
+
+  it("carries the spar anomaly flags (flag, never drop)", () => {
+    const short = buildPlayoutResult({ ...base, plies: 8, resultLabel: "Checkmate — White wins" })!
+    expect(short.anomalyFlags).toContain("short_game")
+    const resign = buildPlayoutResult({ ...base, plies: 10, resultLabel: "You resigned — 0-1" })!
+    expect(resign.anomalyFlags).toContain("early_resign")
+    const clean = buildPlayoutResult({ ...base, resultLabel: "Checkmate — White wins" })!
+    expect(clean.anomalyFlags).toEqual([])
+  })
 })
 
 describe("store operations", () => {
@@ -209,6 +244,7 @@ describe("store operations", () => {
       evalPawns: 6.5,
       userSide: "white",
       level: 1700,
+      mode: "serious",
       plies: 12,
       resultLabel: "Checkmate — White wins",
     })!
@@ -216,6 +252,144 @@ describe("store operations", () => {
     expect(list).toHaveLength(1)
     expect(removePlayoutResult(list, a.id)).toHaveLength(0)
     expect(removePlayoutResult(list, "nope")).toHaveLength(1)
+  })
+})
+
+describe("setPlayoutCountsToward", () => {
+  const entry = (over: Partial<PlayoutResultEntry>): PlayoutResultEntry =>
+    ({
+      ...buildPlayoutResult({
+        source: "training",
+        fen: "8/8/4k3/8/4K3/8/3R4/8 w - - 0 1",
+        evalPawns: 2.1,
+        userSide: "white",
+        level: 1700,
+        mode: "serious",
+        plies: 40,
+        resultLabel: "Checkmate — White wins",
+      })!,
+      ...over,
+    })
+
+  it("flips serious games and stamps reclassifiedAt", () => {
+    const a = entry({ id: "a" })
+    const next = setPlayoutCountsToward([a], "a", false, "2026-07-15T00:00:00Z")
+    expect(next[0].countsTowardTraining).toBe(false)
+    expect(next[0].reclassifiedAt).toBe("2026-07-15T00:00:00Z")
+  })
+
+  it("never flips a probe game to counting", () => {
+    const p = entry({ id: "p", mode: "probe", countsTowardTraining: false })
+    const next = setPlayoutCountsToward([p], "p", true)
+    expect(next[0].countsTowardTraining).toBe(false)
+    expect(next[0].reclassifiedAt).toBeUndefined()
+  })
+
+  it("is a no-op for other ids and unchanged values", () => {
+    const a = entry({ id: "a" })
+    expect(setPlayoutCountsToward([a], "other", false)[0]).toBe(a)
+    expect(setPlayoutCountsToward([a], "a", true)[0]).toBe(a)
+  })
+})
+
+describe("normalizePlayoutResult (legacy entries)", () => {
+  it("backfills serious/counting and recomputes anomaly flags", () => {
+    const legacy = {
+      ...buildPlayoutResult({
+        source: "calibration",
+        fen: "8/8/4k3/8/4K3/8/3R4/8 w - - 0 1",
+        evalPawns: 2.1,
+        userSide: "white",
+        level: 1700,
+        mode: "serious",
+        plies: 8,
+        resultLabel: "Checkmate — White wins",
+      })!,
+    } as Record<string, unknown>
+    delete legacy.mode
+    delete legacy.countsTowardTraining
+    delete legacy.anomalyFlags
+    const n = normalizePlayoutResult(legacy as unknown as PlayoutResultEntry)
+    expect(n.mode).toBe("serious")
+    expect(n.countsTowardTraining).toBe(true)
+    expect(n.anomalyFlags).toContain("short_game")
+  })
+
+  it("leaves entries that already carry the fields untouched", () => {
+    const e = buildPlayoutResult({
+      source: "training",
+      fen: "8/8/4k3/8/4K3/8/3R4/8 w - - 0 1",
+      evalPawns: 2.1,
+      userSide: "white",
+      level: 1700,
+      mode: "probe",
+      plies: 40,
+      resultLabel: "Checkmate — White wins",
+    })!
+    const n = normalizePlayoutResult(e)
+    expect(n.mode).toBe("probe")
+    expect(n.countsTowardTraining).toBe(false)
+    expect(n.anomalyFlags).toEqual(e.anomalyFlags)
+  })
+})
+
+describe("egConversion (verdict aggregation)", () => {
+  const NOW = Date.parse("2026-07-15T12:00:00Z")
+  const game = (over: Partial<PlayoutResultEntry>): PlayoutResultEntry => ({
+    ...buildPlayoutResult({
+      source: "training",
+      fen: "8/8/4k3/8/4K3/8/3R4/8 w - - 0 1",
+      evalPawns: 2.1, // win claim
+      userSide: "white",
+      level: 1700,
+      mode: "serious",
+      plies: 40,
+      resultLabel: "Checkmate — White wins",
+      at: "2026-07-10T10:00:00Z",
+    })!,
+    ...over,
+  })
+
+  it("computes converted / games over counting win-claim playouts", () => {
+    const c = egConversion(
+      [game({}), game({ verdict: "held" }), game({ verdict: "dropped" }), game({})],
+      NOW,
+    )
+    expect(c.games).toBe(4)
+    expect(c.converted).toBe(2)
+    expect(c.held).toBe(1)
+    expect(c.dropped).toBe(1)
+    expect(c.rate).toBeCloseTo(0.5)
+  })
+
+  it("excludes probe, unticked, and hold-claim playouts", () => {
+    const c = egConversion(
+      [
+        game({}),
+        game({ mode: "probe", countsTowardTraining: false }),
+        game({ countsTowardTraining: false }),
+        game({ claim: "draw" }),
+      ],
+      NOW,
+    )
+    expect(c.games).toBe(1)
+    expect(c.rate).toBe(1)
+  })
+
+  it("includes flagged games and reports the count (flag, never drop)", () => {
+    const c = egConversion([game({ anomalyFlags: ["short_game"], verdict: "dropped" })], NOW)
+    expect(c.games).toBe(1)
+    expect(c.flagged).toBe(1)
+    expect(c.rate).toBe(0)
+  })
+
+  it("windows by date and returns null with nothing to measure", () => {
+    const old = game({
+      at: new Date(NOW - (EG_CONVERSION_WINDOW_DAYS + 1) * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    const c = egConversion([old], NOW)
+    expect(c.games).toBe(0)
+    expect(c.rate).toBeNull()
   })
 })
 

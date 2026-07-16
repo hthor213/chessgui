@@ -3,7 +3,8 @@
 // Two refresh paths, both landing in the same MetricPoint store:
 //
 // 1. IN-APP: spar_score is recomputed directly from the locally persisted
-//    spar results (lib/spar-results) — fully automatic, no script.
+//    spar results (lib/spar-results), and eg_conversion from the persisted
+//    playout verdicts (lib/playout) — fully automatic, no script.
 // 2. SCRIPT: maia_rapid / eg_conversion / flag_net come from the monthly
 //    self-analysis pipeline (scripts/measure_monthly.py, the rescued
 //    fetch→engage→analyze→maia→stats chain). The script writes
@@ -22,6 +23,7 @@ import {
   type MetricPoint,
 } from "@/lib/training-program"
 import { sparScore, type SparResultEntry } from "@/lib/spar-results"
+import { egConversion, type PlayoutResultEntry } from "@/lib/playout"
 
 // ---------------------------------------------------------------------------
 // Measurement-file import (the script's output)
@@ -141,5 +143,29 @@ export function sparScorePoint(
     metric: "spar_score",
     value: Math.round(s.score * 1000) / 1000,
     note: `from ${s.games} spar game${s.games === 1 ? "" : "s"}${flaggedNote}`,
+  }
+}
+
+/**
+ * The eg_conversion MetricPoint for the current month, computed from the
+ * stored playout verdicts (lib/playout). Null when no counting win-claim
+ * playouts exist in the window. The note carries provenance ("in-app
+ * playouts") so it never masquerades as the monthly self-analysis pipeline's
+ * number — merging is keyed by (at, metric), so whichever ran last for the
+ * month wins, note attached. Flagged games are INCLUDED and counted in the
+ * note (flag, never drop).
+ */
+export function egConversionPoint(
+  entries: PlayoutResultEntry[],
+  now: number = Date.now(),
+): MetricPoint | null {
+  const c = egConversion(entries, now)
+  if (c.rate === null) return null
+  const flaggedNote = c.flagged > 0 ? `, ${c.flagged} flagged` : ""
+  return {
+    at: monthLabel(new Date(now)),
+    metric: "eg_conversion",
+    value: Math.round(c.rate * 1000) / 1000,
+    note: `from ${c.games} in-app playout${c.games === 1 ? "" : "s"}${flaggedNote}`,
   }
 }

@@ -10,14 +10,20 @@ import {
   FULL_STRENGTH_REASON,
   MOVE_BUDGET,
   POLICY_PERSONA_REASON,
+  asEloCurve,
   bAt,
+  curveForEngine,
   deltaElo,
+  engineEquivalenceLines,
   equivalenceLine,
   equivalentSeconds,
+  machineMinSeconds,
+  npsForEngine,
   paceFloor,
   paceStrength,
   secondsPerMoveOf,
   type EloCurve,
+  type SpeedProfileLike,
 } from "@chessgui/core/time-elo"
 
 const L2 = (x: number) => Math.log2(x)
@@ -160,6 +166,85 @@ describe("equivalenceLine — spec 216 Tier 2 display", () => {
     expect(equivalenceLine(DEFAULT_PRIOR_CURVE, { hostname: "x", nps: 0 }, server)).toBeNull()
     expect(equivalenceLine(DEFAULT_PRIOR_CURVE, laptop, { hostname: "x", nps: 0 })).toBeNull()
     expect(equivalenceLine(DEFAULT_PRIOR_CURVE, laptop, server, 0)).toBeNull()
+  })
+})
+
+describe("per-engine curves & profile plumbing — spec 216 Tier 2", () => {
+  const sfCurve = { source: "measured", b: 70, machine_min_seconds: 0.062 }
+  const rkCurve = { source: "measured", b: [{ log2Sec: 0, b: 50 }] }
+  const laptop: SpeedProfileLike & { hostname: string } = {
+    hostname: "laptop",
+    engine_name: "Stockfish 18",
+    nps: 800_000,
+    curve: sfCurve,
+    engines: {
+      "Stockfish 18": { nps: 800_000, curve: sfCurve },
+      "Reckless 0.9": { nps: 2_000_000, curve: rkCurve },
+    },
+  }
+  const server: SpeedProfileLike & { hostname: string } = {
+    hostname: "homeserver",
+    engine_name: "Stockfish 17",
+    nps: 3_200_000,
+    engines: {
+      "Stockfish 18": { nps: 3_200_000 },
+      "Maia 1500": { nps: 100_000 },
+    },
+  }
+
+  it("asEloCurve accepts constant and anchored curves, rejects junk", () => {
+    expect(asEloCurve(sfCurve)?.b).toBe(70)
+    expect(asEloCurve(rkCurve)?.source).toBe("measured")
+    expect(asEloCurve(DEFAULT_PRIOR_CURVE)).toBe(DEFAULT_PRIOR_CURVE)
+    expect(asEloCurve(null)).toBeNull()
+    expect(asEloCurve("measured")).toBeNull()
+    expect(asEloCurve({ source: "vibes", b: 70 })).toBeNull()
+    expect(asEloCurve({ source: "measured", b: "70" })).toBeNull()
+    expect(asEloCurve({ source: "measured", b: [{ log2Sec: "0", b: 50 }] })).toBeNull()
+  })
+
+  it("curveForEngine: engine's own curve → top-level → prior", () => {
+    expect(curveForEngine(laptop, "Reckless 0.9")).toBe(rkCurve)
+    // Engine without its own curve falls to the top-level one…
+    expect(curveForEngine({ ...laptop, engines: { X: {} } }, "X")).toBe(sfCurve)
+    // …and a bare/absent profile falls to the prior.
+    expect(curveForEngine(null, "Stockfish 18")).toBe(DEFAULT_PRIOR_CURVE)
+    expect(curveForEngine({ hostname: "new" })).toBe(DEFAULT_PRIOR_CURVE)
+  })
+
+  it("npsForEngine: entry nps → top-level nps → 0", () => {
+    expect(npsForEngine(laptop, "Reckless 0.9")).toBe(2_000_000)
+    expect(npsForEngine(laptop, "never-benched")).toBe(800_000)
+    expect(npsForEngine(laptop)).toBe(800_000)
+    expect(npsForEngine(null, "Stockfish 18")).toBe(0)
+  })
+
+  it("machineMinSeconds reads the ladder floor off the curve, else the fallback", () => {
+    expect(machineMinSeconds(sfCurve, 0.05)).toBe(0.062)
+    expect(machineMinSeconds(rkCurve, 0.05)).toBe(0.05) // fitted pre-floor
+    expect(machineMinSeconds(null, 0.05)).toBe(0.05)
+    expect(machineMinSeconds({ machine_min_seconds: -1 }, 0.05)).toBe(0.05)
+  })
+
+  it("engineEquivalenceLines: one line per shared engine, at that engine's nps", () => {
+    const lines = engineEquivalenceLines(laptop, server)
+    // Only "Stockfish 18" is on both machines (sorted key order).
+    expect(lines).toEqual([
+      {
+        engine: "Stockfish 18",
+        // 60 × 3.2M / 0.8M = 240s on the laptop.
+        line: "homeserver 60s/move ≈ laptop 240s/move",
+      },
+    ])
+  })
+
+  it("engineEquivalenceLines: empty when either side lacks per-engine benches", () => {
+    expect(engineEquivalenceLines(laptop, { hostname: "old", nps: 1_000_000 })).toEqual([])
+    expect(engineEquivalenceLines({ hostname: "new" }, server)).toEqual([])
+    // A shared name whose entry has no nps must NOT fall back to the
+    // top-level (different engine's) figure — it's skipped instead.
+    const partial = { hostname: "p", nps: 9_999_999, engines: { "Stockfish 18": {} } }
+    expect(engineEquivalenceLines(laptop, partial)).toEqual([])
   })
 })
 

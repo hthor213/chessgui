@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import type { SparColor } from "@/lib/spar"
+import type { SparResultMode } from "@/lib/spar-results"
 import {
   appendPlayoutResult,
   buildPlayoutResult,
@@ -37,13 +38,19 @@ export interface PlayoutRecorderArgs {
   evalPawns: number
   userSide: SparColor
   level: number
+  /** Declared intent (spec 215): serious feeds eg_conversion, probe never. */
+  mode: SparResultMode
   plies: number
   /** Changes on every new game (e.g. the board nonce) — the once-per-game key. */
   gameKey: number | string
+  /** The playout config's "Counts toward training" toggle, already forced
+   *  false by the caller for probe games — passed straight through to
+   *  buildPlayoutResult, which also enforces "probe never counts" itself. */
+  countsTowardTraining: boolean
 }
 
 export function usePlayoutRecorder(args: PlayoutRecorderArgs): PlayoutResultEntry | null {
-  const { active, over, resultLabel, source, fen, evalPawns, userSide, level, plies, gameKey } = args
+  const { active, over, resultLabel, source, fen, evalPawns, userSide, level, mode, plies, gameKey, countsTowardTraining } = args
   const recordedRef = useRef<{ key: number | string; id: string } | null>(null)
   const [entry, setEntry] = useState<PlayoutResultEntry | null>(null)
 
@@ -56,7 +63,7 @@ export function usePlayoutRecorder(args: PlayoutRecorderArgs): PlayoutResultEntr
     if (!active) return
 
     if (over && resultLabel && !recordedRef.current) {
-      const built = buildPlayoutResult({ source, fen, evalPawns, userSide, level, resultLabel, plies })
+      const built = buildPlayoutResult({ source, fen, evalPawns, userSide, level, mode, resultLabel, plies, countsTowardTraining })
       if (!built) return // unknown label — record nothing rather than guess
       persistPlayoutResults(appendPlayoutResult(loadPlayoutResults(), built))
       recordedRef.current = { key: gameKey, id: built.id }
@@ -70,7 +77,7 @@ export function usePlayoutRecorder(args: PlayoutRecorderArgs): PlayoutResultEntr
       recordedRef.current = null
       setEntry(null)
     }
-  }, [active, over, resultLabel, source, fen, evalPawns, userSide, level, plies, gameKey])
+  }, [active, over, resultLabel, source, fen, evalPawns, userSide, level, mode, plies, gameKey, countsTowardTraining])
 
   return entry
 }

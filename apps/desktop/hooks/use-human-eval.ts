@@ -1,8 +1,19 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import type { PvLine } from "@chessgui/core/uci-parser";
-import { maiaStatus, maiaPolicy, type MaiaStatus, type MaiaPolicy } from "@/lib/maia";
+import {
+  maiaStatus,
+  maiaPolicy,
+  MAIA_SLIDER_BANDS,
+  type MaiaStatus,
+  type MaiaPolicy,
+} from "@/lib/maia";
 import { computeHumanEval, type HumanEvalResult } from "@/lib/human-eval";
-import { humanEvalTree, type HumanTreeResult } from "@/lib/human-eval-tree";
+import {
+  humanEvalTree,
+  humanEvalSweep,
+  humanEvalSweepCancel,
+  type HumanTreeResult,
+} from "@/lib/human-eval-tree";
 import { getProviders } from "@/lib/platform";
 
 const STORAGE_KEY = "human-eval-band";
@@ -10,8 +21,16 @@ const TREE_STORAGE_KEY = "human-eval-tree";
 const DEBOUNCE_MS = 150;
 /** Tier-1 debounce: longer than tier-0 — a tree search costs ~0.2–4 s. */
 const TREE_DEBOUNCE_MS = 400;
+/**
+ * Sweep debounce: longer still, so the selected band's tree search wins the
+ * shared backend TT lock first (its stop then comes from the cache when the
+ * sweep reaches it) and stepping through moves never launches throwaway
+ * sweeps of every stop.
+ */
+const SWEEP_DEBOUNCE_MS = 1200;
 const CACHE_LIMIT = 64;
 const TREE_CACHE_LIMIT = 32;
+const SWEEP_CACHE_LIMIT = 16;
 
 /** Persisted slider state: a band, or null for OFF (pure Stockfish). */
 function loadBand(): number | null {
@@ -69,6 +88,14 @@ export interface UseHumanEval {
   treeResult: HumanTreeResult | null;
   treeLoading: boolean;
   treeError: string | null;
+  /**
+   * Perception-curve points for the current position (spec 213's flagship
+   * visual): one tree result per slider stop, ascending by band, filling in
+   * as the background sweep lands them. Null until the sweep starts.
+   */
+  sweepPoints: HumanTreeResult[] | null;
+  sweepLoading: boolean;
+  sweepError: string | null;
 }
 
 /**
@@ -94,6 +121,9 @@ export function useHumanEval({
   );
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState<string | null>(null);
+  const [sweep, setSweep] = useState<{ fen: string; points: HumanTreeResult[] } | null>(null);
+  const [sweepLoading, setSweepLoading] = useState(false);
+  const [sweepError, setSweepError] = useState<string | null>(null);
 
   const cacheRef = useRef<Map<string, MaiaPolicy>>(new Map());
   const reqIdRef = useRef(0);
@@ -101,6 +131,9 @@ export function useHumanEval({
   const treeCacheRef = useRef<Map<string, HumanTreeResult>>(new Map());
   const treeReqIdRef = useRef(0);
   const treeDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const sweepCacheRef = useRef<Map<string, HumanTreeResult[]>>(new Map());
+  const sweepReqIdRef = useRef(0);
+  const sweepDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Availability + persisted band, once on mount.
   useEffect(() => {
@@ -225,6 +258,70 @@ export function useHumanEval({
     };
   }, [analysisFen, band, tree, available, engineRunning]);
 
+  // Perception-curve sweep (spec 213 Phase 3, the flagship visual): with tree
+  // mode on, sweep every slider stop for the current position in the
+  // background. Points stream in one stop at a time — the chart fills in
+  // progressively. Keyed on the position ONLY (`sweepEnabled` collapses the
+  // gating flags), so moving the slider never restarts a sweep; the backend
+  // cancels a superseded sweep per node, and the shared transposition table
+  // means a restart resumes roughly where the old sweep stopped.
+  const sweepEnabled = tree && band !== null && available && engineRunning;
+  useEffect(() => {
+    if (sweepDebounceRef.current) clearTimeout(sweepDebounceRef.current);
+
+    if (!sweepEnabled || !analysisFen) {
+      setSweepLoading(false);
+      return;
+    }
+
+    const fen = analysisFen;
+    const hit = sweepCacheRef.current.get(fen);
+    if (hit) {
+      setSweep({ fen, points: hit });
+      setSweepLoading(false);
+      setSweepError(null);
+      return;
+    }
+
+    const reqId = ++sweepReqIdRef.current;
+    let launched = false;
+    setSweepLoading(true);
+    sweepDebounceRef.current = setTimeout(() => {
+      launched = true;
+      setSweep({ fen, points: [] });
+      setSweepError(null);
+      humanEvalSweep(fen, [...MAIA_SLIDER_BANDS], {}, (p) => {
+        if (reqId !== sweepReqIdRef.current) return; // superseded
+        setSweep((cur) =>
+          cur && cur.fen === fen ? { fen, points: [...cur.points, p] } : { fen, points: [p] }
+        );
+      })
+        .then((r) => {
+          if (reqId !== sweepReqIdRef.current) return;
+          if (!r.cancelled) {
+            const c = sweepCacheRef.current;
+            c.set(fen, r.points);
+            if (c.size > SWEEP_CACHE_LIMIT) c.delete(c.keys().next().value as string);
+            setSweep({ fen, points: r.points });
+            setSweepError(null);
+          }
+          setSweepLoading(false);
+        })
+        .catch((e) => {
+          if (reqId !== sweepReqIdRef.current) return;
+          setSweepError(String(e));
+          setSweepLoading(false);
+        });
+    }, SWEEP_DEBOUNCE_MS);
+
+    return () => {
+      if (sweepDebounceRef.current) clearTimeout(sweepDebounceRef.current);
+      // Free the backend promptly: a stale sweep would otherwise hold the
+      // shared TT lock (and both engines) for seconds per remaining stop.
+      if (launched) humanEvalSweepCancel().catch(() => {});
+    };
+  }, [analysisFen, sweepEnabled]);
+
   // Recompute the blend from the current policy + live Stockfish lines. Cheap
   // and pure, so it re-runs on every depth tick without touching lc0.
   const result = useMemo<HumanEvalResult | null>(() => {
@@ -240,6 +337,12 @@ export function useHumanEval({
     return cachedTree.result;
   }, [tree, band, cachedTree, analysisFen]);
 
+  // Sweep points only count for the position on screen.
+  const sweepPoints = useMemo<HumanTreeResult[] | null>(() => {
+    if (!sweepEnabled || !sweep || sweep.fen !== analysisFen) return null;
+    return sweep.points;
+  }, [sweepEnabled, sweep, analysisFen]);
+
   return {
     available,
     status,
@@ -253,5 +356,8 @@ export function useHumanEval({
     treeResult,
     treeLoading,
     treeError,
+    sweepPoints,
+    sweepLoading,
+    sweepError,
   };
 }

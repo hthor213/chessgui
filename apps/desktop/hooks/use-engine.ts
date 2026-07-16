@@ -144,6 +144,12 @@ export function useEngine(
   // access. The default (undefined = "caller didn't say") resolves to
   // engine OFF, per the spec's conservative stance.
   activeGame: ActiveGameMeta | null | undefined = undefined,
+  // Spec 900 multi-engine comparison: which engine slot this hook instance
+  // drives (core/engine-session.ts). Absent = the default (main analysis)
+  // engine — the pre-900 behavior. Must stay CONSTANT for the lifetime of
+  // the hook instance: the output subscription and the persisted engine-path
+  // key are bound to it at mount.
+  sessionId?: string,
 ) {
   const [state, setState] = useState<EngineState>(initialState);
   // Settings start at defaults for SSR consistency; hydrated from
@@ -212,8 +218,8 @@ export function useEngine(
     const loaded = loadEngineSettings();
     settingsRef.current = loaded;
     setSettings(loaded);
-    setEnginePathState(loadEnginePath());
-  }, []);
+    setEnginePathState(loadEnginePath(sessionId));
+  }, [sessionId]);
 
   const sendCommand = useCallback(async (cmd: string) => {
     // Layer-1 gate at the single point every UCI command funnels through;
@@ -225,11 +231,11 @@ export function useEngine(
     }
     try {
       console.log("[engine] >>", cmd);
-      await getProviders().engine.sendCommand(cmd, engineContextTag(activeGameRef.current));
+      await getProviders().engine.sendCommand(cmd, engineContextTag(activeGameRef.current), sessionId);
     } catch (e) {
       console.error("[engine] send failed:", cmd, e);
     }
-  }, []);
+  }, [sessionId]);
 
   // Send Hash/Threads to the engine if they differ from what it already has.
   // Only call between searches (after "stop" + "isready").
@@ -363,14 +369,14 @@ export function useEngine(
         console.warn("[engine]", ENGINE_LOCKED_MESSAGE);
         return;
       }
-      const requestedPath = path || loadEnginePath();
+      const requestedPath = path || loadEnginePath(sessionId);
       const engine = getProviders().engine;
       const context = engineContextTag(activeGameRef.current);
 
       let result: { name: string; ready: boolean };
       try {
-        result = await engine.startEngine(requestedPath, context);
-        saveEnginePath(requestedPath);
+        result = await engine.startEngine(requestedPath, context, sessionId);
+        saveEnginePath(requestedPath, sessionId);
         setEnginePathState(requestedPath);
       } catch (e) {
         // A stale stored path (e.g. an engine binary that has since moved or been
@@ -378,14 +384,14 @@ export function useEngine(
         // not already the shell's default, clear it and retry with the default.
         if (requestedPath !== defaultEnginePath()) {
           console.warn(`Engine path "${requestedPath}" failed (${e}); retrying with default.`);
-          clearEnginePath();
+          clearEnginePath(sessionId);
           try {
-            result = await engine.startEngine(defaultEnginePath(), context);
+            result = await engine.startEngine(defaultEnginePath(), context, sessionId);
           } catch (retryErr) {
             console.error("Failed to start engine:", retryErr);
             throw new Error(defaultEngineFailedMessage(retryErr));
           }
-          saveEnginePath(defaultEnginePath());
+          saveEnginePath(defaultEnginePath(), sessionId);
           setEnginePathState(defaultEnginePath());
         } else {
           console.error("Failed to start engine:", e);
@@ -433,7 +439,7 @@ export function useEngine(
         throw e;
       }
     },
-    [sendCommand, applyEngineOptions, startAnalysis, requestMove],
+    [sendCommand, applyEngineOptions, startAnalysis, requestMove, sessionId],
   );
 
   // Persist new settings and apply them to a running engine. Hash/Threads
@@ -471,26 +477,26 @@ export function useEngine(
   const updateEnginePath = useCallback(
     async (path: string) => {
       if (path === enginePath) return;
-      saveEnginePath(path);
+      saveEnginePath(path, sessionId);
       setEnginePathState(path);
       if (!state.isRunning) return;
 
-      await getProviders().engine.stopEngine().catch(() => {});
+      await getProviders().engine.stopEngine(sessionId).catch(() => {});
       isAnalyzingRef.current = false;
       await startEngine(path, modeRef.current, playerColorRef.current);
     },
-    [enginePath, state.isRunning, startEngine],
+    [enginePath, state.isRunning, startEngine, sessionId],
   );
 
   const stopEngine = useCallback(async () => {
     try {
-      await getProviders().engine.stopEngine();
+      await getProviders().engine.stopEngine(sessionId);
     } catch {
       // ignore
     }
     isAnalyzingRef.current = false;
     setState(initialState);
-  }, []);
+  }, [sessionId]);
 
   const cancelThinking = useCallback(async () => {
     thinkingRef.current = false;
@@ -566,7 +572,8 @@ export function useEngine(
     }
   }, [stopAnalysis, startAnalysis]);
 
-  // Subscribe to engine output events
+  // Subscribe to THIS session's engine output events (spec 900: each engine
+  // slot has its own line stream, so two hook instances never cross-read).
   useEffect(() => {
     let cancelled = false;
 
@@ -650,7 +657,7 @@ export function useEngine(
           nps: info.nps ?? s.nps,
         };
       });
-    }).then((unlisten) => {
+    }, sessionId).then((unlisten) => {
       if (cancelled) {
         unlisten();
       } else {
@@ -663,7 +670,7 @@ export function useEngine(
       unlistenRef.current?.();
       unlistenRef.current = null;
     };
-  }, []);
+  }, [sessionId]);
 
   // Auto-analyze on position change (debounced) / auto-play in play mode
   useEffect(() => {
@@ -723,12 +730,12 @@ export function useEngine(
     }
   }, [engineLocked, state.isRunning, stopEngine]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — stops only THIS instance's session.
   useEffect(() => {
     return () => {
-      getProviders().engine.stopEngine().catch(() => {});
+      getProviders().engine.stopEngine(sessionId).catch(() => {});
     };
-  }, []);
+  }, [sessionId]);
 
   return {
     state,

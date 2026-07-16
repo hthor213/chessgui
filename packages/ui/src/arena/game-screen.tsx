@@ -1,9 +1,14 @@
 "use client"
 
-// Persona Arena game screen (spec 217 Tier 0): board, thinking indicator
+// Persona Arena game screen (spec 217): board, thinking indicator
 // (spec 217 "Failure modes & latency" — target under ~2s per persona move),
-// numbered move list, resign. No clock (Tier 0 — spec 217 Tiers lists
-// "clocks with increment" as a Tier 1 item) and no draw-offer control: the
+// numbered move list, resign, and — spec 217 Tier 1 — per-game clocks with
+// increment. The clock is server-authoritative: the server returns each
+// side's remaining ms adjusted to the response moment, this screen only
+// counts the running side down locally and asks the server to adjudicate
+// (a plain GET) when it sees zero — flag = loss is decided server-side,
+// never locally. Clockless games (every pre-clock game, or "No clock"
+// chosen in the lobby) render exactly as before. No draw-offer control: the
 // real backend (server/arena/app/persona.py, its own "honest inventory"
 // docstring) explicitly does not implement a draw/resign model beyond
 // resign — "a human opponent adjudicates their own games". Automatic
@@ -30,8 +35,16 @@ import { Avatar, AvatarFallback } from "@chessgui/ui/ui/avatar"
 import { Button } from "@chessgui/ui/ui/button"
 import { initialsFor } from "@/lib/roster"
 import { dragToUci, turnOf } from "@/lib/spar"
-import { ArenaApiError, getArenaApi, type ArenaGameState, type ArenaMove } from "@chessgui/core/arena-api"
-import { arenaStatusLabel, pairArenaMoves } from "@/lib/arena-moves"
+import {
+  ArenaApiError,
+  getArenaApi,
+  type ArenaColor,
+  type ArenaGameState,
+  type ArenaMove,
+  type ArenaRealismVerdict,
+} from "@chessgui/core/arena-api"
+import { ShareReplayControl } from "@chessgui/ui/arena/share-replay"
+import { arenaStatusLabel, formatClockMs, pairArenaMoves, timeControlLabel } from "@/lib/arena-moves"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -49,6 +62,33 @@ function legalDests(fen: string): Map<Key, Key[]> {
   const pos = Chess.fromSetup(setup.unwrap())
   if (pos.isErr) return new Map()
   return chessgroundDests(pos.unwrap()) as Map<Key, Key[]>
+}
+
+function ClockFace({
+  name,
+  ms,
+  active,
+  testid,
+}: {
+  name: string
+  ms: number
+  active: boolean
+  testid: string
+}) {
+  const low = active && ms < 20_000
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 ${
+        active ? "border-white/25 bg-white/[0.06]" : "border-white/10 bg-white/[0.02] opacity-70"
+      }`}
+      data-testid={testid}
+    >
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">{name}</div>
+      <div className={`font-mono text-lg tabular-nums ${low ? "text-red-400" : ""}`}>
+        {formatClockMs(ms)}
+      </div>
+    </div>
+  )
 }
 
 export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => void }) {
@@ -73,6 +113,19 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
   const feedbackConfirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(feedbackConfirmTimer.current), [])
 
+  // Post-game "felt like him" verdict (spec 217 Tier 2) — whole-game realism
+  // on the game-over panel, distinct from the per-move never-feedback above.
+  // One tap submits the verdict; the note is optional depth afterwards, and
+  // re-submitting (either button, or Save note) updates the same server row
+  // (game_feedback upserts on game_id).
+  const [realismVerdict, setRealismVerdict] = useState<ArenaRealismVerdict | null>(null)
+  const [realismNote, setRealismNote] = useState("")
+  const [realismBusy, setRealismBusy] = useState(false)
+  const [realismError, setRealismError] = useState<string | null>(null)
+  const [realismSaved, setRealismSaved] = useState(false)
+  const realismSavedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(realismSavedTimer.current), [])
+
   const load = useCallback(async () => {
     setLoadError(null)
     try {
@@ -93,9 +146,47 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
   useEffect(() => () => clearTimeout(slowTimer.current), [])
 
   const playerSide = game?.playerColor ?? "white"
+  const personaSide: ArenaColor = playerSide === "white" ? "black" : "white"
   const fen = game?.fen ?? ""
   const frozen = !game || game.status !== "active"
   const userToMove = !!game && !frozen && turnOf(fen) === playerSide && !thinking
+
+  // Clock (spec 217 Tier 1). The server's whiteMs/blackMs are already
+  // adjusted to the moment the response was built, so the running side's
+  // display is just that value minus the time since this state arrived.
+  const clock = game?.clock ?? null
+  const clockBaseAt = useMemo(() => Date.now(), [game])
+  const [, setClockTick] = useState(0)
+  useEffect(() => {
+    if (!clock?.running) return
+    const t = setInterval(() => setClockTick((n) => n + 1), 200)
+    return () => clearInterval(t)
+  }, [clock])
+  const displayMs = useCallback(
+    (color: ArenaColor) => {
+      if (!clock) return 0
+      const stored = color === "white" ? clock.whiteMs : clock.blackMs
+      if (clock.running !== color) return stored
+      return Math.max(0, stored - (Date.now() - clockBaseAt))
+    },
+    [clock, clockBaseAt],
+  )
+
+  // When the player's own clock hits zero, ask the server once — it
+  // adjudicates the flag (GET runs `_flag_if_overdue`) and the finished
+  // state comes back. Never end the game locally: the server clock is the
+  // only honest one.
+  const flagPolled = useRef(false)
+  const playerDisplayMs = clock ? displayMs(playerSide) : null
+  useEffect(() => {
+    if (!clock || playerDisplayMs === null) return
+    if (playerDisplayMs > 0) {
+      flagPolled.current = false
+    } else if (clock.running === playerSide && !flagPolled.current) {
+      flagPolled.current = true
+      load()
+    }
+  }, [clock, playerDisplayMs, playerSide, load])
 
   const legalMoves = useMemo(
     () => (userToMove ? legalDests(fen) : new Map<Key, Key[]>()),
@@ -187,6 +278,26 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
     }
   }, [game, feedbackPly, feedbackNote])
 
+  const submitRealism = useCallback(
+    async (verdict: ArenaRealismVerdict) => {
+      if (!game) return
+      setRealismBusy(true)
+      setRealismError(null)
+      try {
+        await getArenaApi().submitGameRealism(game.id, verdict, realismNote.trim())
+        setRealismVerdict(verdict)
+        setRealismSaved(true)
+        clearTimeout(realismSavedTimer.current)
+        realismSavedTimer.current = setTimeout(() => setRealismSaved(false), 2000)
+      } catch (e) {
+        setRealismError(e instanceof ArenaApiError ? e.message : "Couldn't record that — try again.")
+      } finally {
+        setRealismBusy(false)
+      }
+    },
+    [game, realismNote],
+  )
+
   const feedbackTarget = useMemo(
     () => (feedbackPly === null ? null : (game?.moves ?? []).find((m) => m.ply === feedbackPly) ?? null),
     [feedbackPly, game?.moves],
@@ -251,7 +362,9 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
             <AvatarFallback className="text-[10px]">{initialsFor(game.persona)}</AvatarFallback>
           </Avatar>
           <span className="text-sm font-medium">{game.persona}</span>
-          <span className="text-xs text-muted-foreground">No clock (Tier 0)</span>
+          <span className="text-xs text-muted-foreground" data-testid="arena-timecontrol">
+            {clock ? timeControlLabel(clock.initialS, clock.incrementS) : "No clock"}
+          </span>
         </div>
         <Button variant="ghost" size="sm" onClick={onExit} data-testid="arena-game-lobby">
           ‹ Lobby
@@ -271,6 +384,23 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
         </div>
 
         <div className="w-full md:w-72 md:shrink-0 flex flex-col gap-4 md:overflow-auto">
+          {clock && (
+            <div className="grid grid-cols-2 gap-2" data-testid="arena-clocks">
+              <ClockFace
+                name={game.persona}
+                ms={displayMs(personaSide)}
+                active={clock.running === personaSide}
+                testid="arena-clock-persona"
+              />
+              <ClockFace
+                name="You"
+                ms={displayMs(playerSide)}
+                active={clock.running === playerSide}
+                testid="arena-clock-player"
+              />
+            </div>
+          )}
+
           <div className="text-sm" data-testid="arena-turn">
             {label ? (
               <span className="text-amber-300 font-medium" data-testid="arena-status">
@@ -291,6 +421,89 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
               <span className="text-muted-foreground">Waiting…</span>
             )}
           </div>
+
+          {/* Game-over panel (spec 217 Tier 2): one-tap whole-game realism
+              verdict + the family replay link. Only once the game is
+              finished — the verdict is about the completed game (the server
+              409s while active), and share tokens exist for finished games
+              only. */}
+          {game.status === "finished" && (
+            <div
+              className="rounded-lg border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-3"
+              data-testid="arena-gameover-panel"
+            >
+              <div className="flex flex-col gap-1.5" data-testid="arena-realism">
+                <span className="text-xs text-muted-foreground">
+                  Did {game.persona} play like himself?
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="arena-realism-felt"
+                    disabled={realismBusy}
+                    onClick={() => submitRealism("felt_like")}
+                    className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                      realismVerdict === "felt_like"
+                        ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+                        : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    }`}
+                  >
+                    Felt like him
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="arena-realism-not"
+                    disabled={realismBusy}
+                    onClick={() => submitRealism("did_not_feel_like")}
+                    className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                      realismVerdict === "did_not_feel_like"
+                        ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                        : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    }`}
+                  >
+                    Didn&apos;t feel like him
+                  </button>
+                </div>
+                {realismVerdict !== null && (
+                  <div className="flex flex-col gap-1.5" data-testid="arena-realism-form">
+                    <textarea
+                      data-testid="arena-realism-note"
+                      className="w-full bg-white/[0.03] border border-white/10 rounded-md px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-white/20"
+                      rows={2}
+                      placeholder="Because… (optional)"
+                      value={realismNote}
+                      onChange={(e) => setRealismNote(e.target.value)}
+                    />
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => submitRealism(realismVerdict)}
+                        disabled={realismBusy}
+                        data-testid="arena-realism-save"
+                      >
+                        Save note
+                      </Button>
+                      {realismSaved && (
+                        <span className="text-xs text-emerald-300/80" data-testid="arena-realism-confirm">
+                          Noted — this tunes the next persona iteration.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {realismError && (
+                  <p className="text-xs text-red-400" data-testid="arena-realism-error">
+                    {realismError}
+                  </p>
+                )}
+              </div>
+
+              <div className="border-t border-white/10 pt-3">
+                <ShareReplayControl gameId={game.id} />
+              </div>
+            </div>
+          )}
 
           {moveError && (
             <p className="text-xs text-red-400" data-testid="arena-move-error">

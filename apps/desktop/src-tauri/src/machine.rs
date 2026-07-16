@@ -9,6 +9,7 @@
 //! `curve` means the literature prior is still in effect; the Tier-1 time-odds
 //! ladder overwrites it once it has measured `b(t)` here.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -43,6 +44,27 @@ pub struct BenchResult {
     pub duration_ms: u64,
 }
 
+/// One engine's speed measurement on this machine (spec 216 Tier 2
+/// "per-engine curves": Reckless and Stockfish differ in nps AND in `b(t)`,
+/// so each gets its own entry). Every field has a serde default so a
+/// partially-written entry — e.g. `fit_curve.py` landing a curve for an
+/// engine before it has been benched here — still parses.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EngineSpeed {
+    #[serde(default)]
+    pub engine_path: String,
+    #[serde(default)]
+    pub nps: u64,
+    #[serde(default)]
+    pub threads: usize,
+    /// ISO-8601 UTC timestamp of this engine's bench.
+    #[serde(default)]
+    pub measured_at: String,
+    /// This engine's measured `b(t)` curve, or null while the prior applies.
+    #[serde(default)]
+    pub curve: Option<serde_json::Value>,
+}
+
 /// The persisted per-machine profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineProfile {
@@ -64,6 +86,13 @@ pub struct MachineProfile {
     /// effect. Filled by the Tier-1 ladder; opaque here (`serde_json::Value`) so
     /// this Tier-0 code needn't know the fitted shape.
     pub curve: Option<serde_json::Value>,
+    /// Per-engine measurements keyed by engine `id name` (spec 216 Tier 2
+    /// "per-engine curves"). The top-level engine_name/nps/curve stay the
+    /// most recent bench for legacy consumers; this map keeps every engine's
+    /// figures side by side. Empty on profiles that predate it —
+    /// `machine_profile_get` seeds it from the top-level fields.
+    #[serde(default)]
+    pub engines: BTreeMap<String, EngineSpeed>,
 }
 
 /// `Nodes/second` from an engine `bench` summary. Scans every line for the field
@@ -245,6 +274,57 @@ fn now_iso() -> String {
 // Tauri command layer
 // ---------------------------------------------------------------------------
 
+/// Fold a fresh bench into the previous profile (pure, so it's testable).
+/// Measured curves — top-level and per-engine — survive only while the old
+/// profile still describes this hardware: a same-fingerprint re-bench keeps
+/// MEASURED (and the other engines' entries), a hardware change drops the
+/// whole per-engine map, since every stored nps/curve is a fact about the
+/// old silicon (spec 216 Tier 2). The benched engine's entry is upserted;
+/// its own curve is kept from the previous entry (a bench remeasures speed,
+/// not the ladder's b(t)).
+fn merge_bench(
+    prev: Option<MachineProfile>,
+    bench: &BenchResult,
+    path: &str,
+    fingerprint: &str,
+    hostname: String,
+    measured_at: String,
+) -> MachineProfile {
+    let same_hw = prev
+        .as_ref()
+        .is_some_and(|p| !p.hw_fingerprint.is_empty() && p.hw_fingerprint == fingerprint);
+    let (curve, mut engines) = match prev {
+        Some(p) if same_hw => (p.curve, p.engines),
+        _ => (None, BTreeMap::new()),
+    };
+
+    let engine_curve = engines
+        .get(&bench.engine_name)
+        .and_then(|e| e.curve.clone());
+    engines.insert(
+        bench.engine_name.clone(),
+        EngineSpeed {
+            engine_path: path.to_string(),
+            nps: bench.nps,
+            threads: bench.threads,
+            measured_at: measured_at.clone(),
+            curve: engine_curve,
+        },
+    );
+
+    MachineProfile {
+        hostname,
+        engine_name: bench.engine_name.clone(),
+        engine_path: path.to_string(),
+        nps: bench.nps,
+        threads: bench.threads,
+        measured_at,
+        hw_fingerprint: fingerprint.to_string(),
+        curve,
+        engines,
+    }
+}
+
 /// Benchmark the engine on this machine, persist a fresh machine profile to
 /// `<app_data_dir>/machine_profile.json`, and return the bench result. The new
 /// profile starts with `curve: null` (literature prior in effect).
@@ -260,30 +340,43 @@ pub async fn machine_bench(
     let bench = run_bench(&path).await?;
     let file = profile_path(&app)?;
 
-    // A measured curve survives a re-bench only while it still describes this
-    // hardware: same-fingerprint re-bench keeps MEASURED, a hardware change
-    // resets to PRIOR until the Tier-1 ladder reruns (spec 216 Tier 2).
-    let fingerprint = hardware_fingerprint();
-    let curve = read_profile(&file)
-        .ok()
-        .flatten()
-        .filter(|p| !p.hw_fingerprint.is_empty() && p.hw_fingerprint == fingerprint)
-        .and_then(|p| p.curve);
-
-    let profile = MachineProfile {
-        hostname: hostname(),
-        engine_name: bench.engine_name.clone(),
-        engine_path: path,
-        nps: bench.nps,
-        threads: bench.threads,
-        measured_at: now_iso(),
-        hw_fingerprint: fingerprint,
-        curve,
-    };
+    let prev = read_profile(&file).ok().flatten();
+    let profile = merge_bench(
+        prev,
+        &bench,
+        &path,
+        &hardware_fingerprint(),
+        hostname(),
+        now_iso(),
+    );
 
     write_profile(&file, &profile)?;
 
     Ok(bench)
+}
+
+/// The top-level fields are one engine's figures; seed/backfill that engine's
+/// per-engine map entry so per-engine consumers (spec 216 Tier 2) see the same
+/// measurement. Covers both pre-map profiles (no entry at all) and curve-only
+/// entries fit_curve.py landed before a bench filled in nps. Returns true when
+/// the profile changed (caller persists it).
+fn seed_engine_entry(profile: &mut MachineProfile) -> bool {
+    if profile.nps == 0 {
+        return false;
+    }
+    let engine_name = profile.engine_name.clone();
+    let entry = profile.engines.entry(engine_name).or_default();
+    if entry.nps != 0 {
+        return false;
+    }
+    entry.engine_path = profile.engine_path.clone();
+    entry.nps = profile.nps;
+    entry.threads = profile.threads;
+    entry.measured_at = profile.measured_at.clone();
+    if entry.curve.is_none() {
+        entry.curve = profile.curve.clone();
+    }
+    true
 }
 
 /// The stored machine profile, or null if none has been measured yet.
@@ -294,11 +387,18 @@ pub fn machine_profile_get(app: tauri::AppHandle) -> Result<Option<MachineProfil
         Some(p) => p,
         None => return Ok(None),
     };
+    let mut dirty = false;
     // Profiles that predate fingerprinting were measured on this machine, so
     // stamp the current fingerprint in place instead of forcing a re-bench
     // that would wipe a measured curve back to PRIOR.
     if profile.hw_fingerprint.is_empty() {
         profile.hw_fingerprint = hardware_fingerprint();
+        dirty = true;
+    }
+    if seed_engine_entry(&mut profile) {
+        dirty = true;
+    }
+    if dirty {
         write_profile(&file, &profile)?;
     }
     Ok(Some(profile))
@@ -475,6 +575,7 @@ Nodes/second    : 1853879
             measured_at: "2026-07-15T00:00:00Z".to_string(),
             hw_fingerprint: "AMD Ryzen | 16 cores | 32G".to_string(),
             curve: None,
+            engines: BTreeMap::new(),
         }
     }
 
@@ -516,6 +617,8 @@ Nodes/second    : 1853879
 
     /// A profile written before fingerprinting (no `hw_fingerprint` key) still
     /// parses — serde default gives the empty string that marks it for stamping.
+    /// Same for the per-engine map (spec 216 Tier 2): absent = empty, and
+    /// `machine_profile_get` seeds it from the top-level fields.
     #[test]
     fn legacy_profile_parses_without_fingerprint() {
         let legacy = r#"{
@@ -529,5 +632,148 @@ Nodes/second    : 1853879
         }"#;
         let profile: MachineProfile = serde_json::from_str(legacy).unwrap();
         assert_eq!(profile.hw_fingerprint, "");
+        assert!(profile.engines.is_empty());
+    }
+
+    /// A per-engine entry written by fit_curve.py before that engine was
+    /// benched (curve only, no nps) still parses via the field defaults.
+    #[test]
+    fn partial_engine_entry_parses() {
+        let entry: EngineSpeed =
+            serde_json::from_str(r#"{"curve": {"source": "measured", "b": 70}}"#).unwrap();
+        assert_eq!(entry.nps, 0);
+        assert!(entry.curve.is_some());
+    }
+
+    fn bench_result(engine_name: &str, nps: u64) -> BenchResult {
+        BenchResult {
+            nps,
+            threads: 1,
+            engine_name: engine_name.to_string(),
+            duration_ms: 1000,
+        }
+    }
+
+    fn merge(prev: Option<MachineProfile>, bench: &BenchResult, fp: &str) -> MachineProfile {
+        merge_bench(
+            prev,
+            bench,
+            "/tmp/engine",
+            fp,
+            "test-host".to_string(),
+            "2026-07-15T12:00:00Z".to_string(),
+        )
+    }
+
+    /// Benching a second engine adds its entry beside the first and keeps
+    /// both curves; the top-level fields track the newest bench.
+    #[test]
+    fn merge_bench_keeps_other_engines_on_same_hw() {
+        let fp = "fp-A";
+        let sf_curve = serde_json::json!({"source": "measured", "b": 70});
+        let mut prev = sample_profile();
+        prev.hw_fingerprint = fp.to_string();
+        prev.curve = Some(sf_curve.clone());
+        prev.engines.insert(
+            "Stockfish 17".to_string(),
+            EngineSpeed {
+                engine_path: "/usr/bin/stockfish".to_string(),
+                nps: 4_000_000,
+                threads: 1,
+                measured_at: "2026-07-15T00:00:00Z".to_string(),
+                curve: Some(sf_curve.clone()),
+            },
+        );
+
+        let merged = merge(Some(prev), &bench_result("Reckless 0.9", 2_000_000), fp);
+        assert_eq!(merged.engine_name, "Reckless 0.9");
+        assert_eq!(merged.nps, 2_000_000);
+        assert_eq!(merged.curve, Some(sf_curve.clone())); // top-level survives
+        assert_eq!(merged.engines.len(), 2);
+        assert_eq!(merged.engines["Stockfish 17"].curve, Some(sf_curve));
+        assert!(merged.engines["Reckless 0.9"].curve.is_none());
+    }
+
+    /// Re-benching the SAME engine on the same hardware refreshes its nps but
+    /// keeps its ladder-measured curve.
+    #[test]
+    fn merge_bench_rebench_keeps_engine_curve() {
+        let fp = "fp-A";
+        let curve = serde_json::json!({"source": "measured", "b": 70});
+        let mut prev = sample_profile();
+        prev.hw_fingerprint = fp.to_string();
+        prev.engines.insert(
+            "Stockfish 17".to_string(),
+            EngineSpeed {
+                curve: Some(curve.clone()),
+                ..EngineSpeed::default()
+            },
+        );
+
+        let merged = merge(Some(prev), &bench_result("Stockfish 17", 5_000_000), fp);
+        assert_eq!(merged.engines["Stockfish 17"].nps, 5_000_000);
+        assert_eq!(merged.engines["Stockfish 17"].curve, Some(curve));
+    }
+
+    /// Legacy profiles (no per-engine map) get their top-level figures seeded
+    /// into an entry; a curve-only entry (fit_curve.py before a bench) gets
+    /// the speed fields backfilled but keeps its own curve; a complete entry
+    /// is left alone.
+    #[test]
+    fn seed_engine_entry_backfills() {
+        // Legacy: no entry at all -> full seed, including the top-level curve.
+        let mut legacy = sample_profile();
+        legacy.curve = Some(serde_json::json!({"source": "measured", "b": 70}));
+        assert!(seed_engine_entry(&mut legacy));
+        let entry = &legacy.engines["Stockfish 17"];
+        assert_eq!(entry.nps, 4_000_000);
+        assert_eq!(entry.curve, legacy.curve);
+        // Second call: nothing left to do.
+        assert!(!seed_engine_entry(&mut legacy));
+
+        // Curve-only entry: speed fields backfill, its own curve wins.
+        let own_curve = serde_json::json!({"source": "measured", "b": 50});
+        let mut partial = sample_profile();
+        partial.engines.insert(
+            "Stockfish 17".to_string(),
+            EngineSpeed {
+                curve: Some(own_curve.clone()),
+                ..EngineSpeed::default()
+            },
+        );
+        assert!(seed_engine_entry(&mut partial));
+        let entry = &partial.engines["Stockfish 17"];
+        assert_eq!(entry.nps, 4_000_000);
+        assert_eq!(entry.curve, Some(own_curve));
+
+        // Never-benched machine (nps 0): no seeding.
+        let mut unbenched = sample_profile();
+        unbenched.nps = 0;
+        assert!(!seed_engine_entry(&mut unbenched));
+        assert!(unbenched.engines.is_empty());
+    }
+
+    /// A hardware change invalidates every stored nps and curve: the whole
+    /// per-engine map (and the top-level curve) reset — back to PRIOR until
+    /// the ladder reruns on the new silicon.
+    #[test]
+    fn merge_bench_hw_change_drops_curves_and_engines() {
+        let curve = serde_json::json!({"source": "measured", "b": 70});
+        let mut prev = sample_profile();
+        prev.hw_fingerprint = "fp-OLD".to_string();
+        prev.curve = Some(curve.clone());
+        prev.engines.insert(
+            "Stockfish 17".to_string(),
+            EngineSpeed {
+                curve: Some(curve),
+                ..EngineSpeed::default()
+            },
+        );
+
+        let merged = merge(Some(prev), &bench_result("Stockfish 17", 3_000_000), "fp-NEW");
+        assert!(merged.curve.is_none());
+        assert_eq!(merged.engines.len(), 1);
+        assert!(merged.engines["Stockfish 17"].curve.is_none());
+        assert_eq!(merged.hw_fingerprint, "fp-NEW");
     }
 }

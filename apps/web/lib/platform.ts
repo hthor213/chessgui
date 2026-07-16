@@ -19,7 +19,8 @@
 // mount (NEXT_PUBLIC_ARENA_API_BASE, next.config.mjs).
 
 import { registerProviders } from "@chessgui/core/platform"
-import type { PlatformProviders } from "@chessgui/core/platform"
+import type { EngineStartResult, PlatformProviders } from "@chessgui/core/platform"
+import { DEFAULT_ENGINE_SESSION } from "@chessgui/core/engine-session"
 import { browserProviders } from "../../desktop/lib/platform/browser"
 import {
   WASM_ENGINE_PATH,
@@ -38,6 +39,15 @@ export function isTauri(): boolean {
   return false
 }
 
+// The WASM worker is ONE engine — only the default session is backed. A
+// non-default session (spec 900's second-engine compare slot, desktop-only —
+// hasNativeEngine gates its UI off here) is refused/no-oped rather than
+// silently sharing the single worker, so a stray sessioned caller can never
+// hijack or kill the main analysis engine.
+function isDefaultSession(sessionId?: string): boolean {
+  return !sessionId || sessionId === DEFAULT_ENGINE_SESSION
+}
+
 const webProviders: PlatformProviders = {
   ...browserProviders,
   engine: {
@@ -45,10 +55,27 @@ const webProviders: PlatformProviders = {
     // hasNativeEngine stays false: it gates the NATIVE-host features
     // (machine bench/profile, spec 221 v1-OUT), not analysis itself.
     defaultEnginePath: WASM_ENGINE_PATH,
-    startEngine: startWasmEngine, // the WASM build is the only engine — path ignored
-    sendCommand: sendWasmCommand,
-    stopEngine: stopWasmEngine,
-    onEngineLine: onWasmEngineLine,
+    // the WASM build is the only engine — path ignored
+    startEngine(_path: string, _context?: string, sessionId?: string): Promise<EngineStartResult> {
+      if (!isDefaultSession(sessionId)) {
+        return Promise.reject(
+          new Error("Only one engine runs in the browser — side-by-side comparison needs the desktop app"),
+        )
+      }
+      return startWasmEngine()
+    },
+    sendCommand(command: string, _context?: string, sessionId?: string): Promise<void> {
+      if (!isDefaultSession(sessionId)) return Promise.resolve()
+      return sendWasmCommand(command)
+    },
+    stopEngine(sessionId?: string): Promise<void> {
+      if (!isDefaultSession(sessionId)) return Promise.resolve()
+      return stopWasmEngine()
+    },
+    onEngineLine(onLine: (line: string) => void, sessionId?: string): Promise<() => void> {
+      if (!isDefaultSession(sessionId)) return Promise.resolve(() => {})
+      return onWasmEngineLine(onLine)
+    },
   },
 }
 

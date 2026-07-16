@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+  clearEnginePath,
   defaultEngineSettings,
+  loadEnginePath,
   loadEngineSettings,
+  saveEnginePath,
   saveEngineSettings,
 } from "@/lib/engine-settings";
 
@@ -64,5 +67,41 @@ describe("engine settings — arrows default + migration (spec 202 bugfix)", () 
     expect(raw.version).toBe(2);
     // Round-trips: the saved choice is now authoritative.
     expect(loadEngineSettings().showArrows).toBe(true);
+  });
+});
+
+describe("engine path — per-session keys (spec 900 multi-engine comparison)", () => {
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = installFakeStorage();
+  });
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).window;
+    delete (globalThis as Record<string, unknown>).localStorage;
+  });
+
+  it("keeps the default session on the historical bare key", () => {
+    saveEnginePath("/engines/stockfish");
+    expect(store.get("engine-path")).toBe("/engines/stockfish");
+    expect(loadEnginePath()).toBe("/engines/stockfish");
+  });
+
+  it("persists a session's pick under its own suffixed key", () => {
+    saveEnginePath("/engines/stockfish");
+    saveEnginePath("/engines/reckless", "compare");
+    expect(store.get("engine-path:compare")).toBe("/engines/reckless");
+    // The two slots never clobber each other.
+    expect(loadEnginePath()).toBe("/engines/stockfish");
+    expect(loadEnginePath("compare")).toBe("/engines/reckless");
+  });
+
+  it("clears only the addressed session's pick", () => {
+    saveEnginePath("/engines/stockfish");
+    saveEnginePath("/engines/reckless", "compare");
+    clearEnginePath("compare");
+    expect(store.has("engine-path:compare")).toBe(false);
+    expect(loadEnginePath()).toBe("/engines/stockfish");
   });
 });

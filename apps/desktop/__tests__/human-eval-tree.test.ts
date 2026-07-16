@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import {
   clampTreePawns,
+  sweepInvokeArgs,
   treeInvokeArgs,
   TREE_MATE_PAWNS,
 } from "@/lib/human-eval-tree";
@@ -21,6 +22,9 @@ describe("treeInvokeArgs", () => {
 
   it("maps every knob to the Rust command's camelCase parameter names", () => {
     const args = treeInvokeArgs("fen", 1300, {
+      bandOpening: 1100,
+      bandMiddlegame: 1300,
+      bandEndgame: 1500,
       depth: 2,
       topP: 0.9,
       maxCandidates: 3,
@@ -30,6 +34,9 @@ describe("treeInvokeArgs", () => {
     expect(args).toEqual({
       fen: "fen",
       band: 1300,
+      bandOpening: 1100,
+      bandMiddlegame: 1300,
+      bandEndgame: 1500,
       depth: 2,
       topP: 0.9,
       maxCandidates: 3,
@@ -38,9 +45,56 @@ describe("treeInvokeArgs", () => {
     });
   });
 
+  it("omits per-phase bands when unset — the scalar band is the linked R⃗", () => {
+    const args = treeInvokeArgs("fen", 1500);
+    expect(args).not.toHaveProperty("bandOpening");
+    expect(args).not.toHaveProperty("bandMiddlegame");
+    expect(args).not.toHaveProperty("bandEndgame");
+  });
+
   it("keeps explicit zero-ish values distinct from unset", () => {
     // depth 1 is the minimum meaningful depth and must not be dropped.
     expect(treeInvokeArgs("fen", 1100, { depth: 1 })).toHaveProperty("depth", 1);
+  });
+});
+
+describe("sweepInvokeArgs", () => {
+  it("passes only fen and bands when no options are set (backend owns defaults)", () => {
+    expect(sweepInvokeArgs("fen", [1100, 1300, 1500])).toEqual({
+      fen: "fen",
+      bands: [1100, 1300, 1500],
+    });
+  });
+
+  it("maps shape knobs to the Rust command's camelCase parameter names", () => {
+    expect(
+      sweepInvokeArgs("fen", [1100, 1900], {
+        depth: 2,
+        topP: 0.9,
+        maxCandidates: 3,
+        maxNodes: 50,
+        leafDepth: 8,
+      }),
+    ).toEqual({
+      fen: "fen",
+      bands: [1100, 1900],
+      depth: 2,
+      topP: 0.9,
+      maxCandidates: 3,
+      maxNodes: 50,
+      leafDepth: 8,
+    });
+  });
+
+  it("never forwards per-phase bands — the band IS the swept variable", () => {
+    const args = sweepInvokeArgs("fen", [1100], {
+      bandOpening: 1100,
+      bandMiddlegame: 1300,
+      bandEndgame: 1500,
+    });
+    expect(args).not.toHaveProperty("bandOpening");
+    expect(args).not.toHaveProperty("bandMiddlegame");
+    expect(args).not.toHaveProperty("bandEndgame");
   });
 });
 

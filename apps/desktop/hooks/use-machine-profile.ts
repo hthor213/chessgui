@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getProviders } from "@/lib/platform";
+import { curveForEngine, npsForEngine, type EloCurve } from "@chessgui/core/time-elo";
 
 // Extracted to @chessgui/core (spec 220 step 5); re-exported so existing
 // importers keep working.
-import type { BenchResult, MachineProfile } from "@chessgui/core/machine-profile-types";
-export type { BenchResult, MachineProfile };
+import type { BenchResult, EngineSpeed, MachineProfile } from "@chessgui/core/machine-profile-types";
+export type { BenchResult, EngineSpeed, MachineProfile };
 
 /** The user's configured engine, matching what the rest of the app benches with. */
 function storedEnginePath(): string | undefined {
@@ -156,6 +157,18 @@ export function useMachineProfile() {
     };
   }, [refresh, refreshRemotes, runBench]);
 
+  // Engine-specific speed lookup (spec 216 Tier 2 "per-engine curves"): the
+  // benched nps and b(t) curve for one engine by UCI `id name` — Reckless and
+  // Stockfish differ in both — falling back to the profile's top-level
+  // (last-benched) figures, then the literature prior. nps 0 = never benched.
+  const speedFor = useCallback(
+    (engineName?: string | null): { nps: number; curve: EloCurve } => ({
+      nps: npsForEngine(profile, engineName),
+      curve: curveForEngine(profile, engineName),
+    }),
+    [profile],
+  );
+
   // Follow benches performed by other instances of this hook.
   useEffect(() => {
     if (!getProviders().engine.hasNativeEngine) return;
@@ -168,5 +181,5 @@ export function useMachineProfile() {
     return () => window.removeEventListener(PROFILE_UPDATED_EVENT, onUpdated);
   }, [refresh, refreshRemotes]);
 
-  return { profile, remoteProfiles, benching, error, hwChanged, runBench, importProfile, removeProfile };
+  return { profile, remoteProfiles, benching, error, hwChanged, runBench, importProfile, removeProfile, speedFor };
 }

@@ -28,6 +28,7 @@ import {
   isOk,
   summarizeErrors,
   parseOpeningPositions,
+  applyEvalTags,
   uciSquares,
   averageEvalByPly,
   gameEvalSeries,
@@ -47,6 +48,7 @@ import {
   type EngineCurveBin,
   type StartMode,
   type TaggedPosition,
+  type PositionTag,
   type EvalPoint,
   type LiveFrame,
   type ViewerControls,
@@ -59,6 +61,7 @@ import {
   type SavedTournamentMeta,
   type PairCell,
 } from "@chessgui/core/tournament"
+import { matchesEcoQuery } from "@chessgui/core/eco"
 import { replayFens, movesToPgn, sansFromUci, numberMoves, type NumberedPly } from "@chessgui/core/game-replay"
 import { deriveWinProbCurve, type MoveSwing, type WinProbCurve } from "@chessgui/core/win-prob"
 import {
@@ -94,8 +97,11 @@ import { Slider } from "@chessgui/ui/ui/slider"
 import { Badge } from "@chessgui/ui/ui/badge"
 import { EvalBar } from "@chessgui/ui/eval-bar"
 import {
-  DEFAULT_PRIOR_CURVE,
+  asEloCurve,
+  curveForEngine,
+  engineEquivalenceLines,
   equivalenceLine,
+  machineMinSeconds,
   paceFloor,
   paceStrength,
   secondsPerMoveOf,
@@ -129,10 +135,10 @@ const PLAYBACK_FORMATS: { id: string; label: string; baseS: number; incS: number
 
 // Playback-pace floor (spec 216 UI:2, tier-0 checklist 216:75): the slower of
 // an observability floor (games blitz by too fast to watch below this) and
-// 1.25x the machine's minimum compute time per move. Tier 0 has no measured
-// per-move minimum yet (MachineProfile carries nps, not a move-time floor), so
-// machineMinSeconds is a conservative placeholder until the Tier-1 time-odds
-// ladder measures it directly.
+// 1.25x the machine's minimum compute time per move. The machine minimum is
+// the LADDER-MEASURED floor (`machine_min_seconds` on the fitted curve —
+// the fastest rung fit_curve.py saw complete cleanly) once one exists; this
+// tier-0 constant is the conservative placeholder until then.
 const OBSERVABILITY_FLOOR_SECONDS = 0.3
 const TIER0_MACHINE_MIN_SECONDS = 0.05
 
@@ -215,6 +221,19 @@ async function loadPositions(): Promise<TaggedPosition[]> {
   return positionsCache
 }
 
+// Session cache for the in-app eval-tagging pass (spec 210 Phase 3: "stores
+// (fen, eval_cp) in a session cache"): FEN -> engine tag, module-level like
+// positionsCache above so re-tagging the same pool (or an overlapping one)
+// within a session never re-evaluates a position.
+const sessionEvalTags = new Map<string, PositionTag>()
+
+/** Fixed tagging depth (spec 210 Phase 3's example depth); mirrors the Rust
+ *  command's DEFAULT_TAG_DEPTH — sent explicitly so the two can't drift. */
+const TAG_DEPTH = 12
+
+/** Progress event from the `tag_positions` command (mirrors Rust `TagProgress`). */
+type TagProgress = { completed: number; total: number }
+
 export function TournamentTab({
   onRunningChange,
   onLiveUpdate,
@@ -291,7 +310,9 @@ export function TournamentTab({
   // Prefer this machine's measured b(t) curve once the Tier-1 ladder has fitted
   // one; fall back to the literature prior until then (spec 216:28-30). The
   // PRIOR/MEASURED badge reads its provenance straight off `curve.source`.
-  const curve = (machineProfile.profile?.curve as EloCurve | null) ?? DEFAULT_PRIOR_CURVE
+  // (Top-level curve = the last-benched engine's; per-engine curves surface in
+  // the machine-profile card's equivalence rows via `engineEquivalenceLines`.)
+  const curve = curveForEngine(machineProfile.profile)
   // Adjudicate <=7-man positions via the tablebase (perfect play) — fair, since
   // any engine can bolt on a 7-man tablebase for free.
   const [adjudicateTb, setAdjudicateTb] = useState(true)
@@ -339,6 +360,19 @@ export function TournamentTab({
     { name: string; positions: TaggedPosition[]; tagged: number; skipped: number } | null
   >(null)
   const [positionsError, setPositionsError] = useState<string | null>(null)
+  // In-app eval-tagging pass state (spec 210 Phase 3): running flag + live
+  // per-position progress. The tag results themselves live in the module-level
+  // sessionEvalTags cache.
+  const [tagging, setTagging] = useState(false)
+  const [tagProgress, setTagProgress] = useState<TagProgress | null>(null)
+  // ECO/opening filter over the position pool (spec 210 Phase 6 "filter by
+  // ECO code, opening family"): a code prefix ("B9") or a name substring
+  // ("najdorf"). Empty = no filter. Only positions carrying an `eco` tag
+  // (EPD eco opcode) can match.
+  const [ecoFilter, setEcoFilter] = useState("")
+  // Per-game UCI Threads for both engines (spec 210 Phase 6 "engine thread
+  // count per game"); 1 = engine default (nothing sent).
+  const [threadsPerEngine, setThreadsPerEngine] = useState("1")
 
   const [running, setRunning] = useState(false)
   // Round-robin run state, lifted here so the head-to-head Run / exhibition
@@ -405,6 +439,8 @@ export function TournamentTab({
         if (typeof c.paceTargetSeconds === "number" && Number.isFinite(c.paceTargetSeconds)) {
           setPaceTargetSeconds(c.paceTargetSeconds)
         }
+        if (c.threadsPerEngine != null) setThreadsPerEngine(String(c.threadsPerEngine))
+        if (typeof c.ecoFilter === "string") setEcoFilter(c.ecoFilter)
         if (typeof c.adjudicateTb === "boolean") setAdjudicateTb(c.adjudicateTb)
         if (typeof c.useEvaluator === "boolean") setUseEvaluator(c.useEvaluator)
         if (c.evaluatorPath) setEvaluatorPath(healPath(c.evaluatorPath) as string)
@@ -422,9 +458,9 @@ export function TournamentTab({
   }, [])
   useEffect(() => {
     if (!restored.current) return // don't clobber saved config before restore runs
-    const c = { sideAId, sideBId, firstWhite, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current, autoStartNext, moveDelayMs }
+    const c = { sideAId, sideBId, firstWhite, mode, minEval, maxEval, nGames, concurrency, threadsPerEngine, ecoFilter, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, evalBarTouched: evalBarTouched.current, autoStartNext, moveDelayMs }
     getProviders().storage.set("chessgui-tournament-config", JSON.stringify(c))
-  }, [sideAId, sideBId, firstWhite, mode, minEval, maxEval, nGames, concurrency, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, autoStartNext, moveDelayMs])
+  }, [sideAId, sideBId, firstWhite, mode, minEval, maxEval, nGames, concurrency, threadsPerEngine, ecoFilter, tcId, customBaseS, customIncS, paceTargetSeconds, adjudicateTb, useEvaluator, evaluatorPath, showEvalBar, autoStartNext, moveDelayMs])
 
   // Face-value clock (ms) implied by the current time-control selection —
   // BEFORE playback-pace compression (spec 216 UI:1). This is what the format
@@ -448,8 +484,10 @@ export function TournamentTab({
     () => secondsPerMoveOf({ baseSeconds: faceClockConfig.baseMs / 1000, incrementSeconds: faceClockConfig.incMs / 1000 }),
     [faceClockConfig],
   )
-  const machineMinSeconds = TIER0_MACHINE_MIN_SECONDS // no measured per-move floor yet (216 Tier 1)
-  const paceFloorSeconds = Math.max(OBSERVABILITY_FLOOR_SECONDS, paceFloor(machineMinSeconds))
+  // Ladder-measured per-move floor once fit_curve.py has stamped one onto the
+  // profile's curve; the tier-0 placeholder until then (216 Tier 1).
+  const minComputeSeconds = machineMinSeconds(machineProfile.profile?.curve, TIER0_MACHINE_MIN_SECONDS)
+  const paceFloorSeconds = Math.max(OBSERVABILITY_FLOOR_SECONDS, paceFloor(minComputeSeconds))
   const paceHasRoom = faceSecondsPerMove > paceFloorSeconds
   // The user's saved target, clamped into the current format's range so it
   // survives format changes without a stale/out-of-range slider position.
@@ -554,6 +592,66 @@ export function TournamentTab({
     }
   }, [])
 
+  // In-app eval-tagging pass (spec 210 Phase 3 "Eval-tagging step"): re-score
+  // the ACTIVE pool (the picked file, else the curated set) with the evaluator
+  // engine at a fixed depth, before a run. Positions already in the session
+  // cache are skipped (never re-evaluated); the merged pool lands in
+  // customPositions state — the exact pool run()/runExhibition() prefer — so a
+  // curated-set re-tag materializes as "Curated set (re-tagged)" and the "Use
+  // curated set" button still restores the original labels.
+  const tagEvals = useCallback(async () => {
+    setPositionsError(null)
+    setTagging(true)
+    setTagProgress(null)
+    try {
+      const pool = customPositions?.positions ?? (await loadPositions())
+      const name = customPositions?.name ?? "Curated set (re-tagged)"
+      const uncached = pool.filter((p) => !sessionEvalTags.has(p.fen)).map((p) => p.fen)
+      if (uncached.length > 0) {
+        const progress = new Channel<TagProgress>()
+        progress.onmessage = (p: TagProgress) => setTagProgress(p)
+        const tags = await invoke<PositionTag[]>("tag_positions", {
+          enginePath: evaluatorPath,
+          fens: uncached,
+          depth: TAG_DEPTH,
+          onProgress: progress,
+        })
+        for (const t of tags) sessionEvalTags.set(t.fen, t)
+      }
+      const cached = pool
+        .map((p) => sessionEvalTags.get(p.fen))
+        .filter((t): t is PositionTag => t !== undefined)
+      const { positions, tagged } = applyEvalTags(pool, cached)
+      setCustomPositions({
+        name,
+        positions,
+        tagged,
+        skipped: customPositions?.skipped ?? 0,
+      })
+    } catch (e) {
+      setPositionsError(String(e))
+    } finally {
+      setTagging(false)
+      setTagProgress(null)
+    }
+  }, [customPositions, evaluatorPath])
+
+  // Live readout for the ECO filter: how much of the active pool matches.
+  // Falls back to the module-level curated cache when no file is picked; if
+  // the curated set hasn't been fetched yet the count simply isn't shown
+  // (it materializes after the first run/tagging pass touches it).
+  const ecoStats = useMemo(() => {
+    const q = ecoFilter.trim()
+    if (q === "") return null
+    const pool = customPositions?.positions ?? positionsCache
+    if (!pool) return null
+    return {
+      total: pool.length,
+      withEco: pool.filter((p) => p.eco).length,
+      matches: pool.filter((p) => matchesEcoQuery(p.eco, q)).length,
+    }
+  }, [customPositions, ecoFilter])
+
   // The two fixed engine options + the roster (spec 218 decision 5): one flat
   // dropdown per side, kind-prefixed labels. `engines` folds in the live
   // version once resolved ("engine: stockfish 18"); before that it reads
@@ -625,6 +723,7 @@ export function TournamentTab({
       // Coerce the free-text numeric fields with sensible fallbacks/clamps.
       const nGamesNum = Math.max(2, Math.min(10000, Math.round(Number(nGames) || 100)))
       const concurrencyNum = Math.max(0, Math.round(Number(concurrency) || 0))
+      const threadsNum = Math.max(1, Math.min(64, Math.round(Number(threadsPerEngine) || 1)))
 
       // Resolve the time control (game clock, engine-managed) — the EFFECTIVE
       // (post-playback-pace) clock: face value base/increment both divided by
@@ -641,10 +740,24 @@ export function TournamentTab({
       // "normal"/"current" don't need the tagged-position set — skip the
       // fetch. A user-picked EPD/FEN file (spec 210 Phase 3) replaces the
       // curated pool for this run.
-      const positions =
+      const rawPositions =
         mode === "normal" || mode === "current"
           ? []
           : customPositions?.positions ?? (await loadPositions())
+      // ECO/opening filter (spec 210 Phase 6): only eco-tagged positions can
+      // match. An active filter that matches nothing aborts loudly here —
+      // buildSeeds would otherwise silently fall back to the standard start.
+      const ecoQ = ecoFilter.trim()
+      const positions =
+        ecoQ !== "" && (mode === "book" || mode === "eval")
+          ? rawPositions.filter((p) => matchesEcoQuery(p.eco, ecoQ))
+          : rawPositions
+      if (ecoQ !== "" && (mode === "book" || mode === "eval") && positions.length === 0) {
+        throw new Error(
+          `ECO filter "${ecoQ}" matches no positions in the current pool ` +
+            `(only positions with an EPD eco opcode can match — the curated set has none).`,
+        )
+      }
       const nSeeds = seedsForGames(nGamesNum)
       const seeds = buildSeeds(mode, nSeeds, positions, lo, hi, currentFen ?? null)
       // Current-position mode keeps its own board-bottom-color control
@@ -665,6 +778,9 @@ export function TournamentTab({
         adjudicateTb,
         flipFirst,
       )
+      // Per-game engine thread count (spec 210 Phase 6): only sent when
+      // raised above 1, so the default path is byte-for-byte the old payload.
+      if (threadsNum > 1) for (const s of specs) s.threads = threadsNum
       evalByIdRef.current = evalById
 
       const total = specs.length
@@ -894,7 +1010,7 @@ export function TournamentTab({
       setNowTs(Date.now()) // freeze elapsed at the final value
       setRunning(false)
     }
-  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, effectiveBaseMs, effectiveIncMs, concurrency, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, customPositions, onLiveUpdate])
+  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, effectiveBaseMs, effectiveIncMs, concurrency, threadsPerEngine, ecoFilter, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, customPositions, onLiveUpdate])
 
   // --- Exhibition ("Watch two bots play") — spec 218 "Exhibition framing" ---
   // A batch of 1 through the SAME `play_batch` runner (no separate code path
@@ -924,10 +1040,19 @@ export function TournamentTab({
       const b = Number.isFinite(Number(maxEval)) ? Math.abs(Number(maxEval)) : 1.5
       const lo = Math.min(a, b)
       const hi = Math.max(a, b)
-      const positions =
+      const rawPositions =
         mode === "normal" || mode === "current"
           ? []
           : customPositions?.positions ?? (await loadPositions())
+      // Same ECO filter as the batch run above (spec 210 Phase 6).
+      const ecoQ = ecoFilter.trim()
+      const positions =
+        ecoQ !== "" && (mode === "book" || mode === "eval")
+          ? rawPositions.filter((p) => matchesEcoQuery(p.eco, ecoQ))
+          : rawPositions
+      if (ecoQ !== "" && (mode === "book" || mode === "eval") && positions.length === 0) {
+        throw new Error(`ECO filter "${ecoQ}" matches no positions in the current pool.`)
+      }
       const seeds = buildSeeds(mode, 1, positions, lo, hi, currentFen ?? null)
       const seed: Seed = seeds[0] ?? { fen: null, eval: 0 }
 
@@ -944,6 +1069,9 @@ export function TournamentTab({
         MAX_PLIES,
         adjudicateTb,
       )
+      // Same per-game thread count as the batch run (spec 210 Phase 6).
+      const threadsNum = Math.max(1, Math.min(64, Math.round(Number(threadsPerEngine) || 1)))
+      if (threadsNum > 1) spec.threads = threadsNum
       const startFen = seed.fen ?? STANDARD_START_FEN
       setExhibitionStartFen(startFen)
       setExhibitionFen(startFen)
@@ -986,7 +1114,7 @@ export function TournamentTab({
     } finally {
       setExhibitionRunning(false)
     }
-  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, effectiveBaseMs, effectiveIncMs, adjudicateTb, useEvaluator, evaluatorPath, moveDelayMs, currentFen, customPositions])
+  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, effectiveBaseMs, effectiveIncMs, adjudicateTb, useEvaluator, evaluatorPath, moveDelayMs, currentFen, customPositions, ecoFilter, threadsPerEngine])
 
   const cancel = useCallback(async () => {
     try {
@@ -1251,7 +1379,7 @@ export function TournamentTab({
               variant="outline"
               size="sm"
               onClick={runExhibition}
-              disabled={running || exhibitionRunning || rrRunning}
+              disabled={running || exhibitionRunning || rrRunning || tagging}
             >
               {exhibitionRunning ? "Watching…" : "Watch two bots play"}
             </Button>
@@ -1417,7 +1545,7 @@ export function TournamentTab({
                   variant="outline"
                   size="sm"
                   onClick={pickPositionsFile}
-                  disabled={running}
+                  disabled={running || tagging}
                 >
                   Choose EPD/FEN file…
                 </Button>
@@ -1426,12 +1554,63 @@ export function TournamentTab({
                     variant="ghost"
                     size="sm"
                     onClick={() => setCustomPositions(null)}
-                    disabled={running}
+                    disabled={running || tagging}
                   >
                     Use curated set
                   </Button>
                 )}
+                <Button
+                  data-testid="tournament-tag-evals"
+                  variant="outline"
+                  size="sm"
+                  onClick={tagEvals}
+                  disabled={running || tagging || exhibitionRunning || rrRunning}
+                >
+                  {tagging
+                    ? tagProgress
+                      ? `Tagging… ${tagProgress.completed} / ${tagProgress.total}`
+                      : "Tagging…"
+                    : `Tag evals (depth ${TAG_DEPTH})`}
+                </Button>
               </div>
+              <span className="text-xs text-muted-foreground">
+                Tag evals re-scores the active pool with the evaluator engine at a
+                fixed depth before a run — fresh evals, not the file&apos;s labels.
+                Already-tagged positions are cached for the session.
+              </span>
+              {/* ECO/opening filter (spec 210 Phase 6): code prefix or name
+                  substring; only eco-tagged positions (EPD eco opcode) match. */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <label className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">ECO filter</span>
+                  <input
+                    data-testid="tournament-eco-filter"
+                    className="w-44 bg-background border border-input rounded-md px-2 py-1 text-xs text-foreground"
+                    placeholder={'e.g. "B90" or "najdorf"'}
+                    value={ecoFilter}
+                    onChange={(e) => setEcoFilter(e.target.value)}
+                    disabled={running || tagging}
+                    spellCheck={false}
+                  />
+                </label>
+                {ecoStats && (
+                  <span
+                    data-testid="tournament-eco-matches"
+                    className={`text-xs ${ecoStats.matches === 0 ? "text-amber-400" : "text-muted-foreground"}`}
+                  >
+                    matches {ecoStats.matches} of {ecoStats.total} positions
+                    {ecoStats.withEco < ecoStats.total &&
+                      ` (${ecoStats.total - ecoStats.withEco} without an ECO tag are excluded)`}
+                  </span>
+                )}
+              </div>
+              {ecoFilter.trim() !== "" && !customPositions && (
+                <span className="text-xs text-amber-400">
+                  The curated set carries no ECO tags — pick an EPD file with
+                  &quot;eco&quot; opcodes, or clear the filter (the run aborts if
+                  nothing matches).
+                </span>
+              )}
               {mode === "eval" && customPositions && customPositions.tagged === 0 && (
                 <span className="text-xs text-amber-400">
                   No eval tags (EPD &quot;ce&quot; opcode) in this file — every position counts
@@ -1481,7 +1660,7 @@ export function TournamentTab({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <label className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">
                 Games (max 10000, 2 per opening)
@@ -1520,6 +1699,25 @@ export function TournamentTab({
                 className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
                 value={concurrency}
                 onChange={(e) => setConcurrency(e.target.value)}
+                disabled={running}
+              />
+            </label>
+            {/* Per-game engine thread count (spec 210 Phase 6 "engine thread
+                count per game"): UCI Threads for BOTH engines of every game.
+                1 = engine default (nothing sent). Mind the budget: total
+                cores used scales as concurrency × threads × 2 engines. */}
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">
+                Threads per engine
+              </span>
+              <input
+                data-testid="tournament-threads"
+                type="number"
+                min={1}
+                max={64}
+                className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+                value={threadsPerEngine}
+                onChange={(e) => setThreadsPerEngine(e.target.value)}
                 disabled={running}
               />
             </label>
@@ -1728,7 +1926,7 @@ export function TournamentTab({
           </div>
 
           <div className="flex items-center gap-3">
-            <Button onClick={run} disabled={running || rrRunning}>
+            <Button onClick={run} disabled={running || rrRunning || tagging}>
               {running ? "Running…" : "Run Tournament"}
             </Button>
             {running && (
@@ -2032,32 +2230,67 @@ function MachineProfileCard({
             : "Not benched yet — calibrates pace floors and cross-machine equivalence."}
         </span>
       )}
-      {/* Cross-machine equivalence (spec 216 Tier 2): each imported profile
-          restated at equal nodes — "homeserver 60s/move ≈ laptop 22s/move". */}
-      {remoteProfiles.map((remote) => (
-        <div
-          key={remote.hostname}
-          data-testid="machine-equivalence-row"
-          className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground font-mono"
-        >
-          <span className="text-foreground">{remote.hostname}</span>
-          <span>{remote.engine_name}</span>
-          <span>{formatNps(remote.nps)}</span>
-          <span>
-            {profile
-              ? equivalenceLine(curve, profile, remote) ?? "no equivalence (missing nps)"
-              : "bench this machine to see the equivalence"}
-          </span>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-foreground"
-            title={`Remove ${remote.hostname}'s profile`}
-            onClick={() => onRemove(remote.hostname)}
+      {/* Per-engine measurements (spec 216 Tier 2 "per-engine curves"):
+          Reckless and SF differ in nps AND b(t), so once more than one engine
+          has been benched here each gets its own row with its own
+          PRIOR/MEASURED provenance. One entry duplicates the headline; skip. */}
+      {profile && Object.keys(profile.engines ?? {}).length > 1 &&
+        Object.entries(profile.engines ?? {}).map(([name, speed]) => (
+          <div
+            key={name}
+            data-testid="machine-engine-row"
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-4 text-xs text-muted-foreground font-mono"
           >
-            ×
-          </button>
-        </div>
-      ))}
+            <span className="text-foreground">{name}</span>
+            <span>{speed?.nps ? formatNps(speed.nps) : "not benched"}</span>
+            <Badge variant="secondary" className="font-mono text-[10px]">
+              {(asEloCurve(speed?.curve)?.source ?? "prior").toUpperCase()}
+            </Badge>
+          </div>
+        ))}
+      {/* Cross-machine equivalence (spec 216 Tier 2): each imported profile
+          restated at equal nodes — "homeserver 60s/move ≈ laptop 22s/move".
+          When both machines carry per-engine benches for the same engines,
+          one line per shared engine (each at its own nps/curve) replaces the
+          single last-benched-engine line. */}
+      {remoteProfiles.map((remote) => {
+        const perEngine = profile ? engineEquivalenceLines(profile, remote) : []
+        return (
+          <div
+            key={remote.hostname}
+            data-testid="machine-equivalence-row"
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground font-mono"
+          >
+            <span className="text-foreground">{remote.hostname}</span>
+            <span>{remote.engine_name}</span>
+            <span>{formatNps(remote.nps)}</span>
+            {perEngine.length === 0 && (
+              <span>
+                {profile
+                  ? equivalenceLine(curve, profile, remote) ?? "no equivalence (missing nps)"
+                  : "bench this machine to see the equivalence"}
+              </span>
+            )}
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground"
+              title={`Remove ${remote.hostname}'s profile`}
+              onClick={() => onRemove(remote.hostname)}
+            >
+              ×
+            </button>
+            {perEngine.map(({ engine, line }) => (
+              <span
+                key={engine}
+                data-testid="machine-engine-equivalence"
+                className="basis-full pl-4"
+              >
+                {engine}: {line}
+              </span>
+            ))}
+          </div>
+        )
+      })}
       {hwChanged && (
         <span className="text-xs text-amber-400">
           Hardware changed since this profile was measured —{" "}

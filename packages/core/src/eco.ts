@@ -163,3 +163,26 @@ export function ecoLabel(code: string): string {
   const name = ecoName(code)
   return name ? `${code.trim().toUpperCase()} · ${name}` : code
 }
+
+/**
+ * Whether an ECO code matches a user filter query (spec 210 Phase 6 "filter
+ * by ECO code, opening family"). Two query shapes:
+ *
+ * - A code prefix — "B", "B9", "B90" — matches codes starting with it.
+ * - Anything else is an opening-NAME substring, matched (case-insensitively)
+ *   against the code's family name from [`ecoName`] — "najdorf", "sicilian".
+ *
+ * An empty/whitespace query matches everything (no filter). A missing or
+ * malformed code matches nothing once a query is set — untagged positions
+ * are excluded rather than silently passed through.
+ */
+export function matchesEcoQuery(code: string | null | undefined, query: string): boolean {
+  const q = query.trim()
+  if (q === "") return true
+  const c = code == null ? null : normalize(code)
+  if (!c) return false
+  const upper = q.toUpperCase()
+  if (/^[A-E][0-9]{0,2}$/.test(upper)) return c.startsWith(upper)
+  const name = ecoName(c)
+  return name !== null && name.toLowerCase().includes(q.toLowerCase())
+}

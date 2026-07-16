@@ -19,6 +19,7 @@ import { buildArenaRoster, mergeApiPersonas, type ArenaRosterEntry } from "@/lib
 import {
   getArenaApi,
   ArenaApiError,
+  type ArenaClockChoice,
   type ArenaColor,
   type ArenaPersonaInfo,
   type ArenaSideChoice,
@@ -27,6 +28,18 @@ import {
 function resolveColor(choice: ArenaSideChoice): ArenaColor {
   return choice === "random" ? (Math.random() < 0.5 ? "white" : "black") : choice
 }
+
+// Time-control presets (spec 217 Tier 1 "clocks with increment"; the spec-215
+// match protocol lives in its private overlay, so these are sensible rapid
+// presets, defaulting to 15+10). One lobby-wide choice — it applies to the
+// next game started against any opponent. "No clock" keeps the Tier-0
+// behavior (and stays honest about persona think time on a loaded server).
+const CLOCK_OPTIONS: { id: string; label: string; clock: ArenaClockChoice | null }[] = [
+  { id: "none", label: "No clock", clock: null },
+  { id: "10+5", label: "10+5", clock: { initialS: 600, incrementS: 5 } },
+  { id: "15+10", label: "15+10", clock: { initialS: 900, incrementS: 10 } },
+  { id: "30+15", label: "30+15", clock: { initialS: 1800, incrementS: 15 } },
+]
 
 export function LobbyScreen({
   onGameStarted,
@@ -54,6 +67,7 @@ export function LobbyScreen({
   }, [])
   const roster = useMemo(() => mergeApiPersonas(buildArenaRoster(), apiPersonas), [apiPersonas])
   const [sideBySlug, setSideBySlug] = useState<Record<string, ArenaSideChoice>>({})
+  const [clockId, setClockId] = useState("15+10")
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -63,7 +77,8 @@ export function LobbyScreen({
       setError(null)
       try {
         const color = resolveColor(sideBySlug[slug] ?? "random")
-        const game = await getArenaApi().createGame(slug, color)
+        const clock = CLOCK_OPTIONS.find((o) => o.id === clockId)?.clock ?? null
+        const game = await getArenaApi().createGame(slug, color, clock)
         onGameStarted(game.id)
       } catch (e) {
         setError(e instanceof ArenaApiError ? e.message : "Couldn't start the game.")
@@ -71,7 +86,7 @@ export function LobbyScreen({
         setPending(null)
       }
     },
-    [sideBySlug, onGameStarted],
+    [sideBySlug, clockId, onGameStarted],
   )
 
   return (
@@ -88,6 +103,26 @@ export function LobbyScreen({
           <Button variant="outline" onClick={onOpenHistory} data-testid="arena-open-history">
             My games
           </Button>
+        </div>
+
+        <div className="flex items-center gap-2" data-testid="arena-clock-picker">
+          <span className="text-xs text-muted-foreground">Time control</span>
+          <div className="flex gap-1">
+            {CLOCK_OPTIONS.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => setClockId(o.id)}
+                data-testid={`arena-clock-${o.id}`}
+                className={`px-2 py-1 text-xs rounded-md border transition-colors ${
+                  clockId === o.id
+                    ? "border-white/30 bg-white/10 text-foreground"
+                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {error && (

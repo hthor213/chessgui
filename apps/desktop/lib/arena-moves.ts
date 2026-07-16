@@ -8,7 +8,7 @@
 // used only where the server doesn't already hand back SAN (the replay
 // view's per-ply FEN stepping).
 
-import type { ArenaGameState, ArenaMove } from "@chessgui/core/arena-api"
+import type { ArenaGameState, ArenaMove, ArenaSharedReplay } from "@chessgui/core/arena-api"
 
 export interface ArenaMoveRow {
   no: number
@@ -52,6 +52,10 @@ export function humanizeArenaResultReason(reason: string | null): string | null 
       return "75-move rule"
     case "fifty_moves":
       return "50-move rule"
+    case "flag":
+      // The backend's literal reason for a loss on time (spec 217 Tier 1
+      // clocks — server/arena/app/main.py `_flag_fall`).
+      return "Flag fell"
     default:
       return reason.replace(/_/g, " ")
   }
@@ -67,6 +71,55 @@ export function arenaStatusLabel(game: ArenaGameState): string | null {
   if (isDraw) return reason ? `Draw — ${reason}` : "Draw"
   const outcome = youWon ? "You win!" : "You lose."
   return reason ? `${reason} — ${outcome}` : outcome
+}
+
+/** Spectator-voice result label for a shared replay (spec 217 Tier 2 family
+ *  replay links) — never "You win!": the person opening the link didn't play
+ *  the game. Names come from the replay payload; an empty playerName falls
+ *  back to a neutral "Player". */
+export function arenaSharedStatusLabel(replay: ArenaSharedReplay): string {
+  const playerName = replay.playerName || "Player"
+  const whiteName = replay.playerColor === "white" ? playerName : replay.persona
+  const blackName = replay.playerColor === "black" ? playerName : replay.persona
+  if (replay.resultReason === "player resigned") return `${playerName} resigned.`
+  const reason = humanizeArenaResultReason(replay.resultReason)
+  if (replay.result === "1/2-1/2") return reason ? `Draw — ${reason}` : "Draw"
+  if (replay.result === "1-0" || replay.result === "0-1") {
+    const winner = replay.result === "1-0" ? whiteName : blackName
+    return reason ? `${winner} wins — ${reason}` : `${winner} wins`
+  }
+  // No result on a shared replay should be impossible (tokens exist for
+  // finished games only) — degrade to the reason rather than invent one.
+  return reason ?? ""
+}
+
+/** The share link itself: same /arena route, `?replay=<token>` — the page
+ *  routes to the read-only replay view (no login) when it sees the param.
+ *  Built from the CURRENT origin+path so it works on LAN, Tailscale, or a
+ *  future public host without configuration. */
+export function arenaReplayUrl(token: string): string {
+  if (typeof window === "undefined") return `?replay=${encodeURIComponent(token)}`
+  return `${window.location.origin}${window.location.pathname}?replay=${encodeURIComponent(token)}`
+}
+
+/** Clock face text (spec 217 Tier 1): "1:02:03" with hours, else "15:00";
+ *  under 10 seconds, tenths ("0:07.4") — the only moment tenths matter. */
+export function formatClockMs(ms: number): string {
+  const clamped = Math.max(0, ms)
+  const totalS = Math.floor(clamped / 1000)
+  const h = Math.floor(totalS / 3600)
+  const m = Math.floor((totalS % 3600) / 60)
+  const s = totalS % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+  if (totalS < 10) return `0:0${s}.${Math.floor((clamped % 1000) / 100)}`
+  return `${m}:${String(s).padStart(2, "0")}`
+}
+
+/** Chess-idiomatic time-control label: 900s+10s -> "15+10" (minutes+seconds
+ *  increment); sub-minute initial shows seconds ("30s+0"). */
+export function timeControlLabel(initialS: number, incrementS: number): string {
+  const base = initialS % 60 === 0 ? String(initialS / 60) : `${initialS}s`
+  return `${base}+${incrementS}`
 }
 
 /** Short result badge for a history row ("Win" / "Loss" / "Draw" / "In progress"). */
