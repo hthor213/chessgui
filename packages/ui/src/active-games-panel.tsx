@@ -363,7 +363,7 @@ export function ActiveGamesList({
                       onDelete(record)
                     }}
                   >
-                    Delete anyway
+                    Delete: understood
                   </Button>
                   <Button
                     size="sm"
