@@ -21,3 +21,17 @@ cg-board square.move-dest {
 cg-board square.move-dest.oc {
   background: radial-gradient(transparent 0%, transparent 80%, rgba(20, 85, 0, 0.3) 80%);
 }
+
+/* Premove (play mode, spec 001): blue family so a queued move never reads as
+   a played one — Lichess convention. */
+cg-board square.premove-dest {
+  background: radial-gradient(rgba(20, 30, 85, 0.5) 22%, transparent 22%);
+}
+
+cg-board square.premove-dest.oc {
+  background: radial-gradient(transparent 0%, transparent 80%, rgba(20, 30, 85, 0.3) 80%);
+}
+
+cg-board square.current-premove {
+  background-color: rgba(20, 30, 85, 0.5) !important;
+}

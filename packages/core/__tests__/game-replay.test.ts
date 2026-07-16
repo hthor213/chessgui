@@ -3,7 +3,7 @@
 // existing replay/PGN helpers it's factored out of.
 
 import { describe, it, expect } from "vitest"
-import { replayFens, movesToPgn, sansFromUci, numberMoves } from "@chessgui/core/game-replay"
+import { replayFens, movesToPgn, gamesToPgn, sansFromUci, numberMoves } from "@chessgui/core/game-replay"
 
 const STANDARD_START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 // 1.e4 e5 2.Nf3
@@ -52,6 +52,53 @@ describe("movesToPgn still round-trips through the shared sansFromUci path", () 
     for (const san of sansFromUci(STANDARD_START, OPENING)) {
       expect(pgn).toContain(san)
     }
+  })
+})
+
+describe("movesToPgn Round tag (spec 210 Phase 6 bulk export)", () => {
+  it("emits [Round] only when given", () => {
+    const withRound = movesToPgn(STANDARD_START, OPENING, "*", { round: "3" })
+    expect(withRound).toContain('[Round "3"]')
+    const without = movesToPgn(STANDARD_START, OPENING, "*")
+    expect(without).not.toContain("[Round")
+  })
+})
+
+describe("movesToPgn Date tag (spec 212 tournament→database save)", () => {
+  it("emits [Date] only when given", () => {
+    const withDate = movesToPgn(STANDARD_START, OPENING, "*", { date: "2026.07.16" })
+    expect(withDate).toContain('[Date "2026.07.16"]')
+    const without = movesToPgn(STANDARD_START, OPENING, "*")
+    expect(without).not.toContain("[Date")
+  })
+})
+
+describe("gamesToPgn (spec 210 Phase 6: all games as ONE PGN file)", () => {
+  it("concatenates games blank-line separated, each with its own headers", () => {
+    const pgn = gamesToPgn([
+      {
+        startFen: STANDARD_START,
+        uciMoves: OPENING,
+        result: "1-0",
+        tags: { event: "Gauntlet", white: "Hero", black: "Opp 1", round: "1" },
+      },
+      {
+        startFen: STANDARD_START,
+        uciMoves: ["d2d4"],
+        result: "1/2-1/2",
+        tags: { event: "Gauntlet", white: "Opp 2", black: "Hero", round: "2" },
+      },
+    ])
+    expect(pgn.match(/\[Event "Gauntlet"\]/g)).toHaveLength(2)
+    expect(pgn).toContain('[White "Hero"]')
+    expect(pgn).toContain('[Black "Hero"]')
+    // Games are separated by exactly one blank line (movetext\n + \n + [Event).
+    expect(pgn).toContain('1-0\n\n[Event "Gauntlet"]')
+    expect(pgn.trimEnd().endsWith("1/2-1/2")).toBe(true)
+  })
+
+  it("is empty for no games", () => {
+    expect(gamesToPgn([])).toBe("")
   })
 })
 

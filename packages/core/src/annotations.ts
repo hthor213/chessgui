@@ -149,3 +149,20 @@ export function judgeMove(
   if (drop >= 50) return "inaccuracy";
   return null;
 }
+
+/** Judgment tier → PGN move-quality NAG (?! / ? / ??), spec 202/212. */
+export const JUDGMENT_NAGS: Record<MoveJudgment, number> = {
+  inaccuracy: 6,
+  mistake: 2,
+  blunder: 4,
+};
+
+/**
+ * Merge an engine judgment into a node's NAG list: replaces any existing
+ * move-quality NAG (a move has exactly one) and keeps positional NAGs
+ * untouched. Pure — returns a new sorted array.
+ */
+export function withJudgmentNag(nags: number[], judgment: MoveJudgment): number[] {
+  const kept = nags.filter((n) => !(MOVE_NAGS as readonly number[]).includes(n));
+  return [...kept, JUDGMENT_NAGS[judgment]].sort((a, b) => a - b);
+}

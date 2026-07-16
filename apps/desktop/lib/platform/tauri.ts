@@ -370,6 +370,15 @@ export const tauriProviders: PlatformProviders = {
     stats(dbPath?: string): Promise<DbStats> {
       return invoke<DbStats>("db_stats", { dbPath: dbPath ?? null })
     },
+    addTag(id: number, tag: string, dbPath?: string): Promise<void> {
+      return invoke<void>("db_add_tag", { id, tag, dbPath: dbPath ?? null })
+    },
+    removeTag(id: number, tag: string, dbPath?: string): Promise<void> {
+      return invoke<void>("db_remove_tag", { id, tag, dbPath: dbPath ?? null })
+    },
+    listTags(dbPath?: string): Promise<string[]> {
+      return invoke<string[]>("db_list_tags", { dbPath: dbPath ?? null })
+    },
 
     importPuzzles(args): Promise<PuzzleImportReport> {
       return invoke<PuzzleImportReport>("puzzles_import", {

@@ -214,6 +214,17 @@ export const browserProviders: PlatformProviders = {
     stats(dbPath?: string): Promise<DbStats> {
       return import("@/lib/database-mock").then((m) => m.mockDatabase.stats(dbPath))
     },
+    addTag(id: number, tag: string, dbPath?: string): Promise<void> {
+      return import("@/lib/database-mock").then((m) => m.mockDatabase.addTag(id, tag, dbPath))
+    },
+    removeTag(id: number, tag: string, dbPath?: string): Promise<void> {
+      return import("@/lib/database-mock").then((m) =>
+        m.mockDatabase.removeTag(id, tag, dbPath),
+      )
+    },
+    listTags(dbPath?: string): Promise<string[]> {
+      return import("@/lib/database-mock").then((m) => m.mockDatabase.listTags(dbPath))
+    },
 
     importPuzzles(args): Promise<PuzzleImportReport> {
       return import("@/lib/puzzles-mock").then((m) => m.mockPuzzles.importPuzzles(args))

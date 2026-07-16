@@ -1327,17 +1327,22 @@ export type RoundRobinBatch = {
   pairingById: Map<number, RoundRobinPairing>
 }
 
+/** Tournament format for the multi-participant section (spec 210 Phase 6):
+ *  full round-robin, or a gauntlet (one hero vs the field). */
+export type TournamentFormat = "round-robin" | "gauntlet"
+
 /**
- * Schedule a full round-robin: every unordered pair (i<j) of `participants`
- * plays `gamesPerPairing` games, colors alternating within the pairing
- * (game 1: i White, game 2: j White, ...). Seeds are drawn sequentially from
+ * Shared scheduler behind both formats: each pairing `{a, b}` plays
+ * `gamesPerPairing` games, colors alternating within the pairing (game 1:
+ * `a` White, game 2: `b` White, ...). Seeds are drawn sequentially from
  * `seeds` (cycled if the pool is short — same reuse rule as buildSeeds); each
  * seed covers one color-flipped pair of games, so an odd `gamesPerPairing`
- * leaves its last seed half-used (participant i gets the extra White).
+ * leaves its last seed half-used (participant `a` gets the extra White).
  * ids are assigned sequentially across the whole flat batch.
  */
-export function buildRoundRobinSpecs(
+function schedulePairings(
   participants: Participant[],
+  pairings: RoundRobinPairing[],
   gamesPerPairing: number,
   seeds: Seed[],
   baseMs: number,
@@ -1356,43 +1361,99 @@ export function buildRoundRobinSpecs(
   const nextSeed = (): Seed =>
     seeds.length > 0 ? seeds[seedCursor++ % seeds.length] : { fen: null, eval: 0 }
 
-  for (let i = 0; i < participants.length; i++) {
-    for (let j = i + 1; j < participants.length; j++) {
-      for (let g = 0; g < gamesPerPairing; g += 2) {
-        const seed = nextSeed()
-        const gamesFromSeed = Math.min(2, gamesPerPairing - g)
-        for (let k = 0; k < gamesFromSeed; k++) {
-          const flipped = k === 1 // second game of the seed: i plays Black
-          const white = flipped ? participants[j] : participants[i]
-          const black = flipped ? participants[i] : participants[j]
-          const spec: GameSpec = {
-            id,
-            white_path: white.kind === "uci" ? (white.enginePath ?? "") : "",
-            black_path: black.kind === "uci" ? (black.enginePath ?? "") : "",
-            start_fen: seed.fen,
-            base_ms: baseMs,
-            inc_ms: incMs,
-            max_plies: maxPlies,
-            flipped,
-            adjudicate_tb: adjudicateTb,
-            white,
-            black,
-          }
-          evalById.set(id, { eval: seed.eval })
-          pairingById.set(id, { a: i, b: j })
-          specs.push(spec)
-          id++
+  for (const { a, b } of pairings) {
+    for (let g = 0; g < gamesPerPairing; g += 2) {
+      const seed = nextSeed()
+      const gamesFromSeed = Math.min(2, gamesPerPairing - g)
+      for (let k = 0; k < gamesFromSeed; k++) {
+        const flipped = k === 1 // second game of the seed: a plays Black
+        const white = flipped ? participants[b] : participants[a]
+        const black = flipped ? participants[a] : participants[b]
+        const spec: GameSpec = {
+          id,
+          white_path: white.kind === "uci" ? (white.enginePath ?? "") : "",
+          black_path: black.kind === "uci" ? (black.enginePath ?? "") : "",
+          start_fen: seed.fen,
+          base_ms: baseMs,
+          inc_ms: incMs,
+          max_plies: maxPlies,
+          flipped,
+          adjudicate_tb: adjudicateTb,
+          white,
+          black,
         }
+        evalById.set(id, { eval: seed.eval })
+        pairingById.set(id, { a, b })
+        specs.push(spec)
+        id++
       }
     }
   }
   return { specs, evalById, pairingById }
 }
 
+/**
+ * Schedule a full round-robin: every unordered pair (i<j) of `participants`
+ * plays `gamesPerPairing` games. Pairing/seed/color-flip mechanics are the
+ * shared `schedulePairings` contract above.
+ */
+export function buildRoundRobinSpecs(
+  participants: Participant[],
+  gamesPerPairing: number,
+  seeds: Seed[],
+  baseMs: number,
+  incMs: number,
+  maxPlies: number,
+  adjudicateTb: boolean,
+): RoundRobinBatch {
+  const pairings: RoundRobinPairing[] = []
+  for (let i = 0; i < participants.length; i++) {
+    for (let j = i + 1; j < participants.length; j++) pairings.push({ a: i, b: j })
+  }
+  return schedulePairings(
+    participants, pairings, gamesPerPairing, seeds, baseMs, incMs, maxPlies, adjudicateTb,
+  )
+}
+
+/**
+ * Schedule a gauntlet (spec 210 Phase 6): `participants[heroIdx]` plays every
+ * other participant `gamesPerPairing` games; non-hero participants never meet.
+ * Every pairing is recorded `{a: heroIdx, b: j}` so the "`flipped` means the
+ * pairing's FIRST participant is Black" convention holds and the cross-table/
+ * standings/Elo math downstream is unchanged (the hero simply owns a game in
+ * every pairing). An out-of-range `heroIdx` schedules nothing.
+ */
+export function buildGauntletSpecs(
+  participants: Participant[],
+  heroIdx: number,
+  gamesPerPairing: number,
+  seeds: Seed[],
+  baseMs: number,
+  incMs: number,
+  maxPlies: number,
+  adjudicateTb: boolean,
+): RoundRobinBatch {
+  const pairings: RoundRobinPairing[] = []
+  if (Number.isInteger(heroIdx) && heroIdx >= 0 && heroIdx < participants.length) {
+    for (let j = 0; j < participants.length; j++) {
+      if (j !== heroIdx) pairings.push({ a: heroIdx, b: j })
+    }
+  }
+  return schedulePairings(
+    participants, pairings, gamesPerPairing, seeds, baseMs, incMs, maxPlies, adjudicateTb,
+  )
+}
+
 /** Total games a full round-robin schedules. */
 export function roundRobinGameCount(nParticipants: number, gamesPerPairing: number): number {
   if (nParticipants < 2 || gamesPerPairing <= 0) return 0
   return ((nParticipants * (nParticipants - 1)) / 2) * gamesPerPairing
+}
+
+/** Total games a gauntlet schedules (hero vs each of the others). */
+export function gauntletGameCount(nParticipants: number, gamesPerPairing: number): number {
+  if (nParticipants < 2 || gamesPerPairing <= 0) return 0
+  return (nParticipants - 1) * gamesPerPairing
 }
 
 /** One directed cross-table cell: participant i's record against j. */
@@ -1624,7 +1685,9 @@ export type SavedEloRow = {
  */
 export type RoundRobinResultExport = {
   version: 1
-  kind: "round-robin"
+  /** "round-robin" (the original shape) or "gauntlet" — both persist the
+   *  same cross-table/standings/Elo payload; only the pairing graph differed. */
+  kind: TournamentFormat
   name: string
   completedAt: string
   gamesPerPairing: number
@@ -1637,8 +1700,9 @@ export type RoundRobinResultExport = {
   elo: SavedEloRow[]
 }
 
-/** Shape a completed round-robin for persistence. Pure — the tab hands the
- *  result to the `save_tournament_result` Tauri command. */
+/** Shape a completed round-robin OR gauntlet for persistence (`kind` says
+ *  which). Pure — the tab hands the result to the `save_tournament_result`
+ *  Tauri command. */
 export function buildRoundRobinExport(
   name: string,
   participants: SavedParticipant[],
@@ -1647,11 +1711,12 @@ export function buildRoundRobinExport(
   table: CrossTable,
   estimates: EloEstimate[],
   completedAt: string = new Date().toISOString(),
+  kind: TournamentFormat = "round-robin",
 ): RoundRobinResultExport {
   const totalGames = buildStandings(table).reduce((s, r) => s + r.games, 0) / 2
   return {
     version: 1,
-    kind: "round-robin",
+    kind,
     name,
     completedAt,
     gamesPerPairing,

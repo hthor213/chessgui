@@ -251,10 +251,12 @@ describe("buildBandTrajectories", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildSeedBreakdown", () => {
+  // Deep middlegame — NOT a coded ECO line, so it stays a tag|bucket family.
   const F1 = "r1bqk2r/pp1nn1bp/2p1p1p1/3pNp2/2PP4/6P1/PP1NPPBP/R1BQ1RK1 w kq - 4 9"
+  // After 1.e4 — a coded line (B00), classified via the FEN→ECO table.
   const F2 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 
-  it("groups by tag × |eval| bucket and scores engine A", () => {
+  it("groups by ECO where coded, else tag × |eval| bucket, and scores engine A", () => {
     const evalById: EvalMap = new Map([
       [0, { eval: 0.75 }],
       [1, { eval: 0.75 }],
@@ -280,8 +282,10 @@ describe("buildSeedBreakdown", () => {
     const rows = buildSeedBreakdown(outcomes, evalById, tagByFen)
     expect(rows).toHaveLength(3)
 
-    // Sorted most-lopsided first.
-    expect(rows[0].key).toBe("untagged | 0.00–0.50")
+    // Sorted most-lopsided first. F2 is 1.e4 → ECO family, no bucket.
+    expect(rows[0].key).toBe("B00 · King's Pawn, Uncommon Defences")
+    expect(rows[0].eco).toBe("B00")
+    expect(rows[0].lo).toBeNull()
     expect(rows[0].games).toBe(4)
     expect(rows[0].aWins).toBe(4)
     expect(rows[0].aScore).toBe(1)
@@ -289,6 +293,7 @@ describe("buildSeedBreakdown", () => {
 
     const f1 = rows.find((r) => r.tag === "UHO_4060_v3 d16")!
     expect(f1.key).toBe("UHO_4060_v3 d16 | 0.50–1.00")
+    expect(f1.eco).toBeNull()
     expect(f1.games).toBe(2)
     expect(f1.seeds).toBe(1)
     expect(f1.aScore).toBe(0.5)
@@ -297,6 +302,22 @@ describe("buildSeedBreakdown", () => {
     const std = rows.find((r) => r.key === "standard start")!
     expect(std.draws).toBe(1)
     expect(std.lo).toBeNull()
+    expect(std.eco).toBeNull()
+  })
+
+  it("an explicit ecoByFen code (EPD eco opcode) outranks the table lookup", () => {
+    const evalById: EvalMap = new Map([[0, { eval: 0.1 }], [1, { eval: 0.1 }]])
+    // F1 is not a coded line, but the EPD opcode says it's a Meran.
+    const ecoByFen = new Map([[F1, "d47"]])
+    const outcomes = [
+      okOutcome({ id: 0, startFen: F1, result: "1-0" }),
+      okOutcome({ id: 1, startFen: F1, flipped: true, result: "0-1" }),
+    ]
+    const rows = buildSeedBreakdown(outcomes, evalById, undefined, 0.5, ecoByFen)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].eco).toBe("D47") // normalized upper-case
+    expect(rows[0].key).toBe("D47 · Semi-Slav, Meran")
+    expect(rows[0].games).toBe(2)
   })
 })
 

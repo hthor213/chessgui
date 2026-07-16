@@ -38,8 +38,11 @@ export function replayFens(startFen: string, uciMoves: string[]): string[] {
   return fens
 }
 
-/** Header tags for a generated PGN. */
-export type PgnTags = { event?: string; white?: string; black?: string }
+/** Header tags for a generated PGN. `round` is only emitted when given (the
+ *  bulk tournament export numbers games; single-game handoffs don't); `date`
+ *  likewise (PGN dot format, "2026.07.16" — the database's date column/filter
+ *  sorts on it, so the tournament→DB save stamps the run date). */
+export type PgnTags = { event?: string; date?: string; white?: string; black?: string; round?: string }
 
 /**
  * SAN move list only (no PGN headers/numbering), reconstructed by replaying
@@ -126,6 +129,8 @@ export function movesToPgn(
   const isStandardStart = fen0 === INITIAL_FEN
   const header = [
     `[Event "${tags.event ?? "Tournament game"}"]`,
+    ...(tags.date !== undefined ? [`[Date "${tags.date}"]`] : []),
+    ...(tags.round !== undefined ? [`[Round "${tags.round}"]`] : []),
     `[White "${tags.white ?? "White"}"]`,
     `[Black "${tags.black ?? "Black"}"]`,
     `[Result "${result}"]`,
@@ -147,4 +152,23 @@ export function movesToPgn(
   tokens.push(result)
 
   return `${header.join("\n")}\n\n${tokens.join(" ")}\n`
+}
+
+/** One game of a bulk multi-game PGN export (spec 210 Phase 6). */
+export type PgnGameInput = {
+  startFen: string
+  uciMoves: string[]
+  result: string
+  tags?: PgnTags
+}
+
+/**
+ * Concatenate many games into ONE multi-game PGN document (spec 210 Phase 6
+ * bulk tournament export — distinct from the per-game "Open in Analyze"
+ * handoff). Each game goes through `movesToPgn`; games are separated by a
+ * blank line, the standard multi-game form every PGN reader (including the
+ * spec 200 importer) expects.
+ */
+export function gamesToPgn(games: PgnGameInput[]): string {
+  return games.map((g) => movesToPgn(g.startFen, g.uciMoves, g.result, g.tags)).join("\n")
 }

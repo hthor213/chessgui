@@ -18,6 +18,12 @@ interface BoardProps {
   onBoardSize?: (size: number) => void;
   /** Read-only board (no piece interaction) — used for watching live games. */
   viewOnly?: boolean;
+  /**
+   * Allow premoves (spec 001): with a one-sided `movableColor`, the user can
+   * queue a move during the opponent's turn; it plays (through `onMove`) as
+   * soon as the position turns theirs. Play mode only.
+   */
+  premovable?: boolean;
   /** Edit mode: any piece to any square, no legality — used by the position editor. */
   freeMove?: boolean;
   /** Fires when a square is clicked/tapped (edit mode placement). */
@@ -37,11 +43,15 @@ const COORD_GUTTER = 26;
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
   const onSelectRef = useRef(onSelect);
+  // The queued premove, mirrored out of Chessground: the instance is rebuilt
+  // on every position change (see the creation effect), which would silently
+  // drop a premove set during the opponent's turn.
+  const premoveRef = useRef<[Key, Key] | null>(null);
   // Refs (not deps of the creation effect) so shape updates don't rebuild
   // the whole Chessground instance on every engine info line.
   const autoShapesRef = useRef(autoShapes);
@@ -129,6 +139,21 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       selectable: {
         enabled: !viewOnly,
       },
+      // Chessground defaults premovable on; keep it explicitly tied to the
+      // prop so analysis/editor/viewer boards never queue premoves.
+      premovable: {
+        enabled: premovable && !viewOnly && !freeMove,
+        showDests: true,
+        castle: true,
+        events: {
+          set: (orig: Key, dest: Key) => {
+            premoveRef.current = [orig, dest];
+          },
+          unset: () => {
+            premoveRef.current = null;
+          },
+        },
+      },
       events: {
         move: handleMove,
         select: onSelectRef.current ? handleSelect : undefined,
@@ -144,11 +169,27 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       },
     });
 
+    // Carry the queued premove across the rebuild that just dropped it. When
+    // the rebuild is the opponent's move arriving (it's now the premover's
+    // turn), play it — playPremove fires the normal move event when the move
+    // is legal in the new position, and clears it (via events.unset) when not.
+    if (!premovable) {
+      premoveRef.current = null;
+    } else if (premoveRef.current) {
+      const api = apiRef.current;
+      api.state.premovable.current = premoveRef.current;
+      if (api.state.turnColor === api.state.movable.color) {
+        api.playPremove();
+      } else {
+        api.redrawAll(); // keep the current-premove highlight visible
+      }
+    }
+
     return () => {
       apiRef.current?.destroy();
       apiRef.current = null;
     };
-  }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove, handleSelect, viewOnly, freeMove]);
+  }, [fen, orientation, movableColor, legalMoves, lastMove, handleMove, handleSelect, viewOnly, premovable, freeMove]);
 
   // Update arrows in place as analysis deepens (no board rebuild). The
   // creation effect above already seeds shapes on rebuild via the ref.

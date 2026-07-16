@@ -39,9 +39,11 @@ use std::ops::ControlFlow;
 pub const DEFAULT_PLY_CAP: u32 = 40;
 
 /// v1: games + positions. v2: puzzles (spec 211 — DDL lives in puzzles.rs,
-/// mirroring scripts/mining/import_puzzles.py). All DDL is idempotent
+/// mirroring scripts/mining/import_puzzles.py). v3: game_tags (spec 200
+/// tagging/favorites). v4: game_material (spec 200 material-signature search;
+/// existing games are backfilled by replay on open). All DDL is idempotent
 /// (IF NOT EXISTS), so upgrading is just running the batch again.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 4;
 
 // ---------------------------------------------------------------------------
 // Serde boundary types (mirrored in lib/database.ts)
@@ -80,6 +82,8 @@ pub struct GameHeader {
     pub result: String,
     pub ply_count: i64,
     pub source: String,
+    /// User tags on this game (spec 200 tagging; "favorite" is the star).
+    pub tags: Vec<String>,
 }
 
 /// Filters for `list_games`. All fields optional; omitted fields don't constrain.
@@ -99,6 +103,18 @@ pub struct GameFilter {
     pub result: Option<String>,
     /// Minimum Elo required of at least one player.
     pub min_elo: Option<i64>,
+    /// Maximum Elo allowed of both players. Games with an unrated player pass
+    /// (a cap excludes known-strong players; it shouldn't hide unknowns).
+    pub max_elo: Option<i64>,
+    /// Full-text substring match across players, event, site and the movetext
+    /// (which carries comments and annotations).
+    pub text: Option<String>,
+    /// Exact tag the game must carry (spec 200 tagging; "favorite" = starred).
+    pub tag: Option<String>,
+    /// Material signature the game must reach at some mainline position, e.g.
+    /// "KRP vs KR" (rook-and-pawn-vs-rook ending). Either orientation matches
+    /// (colour-agnostic); an unparseable signature matches nothing.
+    pub material: Option<String>,
 }
 
 /// A game that reaches the searched position, plus the move played next in it —
@@ -197,6 +213,10 @@ struct ParsedGame {
     packed_moves: Vec<u8>,
     /// (zobrist as i64, verification FEN, ply) for each indexed mainline position.
     positions: Vec<(i64, String, u32)>,
+    /// Distinct material signatures reached along the mainline (start position
+    /// plus after every capture/promotion) — the spec-200 material-search keys.
+    /// Computed from the live position, so FEN-start games index correctly.
+    material_sigs: Vec<String>,
     ply_count: u32,
     result: String,
     /// Set when the mainline could not be fully applied (illegal/ambiguous SAN or
@@ -229,6 +249,8 @@ struct GameBuilder {
     movetext: String,
     packed_moves: Vec<u8>,
     positions: Vec<(i64, String, u32)>,
+    /// Material signatures reached so far (last entry = current signature).
+    material_sigs: Vec<String>,
     frames: Vec<Frame>,
     result_token: Option<String>,
     error: Option<String>,
@@ -243,6 +265,7 @@ impl GameBuilder {
         let mut positions = Vec::new();
         let z = pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0 as i64;
         positions.push((z, epd(&pos), 0));
+        let material_sigs = vec![material_signature(&pos)];
         GameBuilder {
             tags,
             pos,
@@ -252,6 +275,7 @@ impl GameBuilder {
             movetext: String::new(),
             packed_moves: Vec::new(),
             positions,
+            material_sigs,
             frames: vec![Frame {
                 abs_ply: 0,
                 force_number: true,
@@ -314,7 +338,17 @@ impl GameBuilder {
                     let uci = UciMove::from_move(mv, CastlingMode::Standard);
                     self.packed_moves
                         .extend_from_slice(&PackedUciMove::pack(uci).to_bytes());
+                    // Material only changes on a capture or promotion; unlike
+                    // the position index this tracks the WHOLE mainline, so
+                    // endgame signatures past the ply cap are searchable.
+                    let material_changed = is_capture(&mv) || mv.is_promotion();
                     self.pos.play_unchecked(mv);
+                    if material_changed {
+                        let sig = material_signature(&self.pos);
+                        if self.material_sigs.last() != Some(&sig) {
+                            self.material_sigs.push(sig);
+                        }
+                    }
                     let next_ply = abs_ply + 1;
                     if next_ply <= self.ply_cap {
                         let z = self.pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0 as i64;
@@ -394,6 +428,7 @@ impl GameBuilder {
             movetext: self.movetext,
             packed_moves: self.packed_moves,
             positions: self.positions,
+            material_sigs: self.material_sigs,
             ply_count,
             result,
             error: self.error,
@@ -561,8 +596,11 @@ impl Db {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        let db = Db { conn };
+        let mut db = Db { conn };
         db.init_schema()?;
+        // v4 migration: index material signatures for games imported before
+        // the game_material table existed. Idempotent; a no-op once caught up.
+        db.backfill_material()?;
         Ok(db)
     }
 
@@ -607,6 +645,26 @@ impl Db {
 
             CREATE INDEX IF NOT EXISTS idx_positions_zobrist ON positions(zobrist);
             CREATE INDEX IF NOT EXISTS idx_positions_game    ON positions(game_id);
+
+            -- v3: user tags / favorites (spec 200). "favorite" is the star.
+            CREATE TABLE IF NOT EXISTS game_tags (
+                game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                tag     TEXT NOT NULL,
+                PRIMARY KEY (game_id, tag)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_game_tags_tag ON game_tags(tag);
+
+            -- v4: material signatures reached along each game's mainline
+            -- (spec 200 material search, e.g. R+P vs R endings). One row per
+            -- distinct signature; ~1 + number of captures/promotions per game.
+            CREATE TABLE IF NOT EXISTS game_material (
+                game_id   INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                signature TEXT NOT NULL,
+                PRIMARY KEY (game_id, signature)
+            ) WITHOUT ROWID;
+
+            CREATE INDEX IF NOT EXISTS idx_game_material_sig ON game_material(signature);
             "#,
         )?;
         // v2: avoidance puzzles (spec 211). Schema text lives next to its
@@ -627,6 +685,37 @@ impl Db {
             )?;
         }
         Ok(())
+    }
+
+    /// Backfill `game_material` for games imported before schema v4. Every
+    /// indexed game owns at least its start signature, so "no rows" identifies
+    /// the un-indexed ones — which makes this idempotent and cheap once caught
+    /// up. Games whose packed mainline can't be replayed from the standard
+    /// start (a `[FEN]`-tag game imported pre-v4) are skipped rather than
+    /// indexed wrongly; new imports compute signatures from the actual
+    /// positions at parse time, so only pre-v4 rows can miss out.
+    fn backfill_material(&mut self) -> rusqlite::Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "SELECT id, moves FROM games g WHERE NOT EXISTS \
+                 (SELECT 1 FROM game_material m WHERE m.game_id = g.id)",
+            )?;
+            let rows: Vec<(i64, Vec<u8>)> = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_, _>>()?;
+            let mut ins = tx.prepare(
+                "INSERT OR IGNORE INTO game_material (game_id, signature) VALUES (?1, ?2)",
+            )?;
+            for (id, moves) in rows {
+                if let Some(sigs) = replay_material_sigs(&moves) {
+                    for sig in sigs {
+                        ins.execute(params![id, sig])?;
+                    }
+                }
+            }
+        }
+        tx.commit()
     }
 
     /// Import a PGN string (paste / small input; held in memory).
@@ -776,9 +865,14 @@ impl Db {
         sort_by: Option<&str>,
         desc: bool,
     ) -> rusqlite::Result<Vec<GameHeader>> {
+        // Tags ride along as one '\x1f'-joined column (a separator no sane tag
+        // contains), split apart in `row_to_header` — one query, no N+1.
         let mut sql = String::from(
             "SELECT id, white, black, white_elo, black_elo, event, site, round, \
-             date, eco, result, ply_count, source FROM games",
+             date, eco, result, ply_count, source, \
+             (SELECT group_concat(tag, char(31)) FROM \
+              (SELECT tag FROM game_tags WHERE game_id = games.id ORDER BY tag)) \
+             FROM games",
         );
         let mut clauses: Vec<String> = Vec::new();
         let mut args: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -820,6 +914,53 @@ impl Db {
             clauses.push("(white_elo >= ? OR black_elo >= ?)".to_string());
             args.push(Box::new(elo));
             args.push(Box::new(elo));
+        }
+        if let Some(elo) = filter.max_elo {
+            // Unrated (NULL) players pass the cap — see the field's doc.
+            clauses.push(
+                "(IFNULL(white_elo, 0) <= ? AND IFNULL(black_elo, 0) <= ?)".to_string(),
+            );
+            args.push(Box::new(elo));
+            args.push(Box::new(elo));
+        }
+        if let Some(t) = filter.text.as_deref().filter(|s| !s.is_empty()) {
+            // Full-text is a LIKE scan over headers + movetext (comments and
+            // annotations included). Adequate at this database's scale; an FTS5
+            // index would need sync triggers + a rebuild of existing files.
+            clauses.push(
+                "(white LIKE ? OR black LIKE ? OR event LIKE ? OR site LIKE ? \
+                 OR pgn_moves LIKE ?)"
+                    .to_string(),
+            );
+            let needle = format!("%{t}%");
+            for _ in 0..5 {
+                args.push(Box::new(needle.clone()));
+            }
+        }
+        if let Some(tag) = filter.tag.as_deref().filter(|s| !s.is_empty()) {
+            clauses.push(
+                "EXISTS (SELECT 1 FROM game_tags t WHERE t.game_id = games.id AND t.tag = ?)"
+                    .to_string(),
+            );
+            args.push(Box::new(tag.to_string()));
+        }
+        if let Some(m) = filter.material.as_deref().filter(|s| !s.trim().is_empty()) {
+            match parse_material_query(m) {
+                Some((sig, flipped)) => {
+                    // Either orientation matches — "KRP vs KR" finds the ending
+                    // regardless of which colour holds the extra pawn.
+                    clauses.push(
+                        "EXISTS (SELECT 1 FROM game_material gm \
+                         WHERE gm.game_id = games.id AND gm.signature IN (?, ?))"
+                            .to_string(),
+                    );
+                    args.push(Box::new(sig));
+                    args.push(Box::new(flipped));
+                }
+                // An unparseable material query matches nothing rather than
+                // silently dropping the filter and showing everything.
+                None => clauses.push("0 = 1".to_string()),
+            }
         }
 
         if !clauses.is_empty() {
@@ -960,6 +1101,39 @@ impl Db {
         let sql = format!("DELETE FROM games WHERE id IN ({placeholders})");
         self.conn
             .execute(&sql, params_from_iter(ids.iter()))
+    }
+
+    /// Attach `tag` to a game (spec 200 tagging; no-op if already present).
+    /// The tag is trimmed; an empty tag or an unknown game id is an error.
+    pub fn add_tag(&self, game_id: i64, tag: &str) -> rusqlite::Result<()> {
+        let tag = tag.trim();
+        if tag.is_empty() {
+            return Err(save_err("tag must not be empty"));
+        }
+        // The FK on game_tags rejects unknown game ids with a clear error.
+        self.conn.execute(
+            "INSERT OR IGNORE INTO game_tags (game_id, tag) VALUES (?1, ?2)",
+            params![game_id, tag],
+        )?;
+        Ok(())
+    }
+
+    /// Remove `tag` from a game. Removing an absent tag is a no-op.
+    pub fn remove_tag(&self, game_id: i64, tag: &str) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "DELETE FROM game_tags WHERE game_id = ?1 AND tag = ?2",
+            params![game_id, tag.trim()],
+        )?;
+        Ok(())
+    }
+
+    /// All distinct tags in use, sorted — feeds the filter dropdown.
+    pub fn list_tags(&self) -> rusqlite::Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT tag FROM game_tags ORDER BY tag")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        rows.collect()
     }
 
     pub fn stats(&self) -> rusqlite::Result<DbStats> {
@@ -1123,6 +1297,105 @@ fn material_and_phase(pos: &Chess) -> (i32, u32) {
     (material, phase)
 }
 
+/// Material signature of a position (spec 200 material search): per side "K"
+/// then "Q"/"R"/"B"/"N"/"P" repeated per piece on the board, White's half
+/// first — e.g. a rook-and-pawn-vs-rook ending is "KRPKR".
+fn material_signature(pos: &Chess) -> String {
+    let board = pos.board();
+    let mut out = String::new();
+    for color in [Color::White, Color::Black] {
+        for (role, ch) in [
+            (Role::King, 'K'),
+            (Role::Queen, 'Q'),
+            (Role::Rook, 'R'),
+            (Role::Bishop, 'B'),
+            (Role::Knight, 'N'),
+            (Role::Pawn, 'P'),
+        ] {
+            let n = (board.by_color(color) & board.by_role(role)).count();
+            for _ in 0..n {
+                out.push(ch);
+            }
+        }
+    }
+    out
+}
+
+/// Parse a material-search query into its canonical signature plus the
+/// colour-flipped one. Accepts "KRP vs KR", "krp-kr", "RP v R", "KRPKR"…:
+/// case-insensitive, any piece order, kings implied when omitted, sides split
+/// by any non-piece characters (or at the second king when written as one
+/// token). `None` when the input isn't a material description.
+fn parse_material_query(input: &str) -> Option<(String, String)> {
+    let upper = input.trim().to_uppercase();
+    // Piece letters never include the separators ("VS", "-", "/", space…),
+    // so splitting on any non-piece character isolates the two sides.
+    let sides: Vec<&str> = upper
+        .split(|c: char| !"KQRBNP".contains(c))
+        .filter(|s| !s.is_empty())
+        .collect();
+    let (a, b) = match sides.len() {
+        // One run like "KRPKR": unambiguous only with exactly two kings.
+        1 => {
+            let t = sides[0];
+            let ks: Vec<usize> =
+                t.char_indices().filter(|&(_, c)| c == 'K').map(|(i, _)| i).collect();
+            if ks.len() != 2 {
+                return None;
+            }
+            (&t[..ks[1]], &t[ks[1]..])
+        }
+        2 => (sides[0], sides[1]),
+        _ => return None,
+    };
+    // Canonicalize one side: count pieces, imply the king, emit KQRBNP order.
+    fn canon_side(s: &str) -> Option<String> {
+        const ORDER: &str = "KQRBNP";
+        let mut counts = [0usize; 6];
+        for c in s.chars() {
+            counts[ORDER.find(c)?] += 1;
+        }
+        if counts[0] == 0 {
+            counts[0] = 1; // "RP v R" means "KRP vs KR"
+        }
+        if counts[0] != 1 {
+            return None;
+        }
+        let mut out = String::new();
+        for (i, ch) in ORDER.chars().enumerate() {
+            for _ in 0..counts[i] {
+                out.push(ch);
+            }
+        }
+        Some(out)
+    }
+    let ca = canon_side(a)?;
+    let cb = canon_side(b)?;
+    Some((format!("{ca}{cb}"), format!("{cb}{ca}")))
+}
+
+/// Replay a packed mainline from the standard start and collect the distinct
+/// material signatures reached (start + after every capture/promotion), for
+/// the v4 backfill. `None` if any move fails to apply (a FEN-start game —
+/// its signatures can't be recovered from the packed mainline alone).
+fn replay_material_sigs(packed_moves: &[u8]) -> Option<Vec<String>> {
+    let mut pos = Chess::default();
+    let mut sigs = vec![material_signature(&pos)];
+    for c in packed_moves.chunks_exact(PackedUciMove::BYTES) {
+        let uci = PackedUciMove::from_bytes([c[0], c[1]]).unpack();
+        let m = uci.to_move(&pos).ok()?;
+        let material_changed = is_capture(&m) || m.is_promotion();
+        pos.play_unchecked(m);
+        if material_changed {
+            let sig = material_signature(&pos);
+            if sigs.last() != Some(&sig) {
+                sigs.push(sig);
+            }
+        }
+    }
+    Some(sigs)
+}
+
 enum InsertOutcome {
     Inserted,
     Duplicate,
@@ -1174,6 +1447,14 @@ fn insert_game(
         tx.prepare_cached("INSERT INTO positions (zobrist, game_id, ply) VALUES (?1, ?2, ?3)")?;
     for (zobrist, _epd, ply) in &game.positions {
         stmt.execute(params![zobrist, game_id, *ply as i64])?;
+    }
+    // OR IGNORE: a signature can recur non-consecutively (e.g. a promotion
+    // restoring an earlier configuration); the PK dedups it.
+    let mut mat = tx.prepare_cached(
+        "INSERT OR IGNORE INTO game_material (game_id, signature) VALUES (?1, ?2)",
+    )?;
+    for sig in &game.material_sigs {
+        mat.execute(params![game_id, sig])?;
     }
     Ok(InsertOutcome::Inserted)
 }
@@ -1229,6 +1510,10 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<GameHeader> {
         result: r.get(10)?,
         ply_count: r.get(11)?,
         source: r.get(12)?,
+        tags: r
+            .get::<_, Option<String>>(13)?
+            .map(|s| s.split('\x1f').map(str::to_string).collect())
+            .unwrap_or_default(),
     })
 }
 
@@ -1567,6 +1852,41 @@ pub fn db_delete_games(
 }
 
 #[tauri::command]
+pub fn db_add_tag(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbManager>,
+    id: i64,
+    tag: String,
+    db_path: Option<String>,
+) -> Result<(), String> {
+    let path = resolve_db_path(&app, db_path)?;
+    state.with(&path, |db| db.add_tag(id, &tag))
+}
+
+#[tauri::command]
+pub fn db_remove_tag(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbManager>,
+    id: i64,
+    tag: String,
+    db_path: Option<String>,
+) -> Result<(), String> {
+    let path = resolve_db_path(&app, db_path)?;
+    state.with(&path, |db| db.remove_tag(id, &tag))
+}
+
+/// All distinct tags in use in the database (feeds the tag filter dropdown).
+#[tauri::command]
+pub fn db_list_tags(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbManager>,
+    db_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    let path = resolve_db_path(&app, db_path)?;
+    state.with(&path, |db| db.list_tags())
+}
+
+#[tauri::command]
 pub fn db_stats(
     app: tauri::AppHandle,
     state: tauri::State<'_, DbManager>,
@@ -1591,9 +1911,10 @@ mod tests {
     }
 
     // Opening a database recorded at schema v1 (pre-puzzles) must create the
-    // puzzles table and bump the recorded version — the v1→v2 migration.
+    // puzzles + game_tags tables and bump the recorded version — the
+    // v1→current migration in one hop (the DDL batch is the migration).
     #[test]
-    fn v1_database_migrates_to_v2() {
+    fn v1_database_migrates_to_current() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -1611,6 +1932,165 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM puzzles", [], |r| r.get(0))
             .unwrap();
         assert_eq!(puzzles, 0, "puzzles table exists and is empty");
+        let tags: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM game_tags", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tags, 0, "game_tags table exists and is empty");
+    }
+
+    // Tagging (spec 200): add/remove round-trips through the header list, the
+    // tag filter narrows to tagged games, and list_tags reports what's in use.
+    #[test]
+    fn tags_roundtrip_and_filter() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(SAMPLE, "test").unwrap();
+        let all = db.list_games(&GameFilter::default(), 100, 0, None, true).unwrap();
+        assert!(all.len() >= 2);
+        assert!(all.iter().all(|g| g.tags.is_empty()));
+        let (a, b) = (all[0].id, all[1].id);
+
+        db.add_tag(a, "favorite").unwrap();
+        db.add_tag(a, "endgame study").unwrap();
+        db.add_tag(a, "favorite").unwrap(); // duplicate: no-op
+        db.add_tag(b, "favorite").unwrap();
+        assert!(db.add_tag(a, "  ").is_err(), "blank tag rejected");
+        assert!(db.add_tag(999_999, "x").is_err(), "unknown game rejected");
+
+        let hdr = db
+            .list_games(&GameFilter::default(), 100, 0, None, true)
+            .unwrap()
+            .into_iter()
+            .find(|g| g.id == a)
+            .unwrap();
+        assert_eq!(hdr.tags, vec!["endgame study", "favorite"]); // sorted
+
+        let favs = db
+            .list_games(
+                &GameFilter {
+                    tag: Some("favorite".into()),
+                    ..Default::default()
+                },
+                100,
+                0,
+                None,
+                true,
+            )
+            .unwrap();
+        assert_eq!(favs.len(), 2);
+
+        assert_eq!(db.list_tags().unwrap(), vec!["endgame study", "favorite"]);
+
+        db.remove_tag(a, "favorite").unwrap();
+        db.remove_tag(a, "favorite").unwrap(); // absent: no-op
+        let favs = db
+            .list_games(
+                &GameFilter {
+                    tag: Some("favorite".into()),
+                    ..Default::default()
+                },
+                100,
+                0,
+                None,
+                true,
+            )
+            .unwrap();
+        assert_eq!(favs.len(), 1);
+        assert_eq!(favs[0].id, b);
+    }
+
+    // Deleting a game cascades its tags away (FK ON DELETE CASCADE).
+    #[test]
+    fn deleting_game_drops_its_tags() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(SAMPLE, "test").unwrap();
+        let id = db.list_games(&GameFilter::default(), 1, 0, None, true).unwrap()[0].id;
+        db.add_tag(id, "favorite").unwrap();
+        db.delete_games(&[id]).unwrap();
+        assert!(db.list_tags().unwrap().is_empty());
+    }
+
+    // max_elo caps both players; unrated players pass the cap.
+    #[test]
+    fn max_elo_filter_caps_both_players() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(
+            "[White \"A\"]\n[Black \"B\"]\n[WhiteElo \"2400\"]\n[BlackElo \"2600\"]\n[Result \"1-0\"]\n\n1. e4 e5 1-0\n\n\
+             [White \"C\"]\n[Black \"D\"]\n[WhiteElo \"2100\"]\n[BlackElo \"2200\"]\n[Result \"0-1\"]\n\n1. d4 d5 0-1\n\n\
+             [White \"E\"]\n[Black \"F\"]\n[Result \"1/2-1/2\"]\n\n1. c4 c5 1/2-1/2\n",
+            "test",
+        )
+        .unwrap();
+        let capped = db
+            .list_games(
+                &GameFilter {
+                    max_elo: Some(2300),
+                    ..Default::default()
+                },
+                100,
+                0,
+                None,
+                true,
+            )
+            .unwrap();
+        let names: Vec<&str> = capped.iter().map(|g| g.white.as_str()).collect();
+        assert!(names.contains(&"C"), "both under the cap passes");
+        assert!(names.contains(&"E"), "unrated players pass the cap");
+        assert!(!names.contains(&"A"), "one player over the cap excludes");
+    }
+
+    // Full-text matches headers and movetext (comments included).
+    #[test]
+    fn text_filter_searches_headers_and_movetext() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(
+            "[White \"Tal, Mikhail\"]\n[Black \"Botvinnik, Mikhail\"]\n[Result \"1-0\"]\n\n\
+             1. e4 {a stunning gambit} e5 1-0\n\n\
+             [White \"Petrosian, Tigran\"]\n[Black \"Spassky, Boris\"]\n[Result \"1/2-1/2\"]\n\n\
+             1. d4 d5 1/2-1/2\n",
+            "test",
+        )
+        .unwrap();
+        let by_comment = db
+            .list_games(
+                &GameFilter {
+                    text: Some("stunning gambit".into()),
+                    ..Default::default()
+                },
+                100,
+                0,
+                None,
+                true,
+            )
+            .unwrap();
+        assert_eq!(by_comment.len(), 1);
+        assert_eq!(by_comment[0].white, "Tal, Mikhail");
+        let by_player = db
+            .list_games(
+                &GameFilter {
+                    text: Some("spassky".into()),
+                    ..Default::default()
+                },
+                100,
+                0,
+                None,
+                true,
+            )
+            .unwrap();
+        assert_eq!(by_player.len(), 1, "LIKE is case-insensitive for ASCII");
+        let none = db
+            .list_games(
+                &GameFilter {
+                    text: Some("no such needle".into()),
+                    ..Default::default()
+                },
+                100,
+                0,
+                None,
+                true,
+            )
+            .unwrap();
+        assert!(none.is_empty());
     }
 
     // The progress callback must land at least the final snapshot, with counts
@@ -1753,6 +2233,70 @@ mod tests {
         let fen = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
         let hits = db.search_position(&fen, 100).unwrap();
         assert_eq!(hits.len(), 2, "both move orders transpose into the position");
+    }
+
+    /// Shorthand: a filter with only `material` set.
+    fn material_filter(q: &str) -> GameFilter {
+        GameFilter {
+            material: Some(q.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn material_search_finds_endgame_signature() {
+        // A rook-and-pawn-vs-rook ending from a FEN start — signatures are
+        // computed from the actual positions at import, so a custom start
+        // (and any position past the ply-40 index cap) indexes correctly.
+        let mut db = Db::open_in_memory().unwrap();
+        let pgn = "[Event \"E\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"*\"]\n\
+                   [SetUp \"1\"]\n[FEN \"4k3/4r3/8/8/8/3K4/4P3/4R3 w - - 0 1\"]\n\n1. Kc3 *\n";
+        db.import_pgn_str(pgn, "t").unwrap();
+
+        let hit = db.list_games(&material_filter("KRP vs KR"), 10, 0, None, false).unwrap();
+        assert_eq!(hit.len(), 1, "canonical query finds the ending");
+        // Either orientation, lowercase, and the one-token form all match.
+        for q in ["KR vs KRP", "krp-kr", "KRPKR", "RP v R"] {
+            let rows = db.list_games(&material_filter(q), 10, 0, None, false).unwrap();
+            assert_eq!(rows.len(), 1, "query {q:?} finds the ending");
+        }
+        // A different signature, and garbage, match nothing.
+        assert!(db.list_games(&material_filter("KQ vs K"), 10, 0, None, false).unwrap().is_empty());
+        assert!(db.list_games(&material_filter("xyz!"), 10, 0, None, false).unwrap().is_empty());
+    }
+
+    #[test]
+    fn material_signatures_track_captures() {
+        let mut db = Db::open_in_memory().unwrap();
+        let pgn = "[Event \"E\"]\n[White \"A\"]\n[Black \"B\"]\n[Result \"*\"]\n\n\
+                   1. e4 d5 2. exd5 Qxd5 *\n";
+        db.import_pgn_str(pgn, "t").unwrap();
+        // Full armies (start), one pawn up (after 2. exd5), level again 7v7
+        // (after 2... Qxd5) — every signature along the way is searchable.
+        for q in [
+            "KQRRBBNNPPPPPPPP vs KQRRBBNNPPPPPPPP",
+            "KQRRBBNNPPPPPPPP vs KQRRBBNNPPPPPPP",
+            "KQRRBBNNPPPPPPP vs KQRRBBNNPPPPPPP",
+        ] {
+            let rows = db.list_games(&material_filter(q), 10, 0, None, false).unwrap();
+            assert_eq!(rows.len(), 1, "signature {q:?} was reached");
+        }
+        // A signature never reached does not match.
+        assert!(db.list_games(&material_filter("KQ vs KQ"), 10, 0, None, false).unwrap().is_empty());
+    }
+
+    #[test]
+    fn material_backfill_reindexes_missing_games() {
+        // Simulate a pre-v4 database: import (which indexes), wipe the
+        // material table, and confirm the open-time backfill restores it.
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(SAMPLE, "test").unwrap();
+        db.conn.execute("DELETE FROM game_material", []).unwrap();
+        let start = material_filter("KQRRBBNNPPPPPPPP vs KQRRBBNNPPPPPPPP");
+        assert!(db.list_games(&start, 100, 0, None, false).unwrap().is_empty());
+        db.backfill_material().unwrap();
+        let rows = db.list_games(&start, 100, 0, None, false).unwrap();
+        assert!(!rows.is_empty(), "standard-start games regain their start signature");
     }
 
     #[test]

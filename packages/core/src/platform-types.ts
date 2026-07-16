@@ -270,6 +270,12 @@ export interface DatabaseProvider {
   deleteGames(ids: number[], dbPath?: string): Promise<number>
   stats(dbPath?: string): Promise<DbStats>
 
+  // --- Tags / favorites (spec 200; "favorite" is the star) ---
+  addTag(id: number, tag: string, dbPath?: string): Promise<void>
+  removeTag(id: number, tag: string, dbPath?: string): Promise<void>
+  /** All distinct tags in use, sorted — feeds the tag filter dropdown. */
+  listTags(dbPath?: string): Promise<string[]>
+
   // --- Avoidance puzzles (spec 211; everything but puzzle_check_move) ---
   importPuzzles(args: {
     text?: string

@@ -11,6 +11,8 @@ import {
   evalToUnit,
   formatEval,
   judgeMove,
+  JUDGMENT_NAGS,
+  withJudgmentNag,
 } from "@chessgui/core/annotations";
 
 function line(sans: string[]): GameTree {
@@ -245,5 +247,30 @@ describe("judgeMove — blunder detection thresholds (spec 202)", () => {
     expect(judgeMove(mate(2), mate(8), true)).toBeNull(); // longer mate, still mate
     expect(judgeMove(cp(2000), cp(1200), true)).toBeNull(); // both beyond the cap
     expect(judgeMove(mate(3), cp(1500), true)).toBeNull(); // mate → crushing eval
+  });
+});
+
+describe("withJudgmentNag — engine judgment → move-quality NAG (spec 212)", () => {
+  it("maps the three tiers to ?! / ? / ??", () => {
+    expect(JUDGMENT_NAGS.inaccuracy).toBe(6);
+    expect(JUDGMENT_NAGS.mistake).toBe(2);
+    expect(JUDGMENT_NAGS.blunder).toBe(4);
+  });
+
+  it("adds the NAG to a bare node", () => {
+    expect(withJudgmentNag([], "blunder")).toEqual([4]);
+  });
+
+  it("replaces an existing move-quality NAG but keeps positional NAGs", () => {
+    // Node was marked "!" (1) and "±" (16); a blunder verdict swaps 1 → 4.
+    expect(withJudgmentNag([1, 16], "blunder")).toEqual([4, 16]);
+    // Re-judging to a milder tier replaces too.
+    expect(withJudgmentNag([4, 19], "inaccuracy")).toEqual([6, 19]);
+  });
+
+  it("is pure — the input array is untouched", () => {
+    const nags = [1, 16];
+    withJudgmentNag(nags, "mistake");
+    expect(nags).toEqual([1, 16]);
   });
 });

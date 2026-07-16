@@ -16,11 +16,15 @@ import {
 import { MoveList } from "@chessgui/ui/move-list"
 import { AnnotationBar } from "@chessgui/ui/annotation-bar"
 import { EvalGraph } from "@chessgui/ui/eval-graph"
+import { GameAnalysisControl } from "@chessgui/ui/game-analysis-control"
+import { AdvantageSparkline } from "@chessgui/ui/advantage-sparkline"
 import { AnalysisPanel } from "@chessgui/ui/analysis-panel"
 import { EngineComparePanel } from "@chessgui/ui/engine-compare-panel"
+import { OpeningExplorerPanel } from "@chessgui/ui/opening-explorer-panel"
 import { EvalBar } from "@chessgui/ui/eval-bar"
 import { PromotionDialog } from "@chessgui/ui/promotion-dialog"
 import { PgnImportDialog } from "@chessgui/ui/pgn-import-dialog"
+import { PlaySetupDialog } from "@chessgui/ui/play-setup-dialog"
 import { PositionEditorDialog } from "@chessgui/ui/position-editor-dialog"
 import { ActiveGameNotice } from "@chessgui/ui/active-game-notice"
 import { ActiveGamesPanel } from "@chessgui/ui/active-games-panel"
@@ -48,7 +52,11 @@ import {
   saveDefaultChesscomUsername,
 } from "@/lib/active-games"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
-import { useEngine } from "@/hooks/use-engine"
+import { useEngine, type PlayerColor } from "@/hooks/use-engine"
+import { useGameAnalysis } from "@/hooks/use-game-analysis"
+import { usePlayClock } from "@/hooks/use-play-clock"
+import { remainingMs, type PlayClockPreset } from "@/lib/play-clock"
+import { formatClockMs } from "@/lib/arena-moves"
 import { readClipboardImage, readClipboardText, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
 import { saveGame } from "@/lib/database"
 import { saveTextFile } from "@/lib/dialog"
@@ -76,18 +84,50 @@ const Board = dynamic(
 export default function Home() {
   const game = useChessGame()
 
+  // Local play clock (spec 011, 000:81): keyed to the game's live TIP —
+  // moves.length + side-to-move-at-tip — so review navigation never switches
+  // the clock. Untimed presets keep clock === null; timed ones enforce the
+  // flag locally (flag = loss).
+  const startTurn: PlayerColor = game.startFen.includes(" b ") ? "black" : "white"
+  const tipTurn: PlayerColor =
+    game.moves.length % 2 === 0 ? startTurn : startTurn === "white" ? "black" : "white"
+  const playClock = usePlayClock(game.moves.length, tipTurn)
+
   const handleBestMove = useCallback(
     (uciMove: string) => {
+      // The flag fell while the engine searched ("stop" still yields a
+      // bestmove) — the game is over on time, discard the reply.
+      if (playClock.isFlagged()) return
       game.playUciMove(uciMove)
     },
-    [game.playUciMove],
+    [game.playUciMove, playClock.isFlagged],
   )
 
   const atLatestMove = game.currentMoveIndex === game.moves.length - 1
   // game.activeGame scopes the spec 219 engine lockout to THIS game: null =
   // normal game (engine available), metadata = active chess.com daily game
   // (engine structurally off until archived).
-  const engine = useEngine(game.fen, handleBestMove, atLatestMove, game.uciMoves, game.startFen, game.currentMoveIndex, game.activeGame)
+  const engine = useEngine(
+    game.fen,
+    handleBestMove,
+    atLatestMove,
+    game.uciMoves,
+    game.startFen,
+    game.currentMoveIndex,
+    game.activeGame,
+    undefined,
+    playClock.getEngineClock,
+  )
+
+  // Full-game blunder check (spec 212 "Analyze Game"): batch mainline evals
+  // on a dedicated engine session, judged via annotations.ts thresholds.
+  // Shares the spec 219 lockout context with the main engine hook.
+  const gameAnalysis = useGameAnalysis({
+    tree: game.tree,
+    activeGame: game.activeGame,
+    setEval: game.setEval,
+    setNags: game.setNags,
+  })
 
   // Load a game from the database onto the board and switch to analysis.
   const handleLoadFromDatabase = useCallback(
@@ -121,6 +161,50 @@ export default function Home() {
   const topColor = bottomColor === "white" ? ("black" as const) : ("white" as const)
   const isPlayMode = engine.state.mode === "play"
   const playerColor = engine.state.playerColor
+
+  // ---- Play vs engine game start / clocks / handoff (spec 011) ----
+  const [playSetupOpen, setPlaySetupOpen] = useState(false)
+
+  // Start from the setup dialog: color picked there (board flips via the
+  // orientation effect below), clock starts only once the engine is actually
+  // up — spawn/handshake time never burns the player's clock.
+  const handleStartPlay = useCallback(
+    async (color: PlayerColor, preset: PlayClockPreset) => {
+      setPlaySetupOpen(false)
+      try {
+        await engine.setPlayMode(true, color)
+        playClock.start(preset, tipTurn)
+      } catch (err) {
+        setPasteStatus(err instanceof Error ? err.message : String(err))
+        setTimeout(() => setPasteStatus(null), 5000)
+      }
+    },
+    [engine.setPlayMode, playClock.start, tipTurn],
+  )
+
+  // Leaving play mode by ANY path (analyze toggle, engine disconnect,
+  // Cmd+N) retires the clock.
+  useEffect(() => {
+    if (!isPlayMode) playClock.stop()
+  }, [isPlayMode, playClock.stop])
+
+  // Flag = loss (local enforcement): halt the engine's search the moment a
+  // flag falls. handleBestMove discards the bestmove "stop" flushes out, and
+  // the board locks below, so the position freezes as it stood.
+  useEffect(() => {
+    if (playClock.flagged) engine.cancelThinking()
+  }, [playClock.flagged, engine.cancelThinking])
+
+  // The engine game is over — on the board (mate/stalemate/draw) or on time.
+  const playGameOver = isPlayMode && (game.status.over || playClock.flagged != null)
+
+  // One-click handoff (spec 011, 000:83): the finished engine game becomes an
+  // analysis session — same tree, same position, engine flips to `go infinite`.
+  const handleAnalyzeGame = useCallback(async () => {
+    playClock.stop()
+    await engine.setPlayMode(false)
+  }, [playClock.stop, engine.setPlayMode])
+
   const [boardSize, setBoardSize] = useState(560)
   const [view, setView] = useState<"board" | "tournament" | "thinking" | "database" | "learn">("board")
   // Sub-view within the Learn tab: eval calibration, persona sparring (spec 214),
@@ -268,14 +352,33 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [isPlayMode]);
 
+  const formatClock = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const m = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+    const s = (totalSeconds % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
   // Calculate live clock display
   const isEngineTurn = isPlayMode && turn !== playerColor;
   const engineBaseTime = playerColor === "white" ? engine.clockRef.current.btime : engine.clockRef.current.wtime;
-  
+
   const timeSpentThisTurn = isPlayMode ? Math.max(0, now - engine.turnStartTimeRef.current) : 0;
-  
+
   const engineLiveTime = isEngineTurn ? Math.max(0, engineBaseTime - timeSpentThisTurn) : engineBaseTime;
   const humanLiveTime = !isEngineTurn ? timeSpentThisTurn : 0;
+
+  // Timed game (spec 011 local clocks): BOTH cards show the real countdown
+  // (arena-style face, tenths under 10s). Untimed keeps the pre-clock
+  // display — engine virtual clock + human count-up stopwatch.
+  const timedClock = isPlayMode ? playClock.clock : null
+  const engineColor: PlayerColor = playerColor === "white" ? "black" : "white"
+  const engineClockText = timedClock
+    ? formatClockMs(remainingMs(timedClock, engineColor, now))
+    : formatClock(engineLiveTime)
+  const humanClockText = timedClock
+    ? formatClockMs(remainingMs(timedClock, playerColor, now))
+    : formatClock(humanLiveTime)
 
   // PV preview (spec 011): clicking a move in an engine line shows the line
   // on the board up to that ply — a read-only overlay, never a tree mutation.
@@ -434,13 +537,6 @@ export default function Home() {
         : { cp: best.score.value * flip, depth: best.depth },
     )
   }, [engine.state.lines, engine.state.analysisFen, engine.state.isAnalyzing, engine.state.scoreTurn, isPlayMode, game.fen, game.currentNodeId, game.setEval])
-
-  const formatClock = (ms: number) => {
-    const totalSeconds = Math.floor(ms / 1000);
-    const m = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
-    const s = (totalSeconds % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
-  };
 
   // Enter "thinking mode": load a position and show only the board + eval bar,
   // with the engine evaluating silently (no lines, no move list). Used after
@@ -695,11 +791,13 @@ export default function Home() {
         e.preventDefault()
         game.goToMove(game.currentMoveIndex + 1)
       } else if (e.key === "ArrowUp") {
-        // Move to the previous sibling variation at this branch point.
+        // Previous sibling variation; from deeper inside a variation, walk
+        // out to the mainline move at the branch point (spec 001).
         e.preventDefault()
         game.cycleVariation(-1)
       } else if (e.key === "ArrowDown") {
-        // Move to the next sibling variation at this branch point.
+        // Next sibling variation; with none, walk into the first variation
+        // branching off the next move (spec 001).
         e.preventDefault()
         game.cycleVariation(1)
       } else if (e.key === "Home") {
@@ -752,7 +850,14 @@ export default function Home() {
                   setView("board")
                   // Don't start a human game while a tournament is in progress —
                   // just switch to the board to watch the live engine game.
-                  if (!tournamentRunning) engine.setPlayMode(true, playerColor)
+                  if (tournamentRunning) return
+                  // Mid-game the button is just "show me the board" — a new
+                  // game starts from New, not from re-clicking Play.
+                  if (isPlayMode) return
+                  // Spec 219: no engine games while the active-game lockout
+                  // holds (setPlayMode would refuse anyway; don't tease).
+                  if (engine.engineLocked) return
+                  setPlaySetupOpen(true)
                 }}
                 title={tournamentRunning ? "Watch the live tournament game" : "Play against Stockfish"}
               >
@@ -1080,8 +1185,13 @@ export default function Home() {
                 </div>
               </div>
               <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider">
-                {isPlayMode ? formatClock(engineLiveTime) : "--:--"}
+                {isPlayMode ? engineClockText : "--:--"}
               </div>
+              {timedClock && playClock.preset && (
+                <p className="text-[10px] text-muted-foreground text-center mt-0.5">
+                  {playClock.preset.label} · flag = loss
+                </p>
+              )}
             </Card>
 
             {/* Pieces the top player has captured (+x when ahead on points) */}
@@ -1120,11 +1230,26 @@ export default function Home() {
               </Card>
             )}
 
+            {/* Advantage sparkline (spec 001 §3 "Match History"): the game's
+                eval history at a glance. Engine-derived like the eval graph,
+                so analyze mode only and hidden under the spec 219 lockout;
+                the component renders nothing until two evals exist. */}
+            {!isPlayMode && !engine.engineLocked && (
+              <AdvantageSparkline tree={game.tree} version={game.treeVersion} />
+            )}
+
             {/* Game status (check / checkmate / draw). Lives in the left
                 column between the two clocks so it never resizes the board
                 when it appears/disappears. mt-auto pins it above the bottom
                 clock, in the flexible space below the top clock. */}
-            {game.status.label && (
+            {isPlayMode && playClock.flagged ? (
+              <div
+                className="mt-auto shrink-0 px-3 py-2 rounded-lg text-sm font-semibold text-center bg-red-900/60 text-red-100 border border-red-700/50"
+                data-testid="flag-banner"
+              >
+                Flag — {playClock.flagged === "white" ? "Black" : "White"} wins on time
+              </div>
+            ) : game.status.label ? (
               <div
                 className={`mt-auto shrink-0 px-3 py-2 rounded-lg text-sm font-semibold text-center ${
                   game.status.over
@@ -1134,7 +1259,7 @@ export default function Home() {
               >
                 {game.status.label}
               </div>
-            )}
+            ) : null}
 
             {/* Pieces the bottom player has captured. mt-auto keeps this row
                 pinned directly above the bottom clock (the status banner's own
@@ -1167,7 +1292,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider opacity-80">
-                {isPlayMode ? formatClock(humanLiveTime) : "--:--"}
+                {isPlayMode ? humanClockText : "--:--"}
               </div>
             </Card>
           </div>
@@ -1184,11 +1309,15 @@ export default function Home() {
                 movableColor={isPlayMode ? playerColor : "both"}
                 onMove={game.onMove}
                 viewOnly={!!previewStep}
+                // Premove while the engine thinks (spec 001) — play mode only
+                // (analysis moves both sides, so there's never a queued turn),
+                // and never once the game is over on time.
+                premovable={isPlayMode && playClock.flagged == null}
                 legalMoves={
                   previewStep
                     ? EMPTY_DESTS
-                    : isPlayMode && turn !== playerColor
-                      ? new Map()
+                    : isPlayMode && (turn !== playerColor || playClock.flagged != null)
+                      ? EMPTY_DESTS
                       : game.legalMoves
                 }
                 lastMove={previewStep ? (previewStep.lastMove as [Key, Key]) : game.lastMove}
@@ -1208,6 +1337,31 @@ export default function Home() {
                 )}
               </Board>
             </div>
+
+            {/* Post-game handoff (spec 011): the engine game ended — on the
+                board or on time — one click flips into analysis with the
+                full game tree kept. */}
+            {playGameOver && !pvPreview && (
+              <div
+                className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-emerald-950/60 border border-emerald-800/50 text-sm text-emerald-200"
+                data-testid="post-game-banner"
+              >
+                <span>
+                  {playClock.flagged
+                    ? `Flag — ${playClock.flagged === "white" ? "Black" : "White"} wins on time`
+                    : game.status.label}
+                </span>
+                <Button
+                  size="sm"
+                  className="h-7 bg-emerald-700 hover:bg-emerald-600 text-white"
+                  onClick={handleAnalyzeGame}
+                  data-testid="analyze-game"
+                  title="Switch to analysis on this game — moves, clock story and all"
+                >
+                  Analyze game
+                </Button>
+              </div>
+            )}
 
             {/* PV preview banner — shown instead of nothing so it's obvious the
                 board is temporarily off the game (spec 011 PV preview). */}
@@ -1349,6 +1503,7 @@ export default function Home() {
                   previewPv={pvPreview ? { multipv: pvPreview.multipv, ply: pvPreview.ply } : null}
                   fen={game.fen}
                   activeGame={game.activeGame}
+                  onPlaySetup={() => setPlaySetupOpen(true)}
                 />
               )}
             </div>
@@ -1374,6 +1529,9 @@ export default function Home() {
               currentId={game.currentNodeId}
               onGoToNode={game.goToNode}
               version={game.treeVersion}
+              // Per-move eval badges (spec 202): engine-derived, so same
+              // gating as the eval graph — analyze mode, no spec 219 lockout.
+              showEvals={!isPlayMode && !engine.engineLocked}
             />
             {/* Annotation editing + eval graph (spec 202) — analyze mode only.
                 Hand annotations stay available in an active game (books and
@@ -1388,13 +1546,32 @@ export default function Home() {
                   active={view === "board" && !liveViewing && !pgnDialogOpen && !editorOpen}
                 />
                 {!engine.engineLocked && (
-                  <EvalGraph
-                    tree={game.tree}
-                    currentId={game.currentNodeId}
-                    onGoToNode={game.goToNode}
-                    version={game.treeVersion}
-                  />
+                  <>
+                    {/* Full-game blunder check (spec 212): batch-evals the
+                        mainline on its own engine session; results land as
+                        node evals (graph below) + ?!/?/?? NAGs (move list).
+                        Hidden — not merely disabled — under the spec 219
+                        lockout, like every other engine surface. */}
+                    <GameAnalysisControl
+                      state={gameAnalysis.state}
+                      onStart={gameAnalysis.start}
+                      onCancel={gameAnalysis.cancel}
+                      disabled={game.moves.length === 0}
+                    />
+                    <EvalGraph
+                      tree={game.tree}
+                      currentId={game.currentNodeId}
+                      onGoToNode={game.goToNode}
+                      version={game.treeVersion}
+                    />
+                  </>
                 )}
+                {/* Live opening explorer (spec 200): database stats for the
+                    current position, Lichess fallback when empty. Book-class
+                    data, no engine — so unlike the eval graph it stays up
+                    under the spec 219 lockout (same ruling as annotations:
+                    books are fair-play legal). Analyze mode only. */}
+                <OpeningExplorerPanel currentFen={game.fen} onPlayMove={game.playUciMove} />
               </>
             )}
           </div>
@@ -1426,6 +1603,12 @@ export default function Home() {
         onLoadTree={game.loadTree}
         initialText={pgnInitialText}
         onImagePaste={recognizeImage}
+      />
+
+      <PlaySetupDialog
+        open={playSetupOpen}
+        onOpenChange={setPlaySetupOpen}
+        onStart={handleStartPlay}
       />
 
       <PositionEditorDialog

@@ -11,6 +11,10 @@
 
 import { parsePgnToTrees, treeToPgn } from "@chessgui/core/pgn"
 import { GameTree } from "@chessgui/core/game-tree"
+import {
+  materialSignatureFromFen,
+  parseMaterialQuery,
+} from "@chessgui/core/material-signature"
 import type {
   DatabaseApi,
   DbStats,
@@ -38,6 +42,9 @@ type MockGame = {
   header: GameHeader
   tree: GameTree
   positions: IndexedPosition[]
+  /** Distinct material signatures reached along the mainline (spec 200
+   *  material search) — the whole mainline, not just the ply-capped index. */
+  materialSigs: Set<string>
   dupKey: string
 }
 
@@ -50,9 +57,16 @@ function epd(fen: string): string {
  * Walk a tree's mainline, deriving the compact UCI list and the position index
  * (each position plus the move played next), exactly as the Rust importer does.
  */
-function indexTree(tree: GameTree): { positions: IndexedPosition[]; uci: string[] } {
+function indexTree(tree: GameTree): {
+  positions: IndexedPosition[]
+  uci: string[]
+  materialSigs: Set<string>
+} {
   const positions: IndexedPosition[] = []
   const uci: string[] = []
+  // Material signatures cover the WHOLE mainline (endgames live past the
+  // position index's ply cap), like the Rust importer.
+  const materialSigs = new Set<string>()
   let node = tree.root()
   let ply = 0
   while (true) {
@@ -66,12 +80,14 @@ function indexTree(tree: GameTree): { positions: IndexedPosition[]; uci: string[
         nextUci: child?.uci ?? null,
       })
     }
+    const sig = materialSignatureFromFen(node.fen)
+    if (sig) materialSigs.add(sig)
     if (!child) break
     uci.push(child.uci)
     node = child
     ply += 1
   }
-  return { positions, uci }
+  return { positions, uci, materialSigs }
 }
 
 function headerFromTree(id: number, tree: GameTree, source: string): GameHeader {
@@ -101,6 +117,7 @@ function headerFromTree(id: number, tree: GameTree, source: string): GameHeader 
     result: h.Result ?? "*",
     ply_count: plies,
     source,
+    tags: [],
   }
 }
 
@@ -124,7 +141,7 @@ class MockDb implements DatabaseApi {
       return report
     }
     for (const tree of trees) {
-      const { positions, uci } = indexTree(tree)
+      const { positions, uci, materialSigs } = indexTree(tree)
       if (uci.length === 0 && Object.keys(tree.headers).length === 0) {
         report.errors += 1
         continue
@@ -142,6 +159,7 @@ class MockDb implements DatabaseApi {
         header: headerFromTree(id, tree, source),
         tree,
         positions,
+        materialSigs,
         dupKey,
       })
       report.imported += 1
@@ -163,7 +181,8 @@ class MockDb implements DatabaseApi {
     const like = (hay: string, needle: string) =>
       hay.toLowerCase().includes(needle.toLowerCase())
 
-    let rows = this.games.map((g) => g.header).filter((h) => {
+    let rows = this.games.filter((g) => {
+      const h = g.header
       if (has(filter.player) && !like(h.white, filter.player!) && !like(h.black, filter.player!))
         return false
       if (has(filter.white) && !like(h.white, filter.white!)) return false
@@ -179,8 +198,27 @@ class MockDb implements DatabaseApi {
         const b = h.black_elo ?? -Infinity
         if (w < filter.min_elo && b < filter.min_elo) return false
       }
+      // Cap applies to both players; unrated (null) passes — like the backend.
+      if (filter.max_elo != null) {
+        if ((h.white_elo ?? 0) > filter.max_elo || (h.black_elo ?? 0) > filter.max_elo)
+          return false
+      }
+      // Full-text: headers + the game's PGN (movetext incl. comments), same
+      // reach as the backend's LIKE over white/black/event/site/pgn_moves.
+      if (has(filter.text)) {
+        const hay = [h.white, h.black, h.event, h.site, treeToPgn(g.tree)].join("\x1f")
+        if (!like(hay, filter.text!)) return false
+      }
+      if (has(filter.tag) && !h.tags.includes(filter.tag!)) return false
+      // Material signature (spec 200): either orientation matches; an
+      // unparseable query matches nothing — same semantics as the backend.
+      if (has(filter.material)) {
+        const q = parseMaterialQuery(filter.material!)
+        if (!q) return false
+        if (!g.materialSigs.has(q.signature) && !g.materialSigs.has(q.flipped)) return false
+      }
       return true
-    })
+    }).map((g) => g.header)
 
     const dir = sort?.dir === "asc" ? 1 : -1
     const col = sort?.by
@@ -239,7 +277,7 @@ class MockDb implements DatabaseApi {
     const trees = parsePgnToTrees(args.pgn)
     const tree = trees[0]
     if (!tree) throw new Error("no game found in the PGN")
-    const { positions, uci } = indexTree(tree)
+    const { positions, uci, materialSigs } = indexTree(tree)
     // Same emptiness guard as ingest(): a blank input parses to a headerless,
     // moveless "game" — reject it like the backend does.
     if (uci.length === 0 && Object.keys(tree.headers).length === 0)
@@ -250,6 +288,7 @@ class MockDb implements DatabaseApi {
     if (existing) {
       existing.tree = tree
       existing.header = headerFromTree(existing.id, tree, existing.header.source)
+      existing.materialSigs = materialSigs
       return { id: existing.id, updated: true }
     }
     const source = args.source || "saved"
@@ -260,6 +299,7 @@ class MockDb implements DatabaseApi {
       header: headerFromTree(id, tree, source),
       tree,
       positions,
+      materialSigs,
       dupKey,
     })
     return { id, updated: false }
@@ -281,6 +321,30 @@ class MockDb implements DatabaseApi {
   async stats(): Promise<DbStats> {
     const positions = this.games.reduce((n, g) => n + g.positions.length, 0)
     return { games: this.games.length, positions }
+  }
+
+  // --- Tags / favorites (spec 200) — mirrors the Rust semantics: trimmed,
+  // non-empty, deduped, kept sorted; unknown game ids are an error. ---
+
+  async addTag(id: number, tag: string): Promise<void> {
+    const t = tag.trim()
+    if (!t) throw new Error("tag must not be empty")
+    const g = this.games.find((x) => x.id === id)
+    if (!g) throw new Error(`no game with id ${id}`)
+    if (!g.header.tags.includes(t)) {
+      g.header.tags = [...g.header.tags, t].sort()
+    }
+  }
+
+  async removeTag(id: number, tag: string): Promise<void> {
+    const g = this.games.find((x) => x.id === id)
+    if (g) g.header.tags = g.header.tags.filter((t) => t !== tag.trim())
+  }
+
+  async listTags(): Promise<string[]> {
+    const all = new Set<string>()
+    for (const g of this.games) for (const t of g.header.tags) all.add(t)
+    return [...all].sort()
   }
 }
 

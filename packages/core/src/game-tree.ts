@@ -287,6 +287,40 @@ export class GameTree {
     return this.nodes.get(node.parent)!.children;
   }
 
+  /**
+   * Up/Down variation navigation (spec 001): walk into, between, and out of
+   * variations. `+1` (Down) moves to the sibling branch one slot later at the
+   * current move; with none left it steps INTO the first variation branching
+   * off the next move. `-1` (Up) moves one sibling earlier (the first slot is
+   * the mainline move — that alone walks out of a one-move variation); from
+   * deeper inside a variation it climbs OUT to the mainline move at the
+   * branch point. Returns true when the cursor moved.
+   */
+  cycleVariation(direction: 1 | -1): boolean {
+    const node = this.currentNode();
+    if (node.parent) {
+      const siblings = this.nodes.get(node.parent)!.children;
+      const next = siblings.indexOf(node.id) + direction;
+      if (next >= 0 && next < siblings.length) {
+        this.currentId = siblings[next];
+        return true;
+      }
+    }
+    if (direction === 1) {
+      // No later sibling — step into the next move's first variation.
+      return node.children.length > 1 ? this.goTo(node.children[1]) : false;
+    }
+    // No earlier sibling — if inside a variation, land on the mainline move
+    // it diverges from.
+    let cur = node;
+    while (cur.parent) {
+      const parent = this.nodes.get(cur.parent)!;
+      if (parent.children[0] !== cur.id) return this.goTo(parent.children[0]);
+      cur = parent;
+    }
+    return false;
+  }
+
   // ---- mutation ----
 
   private appendChild(parent: MoveNode, move: NormalMove, san: string, uci: string, fen: string): MoveNode {

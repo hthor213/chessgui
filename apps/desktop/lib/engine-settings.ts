@@ -4,6 +4,18 @@
 
 import { getProviders } from "@/lib/platform";
 
+/** How analysis-mode searches are limited (spec 011): run until stopped
+ *  (`go infinite`), stop at a fixed depth, or spend fixed time per position. */
+export type AnalysisLimitMode = "infinite" | "depth" | "movetime";
+
+/** A free-form UCI option (spec 011), sent verbatim as
+ *  `setoption name <name> value <value>` (bare `setoption name <name>` for
+ *  button options with an empty value). */
+export interface CustomUciOption {
+  name: string;
+  value: string;
+}
+
 export interface EngineSettings {
   /** UCI Hash table size in MB. */
   hash: number;
@@ -13,6 +25,18 @@ export interface EngineSettings {
   multiPv: number;
   /** Draw the engine's best-move arrows on the board in analysis mode. */
   showArrows: boolean;
+  /** Analysis search limit (spec 011). Play mode always uses clock-based go. */
+  analysisMode: AnalysisLimitMode;
+  /** Target depth when analysisMode is "depth". */
+  analysisDepth: number;
+  /** Per-position search time in ms when analysisMode is "movetime". */
+  analysisMoveTimeMs: number;
+  /** UCI Contempt (classic Stockfish range −100…100). 0 means "engine
+   *  default" and is never sent to a fresh engine, so engines without the
+   *  option (Stockfish 12+) see no unknown-option noise. */
+  contempt: number;
+  /** Free-form UCI options (spec 011), sent in list order on engine start. */
+  customOptions: CustomUciOption[];
 }
 
 const STORAGE_KEY = "engine-settings";
@@ -55,6 +79,12 @@ export const HASH_MIN = 16;
 export const HASH_MAX = 8192;
 export const MULTI_PV_MIN = 1;
 export const MULTI_PV_MAX = 5;
+export const ANALYSIS_DEPTH_MIN = 1;
+export const ANALYSIS_DEPTH_MAX = 99;
+export const ANALYSIS_MOVETIME_MIN_MS = 100;
+export const ANALYSIS_MOVETIME_MAX_MS = 600_000;
+export const CONTEMPT_MIN = -100;
+export const CONTEMPT_MAX = 100;
 
 export function maxThreads(): number {
   return typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
@@ -66,7 +96,53 @@ export function defaultEngineSettings(): EngineSettings {
     threads: Math.min(4, maxThreads()),
     multiPv: 3,
     showArrows: false,
+    analysisMode: "infinite",
+    analysisDepth: 30,
+    analysisMoveTimeMs: 5000,
+    contempt: 0,
+    customOptions: [],
   };
+}
+
+/** Validate a stored/edited custom-option list. UCI is a line protocol, so
+ *  line breaks are stripped — a crafted name/value must never smuggle a
+ *  second command (e.g. "Threads value 1\ngo infinite") past setoption.
+ *  Entries without a name are dropped; an empty value is kept (button
+ *  options like "Clear Hash" take none). */
+export function sanitizeCustomOptions(raw: unknown): CustomUciOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomUciOption[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const name = String((entry as { name?: unknown }).name ?? "")
+      .replace(/[\r\n]+/g, " ")
+      .trim();
+    const value = String((entry as { value?: unknown }).value ?? "")
+      .replace(/[\r\n]+/g, " ")
+      .trim();
+    if (!name) continue;
+    out.push({ name, value });
+  }
+  return out;
+}
+
+/** setoption line for one custom option (empty value = button option). */
+export function customOptionCommand(opt: CustomUciOption): string {
+  return opt.value
+    ? `setoption name ${opt.name} value ${opt.value}`
+    : `setoption name ${opt.name}`;
+}
+
+/** The `go` command analysis mode issues (spec 011). */
+export function analysisGoCommand(s: EngineSettings): string {
+  switch (s.analysisMode) {
+    case "depth":
+      return `go depth ${s.analysisDepth}`;
+    case "movetime":
+      return `go movetime ${s.analysisMoveTimeMs}`;
+    default:
+      return "go infinite";
+  }
 }
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
@@ -95,6 +171,18 @@ export function loadEngineSettings(): EngineSettings {
         : typeof saved.showArrows === "boolean"
           ? saved.showArrows
           : defaults.showArrows,
+      // Spec 011 additions: absent in pre-existing blobs, so each falls back
+      // to its default independently of the showArrows migration above.
+      analysisMode:
+        saved.analysisMode === "depth" || saved.analysisMode === "movetime"
+          ? saved.analysisMode
+          : defaults.analysisMode,
+      analysisDepth: clampInt(
+        saved.analysisDepth, ANALYSIS_DEPTH_MIN, ANALYSIS_DEPTH_MAX, defaults.analysisDepth),
+      analysisMoveTimeMs: clampInt(
+        saved.analysisMoveTimeMs, ANALYSIS_MOVETIME_MIN_MS, ANALYSIS_MOVETIME_MAX_MS, defaults.analysisMoveTimeMs),
+      contempt: clampInt(saved.contempt, CONTEMPT_MIN, CONTEMPT_MAX, defaults.contempt),
+      customOptions: sanitizeCustomOptions(saved.customOptions),
     };
   } catch {
     return defaults;

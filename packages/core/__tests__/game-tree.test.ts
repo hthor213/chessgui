@@ -166,6 +166,58 @@ describe("GameTree — navigation", () => {
   });
 });
 
+describe("GameTree — cycleVariation (up/down keys)", () => {
+  // 1. e4 e5 (1... c5 2. Nf3 Nc6) 2. Nf3 — one variation off Black's first move.
+  function treeWithVariation(): GameTree {
+    const t = line(["e4", "e5", "Nf3"]);
+    t.goToStart();
+    t.forward(); // on e4
+    t.addMoveSan("c5"); // variation of 1... e5
+    t.addMoveSan("Nf3"); // deeper inside the variation
+    t.addMoveSan("Nc6");
+    return t;
+  }
+
+  it("cycles between sibling branches at the same move", () => {
+    const t = treeWithVariation();
+    t.goToStart();
+    t.forward();
+    t.forward(); // on 1... e5 (mainline slot)
+    expect(t.cycleVariation(1)).toBe(true);
+    expect(t.currentNode().san).toBe("c5");
+    expect(t.cycleVariation(-1)).toBe(true);
+    expect(t.currentNode().san).toBe("e5");
+  });
+
+  it("down walks into the first variation of the next move", () => {
+    const t = treeWithVariation();
+    t.goToStart();
+    t.forward(); // on 1. e4 — the branch point; e5/c5 are its children
+    expect(t.cycleVariation(1)).toBe(true);
+    expect(t.currentNode().san).toBe("c5");
+  });
+
+  it("up walks out of a variation to the mainline move at the branch point", () => {
+    const t = treeWithVariation();
+    // Land deep inside the variation: 1... c5 2. Nf3 Nc6.
+    t.goToEnd(); // mainline tip first
+    const nc6 = [...t.nodes.values()].find((n) => n.san === "Nc6")!;
+    t.goTo(nc6.id);
+    expect(t.cycleVariation(-1)).toBe(true);
+    expect(t.currentNode().san).toBe("e5"); // the mainline sibling of the branch
+  });
+
+  it("returns false when there is nowhere to go", () => {
+    const t = line(["e4", "e5"]); // no variations anywhere
+    t.goToStart();
+    expect(t.cycleVariation(1)).toBe(false); // root, single child
+    t.forward();
+    expect(t.cycleVariation(1)).toBe(false);
+    expect(t.cycleVariation(-1)).toBe(false);
+    expect(t.currentNode().san).toBe("e4"); // cursor unmoved
+  });
+});
+
 describe("GameTree — promoteVariation", () => {
   it("swaps a variation into the mainline slot", () => {
     const t = line(["e4", "e5"]);

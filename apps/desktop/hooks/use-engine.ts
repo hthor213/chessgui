@@ -10,6 +10,8 @@ import {
   type ActiveGameMeta,
 } from "@chessgui/core/active-game";
 import {
+  analysisGoCommand,
+  customOptionCommand,
   defaultEnginePath,
   clearEnginePath,
   defaultEngineSettings,
@@ -20,6 +22,7 @@ import {
   type EngineSettings,
 } from "@/lib/engine-settings";
 import { getOpeningBookMove } from "@/lib/opening-book";
+import { engineGoTimes } from "@/lib/play-clock";
 
 const DEBOUNCE_MS = 50;
 
@@ -79,6 +82,10 @@ export interface EngineState {
   isThinking: boolean; // true while engine is computing its move in play mode
   scoreTurn: "white" | "black"; // which side was to move when current lines were computed
   analysisFen: string; // position the current `lines` were computed for ("" before first search)
+  // A depth/movetime-limited analysis search (spec 011) ran to completion.
+  // isAnalyzing stays true — the session is still live and re-analyzes on
+  // navigation — this only tells the UI the engine is done, not searching.
+  analysisComplete: boolean;
   lines: PvLine[];
   depth: number;
   nodes: number;
@@ -116,6 +123,7 @@ const initialState: EngineState = {
   isThinking: false,
   scoreTurn: "white",
   analysisFen: "",
+  analysisComplete: false,
   lines: [],
   depth: 0,
   nodes: 0,
@@ -150,16 +158,27 @@ export function useEngine(
   // the hook instance: the output subscription and the persisted engine-path
   // key are bound to it at mount.
   sessionId?: string,
+  // Spec 011 local play clocks: when the served game runs a real time
+  // control, this returns both sides' remaining ms (+increment) and play
+  // mode's `go` uses it verbatim; null/absent keeps the spec 216 virtual
+  // pace clock (human side effectively untimed).
+  getPlayClock?: () => { wtimeMs: number; btimeMs: number; incMs: number } | null,
 ) {
   const [state, setState] = useState<EngineState>(initialState);
   // Settings start at defaults for SSR consistency; hydrated from
   // localStorage after mount (same pattern as the saved game state).
   const [settings, setSettings] = useState<EngineSettings>(defaultEngineSettings);
   const settingsRef = useRef(settings);
-  // Hash/Threads values last sent to the running engine process — lets us
-  // skip redundant setoptions (re-sending Hash makes Stockfish reallocate
-  // and clear the table, which would wreck analysis continuity).
-  const appliedOptionsRef = useRef<{ hash: number; threads: number } | null>(null);
+  // Option values last sent to the running engine process — lets us skip
+  // redundant setoptions (re-sending Hash makes Stockfish reallocate and
+  // clear the table, which would wreck analysis continuity). customSig is
+  // the JSON of the custom-option list (spec 011) at last apply.
+  const appliedOptionsRef = useRef<{
+    hash: number;
+    threads: number;
+    contempt: number;
+    customSig: string;
+  } | null>(null);
   const fenRef = useRef(fen);
   const isAnalyzingRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -171,6 +190,14 @@ export function useEngine(
 
   const thinkingRef = useRef(false); // guards against stale bestmove responses
   const expectedFenRef = useRef(""); // FEN we asked the engine to compute on
+
+  // Finite analysis bookkeeping (spec 011 `go depth`/`go movetime`): whether
+  // the current analysis search self-terminates with a bestmove, and how many
+  // bestmoves from interrupted finite searches are still in flight (each
+  // interruption's `stop` flushes exactly one) and must be swallowed so they
+  // can't mark a NEWER search complete.
+  const finiteAnalysisRef = useRef(false);
+  const staleBestmoveRef = useRef(0);
   
   // Real-time opponent clock simulation state (starts at 10|5, i.e. the
   // default 20s/move pace — see clockForPaceSeconds)
@@ -208,6 +235,8 @@ export function useEngine(
   startFenRef.current = startFen;
   moveIndexRef.current = currentMoveIndex;
   activeGameRef.current = activeGame;
+  const getPlayClockRef = useRef(getPlayClock);
+  getPlayClockRef.current = getPlayClock;
   const engineLocked = !engineAllowedForGame(activeGame);
 
   // User-selected engine binary (spec 011). SSR-safe default, hydrated from
@@ -237,15 +266,30 @@ export function useEngine(
     }
   }, [sessionId]);
 
-  // Send Hash/Threads to the engine if they differ from what it already has.
-  // Only call between searches (after "stop" + "isready").
+  // Send changed options to the engine. Only call between searches (after
+  // "stop" + "isready"). Per-group change tracking keeps a contempt/custom
+  // edit from re-sending Hash (which clears the table).
   const applyEngineOptions = useCallback(async () => {
     const s = settingsRef.current;
     const applied = appliedOptionsRef.current;
-    if (applied?.hash === s.hash && applied?.threads === s.threads) return;
-    await sendCommand(`setoption name Threads value ${s.threads}`);
-    await sendCommand(`setoption name Hash value ${s.hash}`);
-    appliedOptionsRef.current = { hash: s.hash, threads: s.threads };
+    const customSig = JSON.stringify(s.customOptions);
+    if (applied?.hash !== s.hash || applied?.threads !== s.threads) {
+      await sendCommand(`setoption name Threads value ${s.threads}`);
+      await sendCommand(`setoption name Hash value ${s.hash}`);
+    }
+    // A fresh engine already sits at its default contempt, so 0 is only sent
+    // to undo a non-zero value applied earlier in the session (spec 011).
+    if (applied ? applied.contempt !== s.contempt : s.contempt !== 0) {
+      await sendCommand(`setoption name Contempt value ${s.contempt}`);
+    }
+    // Free-form options (spec 011): sent on engine start and re-sent as a
+    // batch whenever the list changes mid-session.
+    if (applied?.customSig !== customSig) {
+      for (const opt of s.customOptions) {
+        await sendCommand(customOptionCommand(opt));
+      }
+    }
+    appliedOptionsRef.current = { hash: s.hash, threads: s.threads, contempt: s.contempt, customSig };
   }, [sendCommand]);
 
   const startAnalysis = useCallback(
@@ -267,6 +311,12 @@ export function useEngine(
         }
       }
 
+      // Interrupting a finite search leaves one bestmove in flight (flushed
+      // by the "stop") — swallow it in the bestmove handler so it can't mark
+      // the search started below as complete.
+      if (finiteAnalysisRef.current) staleBestmoveRef.current += 1;
+      finiteAnalysisRef.current = false;
+
       await sendCommand("stop");
       await sendCommand("isready"); // sync: wait for engine to fully stop
       await applyEngineOptions(); // pick up Hash/Threads changed mid-session
@@ -274,10 +324,15 @@ export function useEngine(
       // Analysis mode: user-configured MultiPV shows candidate lines
       const mpv = modeRef.current === "play" ? 1 : settingsRef.current.multiPv;
       await sendCommand(`setoption name MultiPV value ${mpv}`);
-      setState((s) => ({ ...s, scoreTurn: turnFromFen(position), analysisFen: position, lines: [], depth: 0, nodes: 0, nps: 0 }));
+      setState((s) => ({ ...s, scoreTurn: turnFromFen(position), analysisFen: position, analysisComplete: false, lines: [], depth: 0, nodes: 0, nps: 0 }));
       const posCmd = buildPositionCommand(startFenRef.current, uciMovesRef.current, moveIndexRef.current);
       await sendCommand(posCmd);
-      await sendCommand("go infinite");
+      // The depth/movetime limit (spec 011) is an analysis-mode feature; play
+      // mode's background analysis during the human's turn stays `go infinite`
+      // (its lifetime is bounded by the human's move, as before).
+      const goCmd = modeRef.current === "analysis" ? analysisGoCommand(settingsRef.current) : "go infinite";
+      finiteAnalysisRef.current = goCmd !== "go infinite";
+      await sendCommand(goCmd);
       isAnalyzingRef.current = true;
       setState((s) => ({ ...s, isAnalyzing: true }));
     },
@@ -285,6 +340,9 @@ export function useEngine(
   );
 
   const stopAnalysis = useCallback(async () => {
+    // Pausing a still-running finite search flushes its bestmove — swallow it.
+    if (finiteAnalysisRef.current) staleBestmoveRef.current += 1;
+    finiteAnalysisRef.current = false;
     await sendCommand("stop");
     isAnalyzingRef.current = false;
     setState((s) => ({ ...s, isAnalyzing: false }));
@@ -335,6 +393,9 @@ export function useEngine(
 
       thinkingRef.current = false; // disarm any stale bestmove from a previous search
       isAnalyzingRef.current = false;
+      // Any finite-analysis bookkeeping is void once we're playing — bestmoves
+      // are owned by the thinkingRef/legality guards below from here on.
+      finiteAnalysisRef.current = false;
       expectedFenRef.current = position;
 
       // Engine was analyzing at MultiPV 1 during human's turn, hash table is warm.
@@ -349,11 +410,15 @@ export function useEngine(
       const posCmd = buildPositionCommand(startFenRef.current, uciMovesRef.current, moveIndexRef.current);
       await sendCommand(posCmd);
       const playerColor = playerColorRef.current;
-      const wtime = playerColor === "white" ? 2147483647 : engineClockRef.current.wtime;
-      const btime = playerColor === "black" ? 2147483647 : engineClockRef.current.btime;
       const { incMs } = clockForPaceSeconds(enginePaceSecondsRef.current);
+      // Real local clock (spec 011) when one runs; virtual pace clock otherwise.
+      const t = engineGoTimes(
+        getPlayClockRef.current?.() ?? null,
+        { wtime: engineClockRef.current.wtime, btime: engineClockRef.current.btime, incMs },
+        playerColor,
+      );
 
-      await sendCommand(`go wtime ${wtime} btime ${btime} winc ${incMs} binc ${incMs}`);
+      await sendCommand(`go wtime ${t.wtime} btime ${t.btime} winc ${t.winc} binc ${t.binc}`);
     },
     [sendCommand, applyEngineOptions],
   );
@@ -404,8 +469,12 @@ export function useEngine(
         playerColorRef.current = playerColor;
 
         // Fresh engine process: forget previously-applied options and send
-        // the user's configured Hash/Threads.
+        // the user's configured Hash/Threads plus contempt/custom UCI
+        // options (spec 011). Stale search bookkeeping dies with the old
+        // process — no bestmove can arrive from it anymore.
         appliedOptionsRef.current = null;
+        finiteAnalysisRef.current = false;
+        staleBestmoveRef.current = 0;
         await applyEngineOptions();
         await sendCommand("isready");
 
@@ -452,7 +521,14 @@ export function useEngine(
       setSettings(next);
 
       const engineFacing =
-        prev.hash !== next.hash || prev.threads !== next.threads || prev.multiPv !== next.multiPv;
+        prev.hash !== next.hash ||
+        prev.threads !== next.threads ||
+        prev.multiPv !== next.multiPv ||
+        prev.contempt !== next.contempt ||
+        JSON.stringify(prev.customOptions) !== JSON.stringify(next.customOptions) ||
+        prev.analysisMode !== next.analysisMode ||
+        prev.analysisDepth !== next.analysisDepth ||
+        prev.analysisMoveTimeMs !== next.analysisMoveTimeMs;
       if (!engineFacing || !state.isRunning) return;
 
       // Don't interrupt the engine mid-move in play mode — the new options
@@ -495,6 +571,8 @@ export function useEngine(
       // ignore
     }
     isAnalyzingRef.current = false;
+    finiteAnalysisRef.current = false;
+    staleBestmoveRef.current = 0;
     setState(initialState);
   }, [sessionId]);
 
@@ -519,6 +597,12 @@ export function useEngine(
 
       await sendCommand("stop");
       isAnalyzingRef.current = false;
+      // Mode is switching: drop finite-analysis bookkeeping instead of
+      // counting the flushed bestmove — whichever mode it lands in has its
+      // own guards (thinkingRef in play; analysisComplete is reset by the
+      // startAnalysis below in analysis).
+      finiteAnalysisRef.current = false;
+      staleBestmoveRef.current = 0;
 
       if (enabled) {
         modeRef.current = "play";
@@ -585,6 +669,20 @@ export function useEngine(
       if (line.startsWith("bestmove ")) {
         const parts = line.split(/\s+/);
         const bestmove = parts[1];
+        // Analysis mode: a bestmove only arrives when a finite (depth/
+        // movetime, spec 011) search ends — either it ran to completion, or
+        // an interruption's "stop" flushed it (counted in staleBestmoveRef,
+        // swallowed here). Completion keeps isAnalyzing true: the session
+        // still re-analyzes on navigation; only the UI flag flips.
+        if (modeRef.current === "analysis") {
+          if (staleBestmoveRef.current > 0) {
+            staleBestmoveRef.current -= 1;
+          } else if (finiteAnalysisRef.current) {
+            finiteAnalysisRef.current = false;
+            setState((s) => ({ ...s, analysisComplete: true }));
+          }
+          return;
+        }
         if (modeRef.current === "play" && thinkingRef.current) {
           // Validate bestmove is legal in the position we asked about
           if (bestmove && bestmove !== "(none)" && expectedFenRef.current) {

@@ -2,7 +2,7 @@
 
 import { Card } from "@chessgui/ui/ui/card"
 import { ScrollArea } from "@chessgui/ui/ui/scroll-area"
-import { nagsToGlyphs, splitComment } from "@chessgui/core/annotations"
+import { formatEval, nagsToGlyphs, nodeEval, splitComment } from "@chessgui/core/annotations"
 import type { GameTree, MoveNode } from "@chessgui/core/game-tree"
 
 interface MoveListProps {
@@ -12,6 +12,12 @@ interface MoveListProps {
   // Bumped on every tree mutation so React re-renders even though `tree` is a
   // stable instance reference.
   version?: number;
+  /**
+   * Per-move eval badges on mainline moves (spec 202). Off in play mode and
+   * under the spec 219 lockout — the evals are engine-derived, same gating
+   * as the eval graph.
+   */
+  showEvals?: boolean;
 }
 
 function moveNumberLabel(node: MoveNode, forceBlack: boolean): string | null {
@@ -26,11 +32,13 @@ function MoveToken({
   node,
   isCurrent,
   label,
+  evalBadge,
   onClick,
 }: {
   node: MoveNode;
   isCurrent: boolean;
   label: string | null;
+  evalBadge: string | null;
   onClick: () => void;
 }) {
   const nags = node.nags.length ? nagsToGlyphs(node.nags) : "";
@@ -40,16 +48,24 @@ function MoveToken({
         <span className="text-xs text-muted-foreground font-mono mr-1 select-none">{label}</span>
       )}
       <span
-        className={`text-sm font-mono px-1 py-px rounded-sm cursor-pointer mr-1 ${
+        className={`text-sm font-mono px-1 py-px rounded-sm cursor-pointer ${
           isCurrent
             ? "font-bold text-white bg-[rgba(155,199,0,0.25)]"
             : "font-normal text-[#bababa] hover:bg-[rgba(255,255,255,0.06)]"
-        }`}
+        } ${evalBadge ? "" : "mr-1"}`}
         onClick={onClick}
       >
         {node.san}
         {nags}
       </span>
+      {evalBadge && (
+        <span
+          className="text-[10px] font-mono text-[#8a8783] bg-white/5 rounded-sm px-1 mr-1 select-none"
+          data-testid="move-eval-badge"
+        >
+          {evalBadge}
+        </span>
+      )}
     </span>
   );
 }
@@ -70,6 +86,7 @@ export function renderLine(
   currentId: string,
   onGoToNode: (id: string) => void,
   depth: number,
+  showEvals = false,
 ): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let id: string | undefined = firstId;
@@ -78,12 +95,15 @@ export function renderLine(
   while (id) {
     const node = tree.get(id);
     if (!node) break;
+    // Eval badge on mainline moves only (depth 0) — variations stay compact.
+    const ev = showEvals && depth === 0 ? nodeEval(node) : null;
     out.push(
       <MoveToken
         key={node.id}
         node={node}
         isCurrent={node.id === currentId}
         label={moveNumberLabel(node, forceBlackNumber)}
+        evalBadge={ev ? formatEval(ev) : null}
         onClick={() => onGoToNode(node.id)}
       />,
     );
@@ -110,7 +130,7 @@ export function renderLine(
             style={{ paddingLeft: 8, marginLeft: depth * 6 }}
           >
             <span className="text-xs mr-0.5 select-none">(</span>
-            {renderLine(tree, varId, currentId, onGoToNode, depth + 1)}
+            {renderLine(tree, varId, currentId, onGoToNode, depth + 1, showEvals)}
             <span className="text-xs ml-0.5 select-none">)</span>
           </div>,
         );
@@ -124,7 +144,7 @@ export function renderLine(
   return out;
 }
 
-export function MoveList({ tree, currentId, onGoToNode }: MoveListProps) {
+export function MoveList({ tree, currentId, onGoToNode, showEvals = false }: MoveListProps) {
   const root = tree.root();
   const hasMoves = root.children.length > 0;
 
@@ -139,7 +159,7 @@ export function MoveList({ tree, currentId, onGoToNode }: MoveListProps) {
           <span className="text-sm text-muted-foreground">Play a move to begin...</span>
         ) : (
           <div className="leading-6">
-            {renderLine(tree, root.children[0], currentId, onGoToNode, 0)}
+            {renderLine(tree, root.children[0], currentId, onGoToNode, 0, showEvals)}
           </div>
         )}
       </ScrollArea>

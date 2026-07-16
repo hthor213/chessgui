@@ -21,12 +21,15 @@ import {
   DialogFooter,
 } from "@chessgui/ui/ui/dialog"
 import {
+  addTag,
   deleteGames,
   getGame,
   importCbh,
   importPgn,
   isTauri,
   listGames,
+  listTags,
+  removeTag,
   searchPosition,
   stats as dbStats,
   type CbhImportProgress,
@@ -51,6 +54,7 @@ import {
   type LichessExplorerResult,
 } from "@/lib/lichess-explorer"
 import { ecoName } from "@chessgui/core/eco"
+import { parseMaterialQuery } from "@chessgui/core/material-signature"
 import { addDbPath, dbDisplayName, loadDbPaths, saveDbPaths } from "@/lib/db-registry"
 
 const PAGE_SIZE = 50
@@ -69,6 +73,9 @@ type DatabaseTabProps = {
 
 /** Empty draft for the filter bar. */
 const EMPTY_FILTER: GameFilter = {}
+
+/** The reserved tag behind the star column (spec 200 favorites). */
+const FAVORITE_TAG = "favorite"
 
 export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabProps) {
   const [draft, setDraft] = useState<GameFilter>(EMPTY_FILTER)
@@ -157,6 +164,35 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // Tags in use (spec 200 tagging) — feeds the filter dropdown. Reloaded on
+  // db switch and after any tag edit.
+  const [allTags, setAllTags] = useState<string[]>([])
+  const refreshTags = useCallback(async () => {
+    setAllTags(await listTags(dbPath))
+  }, [dbPath])
+  useEffect(() => {
+    void refreshTags()
+  }, [refreshTags])
+
+  // Tag edits refresh the list (rows carry their tags) and the tag dropdown.
+  const editTag = useCallback(
+    async (id: number, tag: string, on: boolean) => {
+      if (on) await addTag(id, tag, dbPath)
+      else await removeTag(id, tag, dbPath)
+      void refresh()
+      void refreshTags()
+    },
+    [dbPath, refresh, refreshTags],
+  )
+
+  const promptAddTag = useCallback(
+    async (id: number) => {
+      const tag = prompt("Tag name:")?.trim()
+      if (tag) await editTag(id, tag, true)
+    },
+    [editTag],
+  )
 
   // Drop stale selections whenever the visible rows change.
   useEffect(() => {
@@ -349,7 +385,7 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
         )}
 
         {/* Filter bar */}
-        <FilterBar draft={draft} setDraft={setDraft} />
+        <FilterBar draft={draft} setDraft={setDraft} allTags={allTags} />
 
         {/* Games table */}
         <div className="border border-border rounded-lg overflow-hidden">
@@ -375,6 +411,7 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
                   <SortHeader label="Date" col="date" sort={sort} onSort={toggleSort} />
                   <SortHeader label="ECO" col="eco" sort={sort} onSort={toggleSort} />
                   <SortHeader label="Ply" col="ply_count" sort={sort} onSort={toggleSort} align="right" />
+                  <th className="px-3 py-2 font-medium text-left">Tags</th>
                 </tr>
               </thead>
               <tbody>
@@ -414,11 +451,50 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
                       {r.eco}
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{r.ply_count}</td>
+                    {/* Tags / favorites (spec 200): star toggles the reserved
+                        "favorite" tag; chips remove on click; + adds. */}
+                    <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1">
+                        <button
+                          className={
+                            r.tags.includes(FAVORITE_TAG)
+                              ? "text-amber-400 hover:text-amber-300"
+                              : "text-muted-foreground/40 hover:text-muted-foreground"
+                          }
+                          title={r.tags.includes(FAVORITE_TAG) ? "Remove from favorites" : "Add to favorites"}
+                          onClick={() => void editTag(r.id, FAVORITE_TAG, !r.tags.includes(FAVORITE_TAG))}
+                          data-testid={`db-fav-${r.id}`}
+                        >
+                          {r.tags.includes(FAVORITE_TAG) ? "★" : "☆"}
+                        </button>
+                        {r.tags
+                          .filter((t) => t !== FAVORITE_TAG)
+                          .map((t) => (
+                            <button
+                              key={t}
+                              className="px-1.5 py-0 rounded-full bg-secondary text-xs text-muted-foreground hover:text-foreground whitespace-nowrap"
+                              title={`Remove tag "${t}"`}
+                              onClick={() => void editTag(r.id, t, false)}
+                              data-testid={`db-tag-${r.id}-${t}`}
+                            >
+                              {t} ×
+                            </button>
+                          ))}
+                        <button
+                          className="text-muted-foreground/40 hover:text-muted-foreground text-xs"
+                          title="Add tag…"
+                          onClick={() => void promptAddTag(r.id)}
+                          data-testid={`db-tag-add-${r.id}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-8 text-center text-muted-foreground" data-testid="db-empty">
+                    <td colSpan={11} className="px-3 py-8 text-center text-muted-foreground" data-testid="db-empty">
                       {loading ? "Loading…" : "No games match the current filters."}
                     </td>
                   </tr>
@@ -469,6 +545,12 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
               <p className="text-xs text-muted-foreground">
                 Every game reaching the current board position, grouped by the next move. Updates
                 as you play or navigate; click a move to play it.
+              </p>
+              {/* Explicit transposition claim (spec 200): the index is keyed
+                  on the position (Zobrist hash), not the move order. */}
+              <p className="text-xs text-muted-foreground" data-testid="db-transposition-note">
+                Matches are by position (Zobrist key), so transpositions from other move orders
+                are included.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -565,13 +647,16 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
 function FilterBar({
   draft,
   setDraft,
+  allTags,
 }: {
   draft: GameFilter
   setDraft: (f: GameFilter) => void
+  /** Tags in use across the database — options for the tag filter. */
+  allTags: string[]
 }) {
   const set = (patch: Partial<GameFilter>) => setDraft({ ...draft, ...patch })
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2" data-testid="db-filters">
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2" data-testid="db-filters">
       <Input
         placeholder="Player"
         value={draft.player ?? ""}
@@ -609,6 +694,13 @@ function FilterBar({
         data-testid="db-filter-min-elo"
       />
       <Input
+        type="number"
+        placeholder="Max Elo"
+        value={draft.max_elo ?? ""}
+        onChange={(e) => set({ max_elo: e.target.value ? Number(e.target.value) : undefined })}
+        data-testid="db-filter-max-elo"
+      />
+      <Input
         placeholder="Date from"
         value={draft.date_from ?? ""}
         onChange={(e) => set({ date_from: e.target.value })}
@@ -620,6 +712,43 @@ function FilterBar({
         onChange={(e) => set({ date_to: e.target.value })}
         data-testid="db-filter-date-to"
       />
+      {/* Full-text (spec 200): players, event, site and the movetext — so
+          comments and annotations are searchable too. */}
+      <Input
+        placeholder="Search all text"
+        value={draft.text ?? ""}
+        onChange={(e) => set({ text: e.target.value })}
+        data-testid="db-filter-text"
+      />
+      {/* Material signature (spec 200): games reaching e.g. a R+P vs R
+          ending at any point, either colour. Red-tinted while unparseable
+          (an invalid signature matches nothing, mirroring the backend). */}
+      <Input
+        placeholder="Material (e.g. KRP vs KR)"
+        value={draft.material ?? ""}
+        onChange={(e) => set({ material: e.target.value })}
+        className={
+          draft.material?.trim() && !parseMaterialQuery(draft.material)
+            ? "border-red-500/60"
+            : undefined
+        }
+        title="Find games reaching this material, either colour — piece letters QRBNP, kings implied"
+        data-testid="db-filter-material"
+      />
+      {/* Tag filter (spec 200 tagging/favorites). */}
+      <select
+        className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+        value={draft.tag ?? ""}
+        onChange={(e) => set({ tag: e.target.value || undefined })}
+        data-testid="db-filter-tag"
+      >
+        <option value="">Any tag</option>
+        {allTags.map((t) => (
+          <option key={t} value={t}>
+            {t === FAVORITE_TAG ? "★ favorite" : t}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }

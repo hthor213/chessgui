@@ -140,7 +140,9 @@ describe("spec 212 sections render from fixture outcomes", () => {
     )
     expect(html).toContain('data-testid="tournament-seed-breakdown"')
     expect(html).toContain("standard start")
-    expect(html).toContain("untagged | 0.00–0.50")
+    // The 1.e4 seed is a coded line → ECO family (spec 212 "ECO where
+    // known"), not the tag|bucket fallback. HTML-escaped apostrophe.
+    expect(html).toContain("B00 · King&#x27;s Pawn, Uncommon Defences")
   })
 
   it("TerminationQualitySection cross-classifies loser errors", () => {

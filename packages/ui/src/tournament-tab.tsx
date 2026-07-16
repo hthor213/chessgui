@@ -18,6 +18,8 @@ import {
   buildTournamentResultExport,
   buildRoundRobinSpecs,
   roundRobinGameCount,
+  buildGauntletSpecs,
+  gauntletGameCount,
   buildCrossTable,
   buildStandings,
   estimateElo,
@@ -59,10 +61,11 @@ import {
   type EloEstimate,
   type RoundRobinResultExport,
   type SavedTournamentMeta,
+  type TournamentFormat,
   type PairCell,
 } from "@chessgui/core/tournament"
 import { matchesEcoQuery } from "@chessgui/core/eco"
-import { replayFens, movesToPgn, sansFromUci, numberMoves, type NumberedPly } from "@chessgui/core/game-replay"
+import { replayFens, movesToPgn, gamesToPgn, sansFromUci, numberMoves, type NumberedPly, type PgnGameInput } from "@chessgui/core/game-replay"
 import { deriveWinProbCurve, type MoveSwing, type WinProbCurve } from "@chessgui/core/win-prob"
 import {
   analyzeGame,
@@ -91,6 +94,13 @@ import {
   type EngineOption,
 } from "@/lib/tournament-roster"
 import { pickFile } from "@/lib/dialog"
+import {
+  runDeepAnalysis,
+  DEEP_MOVETIME_MS,
+  DEEP_MULTIPV,
+  type DeepLine,
+  type DeepPositionReport,
+} from "@/lib/deep-analysis"
 import { loadRivalBook, type RivalBook } from "@/lib/rival-book"
 import type { PersonaCandidate, PersonaDecision } from "@/lib/persona"
 import { Slider } from "@chessgui/ui/ui/slider"
@@ -209,6 +219,73 @@ function formatNps(nps: number): string {
 function formatMeasuredDate(iso: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString()
+}
+
+/**
+ * Bulk PGN export (spec 210 Phase 6: "export all games as one PGN file"):
+ * write `games` as one multi-game PGN through the native save dialog —
+ * the DialogProvider seam (spec 220), so the browser shell's Blob-download
+ * fallback happens inside the provider, never here. Resolves whether the
+ * user saved or cancelled; only I/O errors reject.
+ */
+async function exportGamesAsPgn(games: PgnGameInput[], defaultName: string): Promise<boolean> {
+  const result = await getProviders().dialog.saveTextFile({
+    title: "Export tournament games (PGN)",
+    defaultName,
+    filters: [{ name: "PGN", extensions: ["pgn"] }],
+    mimeType: "application/x-chess-pgn",
+    text: gamesToPgn(games),
+  })
+  return result.saved
+}
+
+/** Today in PGN dot format ("2026.07.16") for generated game headers. */
+function pgnDateToday(): string {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, ".")
+}
+
+/** The completed, non-aborted games of a batch as PGN-export inputs. White/
+ *  Black names come from the caller's label lookup (head-to-head uses the
+ *  A/B report labels; round-robin/gauntlet resolve through the pairing). */
+function pgnGamesFromOutcomes(
+  outcomes: GameOutcome[],
+  event: string,
+  labelsFor: (o: GameOutcome) => { white: string; black: string },
+): PgnGameInput[] {
+  const games: PgnGameInput[] = []
+  const date = pgnDateToday()
+  for (const o of outcomes) {
+    if (o.aborted) continue
+    const gr = gameResult(o)
+    if (!gr) continue
+    const { white, black } = labelsFor(o)
+    games.push({
+      startFen: gr.start_fen,
+      uciMoves: gr.moves,
+      result: gr.result,
+      tags: { event, date, white, black, round: String(o.id + 1) },
+    })
+  }
+  return games
+}
+
+/**
+ * Insert a finished run's games into the game database proper (spec 212
+ * "Later" item — runs were JSON-on-disk only; the games never reached the
+ * spec 200 SQLite DB). Goes through the DatabaseProvider's bulk PGN import,
+ * so the DB's own dedup applies and every game carries its tournament
+ * identity in the Event header (+ Date/Round) — filterable in the Database
+ * tab's event/date filters. Resolves a human-readable outcome line.
+ */
+async function saveGamesToDatabase(games: PgnGameInput[]): Promise<string> {
+  const report = await getProviders().database.importPgn({
+    source: "tournament",
+    text: gamesToPgn(games),
+  })
+  const parts = [`${report.imported} game${report.imported === 1 ? "" : "s"} saved to database`]
+  if (report.dups_skipped > 0) parts.push(`${report.dups_skipped} duplicates skipped`)
+  if (report.errors > 0) parts.push(`${report.errors} errors`)
+  return parts.join(", ")
 }
 
 // Cache the tagged positions across runs so we only fetch once.
@@ -399,6 +476,8 @@ export function TournamentTab({
   // 1000-game run doesn't grow an unbounded DOM list while still running.
   const [liveLog, setLiveLog] = useState<LiveResultRow[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Feedback line for the run→database save (spec 212 DB persistence).
+  const [dbSaveMsg, setDbSaveMsg] = useState<string | null>(null)
   // Wall-clock timer for the current run.
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [nowTs, setNowTs] = useState(0)
@@ -709,6 +788,7 @@ export function TournamentTab({
 
   const run = useCallback(async () => {
     setError(null)
+    setDbSaveMsg(null)
     setReport(null)
     setProbBins([])
     setCurveBins([])
@@ -1186,6 +1266,17 @@ export function TournamentTab({
     const pool = customPositions?.positions ?? positionsCache
     if (!report || !pool) return undefined
     return new Map(pool.map((p) => [p.fen, p.source]))
+  }, [report, customPositions])
+  // fen → explicit ECO code (EPD `eco` opcode) for the seed breakdown's
+  // "ECO where known" arm (spec 212:49-51); positions without the opcode fall
+  // back to the coded-line table inside buildSeedBreakdown.
+  const ecoByFen = useMemo(() => {
+    const pool = customPositions?.positions ?? positionsCache
+    if (!report || !pool) return undefined
+    const m = new Map(
+      pool.filter((p) => p.eco).map((p) => [p.fen, p.eco as string]),
+    )
+    return m.size > 0 ? m : undefined
   }, [report, customPositions])
   // Clock-pressure threshold (spec 212:39 "sub-N-seconds flag"): 30s, capped
   // at half the run's base clock so a blitz run isn't 100% "under pressure".
@@ -2008,6 +2099,7 @@ export function TournamentTab({
             labelB={reportLabels.b}
             onOpenGame={onOpenGame}
             curve={winCurve}
+            deepEnginePath={evaluatorPath}
           />
         )}
 
@@ -2036,6 +2128,7 @@ export function TournamentTab({
             outcomes={report.outcomes}
             evalById={evalByIdRef.current}
             tagByFen={tagByFen}
+            ecoByFen={ecoByFen}
             labelA={reportLabels.a}
           />
         )}
@@ -2093,15 +2186,66 @@ export function TournamentTab({
 
         {/* Export the completed result as JSON (Phase 5 checklist item) —
             same Blob + object-URL download pattern app/page.tsx's PGN export
-            uses; no Tauri save dialog yet, matching that precedent. */}
+            uses; no Tauri save dialog yet, matching that precedent — or every
+            game as ONE PGN file (Phase 6 bulk export), which DOES go through
+            the native save dialog (DialogProvider seam). */}
         {report && (
           <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Export</h2>
               <p className="text-xs text-muted-foreground">
-                Save this run's probability map as JSON (engines, mode, eval range, buckets).
+                Save this run's probability map as JSON (engines, mode, eval range,
+                buckets), all {report.outcomes.filter((o) => !o.aborted && isOk(o)).length} completed
+                games as one PGN file, or insert them into the game database
+                (Event/Date tags carry the run).
               </p>
+              {dbSaveMsg && (
+                <p className="text-xs text-green-400 font-mono">{dbSaveMsg}</p>
+              )}
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="tournament-save-db"
+              onClick={() => {
+                const games = pgnGamesFromOutcomes(
+                  report.outcomes,
+                  `Engine tournament: ${reportLabels.a} vs ${reportLabels.b}`,
+                  (o) => ({
+                    white: o.flipped ? reportLabels.b : reportLabels.a,
+                    black: o.flipped ? reportLabels.a : reportLabels.b,
+                  }),
+                )
+                if (games.length === 0) return
+                saveGamesToDatabase(games)
+                  .then(setDbSaveMsg)
+                  .catch((e) => setError(String(e)))
+              }}
+              disabled={report.outcomes.filter((o) => !o.aborted && isOk(o)).length === 0}
+            >
+              Save to DB
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="tournament-export-pgn"
+              onClick={() => {
+                const games = pgnGamesFromOutcomes(
+                  report.outcomes,
+                  `Engine tournament: ${reportLabels.a} vs ${reportLabels.b}`,
+                  (o) => ({
+                    white: o.flipped ? reportLabels.b : reportLabels.a,
+                    black: o.flipped ? reportLabels.a : reportLabels.b,
+                  }),
+                )
+                if (games.length === 0) return
+                const base = `${reportLabels.a}_vs_${reportLabels.b}`.replace(/[^\w.-]+/g, "_")
+                exportGamesAsPgn(games, `tournament_${base}.pgn`).catch((e) => setError(String(e)))
+              }}
+              disabled={report.outcomes.filter((o) => !o.aborted && isOk(o)).length === 0}
+            >
+              Export PGN
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -2134,9 +2278,10 @@ export function TournamentTab({
           </section>
         )}
 
-        {/* Round-robin tournament (spec 210 Phase 6): N participants, each
-            pair plays M color-flipped games, full cross-table + standings +
-            Elo estimates, with save/load persistence. Scheduled as ONE flat
+        {/* Round-robin / gauntlet tournament (spec 210 Phase 6): N participants
+            — every pair, or one hero vs the field — play M color-flipped games,
+            full cross-table + standings + Elo estimates, with save/load
+            persistence and bulk one-file PGN export. Scheduled as ONE flat
             batch through the same play_batch runner as everything above. */}
         <RoundRobinSection
           roster={roster}
@@ -2837,6 +2982,13 @@ function AverageEvalGraph({
   )
 }
 
+/** White-POV deep-line score for display: "+0.42" / "-1.10" / "#3" / "#-3". */
+function deepScoreText(l: DeepLine): string {
+  if (l.mate !== null) return `#${l.mate}`
+  const cp = l.cp ?? 0
+  return `${cp >= 0 ? "+" : ""}${(cp / 100).toFixed(2)}`
+}
+
 /** Result badge text/tint for a completed game, from engine A's point of view. */
 function resultBadge(result: "1-0" | "0-1" | "1/2-1/2", flipped: boolean) {
   if (result === "1/2-1/2") return { text: "½–½", cls: "text-muted-foreground" }
@@ -2856,6 +3008,7 @@ export function ResultsExplorer({
   labelB,
   onOpenGame,
   curve,
+  deepEnginePath,
 }: {
   outcomes: GameOutcome[]
   labelA: string
@@ -2863,10 +3016,34 @@ export function ResultsExplorer({
   onOpenGame?: (pgn: string) => void
   /** Run-derived eval→win-prob curve for the swing labels (spec 212). */
   curve: WinProbCurve
+  /** Engine for the one-click deep multi-PV pass over the selected game's
+   *  flagged positions (spec 212 "deep verify decisive moments"). Absent =
+   *  the feature is hidden (shells without a native engine). */
+  deepEnginePath?: string
 }) {
   const games = useMemo(() => outcomes.filter(isOk), [outcomes])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [ply, setPly] = useState(0)
+
+  // Deep multi-PV re-analysis of the selected game's flagged positions
+  // (spec 212 "Later" item). Results are keyed by the flagged move's ply;
+  // switching games cancels an in-flight run and clears the panel.
+  const [deepByPly, setDeepByPly] = useState<Map<number, DeepPositionReport>>(new Map())
+  const [deepRunning, setDeepRunning] = useState(false)
+  const [deepError, setDeepError] = useState<string | null>(null)
+  const [deepProgress, setDeepProgress] = useState<{ done: number; total: number } | null>(null)
+  const deepCancelled = useRef(false)
+  // Bumped on every selection change so a search already in flight when the
+  // user switches games can't land its report/error on the new game's panel
+  // (cancellation is only checked between positions).
+  const deepToken = useRef(0)
+  useEffect(() => {
+    deepToken.current++
+    deepCancelled.current = true // cancels any in-flight run for the previous game
+    setDeepByPly(new Map())
+    setDeepError(null)
+    setDeepProgress(null)
+  }, [selectedId])
 
   // Per-game swing analysis (spec 212:82 — decisive moment + error counts in
   // the list, labeled moves with click-hop in the viewer). O(plies) per game,
@@ -2918,6 +3095,45 @@ export function ResultsExplorer({
     (d: number) => setPly((p) => Math.min(maxPly, Math.max(0, p + d))),
     [maxPly],
   )
+
+  // One-click deep pass: every flagged (labeled) move's before-position, in
+  // ply order, MultiPV at a much larger budget than the tier-1 evaluator
+  // pass. Engine-lab games are never flagged chess.com dailies, so the run's
+  // game context is known-unrestricted (`activeGame: () => null`) — the
+  // spec 219 gate is still enforced structurally inside the runner.
+  const runDeep = useCallback(async () => {
+    if (deepRunning) {
+      deepCancelled.current = true
+      return
+    }
+    const an = selected ? analyses.get(selected.id) : null
+    if (!an || !gr || !deepEnginePath) return
+    const targets = an.labeled
+      .filter((s) => s.ply >= 1 && s.ply <= gr.moves.length && fens[s.ply - 1] !== undefined)
+      .map((s) => ({ ply: s.ply, fen: fens[s.ply - 1] }))
+    if (targets.length === 0) return
+    deepCancelled.current = false
+    const token = deepToken.current
+    setDeepRunning(true)
+    setDeepError(null)
+    setDeepByPly(new Map())
+    setDeepProgress({ done: 0, total: targets.length })
+    const res = await runDeepAnalysis({
+      engine: getProviders().engine,
+      enginePath: deepEnginePath,
+      targets,
+      activeGame: () => null,
+      isCancelled: () => deepCancelled.current,
+      onPosition: (r) => {
+        if (deepToken.current === token) setDeepByPly((m) => new Map(m).set(r.ply, r))
+      },
+      onProgress: (done, total) => {
+        if (deepToken.current === token) setDeepProgress({ done, total })
+      },
+    })
+    if (res.error && deepToken.current === token) setDeepError(res.error)
+    setDeepRunning(false)
+  }, [deepRunning, selected, analyses, gr, fens, deepEnginePath])
 
   if (games.length === 0) return null
 
@@ -3135,6 +3351,65 @@ export function ResultsExplorer({
                       </button>
                     ))}
                   </div>
+
+                  {/* Deep multi-PV re-analysis of the flagged positions
+                      (spec 212 "Later": deep verify decisive moments). */}
+                  {deepEnginePath && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        data-testid="tournament-deep-analysis"
+                        onClick={() => void runDeep()}
+                        className="self-start px-2.5 py-1 text-xs rounded-md border border-input text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                      >
+                        {deepRunning
+                          ? "Cancel deep analysis"
+                          : `Deep analysis (${an.labeled.length} position${an.labeled.length === 1 ? "" : "s"}, ${DEEP_MULTIPV}-PV @ ${DEEP_MOVETIME_MS / 1000}s)`}
+                      </button>
+                      {deepRunning && deepProgress && (
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {deepProgress.done}/{deepProgress.total}
+                        </span>
+                      )}
+                      {deepError && <span className="text-xs text-red-400">{deepError}</span>}
+                    </div>
+                  )}
+                  {deepByPly.size > 0 && (
+                    <div className="flex flex-col gap-1.5" data-testid="tournament-deep-results">
+                      {[...deepByPly.values()]
+                        .sort((a, b) => a.ply - b.ply)
+                        .map((r) => {
+                          const s = an.labeled.find((x) => x.ply === r.ply)
+                          return (
+                            <div key={r.ply} className="flex flex-col gap-0.5">
+                              <button
+                                data-testid={`tournament-deep-hop-${r.ply}`}
+                                onClick={() => setPly(Math.min(r.ply - 1, maxPly))}
+                                className="self-start text-xs text-foreground hover:underline text-left font-mono"
+                              >
+                                m{moveNoOf(r.ply)}
+                                {s?.label ? ` ${glyph[s.label]}` : ""} — before{" "}
+                                {s ? engineName(s.engine) : "the move"} played
+                              </button>
+                              {r.lines.length === 0 ? (
+                                <span className="pl-3 text-[11px] text-muted-foreground">
+                                  no line reported
+                                </span>
+                              ) : (
+                                r.lines.map((l) => (
+                                  <span
+                                    key={l.multipv}
+                                    className="pl-3 text-[11px] font-mono text-muted-foreground"
+                                  >
+                                    <span className="text-foreground">{deepScoreText(l)}</span>{" "}
+                                    d{l.depth} · {l.sans.join(" ")}
+                                  </span>
+                                ))
+                              )}
+                            </div>
+                          )
+                        })}
+                    </div>
+                  )}
                 </div>
               )
             })()}
@@ -3404,7 +3679,8 @@ function ExhibitionView({
 // ---------------------------------------------------------------------------
 
 /** Everything the cross-table/standings/Elo views need to render one
- *  round-robin result — shared by the live run and a loaded saved result. */
+ *  round-robin or gauntlet result — shared by the live run and a loaded
+ *  saved result. */
 type RoundRobinDisplay = {
   /** id+label per participant, snapshotted at run start (like reportLabels)
    *  so post-run roster/selection changes never relabel a finished result. */
@@ -3414,6 +3690,10 @@ type RoundRobinDisplay = {
   estimates: EloEstimate[]
   gamesPerPairing: number
   timeControl: { baseMs: number; incMs: number }
+  /** Which pairing graph produced this result (spec 210 Phase 6 gauntlet). */
+  format: TournamentFormat
+  /** Gauntlet only: index of the hero in `participants`. */
+  heroIdx?: number
   completedAt?: string
   name?: string
 }
@@ -3435,6 +3715,8 @@ function displayFromSaved(saved: RoundRobinResultExport): RoundRobinDisplay {
     })),
     gamesPerPairing: saved.gamesPerPairing,
     timeControl: saved.timeControl,
+    // Pre-gauntlet saves carry kind "round-robin"; anything else is gauntlet.
+    format: saved.kind === "gauntlet" ? "gauntlet" : "round-robin",
     completedAt: saved.completedAt,
     name: saved.name,
   }
@@ -3466,6 +3748,17 @@ function RoundRobinSection({
     "engine-reckless",
   ])
   const [gamesPerPairing, setGamesPerPairing] = useState("2")
+  // Format (spec 210 Phase 6 "gauntlet scheduling alongside round-robin"):
+  // round-robin plays every pair; a gauntlet plays ONE hero against each of
+  // the others. Both schedule through the same flat play_batch — and, like
+  // round-robin, a gauntlet only ever seeds from the book/standard openings,
+  // never the analyze board, so it runs in the unrestricted engine context
+  // (spec 219's active-game lockout scopes per game via engineAllowedForGame;
+  // no game position flows into this section).
+  const [format, setFormat] = useState<TournamentFormat>("round-robin")
+  // Gauntlet hero: a roster entry id; falls back to the first selected
+  // participant when the stored pick isn't currently selected.
+  const [heroId, setHeroId] = useState("engine-stockfish")
   // Opening variety: "book" seeds each color-flipped pair from a different
   // roughly-balanced tagged position; "normal" plays every game from the
   // standard start (deterministic engines will repeat games — personas won't).
@@ -3475,16 +3768,22 @@ function RoundRobinSection({
   const [tally, setTallyRR] = useState<{ completed: number; total: number } | null>(null)
   const [display, setDisplay] = useState<RoundRobinDisplay | null>(null)
   const [isLoadedResult, setIsLoadedResult] = useState(false)
+  // The completed run's games, shaped for the bulk one-file PGN export
+  // (spec 210 Phase 6). Null until a run finishes; loaded saved results stay
+  // null — moves aren't persisted, only the cross-table is.
+  const [pgnGames, setPgnGames] = useState<PgnGameInput[] | null>(null)
 
   // Persistence: saved-results list + save feedback.
   const [savedList, setSavedList] = useState<SavedTournamentMeta[]>([])
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
   const [canSaveCurrent, setCanSaveCurrent] = useState(false)
+  // Feedback line for the games→database save (spec 212 DB persistence).
+  const [dbSaveMsg, setDbSaveMsg] = useState<string | null>(null)
 
   const refreshSaved = useCallback(async () => {
     try {
       const list = await invoke<SavedTournamentMeta[]>("list_tournament_results")
-      setSavedList(list.filter((m) => m.kind === "round-robin"))
+      setSavedList(list.filter((m) => m.kind === "round-robin" || m.kind === "gauntlet"))
     } catch {
       // Not fatal (e.g. plain-browser dev without Tauri): the list stays empty.
     }
@@ -3496,7 +3795,16 @@ function RoundRobinSection({
     [roster, selectedIds],
   )
   const mNum = Math.max(1, Math.min(100, Math.round(Number(gamesPerPairing) || 2)))
-  const totalScheduled = roundRobinGameCount(selected.length, mNum)
+  // Hero for the gauntlet: the stored pick when it's among the selected
+  // participants, else the first selected (so the control never dangles).
+  const effectiveHeroId =
+    selected.some((e) => e.participant.id === heroId)
+      ? heroId
+      : selected[0]?.participant.id ?? heroId
+  const totalScheduled =
+    format === "gauntlet"
+      ? gauntletGameCount(selected.length, mNum)
+      : roundRobinGameCount(selected.length, mNum)
 
   const toggle = (id: string) => {
     setSelectedIds((prev) =>
@@ -3507,9 +3815,11 @@ function RoundRobinSection({
   const runRR = useCallback(async () => {
     setError(null)
     setSaveMsg(null)
+    setDbSaveMsg(null)
     setDisplay(null)
     setIsLoadedResult(false)
     setCanSaveCurrent(false)
+    setPgnGames(null)
     onRunningChange(true)
     try {
       const entries = roster.filter((e) => selectedIds.includes(e.participant.id))
@@ -3519,26 +3829,34 @@ function RoundRobinSection({
       const labels = entries.map((e) => e.label)
       const savedParticipants = entries.map((e) => ({ id: e.participant.id, label: e.label }))
       const participants = entries.map((e) => withFreshSeed(e.participant))
+      const heroIdx = Math.max(
+        0,
+        entries.findIndex((e) => e.participant.id === effectiveHeroId),
+      )
 
       // One seed per color-flipped pair per pairing.
-      const nPairs = (participants.length * (participants.length - 1)) / 2
+      const nPairs =
+        format === "gauntlet"
+          ? participants.length - 1
+          : (participants.length * (participants.length - 1)) / 2
       const seedsNeeded = nPairs * Math.ceil(mNum / 2)
       const positions = openings === "book" ? await loadPositions() : []
       const seeds = buildSeeds(openings, seedsNeeded, positions)
 
-      const { specs, pairingById } = buildRoundRobinSpecs(
-        participants,
-        mNum,
-        seeds,
-        baseMs,
-        incMs,
-        MAX_PLIES,
-        adjudicateTb,
-      )
+      const { specs, pairingById } =
+        format === "gauntlet"
+          ? buildGauntletSpecs(
+              participants, heroIdx, mNum, seeds, baseMs, incMs, MAX_PLIES, adjudicateTb,
+            )
+          : buildRoundRobinSpecs(
+              participants, mNum, seeds, baseMs, incMs, MAX_PLIES, adjudicateTb,
+            )
       setTallyRR({ completed: 0, total: specs.length })
 
       // Live cross-table/standings/Elo: recompute from every completed game
-      // as each BatchProgress event lands (cheap at these sizes).
+      // as each BatchProgress event lands (cheap at these sizes). A gauntlet
+      // anchors Elo to the hero (its opponents never meet, so every rating is
+      // really "relative to the hero" anyway); round-robin keeps anchor 0.
       const accumulated: GameOutcome[] = []
       const recompute = () => {
         const table = buildCrossTable(participants.length, accumulated, pairingById)
@@ -3546,9 +3864,11 @@ function RoundRobinSection({
           participants: savedParticipants,
           labels,
           table,
-          estimates: estimateElo(table, 0),
+          estimates: estimateElo(table, format === "gauntlet" ? heroIdx : 0),
           gamesPerPairing: mNum,
           timeControl: { baseMs, incMs },
+          format,
+          heroIdx: format === "gauntlet" ? heroIdx : undefined,
         })
       }
       const channel = new Channel<BatchProgress>()
@@ -3578,12 +3898,29 @@ function RoundRobinSection({
       accumulated.push(...result.outcomes)
       recompute()
       setCanSaveCurrent(true)
+      // Snapshot the games for the bulk PGN export while pairingById/labels
+      // are still in scope (White/Black names resolve through the pairing;
+      // `flipped` means the pairing's first participant played Black).
+      setPgnGames(
+        pgnGamesFromOutcomes(
+          result.outcomes,
+          format === "gauntlet"
+            ? `Gauntlet: ${labels[heroIdx]} vs the field`
+            : "Round-robin tournament",
+          (o) => {
+            const pairing = pairingById.get(o.id)
+            const a = labels[pairing?.a ?? 0] ?? "?"
+            const b = labels[pairing?.b ?? 0] ?? "?"
+            return o.flipped ? { white: b, black: a } : { white: a, black: b }
+          },
+        ),
+      )
     } catch (e) {
       setError(String(e))
     } finally {
       onRunningChange(false)
     }
-  }, [roster, selectedIds, mNum, openings, baseMs, incMs, concurrency, adjudicateTb, onRunningChange])
+  }, [roster, selectedIds, mNum, format, effectiveHeroId, openings, baseMs, incMs, concurrency, adjudicateTb, onRunningChange])
 
   const cancelRR = useCallback(async () => {
     try { await invoke("cancel_batch") } catch (e) { setError(String(e)) }
@@ -3592,7 +3929,10 @@ function RoundRobinSection({
   const saveResult = useCallback(async () => {
     if (!display) return
     try {
-      const name = `Round-robin — ${display.labels.length} participants, ${display.gamesPerPairing} games/pairing`
+      const name =
+        display.format === "gauntlet"
+          ? `Gauntlet — ${display.labels[display.heroIdx ?? 0]} vs ${display.labels.length - 1} opponents, ${display.gamesPerPairing} games/pairing`
+          : `Round-robin — ${display.labels.length} participants, ${display.gamesPerPairing} games/pairing`
       const exported = buildRoundRobinExport(
         name,
         display.participants,
@@ -3600,6 +3940,8 @@ function RoundRobinSection({
         display.timeControl,
         display.table,
         display.estimates,
+        undefined,
+        display.format,
       )
       const file = await invoke<string>("save_tournament_result", { result: exported })
       setSaveMsg(`Saved as ${file}`)
@@ -3614,12 +3956,13 @@ function RoundRobinSection({
     setError(null)
     try {
       const v = await invoke<RoundRobinResultExport>("load_tournament_result", { file })
-      if (v?.kind !== "round-robin" || !Array.isArray(v.participants)) {
-        throw new Error(`Not a round-robin result: ${file}`)
+      if ((v?.kind !== "round-robin" && v?.kind !== "gauntlet") || !Array.isArray(v.participants)) {
+        throw new Error(`Not a round-robin/gauntlet result: ${file}`)
       }
       setDisplay(displayFromSaved(v))
       setIsLoadedResult(true)
       setCanSaveCurrent(false)
+      setPgnGames(null) // moves aren't persisted — nothing to bulk-export
       setTallyRR(null)
       setSaveMsg(null)
     } catch (e) {
@@ -3627,16 +3970,32 @@ function RoundRobinSection({
     }
   }, [])
 
+  // Bulk one-file PGN export of the finished run (spec 210 Phase 6), through
+  // the native save dialog (DialogProvider seam — exportGamesAsPgn above).
+  const exportPgn = useCallback(async () => {
+    if (!pgnGames || pgnGames.length === 0) return
+    try {
+      const base = display?.format === "gauntlet" ? "gauntlet" : "round_robin"
+      await exportGamesAsPgn(pgnGames, `${base}_games.pgn`)
+    } catch (e) {
+      setError(String(e))
+    }
+  }, [pgnGames, display])
+
   const pct = tally && tally.total > 0 ? (tally.completed / tally.total) * 100 : 0
 
   return (
     <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
       <div>
-        <h2 className="text-sm font-semibold text-foreground">Round-robin tournament</h2>
+        <h2 className="text-sm font-semibold text-foreground">
+          {format === "gauntlet" ? "Gauntlet tournament" : "Round-robin tournament"}
+        </h2>
         <p className="text-xs text-muted-foreground">
-          Every pair of participants plays {mNum} game{mNum === 1 ? "" : "s"} (colors
-          flip within each pairing). Uses the time control, concurrency and
-          adjudication configured above; bot entries keep their honest strength labels.
+          {format === "gauntlet"
+            ? `One hero plays each other participant ${mNum} game${mNum === 1 ? "" : "s"} (colors flip within each pairing; the others never meet).`
+            : `Every pair of participants plays ${mNum} game${mNum === 1 ? "" : "s"} (colors flip within each pairing).`}{" "}
+          Uses the time control, concurrency and adjudication configured above;
+          bot entries keep their honest strength labels.
         </p>
       </div>
 
@@ -3667,6 +4026,37 @@ function RoundRobinSection({
 
       <div className="flex flex-wrap items-end gap-4">
         <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Format</span>
+          <select
+            data-testid="rr-format"
+            className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+            value={format}
+            onChange={(e) => setFormat(e.target.value as TournamentFormat)}
+            disabled={running}
+          >
+            <option value="round-robin">Round-robin (all pairs)</option>
+            <option value="gauntlet">Gauntlet (one vs the field)</option>
+          </select>
+        </label>
+        {format === "gauntlet" && (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">Gauntlet hero</span>
+            <select
+              data-testid="rr-hero"
+              className="bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+              value={effectiveHeroId}
+              onChange={(e) => setHeroId(e.target.value)}
+              disabled={running || selected.length === 0}
+            >
+              {selected.map((e) => (
+                <option key={e.participant.id} value={e.participant.id}>
+                  {e.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Games per pairing</span>
           <input
             type="number"
@@ -3694,7 +4084,7 @@ function RoundRobinSection({
         </label>
         <span className="text-xs text-muted-foreground pb-2" data-testid="rr-total-games">
           {selected.length >= 2
-            ? `${totalScheduled} games total (${selected.length} participants, ${(selected.length * (selected.length - 1)) / 2} pairings)`
+            ? `${totalScheduled} games total (${selected.length} participants, ${format === "gauntlet" ? selected.length - 1 : (selected.length * (selected.length - 1)) / 2} pairings)`
             : "Pick at least two participants."}
         </span>
       </div>
@@ -3705,7 +4095,7 @@ function RoundRobinSection({
           onClick={runRR}
           disabled={running || otherRunActive || selected.length < 2}
         >
-          {running ? "Running…" : "Run Round-robin"}
+          {running ? "Running…" : format === "gauntlet" ? "Run Gauntlet" : "Run Round-robin"}
         </Button>
         {running && (
           <Button variant="destructive" onClick={cancelRR}>
@@ -3751,6 +4141,41 @@ function RoundRobinSection({
             </div>
           )}
           {saveMsg && <span className="text-xs text-green-400 font-mono">{saveMsg}</span>}
+          {/* Bulk PGN export (spec 210 Phase 6): every completed game of THIS
+              run as one .pgn. Outlives "Save result" (which only persists the
+              cross-table); gone for loaded results, whose moves aren't kept. */}
+          {pgnGames && pgnGames.length > 0 && (
+            <div className="flex items-center gap-3">
+              <Button size="sm" variant="outline" data-testid="rr-export-pgn" onClick={exportPgn}>
+                Export PGN
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                All {pgnGames.length} completed games as one PGN file.
+              </span>
+            </div>
+          )}
+          {/* Games → game database (spec 212 DB persistence): the same games
+              land in the spec 200 SQLite DB, Event/Date/Round tags intact. */}
+          {pgnGames && pgnGames.length > 0 && (
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="rr-save-db"
+                onClick={() => {
+                  saveGamesToDatabase(pgnGames)
+                    .then(setDbSaveMsg)
+                    .catch((e) => setError(String(e)))
+                }}
+              >
+                Save to DB
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Insert all {pgnGames.length} completed games into the game database.
+              </span>
+            </div>
+          )}
+          {dbSaveMsg && <span className="text-xs text-green-400 font-mono">{dbSaveMsg}</span>}
         </>
       )}
 
@@ -4158,16 +4583,20 @@ export function SeedBreakdownSection({
   outcomes,
   evalById,
   tagByFen,
+  ecoByFen,
   labelA,
 }: {
   outcomes: GameOutcome[]
   evalById: EvalMap
   tagByFen?: Map<string, string>
+  /** fen → explicit ECO code (EPD `eco` opcode); the coded-line table in
+   *  core/eco.ts covers positions without one. */
+  ecoByFen?: Map<string, string>
   labelA: string
 }) {
   const rows = useMemo(
-    () => buildSeedBreakdown(outcomes, evalById, tagByFen),
-    [outcomes, evalById, tagByFen],
+    () => buildSeedBreakdown(outcomes, evalById, tagByFen, undefined, ecoByFen),
+    [outcomes, evalById, tagByFen, ecoByFen],
   )
   if (rows.length <= 1) return null // a single family says nothing
   return (
@@ -4177,10 +4606,11 @@ export function SeedBreakdownSection({
     >
       <h2 className="text-sm font-semibold text-foreground">Starting-position families</h2>
       <p className="text-xs text-muted-foreground">
-        Games grouped by curated-pool tag × |starting eval| bucket (each seed is
-        played from both colors). Lopsided families — where {labelA} scores far
-        from 50% with a real sample — are flagged: those are the position types
-        one engine misplays.
+        Games grouped by ECO opening family where the seed is a coded line (or
+        carries an EPD eco opcode), else by curated-pool tag × |starting eval|
+        bucket (each seed is played from both colors). Lopsided families —
+        where {labelA} scores far from 50% with a real sample — are flagged:
+        those are the position types one engine misplays.
       </p>
       <div className="overflow-x-auto">
         <table className="text-[11px] font-mono w-full">

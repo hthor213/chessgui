@@ -26,6 +26,7 @@ import {
   type WinProbCurve,
 } from "./win-prob"
 import { replayFens, sansFromUci } from "./game-replay"
+import { ecoForFen, ecoLabel } from "./eco"
 
 // ---------------------------------------------------------------------------
 // Game phases (spec 212:38 "opening/middle/endgame by material+ply heuristic")
@@ -330,8 +331,11 @@ export function buildBandTrajectories(
 // ---------------------------------------------------------------------------
 
 export type SeedFamilyRow = {
-  /** Family key: pool tag + |eval| bucket (or "standard start"). */
+  /** Family key: "ECO · name" where known, else pool tag + |eval| bucket
+   *  (or "standard start"). */
   key: string
+  /** ECO code when the family is an ECO opening family; null otherwise. */
+  eco: string | null
   tag: string | null
   /** |starting eval| bucket bounds (pawns); null for the standard start. */
   lo: number | null
@@ -354,20 +358,24 @@ export const LOPSIDED_MIN_GAMES = 4
 export const LOPSIDED_SCORE_MARGIN = 0.25
 
 /**
- * Group completed games into starting-position families (spec 212:49-51):
- * curated-pool tag (via `tagByFen`, e.g. tagged_positions.json's `source`)
- * × |starting-eval| bucket — sign is arbitrary under color flip, so families
- * bucket by magnitude while A's score still folds both colors correctly.
- * There is no FEN→ECO table in the app yet, so ECO naming is out (flagged in
- * the spec); the pool tag is the family name we actually have.
+ * Group completed games into starting-position families (spec 212:49-51),
+ * "ECO where known" first: a seed classifies into an ECO opening family when
+ * its position carries an explicit code (`ecoByFen`, from the EPD `eco`
+ * opcode) or matches the coded-line table (eco.ts ecoForFen). Everything
+ * else falls back to curated-pool tag (via `tagByFen`, e.g.
+ * tagged_positions.json's `source`) × |starting-eval| bucket — sign is
+ * arbitrary under color flip, so families bucket by magnitude while A's
+ * score still folds both colors correctly.
  */
 export function buildSeedBreakdown(
   outcomes: GameOutcome[],
   evalById: EvalMap,
   tagByFen?: Map<string, string>,
   bucketWidth = 0.5,
+  ecoByFen?: Map<string, string>,
 ): SeedFamilyRow[] {
   type Acc = {
+    eco: string | null
     tag: string | null
     lo: number | null
     hi: number | null
@@ -386,11 +394,17 @@ export function buildSeedBreakdown(
     const meta = evalById.get(o.id)
     const isStandard = g.start_fen.trim() === STANDARD_START_FEN
     const tag = tagByFen?.get(g.start_fen) ?? null
+    // The explicit per-position code (EPD opcode) outranks the table lookup.
+    const eco = isStandard
+      ? null
+      : (ecoByFen?.get(g.start_fen)?.trim().toUpperCase() ?? ecoForFen(g.start_fen))
     let key: string
     let lo: number | null = null
     let hi: number | null = null
     if (isStandard) {
       key = "standard start"
+    } else if (eco) {
+      key = ecoLabel(eco)
     } else {
       const mag = Math.abs(meta?.eval ?? 0)
       const bucket = Math.floor(mag / bucketWidth + 1e-9)
@@ -400,7 +414,7 @@ export function buildSeedBreakdown(
     }
     let acc = accs.get(key)
     if (!acc) {
-      acc = { tag, lo, hi, fens: new Set(), games: 0, aWins: 0, draws: 0, aLosses: 0, scoreSum: 0 }
+      acc = { eco, tag, lo, hi, fens: new Set(), games: 0, aWins: 0, draws: 0, aLosses: 0, scoreSum: 0 }
       accs.set(key, acc)
     }
     acc.fens.add(g.start_fen)
@@ -421,6 +435,7 @@ export function buildSeedBreakdown(
     const aScore = acc.games > 0 ? acc.scoreSum / acc.games : 0.5
     rows.push({
       key,
+      eco: acc.eco,
       tag: acc.tag,
       lo: acc.lo,
       hi: acc.hi,

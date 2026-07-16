@@ -47,6 +47,11 @@ interface AnalysisPanelProps {
    *  they follow the exact same active-game lockout as the engine (the
    *  gate itself lives in use-tablebase.ts + the Rust command). */
   activeGame?: ActiveGameMeta | null;
+  /** Open the play-vs-engine setup dialog (color picker + time control,
+   *  spec 011). When provided, the no-engine card offers one "Play vs
+   *  engine…" entry through it instead of the bare white/black quick-start
+   *  buttons — so every game start goes through the same picker. */
+  onPlaySetup?: () => void;
 }
 
 // The curve's own top anchor (216: b shrinks to its flattest, ~full-strength
@@ -176,7 +181,7 @@ export function PvLineRow({
   );
 }
 
-export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv, fen, activeGame }: AnalysisPanelProps) {
+export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv, fen, activeGame, onPlaySetup }: AnalysisPanelProps) {
   const { state } = engine;
 
   // Tablebase verdict for the position on the board (spec 900 backlog).
@@ -231,22 +236,36 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv, fen, activ
             >
               Analyze
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
-              onClick={() => tryStart(() => engine.setPlayMode(true, "white"))}
-            >
-              Play White vs Stockfish
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
-              onClick={() => tryStart(() => engine.setPlayMode(true, "black"))}
-            >
-              Play Black vs Stockfish
-            </Button>
+            {onPlaySetup ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
+                onClick={onPlaySetup}
+                data-testid="play-setup-open"
+              >
+                Play vs engine…
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
+                  onClick={() => tryStart(() => engine.setPlayMode(true, "white"))}
+                >
+                  Play White vs Stockfish
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
+                  onClick={() => tryStart(() => engine.setPlayMode(true, "black"))}
+                >
+                  Play Black vs Stockfish
+                </Button>
+              </>
+            )}
             {startError && (
               <span className="text-xs text-red-400 break-words" data-testid="engine-start-error">
                 {startError}
@@ -290,6 +309,14 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv, fen, activ
             {(state.isAnalyzing || state.isThinking) && state.nps > 0 && (
               <span className="text-xs text-muted-foreground">
                 {formatNodes(state.nps)}/s
+              </span>
+            )}
+            {/* Finite (depth/movetime) analysis ran to completion (spec 011):
+                the session is still live — navigating re-analyzes — but the
+                engine is idle, so say so instead of implying a live search. */}
+            {state.mode !== "play" && state.isAnalyzing && state.analysisComplete && (
+              <span className="text-xs text-green-500/90" data-testid="analysis-done">
+                done
               </span>
             )}
           </div>

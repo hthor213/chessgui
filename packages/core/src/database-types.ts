@@ -73,6 +73,8 @@ export type GameHeader = {
   result: string
   ply_count: number
   source: string
+  /** User tags on this game, sorted ("favorite" is the star). */
+  tags: string[]
 }
 
 /**
@@ -80,7 +82,12 @@ export type GameHeader = {
  * do not constrain the query. `player` matches either colour; `white`/`black`
  * match that colour only; `eco` is a prefix ("B9" → B90..B99); `date_from` /
  * `date_to` bound the (string-sortable) PGN date; `min_elo` requires at least
- * one player at or above the rating. Mirrors Rust `GameFilter`.
+ * one player at or above the rating; `max_elo` caps both players (games with
+ * an unrated player pass); `text` is a substring match across players, event,
+ * site and the movetext (comments/annotations included); `tag` requires the
+ * exact tag ("favorite" = starred); `material` requires the game to reach a
+ * material signature (e.g. "KRP vs KR") at some mainline position, either
+ * colour — see material-signature.ts. Mirrors Rust `GameFilter`.
  */
 export type GameFilter = {
   player?: string
@@ -92,6 +99,10 @@ export type GameFilter = {
   date_to?: string
   result?: string
   min_elo?: number
+  max_elo?: number
+  text?: string
+  tag?: string
+  material?: string
 }
 
 /** Columns the backend can sort by (whitelisted server-side). */

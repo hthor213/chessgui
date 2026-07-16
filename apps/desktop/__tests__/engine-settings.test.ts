@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+  analysisGoCommand,
   clearEnginePath,
+  customOptionCommand,
   defaultEngineSettings,
   loadEnginePath,
   loadEngineSettings,
+  sanitizeCustomOptions,
   saveEnginePath,
   saveEngineSettings,
 } from "@/lib/engine-settings";
@@ -67,6 +70,111 @@ describe("engine settings — arrows default + migration (spec 202 bugfix)", () 
     expect(raw.version).toBe(2);
     // Round-trips: the saved choice is now authoritative.
     expect(loadEngineSettings().showArrows).toBe(true);
+  });
+});
+
+describe("analysis limit + contempt + custom UCI options (spec 011)", () => {
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = installFakeStorage();
+  });
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).window;
+    delete (globalThis as Record<string, unknown>).localStorage;
+  });
+
+  it("defaults to infinite analysis, neutral contempt, no custom options", () => {
+    const d = defaultEngineSettings();
+    expect(d.analysisMode).toBe("infinite");
+    expect(d.contempt).toBe(0);
+    expect(d.customOptions).toEqual([]);
+    expect(analysisGoCommand(d)).toBe("go infinite");
+  });
+
+  it("maps each analysis mode to its go command", () => {
+    const d = defaultEngineSettings();
+    expect(analysisGoCommand({ ...d, analysisMode: "depth", analysisDepth: 24 })).toBe("go depth 24");
+    expect(analysisGoCommand({ ...d, analysisMode: "movetime", analysisMoveTimeMs: 5000 })).toBe(
+      "go movetime 5000",
+    );
+  });
+
+  it("round-trips the new fields through save/load", () => {
+    saveEngineSettings({
+      ...defaultEngineSettings(),
+      analysisMode: "depth",
+      analysisDepth: 24,
+      analysisMoveTimeMs: 3000,
+      contempt: -50,
+      customOptions: [{ name: "Skill Level", value: "10" }],
+    });
+    const loaded = loadEngineSettings();
+    expect(loaded.analysisMode).toBe("depth");
+    expect(loaded.analysisDepth).toBe(24);
+    expect(loaded.analysisMoveTimeMs).toBe(3000);
+    expect(loaded.contempt).toBe(-50);
+    expect(loaded.customOptions).toEqual([{ name: "Skill Level", value: "10" }]);
+  });
+
+  it("falls back to defaults for a pre-011 blob and clamps out-of-range values", () => {
+    // Legacy blob: none of the new fields present.
+    store.set(
+      "engine-settings",
+      JSON.stringify({ hash: 512, threads: 2, multiPv: 3, showArrows: false, version: 2 }),
+    );
+    const legacy = loadEngineSettings();
+    expect(legacy.analysisMode).toBe("infinite");
+    expect(legacy.contempt).toBe(0);
+    expect(legacy.customOptions).toEqual([]);
+
+    // Hostile blob: bogus mode, out-of-range numbers, malformed options list.
+    store.set(
+      "engine-settings",
+      JSON.stringify({
+        version: 2,
+        analysisMode: "nodes",
+        analysisDepth: 4000,
+        analysisMoveTimeMs: -5,
+        contempt: 900,
+        customOptions: "setoption name Threads value 64",
+      }),
+    );
+    const d = defaultEngineSettings();
+    const hostile = loadEngineSettings();
+    expect(hostile.analysisMode).toBe("infinite");
+    expect(hostile.analysisDepth).toBe(99);
+    expect(hostile.analysisMoveTimeMs).toBe(100);
+    expect(hostile.contempt).toBe(100);
+    expect(hostile.customOptions).toEqual([]);
+    expect(hostile.hash).toBe(d.hash);
+  });
+
+  it("sanitizes custom options: drops nameless rows, strips line breaks", () => {
+    expect(
+      sanitizeCustomOptions([
+        { name: "  Skill Level ", value: " 10 " },
+        { name: "", value: "ignored" },
+        { name: "Move Overhead\ngo infinite", value: "30\r\nquit" },
+        "not-an-object",
+        null,
+      ]),
+    ).toEqual([
+      { name: "Skill Level", value: "10" },
+      // UCI is a line protocol — an embedded newline must never survive to
+      // smuggle a second command through setoption.
+      { name: "Move Overhead go infinite", value: "30 quit" },
+    ]);
+  });
+
+  it("builds setoption lines, omitting `value` for button options", () => {
+    expect(customOptionCommand({ name: "Skill Level", value: "10" })).toBe(
+      "setoption name Skill Level value 10",
+    );
+    expect(customOptionCommand({ name: "Clear Hash", value: "" })).toBe(
+      "setoption name Clear Hash",
+    );
   });
 });
 

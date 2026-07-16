@@ -1,0 +1,101 @@
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.01.05"]
+[White "testuser"]
+[Black "rival1"]
+[Result "1-0"]
+[ECO "B30"]
+[ECOUrl "https://www.chess.com/openings/Sicilian-Defense-Old-Sicilian-Variation-3.d3-d6"]
+[UTCDate "2026.01.05"]
+[UTCTime "10:00:00"]
+[TimeControl "600"]
+[Link "https://www.chess.com/game/live/1001"]
+
+1. e4 {[%eval 0.3]} 1... c5 {[%eval 0.3]} 2. Qh5 {[%eval -1.7]} 2... Nc6 {[%eval -1.7]} 3. Nf3 {[%eval -1.9]} 3... g6 {[%eval -1.8]} 1-0
+
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.01.04"]
+[White "rival1"]
+[Black "testuser"]
+[Result "0-1"]
+[ECO "B30"]
+[ECOUrl "https://www.chess.com/openings/Sicilian-Defense-Old-Sicilian-Variation"]
+[UTCDate "2026.01.04"]
+[UTCTime "10:00:00"]
+[TimeControl "600"]
+[Link "https://www.chess.com/game/live/1002"]
+
+1. e4 {[%eval 0.3]} 1... c5 {[%eval 0.4]} 2. Na3 {[%eval -0.9]} 2... Nc6 {[%eval -0.9]} 0-1
+
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.01.03"]
+[White "testuser"]
+[Black "rival2"]
+[Result "1/2-1/2"]
+[ECO "C50"]
+[ECOUrl "https://www.chess.com/openings/Italian-Game"]
+[UTCDate "2026.01.03"]
+[UTCTime "10:00:00"]
+[TimeControl "600"]
+[Link "https://www.chess.com/game/live/1003"]
+
+1. e4 {[%eval 0.3]} 1... e5 {[%eval 0.2]} 2. Nf3 {[%eval 0.25]} 2... Nc6 {[%eval 0.3]} 1/2-1/2
+
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.01.06"]
+[White "testuser"]
+[Black "rival3"]
+[Result "*"]
+[ECO "C50"]
+[ECOUrl "https://www.chess.com/openings/Italian-Game"]
+[UTCDate "2026.01.06"]
+[UTCTime "10:00:00"]
+[TimeControl "1/86400"]
+[Link "https://www.chess.com/game/daily/1004"]
+
+1. e4 {[%eval 0.3]} 1... e5 {[%eval 0.2]} 2. Bc4 {[%eval 0.2]} 2... Nf6 {[%eval 0.2]} *
+
+[Event "Rated blitz game"]
+[Site "https://lichess.org/abcd1004"]
+[Date "2026.01.02"]
+[White "testuser"]
+[Black "rival4"]
+[Result "0-1"]
+[ECO "C20"]
+[Opening "King's Pawn Game: Wayward Queen Attack"]
+[UTCDate "2026.01.02"]
+[UTCTime "10:00:00"]
+[TimeControl "300+0"]
+
+1. e4 e5 2. Qh5 Nc6 3. Qxf7+ Kxf7 0-1
+
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.01.01"]
+[White "rival5"]
+[Black "testuser"]
+[Result "1-0"]
+[ECO "D30"]
+[ECOUrl "https://www.chess.com/openings/Queens-Gambit-Declined"]
+[UTCDate "2026.01.01"]
+[UTCTime "10:00:00"]
+[TimeControl "600"]
+[Link "https://www.chess.com/game/live/1006"]
+
+1. d4 d5 2. c4 e6 3. Nc3 Nf6 1-0
+
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.01.01"]
+[White "rival6"]
+[Black "rival7"]
+[Result "1-0"]
+[ECO "A00"]
+[UTCDate "2026.01.01"]
+[UTCTime "09:00:00"]
+[TimeControl "600"]
+
+1. e4 {[%eval 0.3]} 1... e5 {[%eval 0.2]} 2. Nf3 {[%eval 0.25]} 2... Nc6 {[%eval 0.3]} 1-0

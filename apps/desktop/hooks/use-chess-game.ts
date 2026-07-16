@@ -234,18 +234,11 @@ export function useChessGame() {
     [bump],
   );
 
-  // Move between sibling branches at the current ply (up/down keys).
+  // Up/Down keys: walk into / between / out of variations (logic lives on
+  // GameTree so it's unit-tested with the rest of the tree ops).
   const cycleVariation = useCallback(
     (direction: 1 | -1) => {
-      const tree = treeRef.current;
-      const node = tree.currentNode();
-      if (!node.parent) return;
-      const siblings = tree.get(node.parent)!.children;
-      const idx = siblings.indexOf(node.id);
-      const next = idx + direction;
-      if (next < 0 || next >= siblings.length) return;
-      tree.goTo(siblings[next]);
-      bump();
+      if (treeRef.current.cycleVariation(direction)) bump();
     },
     [bump],
   );

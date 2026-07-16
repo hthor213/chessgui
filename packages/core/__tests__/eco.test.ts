@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest"
-import { ecoLabel, ecoName, matchesEcoQuery } from "@chessgui/core/eco"
+import { Chess } from "chessops/chess"
+import { makeFen } from "chessops/fen"
+import { parseSan } from "chessops/san"
+import {
+  ECO_LINES,
+  ecoForFen,
+  ecoForFens,
+  ecoLabel,
+  ecoName,
+  matchesEcoQuery,
+} from "@chessgui/core/eco"
 
 describe("ECO → opening-name lookup (spec 200)", () => {
   it("names famous codes", () => {
@@ -74,5 +84,62 @@ describe("matchesEcoQuery — tournament ECO/opening filter (spec 210 Phase 6)",
     expect(matchesEcoQuery(null, "najdorf")).toBe(false)
     expect(matchesEcoQuery("", "B")).toBe(false)
     expect(matchesEcoQuery("Z12", "sicilian")).toBe(false)
+  })
+})
+
+describe("FEN → ECO classification (spec 212 seed breakdown ECO arm)", () => {
+  // Replay a SAN line from the standard start; returns every FEN (root first).
+  const replay = (sans: string): string[] => {
+    const chess = Chess.default()
+    const fens = [makeFen(chess.toSetup())]
+    for (const san of sans.split(" ")) {
+      const move = parseSan(chess, san)
+      expect(move, `illegal SAN "${san}" in line "${sans}"`).toBeTruthy()
+      chess.play(move!)
+      fens.push(makeFen(chess.toSetup()))
+    }
+    return fens
+  }
+
+  it("every coded line replays legally and classifies to its own code", () => {
+    for (const [code, sans] of ECO_LINES) {
+      const fens = replay(sans) // throws inside on an illegal SAN
+      expect(ecoForFen(fens[fens.length - 1]), `${code}: ${sans}`).toBe(code)
+    }
+  })
+
+  it("classifies famous tabiyas", () => {
+    const najdorf = replay("e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6")
+    expect(ecoForFen(najdorf[najdorf.length - 1])).toBe("B90")
+    const berlin = replay("e4 e5 Nf3 Nc6 Bb5 Nf6")
+    expect(ecoForFen(berlin[berlin.length - 1])).toBe("C65")
+  })
+
+  it("is move-order independent (transpositions classify)", () => {
+    // QGD Exchange reached via 1.c4: same position, different move order.
+    const viaEnglish = replay("c4 e6 Nc3 d5 d4 Nf6 cxd5 exd5")
+    expect(ecoForFen(viaEnglish[viaEnglish.length - 1])).toBe("D35")
+  })
+
+  it("tolerates en-passant-field and counter differences", () => {
+    // After 1.e4, with and without the ep square recorded.
+    expect(ecoForFen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")).toBe("B00")
+    expect(ecoForFen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")).toBe("B00")
+    expect(ecoForFen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 5 40")).toBe("B00")
+  })
+
+  it("returns null for the start position, middlegames and garbage", () => {
+    expect(ecoForFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")).toBeNull()
+    expect(ecoForFen("r1bqk2r/pp1nn1bp/2p1p1p1/3pNp2/2PP4/6P1/PP1NPPBP/R1BQ1RK1 w kq - 4 9")).toBeNull()
+    expect(ecoForFen("")).toBeNull()
+    expect(ecoForFen("not a fen")).toBeNull()
+  })
+
+  it("ecoForFens picks the DEEPEST matching position of a game", () => {
+    // The Najdorf line passes through B20/B27/B50/… — the last match wins.
+    const fens = replay("e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6 Be2 e5")
+    expect(ecoForFens(fens)).toBe("B90")
+    expect(ecoForFens([fens[0]])).toBeNull()
+    expect(ecoForFens([])).toBeNull()
   })
 })

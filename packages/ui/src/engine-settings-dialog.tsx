@@ -14,12 +14,20 @@ import {
   DialogTrigger,
 } from "@chessgui/ui/ui/dialog"
 import {
+  ANALYSIS_DEPTH_MAX,
+  ANALYSIS_DEPTH_MIN,
+  ANALYSIS_MOVETIME_MAX_MS,
+  ANALYSIS_MOVETIME_MIN_MS,
+  CONTEMPT_MAX,
+  CONTEMPT_MIN,
   defaultEnginePath,
   HASH_MAX,
   HASH_MIN,
   MULTI_PV_MAX,
   MULTI_PV_MIN,
   maxThreads,
+  sanitizeCustomOptions,
+  type AnalysisLimitMode,
   type EngineSettings,
 } from "@/lib/engine-settings"
 
@@ -95,15 +103,29 @@ export function EngineSettingsDialog({
       hash: clamp(draft.hash, HASH_MIN, HASH_MAX, settings.hash),
       threads: clamp(draft.threads, 1, cores, settings.threads),
       multiPv: clamp(draft.multiPv, MULTI_PV_MIN, MULTI_PV_MAX, settings.multiPv),
+      analysisDepth: clamp(
+        draft.analysisDepth, ANALYSIS_DEPTH_MIN, ANALYSIS_DEPTH_MAX, settings.analysisDepth),
+      analysisMoveTimeMs: clamp(
+        draft.analysisMoveTimeMs, ANALYSIS_MOVETIME_MIN_MS, ANALYSIS_MOVETIME_MAX_MS, settings.analysisMoveTimeMs),
+      contempt: clamp(draft.contempt, CONTEMPT_MIN, CONTEMPT_MAX, settings.contempt),
+      // Drops nameless rows and strips line breaks (UCI injection guard).
+      customOptions: sanitizeCustomOptions(draft.customOptions),
     });
     if (draftPath !== enginePath) onEnginePathChange(draftPath);
     setOpen(false);
   };
 
+  const setCustomOption = (index: number, patch: Partial<{ name: string; value: string }>) => {
+    setDraft({
+      ...draft,
+      customOptions: draft.customOptions.map((opt, i) => (i === index ? { ...opt, ...patch } : opt)),
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-sm bg-[#1e1c19] border-[#2a2825]">
+      <DialogContent className="max-w-sm bg-[#1e1c19] border-[#2a2825] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Engine settings</DialogTitle>
           <DialogDescription>
@@ -167,6 +189,118 @@ export function EngineSettingsDialog({
               onChange={(e) => setDraft({ ...draft, multiPv: e.target.valueAsNumber })}
             />
           </SettingRow>
+
+          {/* Analysis search limit (spec 011): infinite / depth / time-per-move. */}
+          <SettingRow label="Analysis limit" hint="How long each analysis search runs">
+            <select
+              data-testid="analysis-limit-select"
+              className="bg-background border border-input rounded-md px-2 py-1 text-xs text-foreground w-24"
+              value={draft.analysisMode}
+              onChange={(e) => setDraft({ ...draft, analysisMode: e.target.value as AnalysisLimitMode })}
+            >
+              <option value="infinite">Infinite</option>
+              <option value="depth">Depth</option>
+              <option value="movetime">Time</option>
+            </select>
+          </SettingRow>
+
+          {draft.analysisMode === "depth" && (
+            <SettingRow label="Depth" hint={`Stop at depth (${ANALYSIS_DEPTH_MIN}–${ANALYSIS_DEPTH_MAX})`}>
+              <Input
+                type="number"
+                data-testid="analysis-depth-input"
+                className="w-24 text-right font-mono"
+                min={ANALYSIS_DEPTH_MIN}
+                max={ANALYSIS_DEPTH_MAX}
+                value={Number.isFinite(draft.analysisDepth) ? draft.analysisDepth : ""}
+                onChange={(e) => setDraft({ ...draft, analysisDepth: e.target.valueAsNumber })}
+              />
+            </SettingRow>
+          )}
+
+          {draft.analysisMode === "movetime" && (
+            <SettingRow
+              label="Time"
+              hint={`Seconds per position (${ANALYSIS_MOVETIME_MIN_MS / 1000}–${ANALYSIS_MOVETIME_MAX_MS / 1000})`}
+            >
+              <Input
+                type="number"
+                data-testid="analysis-movetime-input"
+                className="w-24 text-right font-mono"
+                min={ANALYSIS_MOVETIME_MIN_MS / 1000}
+                max={ANALYSIS_MOVETIME_MAX_MS / 1000}
+                step={0.5}
+                value={Number.isFinite(draft.analysisMoveTimeMs) ? draft.analysisMoveTimeMs / 1000 : ""}
+                onChange={(e) =>
+                  setDraft({ ...draft, analysisMoveTimeMs: Math.round(e.target.valueAsNumber * 1000) })
+                }
+              />
+            </SettingRow>
+          )}
+
+          <SettingRow label="Contempt" hint={`UCI Contempt (${CONTEMPT_MIN}–${CONTEMPT_MAX}, 0 = engine default)`}>
+            <Input
+              type="number"
+              data-testid="contempt-input"
+              className="w-24 text-right font-mono"
+              min={CONTEMPT_MIN}
+              max={CONTEMPT_MAX}
+              value={Number.isFinite(draft.contempt) ? draft.contempt : ""}
+              onChange={(e) => setDraft({ ...draft, contempt: e.target.valueAsNumber })}
+            />
+          </SettingRow>
+
+          {/* Free-form UCI options (spec 011) — sent verbatim as
+              `setoption name <name> value <value>` on engine start. */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col">
+                <span className="text-sm text-foreground">Custom UCI options</span>
+                <span className="text-xs text-muted-foreground">
+                  Sent as setoption on engine start (empty value = button option)
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="add-custom-option"
+                onClick={() =>
+                  setDraft({ ...draft, customOptions: [...draft.customOptions, { name: "", value: "" }] })
+                }
+              >
+                Add
+              </Button>
+            </div>
+            {draft.customOptions.map((opt, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <Input
+                  placeholder="Name"
+                  data-testid={`custom-option-name-${i}`}
+                  className="h-7 flex-1 font-mono text-xs"
+                  value={opt.name}
+                  onChange={(e) => setCustomOption(i, { name: e.target.value })}
+                />
+                <Input
+                  placeholder="Value"
+                  data-testid={`custom-option-value-${i}`}
+                  className="h-7 w-24 font-mono text-xs"
+                  value={opt.value}
+                  onChange={(e) => setCustomOption(i, { value: e.target.value })}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-red-400 hover:text-red-300"
+                  title="Remove option"
+                  onClick={() =>
+                    setDraft({ ...draft, customOptions: draft.customOptions.filter((_, j) => j !== i) })
+                  }
+                >
+                  <span className="text-xs">{"✕"}</span>
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
 
         <DialogFooter>

@@ -125,6 +125,70 @@ describe("database mock", () => {
     expect((await db.stats()).games).toBe(before);
   });
 
+  it("filters by max Elo, capping both players", async () => {
+    const db = createMockDatabase();
+    const capped = await db.listGames({ max_elo: 2800 }, 100, 0);
+    expect(capped.length).toBeGreaterThan(0);
+    // Every seed has both Elos; none above the cap may remain.
+    expect(capped.every((r) => (r.white_elo ?? 0) <= 2800 && (r.black_elo ?? 0) <= 2800)).toBe(
+      true,
+    );
+    // Combined with min_elo it brackets a band.
+    const band = await db.listGames({ min_elo: 2790, max_elo: 2800 }, 100, 0);
+    expect(band.every((r) => (r.white_elo ?? 0) <= 2800 && (r.black_elo ?? 0) <= 2800)).toBe(true);
+    expect(band.every((r) => (r.white_elo ?? 0) >= 2790 || (r.black_elo ?? 0) >= 2790)).toBe(true);
+  });
+
+  it("full-text search reaches headers and movetext", async () => {
+    const db = createMockDatabase();
+    // Player name (case-insensitive).
+    const byName = await db.listGames({ text: "nakamura" }, 100, 0);
+    expect(byName.length).toBeGreaterThan(0);
+    // A comment in the movetext, findable only via full-text.
+    await db.importPgn({
+      source: "new",
+      text: '[White "A"]\n[Black "B"]\n[Result "1-0"]\n\n1. g3 {a rare sighting} d5 1-0\n',
+    });
+    const byComment = await db.listGames({ text: "rare sighting" }, 100, 0);
+    expect(byComment).toHaveLength(1);
+    expect(byComment[0].white).toBe("A");
+    expect(await db.listGames({ text: "no such needle" }, 100, 0)).toHaveLength(0);
+  });
+
+  it("tags: add/remove round-trips, filters, and lists", async () => {
+    const db = createMockDatabase();
+    const [a, b] = await db.listGames({}, 2, 0);
+    expect(a.tags).toEqual([]);
+
+    await db.addTag(a.id, "favorite");
+    await db.addTag(a.id, "endgame study");
+    await db.addTag(a.id, "favorite"); // duplicate: no-op
+    await db.addTag(b.id, "favorite");
+    await expect(db.addTag(a.id, "  ")).rejects.toThrow(); // blank rejected
+    await expect(db.addTag(999999, "x")).rejects.toThrow(); // unknown game
+
+    const rows = await db.listGames({}, 100, 0);
+    expect(rows.find((r) => r.id === a.id)!.tags).toEqual(["endgame study", "favorite"]);
+
+    const favs = await db.listGames({ tag: "favorite" }, 100, 0);
+    expect(favs.map((r) => r.id).sort()).toEqual([a.id, b.id].sort());
+
+    expect(await db.listTags()).toEqual(["endgame study", "favorite"]);
+
+    await db.removeTag(a.id, "favorite");
+    await db.removeTag(a.id, "favorite"); // absent: no-op
+    const favsAfter = await db.listGames({ tag: "favorite" }, 100, 0);
+    expect(favsAfter.map((r) => r.id)).toEqual([b.id]);
+  });
+
+  it("deleting a game drops its tags", async () => {
+    const db = createMockDatabase();
+    const row = (await db.listGames({}, 1, 0))[0];
+    await db.addTag(row.id, "favorite");
+    await db.deleteGames([row.id]);
+    expect(await db.listTags()).toEqual([]);
+  });
+
   it("returns loadable PGN for a game", async () => {
     const db = createMockDatabase();
     const row = (await db.listGames({}, 1, 0))[0];

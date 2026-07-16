@@ -65,6 +65,9 @@ export interface DatabaseApi {
   saveGame(args: { pgn: string; source?: string; dbPath?: string }): Promise<SaveReport>
   deleteGames(ids: number[], dbPath?: string): Promise<number>
   stats(dbPath?: string): Promise<DbStats>
+  addTag(id: number, tag: string, dbPath?: string): Promise<void>
+  removeTag(id: number, tag: string, dbPath?: string): Promise<void>
+  listTags(dbPath?: string): Promise<string[]>
 }
 
 // ---------------------------------------------------------------------------
@@ -165,4 +168,22 @@ export function deleteGames(ids: number[], dbPath?: string): Promise<number> {
 /** Aggregate counts for the database. */
 export function stats(dbPath?: string): Promise<DbStats> {
   return getProviders().database.stats(dbPath)
+}
+
+/**
+ * Attach a tag to a game (spec 200 tagging/favorites; "favorite" is the
+ * star). Adding a tag the game already carries is a no-op.
+ */
+export function addTag(id: number, tag: string, dbPath?: string): Promise<void> {
+  return getProviders().database.addTag(id, tag, dbPath)
+}
+
+/** Remove a tag from a game. Removing an absent tag is a no-op. */
+export function removeTag(id: number, tag: string, dbPath?: string): Promise<void> {
+  return getProviders().database.removeTag(id, tag, dbPath)
+}
+
+/** All distinct tags in use, sorted — feeds the tag filter dropdown. */
+export function listTags(dbPath?: string): Promise<string[]> {
+  return getProviders().database.listTags(dbPath)
 }
