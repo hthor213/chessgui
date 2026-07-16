@@ -262,3 +262,17 @@ moves last — the moves are then mechanical.
       spec:221
 - [x] All workspace package.json files declare GPL-3.0 (code-verified 2026-07-15)
 - [x] specs/README.md index + dependency graph updated with 220→221/222/223
+
+### Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] TournamentRunner refactor: wrap `components/tournament-tab.tsx` (~3,100
+      lines, file-size-cap violation; desktop-only containment today) behind a
+      `TournamentRunner` sub-interface of EngineProvider once the workspace
+      split settles. (220:92-94, 221-223)
+- [ ] AI-proxy commands (`recognize_fen`, `coach_feedback`/`coach_followup`)
+      move from Rust-proxied Anthropic calls to a shared server endpoint, so
+      the web client gets vision + coach too. (220:95-98; spec:221)
+- [ ] Document the Next.js static-export hard constraint in a `packages/ui`
+      README so it isn't rediscovered by breaking it. (220:203-207)
+- [ ] Web-local database story — user decision: server DB via the arena API
+      (current house choice) vs sql.js/OPFS local. (220:109; spec:221)
