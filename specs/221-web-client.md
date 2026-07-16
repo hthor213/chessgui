@@ -176,4 +176,4 @@ features hide):
       the deployed web client and the macOS build (spec:220 invariant, proven
       here)
 - [ ] PGN paste + file import and export round-trip in Safari, Chrome, Firefox
-- [ ] Reachable at https://www.spliffdonk.com/chess from the public internet
+- [x] Reachable at https://www.spliffdonk.com/chess from the public internet (deploy-verified 2026-07-15)
