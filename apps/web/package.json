@@ -5,8 +5,11 @@
   "license": "GPL-3.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/prepare-engine.mjs",
     "dev": "next dev --port 1421",
-    "build": "next build"
+    "prebuild": "node scripts/prepare-engine.mjs",
+    "build": "next build",
+    "postbuild": "node scripts/check-no-tauri.mjs"
   },
   "dependencies": {
     "@chessgui/core": "workspace:*",
@@ -15,6 +18,7 @@
     "autoprefixer": "^10.4.27",
     "chessops": "^0.14.0",
     "cm-polyglot": "^1.1.0",
+    "lila-stockfish-web": "^0.0.11",
     "lucide-react": "^1.7.0",
     "next": "^16.2.2",
     "postcss": "^8.5.8",

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { Card } from "@chessgui/ui/ui/card"
 import { Badge } from "@chessgui/ui/ui/badge"
 import { Button } from "@chessgui/ui/ui/button"
@@ -168,6 +169,17 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
   const isPlayWhite = state.mode === "play" && state.playerColor === "white";
   const isPlayBlack = state.mode === "play" && state.playerColor === "black";
 
+  // Why a start failed — a missing engine binary on desktop, or "engine
+  // unavailable" on a web shell without cross-origin isolation (spec 221).
+  // Without this the rejection is unhandled and the panel just sits there.
+  const [startError, setStartError] = useState<string | null>(null);
+  const tryStart = (action: () => Promise<void>) => {
+    setStartError(null);
+    action().catch((err) => {
+      setStartError(err instanceof Error ? err.message : String(err));
+    });
+  };
+
   const settingsButton = (
     <EngineSettingsDialog
       settings={engine.settings}
@@ -196,7 +208,7 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
             <Button
               size="sm"
               className="bg-green-600 hover:bg-green-700 text-white w-full"
-              onClick={() => engine.startEngine()}
+              onClick={() => tryStart(() => engine.startEngine())}
             >
               Analyze
             </Button>
@@ -204,7 +216,7 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
               size="sm"
               variant="outline"
               className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
-              onClick={() => engine.setPlayMode(true, "white")}
+              onClick={() => tryStart(() => engine.setPlayMode(true, "white"))}
             >
               Play White vs Stockfish
             </Button>
@@ -212,10 +224,15 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
               size="sm"
               variant="outline"
               className="w-full border-blue-600 text-blue-400 hover:bg-blue-950"
-              onClick={() => engine.setPlayMode(true, "black")}
+              onClick={() => tryStart(() => engine.setPlayMode(true, "black"))}
             >
               Play Black vs Stockfish
             </Button>
+            {startError && (
+              <span className="text-xs text-red-400 break-words" data-testid="engine-start-error">
+                {startError}
+              </span>
+            )}
           </div>
           <div className="w-full border-t border-[#2a2825] pt-3">
             <EnginePaceControl

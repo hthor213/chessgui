@@ -10,12 +10,24 @@
 // this module graph — that is the "no Tauri deps" gate of step 8.
 //
 // Registration is eager and unconditional: a shell picks its providers at
-// boot (spec 220 "no isTauri() branching left in shared code"). Today that
-// is the browser stub set; spec 221 replaces it with HTTP/WASM providers
-// (arena API for play, stockfish WASM worker for analysis).
+// boot (spec 220 "no isTauri() branching left in shared code"). This is the
+// spec 221 provider set: the browser stubs (mocks for the v1-OUT features,
+// localStorage storage, <input type=file> dialog fallback, lichess-explorer/
+// mock database) with the engine's UCI lifecycle re-backed by the stockfish
+// WASM worker (lib/wasm-engine.ts). Play vs personas needs no provider at
+// all — lib/arena-api.ts is plain fetch against the same-origin /chess/api
+// mount (NEXT_PUBLIC_ARENA_API_BASE, next.config.mjs).
 
 import { registerProviders } from "@chessgui/core/platform"
+import type { PlatformProviders } from "@chessgui/core/platform"
 import { browserProviders } from "../../desktop/lib/platform/browser"
+import {
+  WASM_ENGINE_PATH,
+  onWasmEngineLine,
+  sendWasmCommand,
+  startWasmEngine,
+  stopWasmEngine,
+} from "./wasm-engine"
 
 export * from "@chessgui/core/platform"
 
@@ -26,4 +38,18 @@ export function isTauri(): boolean {
   return false
 }
 
-registerProviders(browserProviders)
+const webProviders: PlatformProviders = {
+  ...browserProviders,
+  engine: {
+    ...browserProviders.engine,
+    // hasNativeEngine stays false: it gates the NATIVE-host features
+    // (machine bench/profile, spec 221 v1-OUT), not analysis itself.
+    defaultEnginePath: WASM_ENGINE_PATH,
+    startEngine: startWasmEngine, // the WASM build is the only engine — path ignored
+    sendCommand: sendWasmCommand,
+    stopEngine: stopWasmEngine,
+    onEngineLine: onWasmEngineLine,
+  },
+}
+
+registerProviders(webProviders)

@@ -27,6 +27,12 @@ data/reference/*
 .next/
 tsconfig.tsbuildinfo
 
+# WASM engine assets staged by apps/web/scripts/prepare-engine.mjs (the
+# worker sf-worker.js next to them IS tracked — only these are generated)
+apps/web/public/engine/sf16-7.js
+apps/web/public/engine/sf16-7.wasm
+apps/web/public/engine/*.nnue
+
 # Vendored third-party lichess-bot checkout (not part of the app)
 lichess-bot/
 

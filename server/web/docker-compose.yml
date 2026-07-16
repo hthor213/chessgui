@@ -1,0 +1,22 @@
+# ChessGUI web client (spec 221). Static-file server ONLY — the node toolchain
+# lives in the build stage, nothing but nginx ships. Loopback-only per house
+# style: public exposure is Caddy 443 (/chess/* -> 8018, /chess/api/* -> 8017).
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: server/web/Dockerfile
+    container_name: chessgui-web
+    ports:
+      - "127.0.0.1:8018:80"
+    # Resource policy (f9b3b0d) is satisfied by construction: zero engine load
+    # in this container ever (analysis is browser WASM, play goes to the arena
+    # container). Tiny caps as hygiene for a static file server.
+    cpus: "0.5"
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

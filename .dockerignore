@@ -1,0 +1,22 @@
+# Build-context allowlist for server/web/Dockerfile, whose context is the
+# repo root (the arena stack's context is server/arena/, unaffected by this
+# file). The repo carries multi-GB desktop build artifacts (apps/desktop/
+# src-tauri/target, dist, public), so: exclude everything, re-add only what
+# the web build actually consumes. Last matching line wins.
+*
+!.git
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/desktop/package.json
+!apps/desktop/hooks
+!apps/desktop/lib
+!apps/web
+apps/web/dist
+apps/web/node_modules
+apps/web/tsconfig.tsbuildinfo
+!packages
+packages/*/node_modules
+!data/personas/*.config.json
+!data/personas/*.book.json
+!server/web/nginx.conf
