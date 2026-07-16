@@ -1,4 +1,5 @@
 # Private games (spec 217/214 hard rule: never committed) + big net + secrets.
 data/
 nets/
+private-personas/
 .env

@@ -13,6 +13,7 @@ services:
       - ../../data/personas:/app/personas:ro   # committed books + configs
       - ./data:/app/data                        # sqlite (private games; gitignored)
       - ./nets:/nets:ro                         # BT3 net (gitignored, sha-pinned)
+      - ./private-personas:/app/private-personas:ro  # spec 217 Promise 1 artifacts (gitignored, scp'd — never committed)
     # Resource policy (f9b3b0d): engines low-priority always, burst not flat
     # caps. cpu_shares only bites under contention, so the arena can still
     # burst when the box is idle but yields to the mining job (tmux mine211)
