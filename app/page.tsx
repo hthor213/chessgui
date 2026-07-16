@@ -19,6 +19,7 @@ import { DatabaseTab } from "@/components/database-tab"
 import { CalibrationTab } from "@/components/calibration-tab"
 import { SparTab } from "@/components/spar-tab"
 import { TrainingTab } from "@/components/training-tab"
+import { PuzzlesTab } from "@/components/puzzles-tab"
 import { parsePgnToTrees } from "@/lib/pgn"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
@@ -91,8 +92,9 @@ export default function Home() {
   const [boardSize, setBoardSize] = useState(560)
   const [view, setView] = useState<"board" | "tournament" | "thinking" | "database" | "learn">("board")
   // Sub-view within the Learn tab: eval calibration, persona sparring (spec 214),
-  // or the training program (spec 215). The program launches into the first two.
-  const [learnSub, setLearnSub] = useState<"calibrate" | "spar" | "training">("calibrate")
+  // avoidance puzzles (spec 211), or the training program (spec 215). The
+  // program launches into the others.
+  const [learnSub, setLearnSub] = useState<"calibrate" | "spar" | "puzzles" | "training">("calibrate")
   // Thinking mode has its own board instance; keep its size separate so the
   // hidden main board (kept mounted) can't clobber it.
   const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
@@ -647,6 +649,17 @@ export default function Home() {
                 Play vs Bot
               </button>
               <button
+                data-testid="learn-sub-puzzles"
+                onClick={() => setLearnSub("puzzles")}
+                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                  learnSub === "puzzles"
+                    ? "text-foreground font-medium border-b-2 border-emerald-500"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Avoidance
+              </button>
+              <button
                 data-testid="learn-sub-training"
                 onClick={() => setLearnSub("training")}
                 className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
@@ -663,6 +676,8 @@ export default function Home() {
                 <CalibrationTab onLoadPosition={handleLoadCalibrationPosition} />
               ) : learnSub === "spar" ? (
                 <SparTab />
+              ) : learnSub === "puzzles" ? (
+                <PuzzlesTab />
               ) : (
                 <TrainingTab onLaunch={setLearnSub} />
               )}

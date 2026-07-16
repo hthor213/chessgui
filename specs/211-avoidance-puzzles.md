@@ -72,7 +72,7 @@ blunder in").
 
 ## UI
 
-- Lives in the Learn tab (currently a placeholder nav item) as "Avoidance" alongside future
+- Lives in the Learn tab as "Avoidance" (live 2026-07-15) alongside future
   standard tactics.
 - Reuses: board (001), shapes/arrows (202), eval bar optionally hidden until answer.
 - Post-answer: full refutation replay with annotations; "why this is hard" line when Tier 2+
@@ -124,8 +124,33 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
       bursts, big clock gap then collapse, timeout/abandon terminations) to exclude
       disengaged games from cliff mining — same 1.5σ-vs-own-median approach as the
       rival dossiers.
-- [ ] `puzzles` table + import/dedup
-- [ ] Solver UI: prompt, many-correct grading, rake-replay with refutation shapes
+- [x] `puzzles` table + import/dedup
+  - *BUILT 2026-07-15*: schema v2 in the app DB (src-tauri/src/puzzles.rs holds the
+    DDL, db.rs runs the migration) — a VERBATIM mirror of
+    scripts/mining/import_puzzles.py's schema incl. UNIQUE(fen, trap_uci) dedup;
+    any schema change must land in both. `puzzles_import` ingests generator JSONL
+    directly (same required fields as the Python importer, plus board-legality
+    checks on trap + refutation since the solver replays them); `puzzles_deck`
+    (band filter with top-up when thin), `puzzles_get`, `puzzles_stats`. Verified:
+    cargo tests import the real 12-puzzle mine_cliffs dry run
+    (src-tauri/tests/fixtures/cliffs.jsonl), re-import is a no-op, v1 DBs migrate.
+    "Import puzzles…" file picker on the Learn ▸ Avoidance setup screen lands the
+    pending 20k server batch with one click via the same path.
+- [x] Solver UI: prompt, many-correct grading, rake-replay with refutation shapes
+  - *BUILT 2026-07-15*: Learn ▸ Avoidance (components/puzzles-tab.tsx). Unalarming
+    "Your move." prompt; grading (lib/puzzles.gradeMove, unit-tested): stored trap
+    → fail + stored refutation; any other move engine-checked at the puzzle's
+    verify depth via `puzzle_check_move` (one-shot SF, mover-POV cp — same
+    convention as the generator): within safe_threshold of verified best → safe,
+    worse-but-not-lost → correct with a note, at/below the generator's lost bar
+    (100cp) or mated → fail + the engine's PV as refutation. Outside Tauri the
+    fallback is HONEST: "not the rake — unverified", never a fake score. On fail
+    the refutation is PLAYED move-by-move with arrow shapes (red = punisher).
+    Training tab's rake_deck blocks (c1-mon/c1-thu, ids preserved) launch a deck
+    from the user's Maia band. Verified: 501 vitest + headless Playwright
+    (import dry-run JSONL → solve safe → fail on the trap → replay shapes →
+    summary; Training launch drivable). NOT here (still open below): streaks,
+    spaced repetition, calm-position mixing.
 - [ ] Calm-position decks mixed in (70/30 default)
 - [ ] Session flow + streak/score, failed-puzzle respawn (spaced repetition hook)
 - [ ] Tier-2: band miss-rate difficulty once mining data exists

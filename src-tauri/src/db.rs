@@ -38,7 +38,10 @@ use std::ops::ControlFlow;
 /// useful — while keeping the position index a small multiple of the game count.
 pub const DEFAULT_PLY_CAP: u32 = 40;
 
-const SCHEMA_VERSION: i64 = 1;
+/// v1: games + positions. v2: puzzles (spec 211 — DDL lives in puzzles.rs,
+/// mirroring scripts/mining/import_puzzles.py). All DDL is idempotent
+/// (IF NOT EXISTS), so upgrading is just running the batch again.
+const SCHEMA_VERSION: i64 = 2;
 
 // ---------------------------------------------------------------------------
 // Serde boundary types (mirrored in lib/database.ts)
@@ -527,7 +530,9 @@ fn dup_hash(packed_moves: &[u8], result: &str) -> String {
 // ---------------------------------------------------------------------------
 
 pub struct Db {
-    conn: Connection,
+    /// Shared with the puzzles module (src/puzzles.rs), which extends `Db`
+    /// with the spec-211 puzzle import/queries on the same database.
+    pub(crate) conn: Connection,
 }
 
 impl Db {
@@ -595,13 +600,22 @@ impl Db {
             CREATE INDEX IF NOT EXISTS idx_positions_game    ON positions(game_id);
             "#,
         )?;
-        // Record the schema version once.
+        // v2: avoidance puzzles (spec 211). Schema text lives next to its
+        // import logic in puzzles.rs; it mirrors scripts/mining/import_puzzles.py.
+        self.conn.execute_batch(crate::puzzles::PUZZLES_SCHEMA)?;
+        // Record the schema version once; bump an older recorded version in
+        // place (the DDL above is idempotent, so running it IS the migration).
         let has: i64 =
             self.conn
                 .query_row("SELECT COUNT(*) FROM schema_version", [], |r| r.get(0))?;
         if has == 0 {
             self.conn
                 .execute("INSERT INTO schema_version (version) VALUES (?1)", [SCHEMA_VERSION])?;
+        } else {
+            self.conn.execute(
+                "UPDATE schema_version SET version = ?1 WHERE version < ?1",
+                [SCHEMA_VERSION],
+            )?;
         }
         Ok(())
     }
@@ -1204,7 +1218,7 @@ pub struct DbManager {
 }
 
 impl DbManager {
-    fn with<T>(
+    pub(crate) fn with<T>(
         &self,
         path: &str,
         f: impl FnOnce(&mut Db) -> rusqlite::Result<T>,
@@ -1476,6 +1490,29 @@ mod tests {
         let stats = db.stats().unwrap();
         assert_eq!(stats.games, 0);
         assert_eq!(stats.positions, 0);
+    }
+
+    // Opening a database recorded at schema v1 (pre-puzzles) must create the
+    // puzzles table and bump the recorded version — the v1→v2 migration.
+    #[test]
+    fn v1_database_migrates_to_v2() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (1);",
+        )
+        .unwrap();
+        let db = Db::from_conn(conn).unwrap();
+        let version: i64 = db
+            .conn
+            .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let puzzles: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM puzzles", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(puzzles, 0, "puzzles table exists and is empty");
     }
 
     // The progress callback must land at least the final snapshot, with counts

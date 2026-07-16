@@ -5,6 +5,7 @@ pub mod db;
 pub mod machine;
 pub mod maia;
 pub mod persona;
+pub mod puzzles;
 mod uci;
 mod vision;
 pub mod match_runner;
@@ -50,6 +51,11 @@ pub fn run() {
             db::db_get_game,
             db::db_delete_games,
             db::db_stats,
+            puzzles::puzzles_import,
+            puzzles::puzzles_deck,
+            puzzles::puzzles_get,
+            puzzles::puzzles_stats,
+            puzzles::puzzle_check_move,
             calibration::calibration_sample,
             calibration::calibration_save_results,
             machine::machine_bench,

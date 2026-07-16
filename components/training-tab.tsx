@@ -60,6 +60,8 @@ import {
 } from "@/lib/spar-results"
 import { pickTrainingPlayout, type PlayoutRequest } from "@/lib/playout"
 import { PlayoutScreen } from "@/components/playout-screen"
+import { bandForRating, DEFAULT_DECK_SIZE, type DeckRequest } from "@/lib/puzzles"
+import { PuzzlesTab } from "@/components/puzzles-tab"
 
 /** Which Learn feature a block launches into, when one exists today. */
 export type LearnLaunch = "calibrate" | "spar"
@@ -251,10 +253,32 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   const [playout, setPlayout] = useState<PlayoutRequest | null>(null)
   const launchPlayout = useCallback(() => setPlayout(pickTrainingPlayout()), [])
 
+  // rake_deck launch (spec 215 Tier 1, unblocked by the spec 211 solver): an
+  // Avoidance deck drawn from the user's band — the latest Maia-rapid
+  // measurement mapped to the generator's 100-Elo bands (null = all bands
+  // until a measurement exists). Same replace-the-tab pattern as playout.
+  const [rakeDeck, setRakeDeck] = useState<DeckRequest | null>(null)
+  const launchRakeDeck = useCallback(
+    () =>
+      setRakeDeck({
+        band: bandForRating(latestMetric(metrics, "maia_rapid")?.value ?? null),
+        count: DEFAULT_DECK_SIZE,
+      }),
+    [metrics],
+  )
+
   if (playout) {
     return (
       <div className="h-full flex flex-col text-foreground" data-testid="training-tab">
         <PlayoutScreen request={playout} onExit={() => setPlayout(null)} />
+      </div>
+    )
+  }
+
+  if (rakeDeck) {
+    return (
+      <div className="h-full flex flex-col text-foreground" data-testid="training-tab">
+        <PuzzlesTab initialDeck={rakeDeck} onExit={() => setRakeDeck(null)} />
       </div>
     )
   }
@@ -317,6 +341,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
                   onToggle={() => toggleCheck(b.id)}
                   onLaunch={onLaunch}
                   onPlayout={launchPlayout}
+                  onRakeDeck={launchRakeDeck}
                 />
               ))}
             </div>
@@ -379,6 +404,7 @@ function TodayBlock({
   onToggle,
   onLaunch,
   onPlayout,
+  onRakeDeck,
 }: {
   block: DayBlock
   checked: boolean
@@ -386,6 +412,8 @@ function TodayBlock({
   onLaunch: (sub: LearnLaunch) => void
   /** endgame_playout blocks launch the Play-it-out screen (spec 215 Tier 1). */
   onPlayout: () => void
+  /** rake_deck blocks launch an Avoidance deck session (spec 211 solver). */
+  onRakeDeck: () => void
 }) {
   const launch =
     block.type === "calibration_session"
@@ -394,7 +422,9 @@ function TodayBlock({
         ? { action: () => onLaunch("spar"), label: "Open Spar" }
         : block.type === "endgame_playout"
           ? { action: onPlayout, label: "Play it out" }
-          : null
+          : block.type === "rake_deck"
+            ? { action: onRakeDeck, label: "Start rake deck" }
+            : null
   return (
     <div
       data-testid={`training-block-${block.id}`}
