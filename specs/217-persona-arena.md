@@ -20,17 +20,60 @@ this is the project's first non-macOS surface. Web, mobile, and Windows/PC nativ
 first-class citizens alongside macOS; macOS remains the testing build for now, and the
 others get planned only when their turn comes — this spec is web's turn.
 
-## Transparency (non-negotiable; wording decided 2026-07-15)
+## Transparency (RESOLVED 2026-07-15 — disclosure delivered in full)
 
-Every session shows an honest disclosure before play. User decision 2026-07-15: no
-consent paperwork — this is an app for the user, then dad. The disclosure is the
-family sticker, near-verbatim: "note: your son may use your games — study them in
-order to try to beat you in chess at Christmas." (Tournament-chess norm: moves are
-recorded.) This supersedes the earlier two-candidate wording choice. A formal ToU
-is deliberately deferred — it becomes a question only if the app is ever published
-beyond family.
+The user sent dad the full pitch on FB Messenger, 2026-07-15 (Icelandic; English
+translation, near-verbatim):
+
+> "Do you want to play chess against Guðmundur Sigurjónsson as he was at his best?
+> Or Bobby Fischer — or watch Bobby Fischer and Kasparov compete? ...or compete
+> against yourself?
+> I'm building a chess computer that learns chess players from all their games —
+> it has already analyzed Kasparov, Karpov, Spassky, Friðrik Ólafsson, Helgi
+> Ólafsson, Jóhann Hjartarson, Jón L. Árnason, Margeir Pétursson — and of course
+> Guðmundur Sigurjónsson... You can play against them, or let them compete — fun
+> to watch Fischer vs Kasparov, who never played each other.
+> What's the name of your friend you sometimes play with? I can add him, if he has
+> a chess.com account or FIDE games — the computer goes through all his games and
+> builds a persona that plays like him.
+> And when you play against yourself (I had the computer learn you), you can give
+> feedback — 'no, I would never do this because...' — and the model gets better
+> and better, and it learns from the other games you play.
+> You get to play against chess players no other program has.
+> What do I get? The computer learns you better and I get a more realistic
+> opponent to practice against — practice for the Christmas match 🙂"
+
+This is the full-honesty reveal — it exceeds both earlier candidate wordings AND
+the family sticker: dad now knows his games trained a persona of him, that his
+feedback tunes it, that future games feed it, and that the user is training to
+beat him at Christmas. The in-app sticker stays as a session reminder line, but
+the disclosure/consent concern for dad is CLOSED. A formal ToU stays deferred
+unless the app is published beyond family.
 Recorded games of private individuals stay private (server-side equivalent of
 data/rivals; never committed, never bundled) — same hard rule as spec 214.
+
+## Promises made to dad (2026-07-15, FB Messenger — these are commitments)
+
+1. **Play against yourself**: dad can play HIS OWN persona in the arena. New roster
+   rule — the logged-in player's own persona (if one exists, private) appears in
+   their lobby. (spec:218 roster consumes this.)
+2. **First-person realism feedback**: while playing (especially vs his own persona),
+   dad can say "no, I would never do this because..." — the spec:214 feedback
+   capture, ported to the arena, from the modeled person himself. This is the
+   single highest-value ground-truth stream the project can get; promoted from
+   Tier 2 to Tier 1.
+3. **Watch personas compete**: Fischer vs Kasparov (who never played) viewable in
+   the arena — persona-vs-persona spectate/replay promoted from Tier 2 to Tier 1.
+4. **Friend-on-request personas**: dad names his chess friend; if the friend has a
+   chess.com account or FIDE games, the pipeline builds his persona. Private-
+   individual rules apply (local/server-private, family-room only); the friendly
+   norm is that dad tells his friend, same as he was told.
+5. **The named roster**: Kasparov, Karpov, Spassky, Friðrik Ólafsson, Helgi
+   Ólafsson, Jóhann Hjartarson, Jón L. Árnason, Margeir Pétursson, Guðmundur
+   Sigurjónsson (peak), Fischer — all already extracted, book-built, and
+   harness-measured (data/personas, 2026-07-15). The promise is coverable today.
+6. **The flywheel**: "it learns from the other games you play" — the Tier-2 batch
+   ingest → dossier → style-prior retune is now a promise, not just a design.
 
 ## Architecture sketch
 

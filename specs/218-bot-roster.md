@@ -125,6 +125,12 @@ strength (spec:216 curve) — no unmeasured realism claims.
 
 ### Roster
 
+- [ ] Own-persona entry (2026-07-15, promised to dad via Messenger — spec:217
+      "Promises"): the logged-in/local player's OWN persona appears in their
+      roster when one exists (dad sees "You"; private-persona rules apply). In
+      the arena lobby this is per-account; in the local app it is the user's
+      self-persona if built.
+
 - [x] Play vs Bot rename + roster (2026-07-15): "Spar vs Dad" → "Play vs Bot"
       (app/page.tsx Learn sub-tab + spar-tab.tsx headings); a roster of
       Participants (lib/roster.ts) replaces the hardcoded RIVAL_LABEL/book —
