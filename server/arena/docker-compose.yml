@@ -13,8 +13,12 @@ services:
       - ../../data/personas:/app/personas:ro   # committed books + configs
       - ./data:/app/data                        # sqlite (private games; gitignored)
       - ./nets:/nets:ro                         # BT3 net (gitignored, sha-pinned)
-    # Respect the mining job (tmux mine211) and the other services: modest caps.
-    cpus: "6"
+    # Resource policy (f9b3b0d): engines low-priority always, burst not flat
+    # caps. cpu_shares only bites under contention, so the arena can still
+    # burst when the box is idle but yields to the mining job (tmux mine211)
+    # and other services when it isn't. cpus is the hard burst ceiling.
+    cpus: "4"
+    cpu_shares: 256
     mem_limit: 6g
     restart: unless-stopped
     healthcheck:
