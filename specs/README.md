@@ -36,10 +36,14 @@ Feature specs live here. They define **what** we're building and **when it's don
 | 216 | [Machine Speed Profile & Time-Compression Elo Model](216-machine-speed-elo-model.md) | Draft |
 | 217 | [Persona Arena](217-persona-arena.md) | Draft |
 | 218 | [Bot Roster & Exhibition Play](218-bot-roster.md) | Draft |
+| 220 | [Multi-Client Architecture & Shared Core](220-multiclient-architecture.md) | Draft |
+| 221 | [Web Client @ spliffdonk.com/chess](221-web-client.md) | Draft |
+| 222 | [PC Client (Windows & Linux)](222-pc-client.md) | Draft |
+| 223 | [Mobile Client (iOS/Android)](223-mobile-client.md) | Draft |
 | 900 | [Backlog](900-backlog.md) | Ideas |
 
 (Index gap fixed 2026-07-15: 214–217 existed on disk but were unlisted. Next free
-number in the 21x band: 219.)
+number in the 21x band: 219. 220–223 are the multi-client platform wave.)
 
 ## Dependency Graph
 
@@ -62,6 +66,11 @@ number in the 21x band: 219.)
 
 211 Avoidance Puzzles ─→ 215
 213 Elo-Conditioned Evaluator ─→ 214, 215
+
+220 Multi-Client Architecture & Shared Core (needs 002, 011, 217)
+ ├── 221 Web Client @ spliffdonk.com/chess ← ships FIRST (arena exposure = 217 Tier 1)
+ ├── 222 PC Client Windows/Linux (also needs 216; feeds 217, 218)
+ └── 223 Mobile Client — PWA of 221 ← ships LAST (order: 220 → 221 → 222 → 223)
 ```
 
 ## Status Flow
