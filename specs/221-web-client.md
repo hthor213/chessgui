@@ -177,3 +177,10 @@ features hide):
       here)
 - [ ] PGN paste + file import and export round-trip in Safari, Chrome, Firefox
 - [x] Reachable at https://www.spliffdonk.com/chess from the public internet (deploy-verified 2026-07-15)
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] Puzzles on web: revisit once the WASM engine is proven (grading
+      currently runs Rust-side, desktop-only). (221:126-127)
+- [ ] Record the AGPL-3 (lila-stockfish-web) in GPL-3 (chessgui)
+      compatibility decision — GPLv3 s13 — in spec/LICENSE notes; flag to
+      the user. (plan iter6)

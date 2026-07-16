@@ -234,10 +234,47 @@ the temperature schedule (contract step 3) and the error model (step 5).
       persona arm via the shared core (defaults ON in both); degrades to the
       policy arm when Stockfish is missing. No tablebase branch: the ≤7-man
       probe is a network call per move (not "cheap"), and depth-16 SF already
-      plays trivial endings correctly — revisit if a local TB lands.
+      plays trivial endings correctly — revisit if a local TB lands. (Note,
+      2026-07-16 audit: `tablebase_probe` shipped in the analysis panel
+      per spec:900, but it queries the Lichess online tablebase API, not a
+      local Syzygy install — the "network call per move, not cheap" reasoning
+      above still applies as written; see checklist item below for the
+      re-evaluation this trigger actually calls for.)
 - [x] Metrics harness + auto-tuning loop: move-match@1/@3, ACPL-profile,
       error-timing, opening KL on held-out splits; offline optimization of
       alpha/lambda/temperature/priors against them (code-verified 2026-07-15)
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] Rerun tune_persona.py (wave-6 died; tuning_kasparov.json partial);
+      replace untuned defaults (temp 0.5, α 1.0, λ 0.75, schedule
+      multipliers). (LAST_SESSION wip note + Known-issues 4)
+- [ ] Opponent-archetype conditioning (+light personal bias); 2-4-move
+      plan-coherence memory; gated on acceptance bar. (214:129-138)
+- [ ] Immutable versioned snapshots; matches record version; seed+snapshot
+      reproduces. (214:109-114)
+- [ ] Spar UI passes book-exit ply so the style-bias window can be enabled
+      once the metrics harness gates it. (214:222-224 caveat in ticked box)
+- [ ] Tune source/recency/TC weights (ship-neutral 1.0) once opening-KL is
+      measurable. (214:213-214)
+- [ ] Re-evaluate the persona endgame arm's no-tablebase decision now that
+      `tablebase_probe` (Lichess online API, not local) exists in the
+      analysis panel; wire in a local/bundled TB path if one becomes cheap
+      enough for per-move use. (214:237; 900:18)
+- [ ] E2E Tauri + user eyeball on persona v1 (contract steps 3+4+8+9).
+      (user-blocked: needs the user in the app) (214:201-203 "user eyeball
+      pending" in ticked box)
+- [ ] If more OTB depth is wanted on the private rival: skák.is archived
+      lists, chess-results manual browse, Wayback. (dad_otb_research.md)
+- [ ] Materialism prior candidate: mine accept/decline on material offers;
+      gate on held-out move-match. (dad_persona_feedback.md)
+- [ ] Compactness/risk-aversion prior: measure early pawn advances past
+      rank 4 + concession rate vs Maia-1700; middlegame marked realistic —
+      DO NOT touch. (dad_persona_feedback.md)
+- [ ] Personalized per-player modeling (Maia4All, ~20 games) — later-path
+      owning item. (prior-art concl. 3; elo-design §8.2)
+- [ ] Unified Phase-9 mistake taxonomy: per-band taxonomy deliverable — bot
+      errs for HUMAN reasons (candidate-set omission, not noise), currently
+      spread across 211/213/214. (memory chessbase-parity moonshot)
 
 ## Open questions
 

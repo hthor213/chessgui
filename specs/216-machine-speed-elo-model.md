@@ -86,3 +86,19 @@ policy personas (Maia/BT3-policy), whose strength is time-invariant.
       +30@0.35s — 2.5x steeper falloff than the prior; slow rungs refining)
 - [x] UI flips to MEASURED with rung count (profile.curve populated; flip
       mechanism synthetic-tested, real-profile visual confirm pending)
+
+### Tier 2 — REQUIRED for spec:217 (audit 2026-07-16: had zero boxes despite the
+"REQUIRED for 217" gate note in the Tiers section above)
+- [ ] Cross-machine Elo equivalence ("server at 60s ≈ laptop at 22s").
+      (216:58-64)
+- [ ] Per-engine curves (Reckless vs SF), not one curve for both. (216:58-64)
+- [ ] Auto re-bench on hardware-change detection. (216:58-64)
+- [ ] Homeserver bench + compression ladder run through to a MEASURED profile
+      → arena strength labels flip from PRIOR to MEASURED. (217:129-141;
+      plan 0a)
+- [ ] Visual PRIOR→MEASURED confirm (user eyeball) on a real profile.
+      (216:79,84-88)
+- [ ] Replace the 0.05s machine-min placeholder with the ladder-measured
+      floor. (216:79,84-88)
+- [ ] Finish the slow rungs (b(t) fit currently refining on fast rungs only).
+      (216:79,84-88)

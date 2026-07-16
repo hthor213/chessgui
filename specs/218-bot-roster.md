@@ -210,3 +210,33 @@ strength (spec:216 curve) — no unmeasured realism claims.
       round-robin item already delivers this — persona rows carry their honest
       spec:216 roster labels, e.g. "bot: kasparov (BT3, 64% move-match)", in
       both standings and the saved result)
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] Caricature avatar pipeline for all roster entries (public bundled,
+      private local-only; initials fallback stays the interim state).
+      (218:63-68,158-162)
+- [ ] User picks source photos and approves likenesses. (user-blocked: needs
+      the user to supply/approve photos) (218:63-68,158-162)
+- [ ] Wire the numbered-SAN move list into the shared `LiveGameView`
+      (app/page.tsx), not just the exhibition viewer. (218:199-206 "open
+      follow-up")
+- [ ] Extract back/forward review into a shared component now that the
+      exhibition viewer has gained its own SAN move list (the stated trigger
+      condition, "small fork ... extracted when the exhibition viewer gains
+      its SAN move list", has fired). (218:89-92)
+- [ ] User eyeball: move numbers in spar/Play-vs-Bot + live viewer.
+      (user-blocked: needs the user in the app) (218:106-114; LAST_SESSION
+      Known-issues 4; feedback_testing.md)
+- [ ] User eyeball: back/forward live-game review. (user-blocked) (218:115-124)
+- [ ] User eyeball: roster picker (Play vs Bot card UI). (user-blocked)
+      (218:145-157)
+- [ ] User eyeball: avatars (initials/monogram fallback). (user-blocked)
+      (218:158-162)
+- [ ] User eyeball: tournament Participant dropdown + per-side assignment.
+      (user-blocked) (218:166-182)
+- [ ] User eyeball: exhibition run (live-app persona-vs-UCI/persona-vs-persona
+      game). (user-blocked) (218:183-207)
+- [ ] Play-vs-Bot spar arm uses the `persona_move` managed net (BT3) when the
+      selected persona supports it, matching the tournament runner's
+      capability instead of the Maia-only approximation. (218:179-182 +
+      Decision 3)

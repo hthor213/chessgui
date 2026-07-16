@@ -100,10 +100,17 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
     byte-identical, parameterized) with scripts/measure_monthly.py orchestrating
     fetch → metrics → data/rivals/training_metrics.json; the Training tab's
     Measurements panel imports that file (idempotent merge keyed by (at, metric))
-    and refreshes spar_score fully in-app from the stored spar games. NOT an
-    in-app spawn: the run is minutes of lc0 + network — a silent button would be
-    dishonest UX; revisit when there's a progress surface. Verified: profile-only
-    run reproduces the report baselines (flag_net −85, eg_conversion 0.431).
+    and refreshes spar_score fully in-app from the stored spar games. Verified:
+    profile-only run reproduces the report baselines (flag_net −85, eg_conversion
+    0.431). SUPERSEDED 2026-07-16 (wave-11, c6a24d2): the "NOT an in-app spawn"
+    limitation this note originally stated no longer holds — `measure.rs`'s
+    `measure_monthly_run`/`measure_monthly_cancel` now spawn
+    `scripts/measure_monthly.py` as a child process and stream every output
+    line to the Training tab over a Tauri `Channel`, the progress surface this
+    note said it was waiting for (dev-checkout only: script + data/rivals
+    resolve from `CARGO_MANIFEST_DIR`, so a bundled app on another machine
+    gets an honest "script not found" instead of a silent no-op). Live
+    verification against a real lc0 run is still open — see checklist below.
   - *Progress 2026-07-15 — trajectory projection BUILT*: lib/training-projection
     (least-squares trend over dated points, ≥2 required; Elo expected-score
     framing "X/10 expected", model stated in the copy) renders on the Today view
@@ -111,6 +118,29 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
     projection, not a promise". Note: 212's win-prob curve maps engine EVALS, not
     rating gaps — the Elo logistic is used instead and said so in code comments.
     Coach-suggested adjustments still open.
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] anti_line_drill implementation: play the prepared line vs persona book
+      (declared in the exercise-type enum, consumed by spec:211, still
+      unbuilt). (215:22-27)
+- [ ] Coach-suggested program adjustments (Tier 2). (215:96,113)
+- [ ] Live-verify the in-app monthly measurement spawn (measure.rs, wave-11)
+      against a real lc0 run end to end. (215:104-106; plan 6b)
+- [ ] Playout hardening: aggregate conversion readout; mid-playout-abandon
+      recording; serious/probe intent; feed eg_conversion. (211:176-177;
+      215:90-94)
+- [ ] Increment TCs in local spar at maia-1700/1800 (spar loop is currently
+      UNCLOCKED — the −85 flag-net leak is the target this closes).
+      (TRAINING_PLAN:31,48,65)
+- [ ] Christmas match protocol reminder (15+10+, short sessions, keep White
+      until dad wins) surfaced on the milestone card before game 1, not just
+      in overlay prose. (TRAINING_PLAN:71-77)
+- [ ] Training-allocation decision recorded: hours → middlegame rake
+      avoidance + EG conversion; one evening anti-lines (data-confirmed user
+      decision). (BACKLOG rival-mode closing)
+- [ ] User go-ahead for the spec:211 conversion-mining run. (user-blocked:
+      needs explicit sign-off before the long homeserver job) (plan §4,
+      215 row)
 
 ## Cultural context
 

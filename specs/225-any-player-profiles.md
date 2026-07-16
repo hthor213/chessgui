@@ -145,3 +145,26 @@ Promise 4 applies: dad tells his friend, same as dad was told.
 - [ ] User reviews and approves the collected Arnþór game data (esp. the 1991-92
       Sweden block)
 - [ ] Dad actually uses the dad-vs-Arnþór program
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] Rival-filtered opening explorer: explorer scoped to a rival's games —
+      their book, where their line depth ends, their weakest lines.
+      (BACKLOG "Rival mode")
+- [ ] Own-games import by username (hjaltth et al.): fetch the user's own
+      archives and review them under the engine-LAST discipline. (000:114;
+      900 Medium)
+- [ ] Lichess export-API fetcher (only the PGN-fixture import path is boxed
+      today; the lichess export API itself is not). (225:36-38)
+- [ ] Server-side Beat-X delivery: dad runs his program in the arena; the
+      generator stays arena-agnostic so it works local-first and
+      server-hosted without a rewrite. (225:90-93)
+- [ ] Rescue the rival-dossier scripts into the repo proper — analyze.py,
+      openings.py, engine_h2h.py, engagement.py → `scripts/` (self_report
+      was already rescued this way; these weren't). The spec:217 flywheel
+      depends on rerunnable dossiers. (RIVALS_REPORT Appendix)
+- [ ] Beat-X honest framing: surface that Arnþór (~2085) is ~500 points
+      above dad — "beat" means "score against", not "outrate". (memory
+      project_rivals.md)
+- [ ] Profiles/programs for the other three rivals — GEIRJON1234,
+      painterdenny, gunnargunn — target: beat by next Iceland visit. (memory
+      project_rivals.md)

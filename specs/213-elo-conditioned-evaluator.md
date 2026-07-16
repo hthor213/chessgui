@@ -358,4 +358,52 @@ optional move, and score them against Stockfish. Files are the research artifact
       phase rating — gates the "unlock phases" UI
 - [ ] Per-phase player-vector estimation: per-phase error rates vs corpus band norms
       ("plays middlegames like a 1350"); calibration sessions feed per-phase curves
+- [ ] E2 divergence experiment: D(s,R) predicts next-move error, Guid–Bratko as control
+      (ΔAUC). (elo-design §4)
+- [ ] E3 jump audit: ~200 obscure-resource positions; R* matches empirical find-rate
+      crossover (validates shipped perception curve). (elo-design §4)
+- [ ] E4 diagonal dominance: Eval_R predicts its own band best across (R,R') matrix.
+      (elo-design §4)
+- [ ] E5 ablations deliverable: frozen tier-1 defaults + sensitivity table; incl.
+      stretch mode (R ∪ R+200). (elo-design §4, §8.2)
+- [ ] Validation hygiene: post-2019 filter + player-disjoint splits in ALL experiments;
+      audit e1_outcome_prediction.py BEFORE the E1 run. (elo-design §4, §8.5)
+- [ ] Maia value-head use-gate: value head product-use only after surviving E1 (API
+      already shipped in maia.rs). (elo-design §1.4, §8.5)
+- [ ] Verify Maia-2/3 conditioning ranges: papers/repos + empirical E4 on 2200+ games
+      before 2100+ slider stops. (elo-design §8.1)
 - [ ] Spec review with user after tier-1 + E1 results
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] On every training/calibration answer, eval the played move (searchmoves/
+      eval-after-move, same depth); store playedMoveEvalCp + gapToBestCp; feed coach
+      context. (plan 2026-07-16 user directive)
+- [ ] Free-text variation → SAN → chessops legality → per-ply SF walk → verdict
+      grounding coach prose. (plan 2026-07-16)
+- [ ] Note → rebuttal → reply dialogue on every coached miss. (TRAINING_PLAN:35-40;
+      000 module 9 prose)
+- [ ] Surface raw error in RevealCard title/tooltip, replace two-bucket match. (BACKLOG
+      Error observability)
+- [ ] Sanitizer in parse_response if leak recurs (seen once). (BACKLOG)
+- [ ] Tier 2/3 ship items: 2100-2700 stops (Maia-2/3), R_white≠R_black dual sliders,
+      unlock-phases UI, confidence-annotated curve. (213:64-73,99-106)
+- [ ] Material/Human@R/Stockfish divergence ticks (eval-bar tick marks). (213:87,295)
+- [ ] Win-prob companion readout: "+1.2 converts at ~64% at 1900". (elo-design §3.1)
+- [ ] Adaptive-elicitation stats caveat (URGENT — Phase B shipped without it):
+      aggregates (MAE/scatter) from model/posterior once selection adaptive; Phase-0
+      views valid for fixed battery only. (elo-design §6.4)
+- [ ] Calibration data-handling rules: never reinterpret point answers as ranges;
+      segregate blind (show_reveal=false) sessions. (calibration-data-format.md)
+- [ ] Eval_R resource isolation: analyze-board sweep never starves user engine/
+      tournament players (own process, bounded movetime). (elo-design §8.5, §7)
+- [ ] Counting/tempo cause family + phase-aware depth schedule: taxonomy family +
+      d(R⃗) calibrated to counting-error rates (tier 2+). (elo-design §5.3)
+- [ ] Implement Guid–Bratko as primary difficulty feature (E1 stratifier/E2 control).
+      (prior-art concl. 5)
+- [ ] Cognitive-insight findings report: ranked human-readable per-band findings —
+      WHAT was missed and WHY it's hard at that level, not just coefficients. (memory
+      project_chessbase_parity.md)
+- [ ] Blitz-bias limitation: verify Maia-1 TC filter (KDD paper) before user-facing
+      copy; later classical correction via corpus TC filter. (elo-design §8.3)
+- [ ] Maia/CSSLab + lc0 attribution: about-panel attribution (GPL fetch-on-first-use
+      posture). (elo-design §8.4)

@@ -176,3 +176,17 @@ it may claim a strength. Concretely:
 - [ ] Tauri updater with signed update manifests
 - [ ] lc0/Maia sidecar per-OS for local persona play
 - [ ] Non-AVX2 fallback binary auto-selection
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] macOS bundles the Stockfish sidecar too, once spec:220 unifies engine
+      resolution across platforms; decide the Reckless distribution story
+      (bundle, sidecar, or leave user-supplied). (222:53; 000 "Bundled
+      Stockfish"; reference_stockfish.md)
+- [ ] Translate `docs/pc-install.md` into Icelandic for dad's assisted
+      install. (222:166-169)
+- [ ] `gh auth refresh -s workflow` before pushing `.github/workflows/pc-build.yml`
+      (user-blocked: needs the user's gh auth). (plan iter8)
+- [ ] Fix `docs/pc-install.md`'s "few-second speed test... no action needed"
+      line — it describes first-start auto-bench as already shipped, but
+      the Tier-1 "First-start auto-bench wired" box above is still open;
+      the doc overstates what's built. (plan iter8)

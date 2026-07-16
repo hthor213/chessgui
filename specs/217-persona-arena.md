@@ -121,8 +121,12 @@ Family-scale operations, not scaling engineering:
   ~10% cap would push BT3 to ~40s/move and kill the honeypot UX; batch jobs
   (mining, ladders) cap at 2 cores (12.5%), self-niced; combined engine footprint
   targets ≤40% sustained, and the interactive ceiling is the first thing lowered
-  if anything else on the box degrades. Memory: arena container ≤6g. (Staged
-  container currently allows cpus:6 — re-cap to 4 at next deploy touch.)
+  if anything else on the box degrades. Memory: arena container ≤6g. DONE
+  2026-07-15 (commit ab6dc06, policy f9b3b0d): `server/arena/docker-compose.yml`
+  recapped `cpus: "6"` → `cpus: "4"` and added `cpu_shares: 256` (burst ceiling
+  + low priority under contention, not a flat cap) — verified against the
+  committed diff, the earlier "re-cap to 4 at next deploy touch" note is
+  resolved.
 
 The arena DB is canonical for arena games; games are deletable on request.
 
@@ -197,6 +201,32 @@ accurate as a direct consequence — the arena feeds the Florida milestone.
 - **Tier 2**: batch ingest into the rival pipeline (dossier + style-prior retune per
   N new games), opt-in "felt like him" feedback for players who knew the personas,
   spectator/replay links shareable in the family.
+
+## Checklist
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] Move-latency decision (user-blocked: accept ~10s/move BT3 vs rebuild
+      lc0 with the onednn backend vs a smaller strong net, re-validated via
+      the harness). This gates go-live. (217:103-108)
+- [ ] Tier-0 go-live checklist: Caddy route; deploy /arena frontend.
+      (LAST_SESSION Next-3; 217:181-184)
+- [ ] Google OAuth client ID. (user-blocked: needs the user to create it)
+      (LAST_SESSION Next-3; 217:181-184)
+- [ ] Dad's email in ARENA_ALLOWLIST. (user-blocked: needs the user to add
+      it) (LAST_SESSION Next-3; 217:181-184)
+- [ ] Assisted first arena session with dad. (user-blocked: needs the user
+      and dad together) (LAST_SESSION Next-3; 217:181-184)
+- [ ] Promise 3: persona-vs-persona spectate/replay in the arena (Fischer
+      vs Kasparov). (217:65-67)
+- [ ] Promise 6: flywheel batch-ingest job — dossier update → style-prior
+      retune per N new games, gated on move-match. (217:76-79,171-177)
+- [ ] Tier-1 remainder: per-opponent W/D/L history for the player.
+      (217:186-196)
+- [ ] Tier-1 remainder: clocks with increment (match protocol per
+      spec:215). (217:186-196)
+- [ ] Arena games deletable on request. (217:127)
+- [ ] Opt-in "felt like him" family feedback for players who knew the
+      personas (v2). (217:166-168,198)
 
 ## Non-goals
 

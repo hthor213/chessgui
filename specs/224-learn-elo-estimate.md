@@ -202,3 +202,13 @@ User-blocked (needs the user's eye):
       "Unfinished Session" card.
 - [ ] User eyeballs the number on their real attempt history and agrees it "feels right"
       (tracks their sense of current strength, and the ± reads as honest).
+
+### Later / uncaptured requirements (audit 2026-07-16)
+
+Tier-2 refinements — the spec prose says these are "recorded below" but no
+checklist section existed for them:
+- [ ] Finer per-puzzle difficulty from `band_miss_rates`, replacing the
+      band-string proxy rating. (224:38-41,173-175)
+- [ ] Per-kind/per-theme sub-ratings (rake vs calm, or finer themes), as a
+      parameterization of the existing pooled estimator, not a rewrite.
+      (224:38-41,173-175)

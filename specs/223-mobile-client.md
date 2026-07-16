@@ -176,3 +176,11 @@ database/puzzles/training tabs, landscape polish, premoves.
       judged acceptable by him, not by us
 - [ ] Revisit-trigger note kept current: if on-device analysis becomes a mobile
       requirement, reopen the Tauri-2-mobile evaluation in this spec
+
+### Later / uncaptured requirements (audit 2026-07-16)
+- [ ] Run the actual Lighthouse installability check (manifest/service-worker
+      code shipped 2026-07-16, the run itself is still pending). (223:159)
+- [ ] WASM local analysis on phones, once pulled — inherits spec:216's
+      per-machine calibration rule. (223:74-78,142-144)
+- [ ] Landscape polish (board left, panel right) — nice-to-have, kept as a
+      deferred item, not v1-blocking. (223:74-78,142-144)
