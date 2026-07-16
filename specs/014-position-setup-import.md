@@ -48,3 +48,7 @@ because `loadGame` hardcodes `INITIAL_FEN`.
 - En passant / move-counter editing in the setup dialog
 - Editing positions mid-game (edit always starts a fresh game)
 - Chess960 castling encoding
+
+## Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] Position editor v2: en passant/counters, edit-from-game, Chess960 encoding. (014:39)

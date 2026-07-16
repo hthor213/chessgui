@@ -1,6 +1,6 @@
 # 010: Undo/Redo (Takeback)
 
-**Status:** active
+**Status:** done — closed into spec:016 (2026-07-16, requirements audit / librarian pass). All "Done When" items shipped (mirrored in 001-board-gameplay.md's "Navigation (from spec:010)" section); the one open item below was superseded by the variation-tree model, not abandoned. No further edits planned here — spec:016 (Game Tree) is now the owning spec for move-history navigation.
 
 ## Goal
 Navigate backward and forward through the move history, both by clicking the move list and via keyboard shortcuts.

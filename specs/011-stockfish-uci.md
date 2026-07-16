@@ -1,6 +1,6 @@
 # 011: Wire Up Stockfish
 
-**Status:** active
+**Status:** superseded (2026-07-16, requirements audit / librarian pass) — by 011-engine-analysis.md, which is the actively maintained spec:011 and covers everything below plus play mode, best-move arrows, and engine settings. Kept on disk for history, not further edited.
 
 ## Goal
 Connect the Rust UCI backend to the frontend so the user can load Stockfish and see live analysis.
@@ -14,7 +14,7 @@ Connect the Rust UCI backend to the frontend so the user can load Stockfish and 
 - Display eval, depth, and top lines in the AnalysisPanel
 
 ## Key Decisions
-- Single engine for now (multi-engine is spec:902)
+- Single engine for now (multi-engine has no owning spec yet — the earlier "spec:902" pointer here was dangling, spec:902 was never written; see 011-engine-analysis.md "Later / uncaptured requirements" for the open item, fixed 2026-07-16)
 - Engine settings: Threads, Hash, MultiPV (3 default) exposed in a settings panel
 - Engine path persisted to localStorage or Tauri store
 

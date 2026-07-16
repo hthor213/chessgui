@@ -99,6 +99,7 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 - [ ] Framer Motion piece transitions — superseded: Chessground animates natively
 - [x] Consistent `gap-6`/`gap-8` spacing throughout (code-verified 2026-07-16)
 - [x] Component mapping follows the shadcn/Tailwind strategy table above (code-verified 2026-07-16)
+- [ ] Advantage-area sparkline (SVG/recharts) in left player panel. (requirements audit 2026-07-16; 001:48)
 
 ## Done When (Functionality)
 
@@ -135,3 +136,9 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 
 ### Untested (from spec:002 migration)
 - [ ] PGN import works (paste and file open)
+
+## Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] Up/Down keys walk into/out of variations on the analyze board. (000:35)
+- [ ] Premove and coordinate display on desktop board. (000:35; 223 defers mobile only)
+- [ ] One smoke test on piece movement (knight, all legal moves), then close the `project_piece_movement_bugs.md` memory if resolved — bug report is 104 days stale and likely superseded by verified board work, but was never confirmed. (memory project_piece_movement_bugs.md)

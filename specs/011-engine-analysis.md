@@ -67,3 +67,12 @@ Stockfish binary: user-selected via file picker (currently hardcoded for dev)
 - [x] Changes sent to engine via UCI `setoption`
 - [x] Settings persist across app restarts
 - [x] Changing MultiPV immediately updates the number of PV lines shown
+- [ ] Engine settings expose contempt and free-form custom UCI options. (000:45)
+
+## Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] Analysis supports `go depth N` / `movetime` alongside infinite. (000:41)
+- [ ] User can play Black (color picker; board flips). (000:79)
+- [ ] Local play-vs-engine clocks: untimed/increment/classical/rapid/blitz/custom. (000:81; 900:6 — partial: 216 covers machine-speed pacing, 217 covers arena clocks, neither covers local play-vs-engine)
+- [ ] One-click seamless handoff from finished engine game to analysis mode. (000:83; 900's pointer to 212 is tournament-scoped, doesn't cover this)
+- [ ] Multi-engine side-by-side (e.g. Stockfish + Leela) — no owning spec yet; `011-stockfish-uci.md` previously pointed here at a nonexistent "spec:902", reference removed 2026-07-16. Needs a spec home decision (900 backlog vs new number) before scheduling. (000:42)

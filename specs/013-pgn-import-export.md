@@ -29,6 +29,11 @@ Full PGN support: import games via paste or file, export games with annotations 
 - [x] Export includes annotations (comments, NAGs, [%eval], [%cal]/[%csl] arrows)
 - [x] Copy PGN to clipboard
 
+## Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] Edit players/event/date/result/ECO headers in-app. (000:55)
+- [ ] Register plugin-dialog/fs; replace webview fallbacks with native Tauri open/save dialogs. (013:35 "Deferred")
+
 ## Implementation notes
 - `lib/pgn.ts` (pure, unit-tested): `parsePgnToTrees` and `treeToPgn`, built on chessops/pgn (`parsePgn`/`makePgn`/`parseComment`/`makeComment`). Round-trip acceptance tests in `__tests__/pgn.test.ts` (import→export→import identity across nested variations, comments/NAGs, eval/clk/cal/csl tags, escaped headers, custom-FEN starts, multi-game).
 - Node storage extended: `MoveNode.eval` ([%eval]) and `MoveNode.clock` ([%clk]); arrows carry [%cal]/[%csl] as `{orig,dest,brush}`. Arrow order is canonicalized (circles before arrows) on import to stay round-trip stable.

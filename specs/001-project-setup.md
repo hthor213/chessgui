@@ -1,6 +1,6 @@
 # 001: Project Setup
 
-**Status:** active
+**Status:** archived (2026-07-16, requirements audit / librarian pass) — bootstrap scope is done; its "Done When" items are mirrored and superseded by 001-board-gameplay.md's "Board & Setup (from spec:001)" section, which is the actively maintained spec:001. Kept on disk for history, not further edited.
 
 ## Goal
 Bootstrap the Tauri 2 + React + TypeScript project with Chessground, chessops, and Mantine.

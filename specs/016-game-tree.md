@@ -1,6 +1,6 @@
 # 016: Game Tree — Variation Tree Model
 
-**Status:** implemented (core); PGN variation import/export deferred to 013
+**Status:** implemented (core); PGN variation import/export deferred to 013. Note (2026-07-16, requirements audit / librarian pass): spec:010 (Undo/Redo/Takeback) is closed and folded in here — this spec's cursor/navigation API is now the owning model for move-history navigation, superseding 010's flat undo/redo.
 **Band:** Foundation
 **Depends on:** 001 (board & gameplay), 002 (UX/UI migration), 013 (PGN import)
 **Blocks:** 200 (database & opening explorer), 202 (annotations & eval graph)

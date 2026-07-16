@@ -1,6 +1,6 @@
 # 012: Analysis Panel
 
-**Status:** draft
+**Status:** superseded (2026-07-16, requirements audit / librarian pass) — merged into 011-engine-analysis.md's "Analysis Panel (from spec:012)" section, where all four items below are also tracked and already shipped. Kept on disk for history, not further edited.
 
 ## Goal
 Display real-time engine analysis alongside the board.
