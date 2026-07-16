@@ -48,14 +48,34 @@ app installed to /Applications.
   explorer fallback, multi-DB switcher, performance ratings, ECO names, PGN import progress,
   Cmd+O. Tick-passes reconciled 210/014/001/213 checklists with file:line evidence.
 
+## Post-checkpoint additions (before sign-off ~18:30)
+- **Rake solver SHIPPED (c19a63c)**: puzzles table in app DB, many-correct grading with
+  honest safe_unverified, animated rake-replay, Training rake_deck launches real decks.
+  Import picker ready for the server's 20k batch.
+- **Machine calibration rule (2daff06)**: every play surface needs its own 216 profile —
+  homeserver bench DONE (1.53x laptop single-thread, +0.6 doublings; labels PRIOR until a
+  server ladder); dad's future PC build = first-start auto-bench.
+- **Hobby-server resource policy (f9b3b0d)**: engines low-priority always; interactive
+  burst 4 cores, batch 2 cores niced, <=40% sustained; arena container re-cap 6->4 at next
+  deploy touch.
+- **DAD DISCLOSURE DELIVERED (31e3c18)**: full FB Messenger pitch (translation in spec:217)
+  — consent concern CLOSED. Six promises now commitments: own-persona play (dad vs himself),
+  first-person "I'd never do this" feedback (Tier 1 now), Fischer-Kasparov spectating
+  (Tier 1), friend-on-request personas, the named 10-GM roster (already built+measured),
+  the data flywheel.
+- **wip commit 71db879**: wave-7 streams stopped at sign-off, tree green (524 JS + 117 Rust
+  tests): 211 session flow, 213 adaptive Phase A + human-visible tree search
+  (human_search.rs), 214 metrics/tuning tooling, error_model.py (server job staged in tmux
+  error_model — verify it launched). NOT verified end-to-end — resume workflow
+  wf_e197b321-658 (script in session workflows dir) or review each stream before building on
+  it. Wave-6 metrics/auto-tuning agent died with the session mid-optimization
+  (tuning_kasparov.json is partial output; tune_persona.py is committed — rerun locally).
+
 ## Known issues / open (user decisions + eyeballs)
 1. **Arena latency**: BT3 ≈ 10s/move at 32 nodes vs 2s budget (spec:217 notes options:
    accept / onednn rebuild / smaller net). Then go-live steps: Caddy route, Google client ID,
-   dad's email in ARENA_ALLOWLIST.
-2. **Wave-6 workflow possibly in flight at checkpoint**: 211 rake solver UI + 214 metrics
-   harness/auto-tuning (workflow wf_f77607f5-4c5; resumable via scriptPath+resumeFromRunId if
-   the session closed before it landed — check git status for uncommitted agent work).
-3. Mining batch finishing on server → import via puzzles JSONL into app DB.
+   dad's email in ARENA_ALLOWLIST, container re-cap to 4 cores, deploy /arena frontend.
+2. Mining batch finishing on server (tmux mine211) → import via the in-app puzzles picker.
 4. USER EYEBALLS pending on ~everything shipped headless-only today: Play vs Bot roster,
    exhibition, persona engine feel (defaults untuned: temp 0.5, alpha 1.0, lambda 0.75),
    move numbers/review, range elicitation, play-it-out, training trajectory, arena mock flow.
@@ -63,15 +83,20 @@ app installed to /Applications.
 6. Librarian: 4 flags (3 cosmetic prose-form, 1 = 200-band gap question for user).
 
 ## Next session should start with
-1. USER: eyeball pass in the installed app (Play vs Bot → play the dad-sim with the new
-   engine; watch a Fischer-Kasparov exhibition; one calibration position with range
-   elicitation → play it out). Report realism vs yesterday — decision logs are joinable
-   against "didn't feel like him" now.
-2. Arena go-live: answer the latency question; then Caddy route + client ID + allowlist +
-   deploy the /arena frontend against the real backend; invite dad (first session assisted).
-3. CODE: wave-6 results (rake solver + metrics/auto-tuning) — review/commit if landed, else
-   resume the workflow. Then: mining import when batch completes; 213 Phase-3 tree search and
-   corpus error model (server) are the remaining big NOW items.
+1. CODE FIRST (30 min): verify the wip commit 71db879 stream by stream — resume workflow
+   wf_e197b321-658 (cached agents replay; the three local streams re-verify and tick specs)
+   or hand-review; check tmux error_model actually launched on the server; rerun
+   tune_persona.py for the wave-6 tuning that died mid-run. Rebuild + install app.
+2. USER: eyeball pass in the installed app (Play vs Bot → dad-sim with the new engine;
+   Fischer-Kasparov exhibition; calibration with range elicitation → play it out; Avoidance
+   solver). Decision logs are joinable against "didn't feel like him" now.
+3. Arena go-live (dad is PITCHED and waiting): latency decision → Caddy route + Google
+   client ID + allowlist + re-cap container + deploy /arena → invite dad, first session
+   assisted. Then the promised Tier-1 items: own-persona entry, first-person feedback,
+   spectating.
+4. Mining import when the batch completes; remaining big NOW items after wave-7 lands:
+   211 solver session polish, 213 Phase-3 follow-ups, 214 auto-tuning acceptance runs,
+   213 E-experiments on the server (serialize with mining/error-model).
 
 ---
 
