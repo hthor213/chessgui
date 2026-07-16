@@ -1,3 +1,4 @@
+pub mod active_games;
 pub mod cbh;
 pub mod calibration;
 pub mod coach;
@@ -73,6 +74,8 @@ pub fn run() {
             persona::rival_personas,
             coach::coach_feedback,
             coach::coach_followup,
+            active_games::active_games_load,
+            active_games::active_games_save,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

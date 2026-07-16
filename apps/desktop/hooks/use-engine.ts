@@ -4,6 +4,12 @@ import { Chess } from "chessops/chess";
 import { parseFen } from "chessops/fen";
 import { parseUciInfo, uciMovesToSan, parseEngineUci, type PvLine } from "@chessgui/core/uci-parser";
 import {
+  ENGINE_LOCKED_MESSAGE,
+  engineAllowedForGame,
+  engineContextTag,
+  type ActiveGameMeta,
+} from "@chessgui/core/active-game";
+import {
   defaultEnginePath,
   clearEnginePath,
   defaultEngineSettings,
@@ -117,6 +123,12 @@ export function useEngine(
   uciMoves: string[] = [],
   startFen: string = INITIAL_FEN,
   currentMoveIndex = -1,
+  // Spec 219 B, layer 1: the active-game flag of the game THIS hook serves
+  // (null = known normal game). The lockout is scoped per game context —
+  // puzzles/training/spar/lab use their own engine paths and keep full
+  // access. The default (undefined = "caller didn't say") resolves to
+  // engine OFF, per the spec's conservative stance.
+  activeGame: ActiveGameMeta | null | undefined = undefined,
 ) {
   const [state, setState] = useState<EngineState>(initialState);
   // Settings start at defaults for SSR consistency; hydrated from
@@ -164,12 +176,18 @@ export function useEngine(
   const startFenRef = useRef(startFen);
   const moveIndexRef = useRef(currentMoveIndex);
 
+  // Engine lockout (spec 219 B). The ref keeps callbacks reading the CURRENT
+  // flag; `engineLocked` drives the stop-on-lock effect and the UI notice.
+  const activeGameRef = useRef<ActiveGameMeta | null | undefined>(activeGame);
+
   fenRef.current = fen;
   onBestMoveRef.current = onBestMove;
   atLatestMoveRef.current = atLatestMove;
   uciMovesRef.current = uciMoves;
   startFenRef.current = startFen;
   moveIndexRef.current = currentMoveIndex;
+  activeGameRef.current = activeGame;
+  const engineLocked = !engineAllowedForGame(activeGame);
 
   // User-selected engine binary (spec 011). SSR-safe default, hydrated from
   // localStorage after mount (same pattern as engine settings).
@@ -183,9 +201,16 @@ export function useEngine(
   }, []);
 
   const sendCommand = useCallback(async (cmd: string) => {
+    // Layer-1 gate at the single point every UCI command funnels through;
+    // the context tag makes the Rust layer-2 refusal self-sufficient even
+    // if a future code path bypasses this check.
+    if (!engineAllowedForGame(activeGameRef.current)) {
+      console.warn("[engine] blocked (active game):", cmd);
+      return;
+    }
     try {
       console.log("[engine] >>", cmd);
-      await getProviders().engine.sendCommand(cmd);
+      await getProviders().engine.sendCommand(cmd, engineContextTag(activeGameRef.current));
     } catch (e) {
       console.error("[engine] send failed:", cmd, e);
     }
@@ -204,6 +229,11 @@ export function useEngine(
 
   const startAnalysis = useCallback(
     async (position: string) => {
+      // Spec 219 B: no `go` is ever issued for an active game.
+      if (!engineAllowedForGame(activeGameRef.current)) {
+        console.warn("[engine]", ENGINE_LOCKED_MESSAGE);
+        return;
+      }
       // Don't analyze terminal positions
       const setup = parseFen(position);
       if (setup.isOk) {
@@ -241,6 +271,13 @@ export function useEngine(
 
   const requestMove = useCallback(
     async (position: string) => {
+      // Spec 219 B: covers the opening-book path too — a book reply is a
+      // computer-generated move recommendation, off-limits mid-game.
+      if (!engineAllowedForGame(activeGameRef.current)) {
+        console.warn("[engine]", ENGINE_LOCKED_MESSAGE);
+        setState((s) => ({ ...s, isThinking: false }));
+        return;
+      }
       console.log("[engine] requestMove called, fen:", position);
 
       // Don't ask engine to think on terminal positions (checkmate/stalemate)
@@ -304,12 +341,20 @@ export function useEngine(
 
   const startEngine = useCallback(
     async (path?: string, mode: EngineMode = "analysis", playerColor: PlayerColor = "white") => {
+      // Spec 219 B: the engine process is never started for an active game.
+      // A quiet refusal, not a throw — existing auto-start flows must not
+      // blow up; the UI shows the lockout notice via `engineLocked`.
+      if (!engineAllowedForGame(activeGameRef.current)) {
+        console.warn("[engine]", ENGINE_LOCKED_MESSAGE);
+        return;
+      }
       const requestedPath = path || loadEnginePath();
       const engine = getProviders().engine;
+      const context = engineContextTag(activeGameRef.current);
 
       let result: { name: string; ready: boolean };
       try {
-        result = await engine.startEngine(requestedPath);
+        result = await engine.startEngine(requestedPath, context);
         saveEnginePath(requestedPath);
         setEnginePathState(requestedPath);
       } catch (e) {
@@ -319,7 +364,7 @@ export function useEngine(
         if (requestedPath !== defaultEnginePath()) {
           console.warn(`Engine path "${requestedPath}" failed (${e}); retrying with default.`);
           clearEnginePath();
-          result = await engine.startEngine(defaultEnginePath());
+          result = await engine.startEngine(defaultEnginePath(), context);
           saveEnginePath(defaultEnginePath());
           setEnginePathState(defaultEnginePath());
         } else {
@@ -435,6 +480,11 @@ export function useEngine(
 
   const setPlayMode = useCallback(
     async (enabled: boolean, playerColor: PlayerColor = "white") => {
+      // Spec 219 B: play-vs-engine and analysis are both engine evaluation.
+      if (!engineAllowedForGame(activeGameRef.current)) {
+        console.warn("[engine]", ENGINE_LOCKED_MESSAGE);
+        return;
+      }
       if (!state.isRunning) {
         // Engine not running — start it in the requested mode
         await startEngine(undefined, enabled ? "play" : "analysis", playerColor);
@@ -641,6 +691,18 @@ export function useEngine(
     };
   }, [fen, state.isRunning, startAnalysis, requestMove]);
 
+  // Re-apply the lockout on every load path (spec 219 B): if the game this
+  // hook serves becomes an active game while the engine is running — resume
+  // from the active list, restart hydration, snapshot restore — kill the
+  // process. The flag travels with the serialized tree, so this fires
+  // wherever the tree comes back.
+  useEffect(() => {
+    if (engineLocked && state.isRunning) {
+      console.warn("[engine]", ENGINE_LOCKED_MESSAGE);
+      void stopEngine();
+    }
+  }, [engineLocked, state.isRunning, stopEngine]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -650,6 +712,10 @@ export function useEngine(
 
   return {
     state,
+    // Spec 219: true when the served game is (or might be) an active
+    // chess.com daily game — every engine surface must show the fair-play
+    // notice instead of engine output while this is set.
+    engineLocked,
     settings,
     updateSettings,
     enginePath,

@@ -11,6 +11,8 @@ import { EvalBar } from "@chessgui/ui/eval-bar"
 import { PromotionDialog } from "@chessgui/ui/promotion-dialog"
 import { PgnImportDialog } from "@chessgui/ui/pgn-import-dialog"
 import { PositionEditorDialog } from "@chessgui/ui/position-editor-dialog"
+import { ActiveGameNotice } from "@chessgui/ui/active-game-notice"
+import { ActiveGamesPanel } from "@chessgui/ui/active-games-panel"
 import { ErrorBoundary } from "@chessgui/ui/error-boundary"
 import { CapturedPieces } from "@chessgui/ui/captured-pieces"
 import { computeMaterial } from "@chessgui/core/material"
@@ -21,6 +23,17 @@ import { SparTab } from "@chessgui/ui/spar-tab"
 import { TrainingTab } from "@chessgui/ui/training-tab"
 import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
+import {
+  newActiveGameRecord,
+  type ActiveGameMeta,
+  type ActiveGameRecord,
+} from "@chessgui/core/active-game"
+import {
+  activeGameIdFor,
+  loadDefaultChesscomUsername,
+  saveActiveGame,
+  saveDefaultChesscomUsername,
+} from "@/lib/active-games"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 import { readClipboardImage, readClipboardText, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
@@ -56,7 +69,10 @@ export default function Home() {
   )
 
   const atLatestMove = game.currentMoveIndex === game.moves.length - 1
-  const engine = useEngine(game.fen, handleBestMove, atLatestMove, game.uciMoves, game.startFen, game.currentMoveIndex)
+  // game.activeGame scopes the spec 219 engine lockout to THIS game: null =
+  // normal game (engine available), metadata = active chess.com daily game
+  // (engine structurally off until archived).
+  const engine = useEngine(game.fen, handleBestMove, atLatestMove, game.uciMoves, game.startFen, game.currentMoveIndex, game.activeGame)
 
   // Load a game from the database onto the board and switch to analysis.
   const handleLoadFromDatabase = useCallback(
@@ -134,6 +150,73 @@ export default function Home() {
   const pgnFileInputRef = useRef<HTMLInputElement>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [pasteStatus, setPasteStatus] = useState<string | null>(null)
+
+  // ---- Active game mode (spec 219) ----
+  // The user's own chess.com username, prefilled in the setup dialog's
+  // active-game fields. Hydrated after mount (storage is client-only).
+  const [defaultChesscomUsername, setDefaultChesscomUsername] = useState("")
+  useEffect(() => {
+    setDefaultChesscomUsername(loadDefaultChesscomUsername())
+  }, [])
+  // Bumped after out-of-panel store writes (flagging, "Continue later") so
+  // the active-games list re-reads the store.
+  const [activeGamesNonce, setActiveGamesNonce] = useState(0)
+
+  // Position editor confirm: load the position and, when flagged, apply the
+  // lockout AND persist the record immediately — the game is in the active
+  // list from the moment of flagging, not only after "Continue later".
+  const handleSetPosition = useCallback(
+    (fen: string, activeGame: ActiveGameMeta | null) => {
+      game.loadFen(fen)
+      if (!activeGame) return
+      game.setActiveGame(activeGame)
+      if (activeGame.chesscomUsername) {
+        saveDefaultChesscomUsername(activeGame.chesscomUsername)
+        setDefaultChesscomUsername(activeGame.chesscomUsername)
+      }
+      saveActiveGame(
+        newActiveGameRecord(activeGameIdFor(activeGame), game.getSnapshot(), activeGame),
+      )
+        .then(() => setActiveGamesNonce((n) => n + 1))
+        .catch((e) => console.error("[active-games] save on flag failed:", e))
+    },
+    [game.loadFen, game.setActiveGame, game.getSnapshot],
+  )
+
+  // "Continue later" (spec 219 C): save tree + metadata to the store, clear
+  // the board, and land on the list so the save is visible.
+  const handleContinueLater = useCallback(() => {
+    const meta = game.activeGame
+    if (!meta) return
+    saveActiveGame(newActiveGameRecord(activeGameIdFor(meta), game.getSnapshot(), meta))
+      .then(() => {
+        game.newGame()
+        setActiveGamesNonce((n) => n + 1)
+        setView("database")
+      })
+      .catch((e) => console.error("[active-games] continue-later save failed:", e))
+  }, [game.activeGame, game.getSnapshot, game.newGame])
+
+  // Resume from the list: the flag rides the serialized tree, so restoring
+  // the snapshot re-applies the lockout automatically (use-engine's
+  // stop-on-lock effect kills any running engine).
+  const handleResumeActiveGame = useCallback(
+    (record: ActiveGameRecord) => {
+      game.restoreSnapshot(record.tree)
+      setView("board")
+    },
+    [game.restoreSnapshot],
+  )
+
+  // A record was archived (lockout lifted) or deleted (fair-play confirmed):
+  // if it backs the game open on the board, unflag that game too.
+  const handleActiveGameResolved = useCallback(
+    (record: ActiveGameRecord) => {
+      const meta = game.activeGame
+      if (meta && activeGameIdFor(meta) === record.id) game.setActiveGame(null)
+    },
+    [game.activeGame, game.setActiveGame],
+  )
   const [now, setNow] = useState(Date.now())
 
   // Force re-render during play mode so the active clock visually ticks
@@ -178,7 +261,9 @@ export default function Home() {
   // in thinking mode). uciToArrow legality-checks each move, so PV lines that
   // briefly belong to a previous position simply draw nothing.
   const engineArrows = useMemo<DrawShape[]>(() => {
-    if (!engine.settings.showArrows || !engine.state.isAnalyzing || isPlayMode) return []
+    // engineLocked: no hint arrows for an active game (spec 219 B) — the
+    // lockout means there are no lines anyway; this is the honest-UI belt.
+    if (!engine.settings.showArrows || !engine.state.isAnalyzing || isPlayMode || engine.engineLocked) return []
     const shapes: DrawShape[] = []
     for (const line of engine.state.lines) {
       if (line.multipv > PV_ARROW_BRUSHES.length || line.uciMoves.length === 0) continue
@@ -193,7 +278,7 @@ export default function Home() {
       }
     }
     return shapes
-  }, [engine.settings.showArrows, engine.state.isAnalyzing, engine.state.lines, isPlayMode, game.fen])
+  }, [engine.settings.showArrows, engine.state.isAnalyzing, engine.state.lines, isPlayMode, engine.engineLocked, game.fen])
 
   // User-drawn arrows/circles saved on the current node (spec 202). Chessground
   // keeps these (drawable.shapes) separate from the engine's autoShapes.
@@ -626,12 +711,25 @@ export default function Home() {
             when active; it re-fetches on mount, which is cheap. The explorer
             panel plays moves straight onto the board's current game. */}
         {view === "database" && (
-          <main className="flex-1 min-h-0">
-            <DatabaseTab
-              currentFen={game.fen}
-              onLoadGame={handleLoadFromDatabase}
-              onPlayMove={game.playUciMove}
-            />
+          <main className="flex-1 min-h-0 flex flex-col">
+            {/* Active chess.com daily games (spec 219 D) — lives with the
+                database because "Game finished" archives into it. Renders
+                nothing while no game is flagged. */}
+            <div className="shrink-0 px-6 pt-4 empty:hidden">
+              <ActiveGamesPanel
+                onResume={handleResumeActiveGame}
+                onArchived={handleActiveGameResolved}
+                onDeleted={handleActiveGameResolved}
+                refreshNonce={activeGamesNonce}
+              />
+            </div>
+            <div className="flex-1 min-h-0">
+              <DatabaseTab
+                currentFen={game.fen}
+                onLoadGame={handleLoadFromDatabase}
+                onPlayMove={game.playUciMove}
+              />
+            </div>
           </main>
         )}
 
@@ -1062,12 +1160,24 @@ export default function Home() {
           {/* Right column: Game Analytics */}
           <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
             <div className="shrink-0">
-              <AnalysisPanel
-                engine={engine}
-                turn={turn}
-                onPreviewPv={isPlayMode ? undefined : handlePreviewPv}
-                previewPv={pvPreview ? { multipv: pvPreview.multipv, ply: pvPreview.ply } : null}
-              />
+              {/* Spec 219 B: for an active game every engine surface —
+                  analysis panel, eval bar, human eval — is replaced by the
+                  fair-play notice. The lockout itself is enforced in
+                  use-engine + the Rust UCI manager; this is the honest UX. */}
+              {engine.engineLocked ? (
+                <ActiveGameNotice
+                  meta={game.activeGame ?? null}
+                  onContinueLater={handleContinueLater}
+                  onShowList={() => setView("database")}
+                />
+              ) : (
+                <AnalysisPanel
+                  engine={engine}
+                  turn={turn}
+                  onPreviewPv={isPlayMode ? undefined : handlePreviewPv}
+                  previewPv={pvPreview ? { multipv: pvPreview.multipv, ply: pvPreview.ply } : null}
+                />
+              )}
             </div>
             <MoveList
               tree={game.tree}
@@ -1075,7 +1185,10 @@ export default function Home() {
               onGoToNode={game.goToNode}
               version={game.treeVersion}
             />
-            {/* Annotation editing + eval graph (spec 202) — analyze mode only */}
+            {/* Annotation editing + eval graph (spec 202) — analyze mode only.
+                Hand annotations stay available in an active game (books and
+                notes are fair-play legal); the eval graph is engine-derived,
+                so it's hidden while the lockout holds (spec 219 B). */}
             {!isPlayMode && (
               <>
                 <AnnotationBar
@@ -1084,12 +1197,14 @@ export default function Home() {
                   onSetComment={game.setComment}
                   active={view === "board" && !liveViewing && !pgnDialogOpen && !editorOpen}
                 />
-                <EvalGraph
-                  tree={game.tree}
-                  currentId={game.currentNodeId}
-                  onGoToNode={game.goToNode}
-                  version={game.treeVersion}
-                />
+                {!engine.engineLocked && (
+                  <EvalGraph
+                    tree={game.tree}
+                    currentId={game.currentNodeId}
+                    onGoToNode={game.goToNode}
+                    version={game.treeVersion}
+                  />
+                )}
               </>
             )}
           </div>
@@ -1127,8 +1242,10 @@ export default function Home() {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         currentFen={game.fen}
-        onSetPosition={game.loadFen}
+        onSetPosition={handleSetPosition}
         onImagePaste={recognizeImage}
+        defaultChesscomUsername={defaultChesscomUsername}
+        currentActiveGame={game.activeGame ?? null}
       />
     </TooltipProvider>
     </ErrorBoundary>

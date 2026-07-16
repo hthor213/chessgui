@@ -16,6 +16,7 @@ import {
   type SerializedTree,
 } from "@chessgui/core/game-tree";
 import { treeToPgn } from "@chessgui/core/pgn";
+import type { ActiveGameMeta } from "@chessgui/core/active-game";
 import { getProviders } from "@/lib/platform";
 
 export type PromotionRole = "queen" | "rook" | "bishop" | "knight";
@@ -99,6 +100,9 @@ export function useChessGame() {
       headers: tree.headers,
       currentNode: current,
       currentNodeId: current.id,
+      // Spec 219: the active-game flag rides the tree, so every load path
+      // (hydration, loadTree, restoreSnapshot) re-applies the lockout.
+      activeGame: tree.activeGame,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
@@ -343,6 +347,18 @@ export function useChessGame() {
     [bump],
   );
 
+  // Flag / unflag the current game as an ACTIVE chess.com daily game
+  // (spec 219 A). Flagging happens in position setup; clearing is reserved
+  // for the archive step and the fair-play-confirmed deletion — the UI must
+  // never offer a mid-game unflag toggle (spec 219 B "no bypass").
+  const setActiveGame = useCallback(
+    (meta: ActiveGameMeta | null) => {
+      treeRef.current.activeGame = meta;
+      bump();
+    },
+    [bump],
+  );
+
   const newGame = useCallback(() => {
     getProviders().storage.remove(STORAGE_KEY);
     treeRef.current = GameTree.create();
@@ -407,6 +423,9 @@ export function useChessGame() {
     getSnapshot,
     restoreSnapshot,
     playUciMove,
+    // Active game mode (spec 219)
+    activeGame: view.activeGame,
+    setActiveGame,
     setOrientation,
     flipBoard: () => setOrientation((o) => (o === "white" ? "black" : "white")),
     pendingPromotion,

@@ -58,11 +58,13 @@ export const tauriProviders: PlatformProviders = {
     hasNativeEngine: true,
     defaultEnginePath: DESKTOP_DEFAULT_ENGINE_PATH,
 
-    startEngine(path: string): Promise<EngineStartResult> {
-      return invoke<EngineStartResult>("start_engine", { path })
+    // The spec 219 game-context tag rides along so the Rust UCI manager can
+    // refuse active-game contexts defensively (uci.rs context_is_locked).
+    startEngine(path: string, context?: string): Promise<EngineStartResult> {
+      return invoke<EngineStartResult>("start_engine", { path, context: context ?? null })
     },
-    async sendCommand(command: string): Promise<void> {
-      await invoke("send_command", { command })
+    async sendCommand(command: string, context?: string): Promise<void> {
+      await invoke("send_command", { command, context: context ?? null })
     },
     async stopEngine(): Promise<void> {
       await invoke("stop_engine")
@@ -259,4 +261,15 @@ export const tauriProviders: PlatformProviders = {
   },
 
   storage: localStorageKV,
+
+  // Active-games store (spec 219 C/D): raw JSON persisted by the Rust side
+  // at <app_data_dir>/active_games.json (src-tauri/src/active_games.rs).
+  activeGames: {
+    load(): Promise<string | null> {
+      return invoke<string | null>("active_games_load")
+    },
+    async save(json: string): Promise<void> {
+      await invoke("active_games_save", { json })
+    },
+  },
 }

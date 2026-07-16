@@ -45,6 +45,9 @@ function noEngine(what: string): Promise<never> {
   return Promise.reject(new Error(`${what} requires the desktop app`))
 }
 
+/** localStorage key backing the browser-fallback active-games store. */
+const ACTIVE_GAMES_BROWSER_KEY = "chessgui-active-games"
+
 export const browserProviders: PlatformProviders = {
   engine: {
     hasNativeEngine: false,
@@ -180,4 +183,15 @@ export const browserProviders: PlatformProviders = {
   },
 
   storage: localStorageKV,
+
+  // Active-games store (spec 219 C/D): the browser fallback keeps the one
+  // JSON document in localStorage — same contract as the desktop file store.
+  activeGames: {
+    async load(): Promise<string | null> {
+      return localStorageKV.get(ACTIVE_GAMES_BROWSER_KEY)
+    },
+    async save(json: string): Promise<void> {
+      localStorageKV.set(ACTIVE_GAMES_BROWSER_KEY, json)
+    },
+  },
 }

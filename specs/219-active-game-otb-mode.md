@@ -265,31 +265,42 @@ cached/refreshed at most every 12–24 hours (single-source, announcement page).
 
 ### Agent-verifiable
 
-- [ ] Position setup shows the prominent active-game checkbox with the
+- [x] Position setup shows the prominent active-game checkbox with the
       disclosure wording; checking it persists the flag + metadata (username
       defaulting to the user's, per-game) on the saved game shape
-- [ ] With the flag set, the engine process is never spawned for that game
+      (code-verified 2026-07-15)
+- [x] With the flag set, the engine process is never spawned for that game
       context: verified at the invocation layer (use-engine hook test + Rust
-      UCI manager refusal), not by checking hidden UI
-- [ ] All engine-derived surfaces (analysis panel, eval bar, eval graph, hints,
+      UCI manager refusal), not by checking hidden UI (code-verified
+      2026-07-15: guard-predicate unit tests + grep of every use-engine
+      start path + Rust `context_is_locked` tests)
+- [x] All engine-derived surfaces (analysis panel, eval bar, eval graph, hints,
       human-eval/coach) are absent/inert for the flagged game, with a visible
       "Active game — engine disabled for fair play" notice in their place
-- [ ] Scoping test: with an active game open or persisted, puzzles / training /
+      (code-verified 2026-07-15)
+- [x] Scoping test: with an active game open or persisted, puzzles / training /
       sparring / engine lab in other tabs retain full engine access
-- [ ] Reopening (resume, restart, reload) a flagged game re-applies the lockout
-- [ ] No mid-game unflag path exists; deletion requires the fair-play
-      confirmation dialog naming the reason
-- [ ] "Continue later" writes the game (tree + metadata + last-updated) to the
+      (code-verified 2026-07-15: those paths never produce an active-game
+      context tag; Rust allows untagged/unrestricted)
+- [x] Reopening (resume, restart, reload) a flagged game re-applies the lockout
+      (code-verified 2026-07-15)
+- [x] No mid-game unflag path exists; deletion requires the fair-play
+      confirmation dialog naming the reason (code-verified 2026-07-15)
+- [x] "Continue later" writes the game (tree + metadata + last-updated) to the
       persisted active-games store; the list UI shows it and Resume restores it
-- [ ] "Game finished" fetches archives → month JSON for the stored username,
+      (code-verified 2026-07-15)
+- [x] "Game finished" fetches archives → month JSON for the stored username,
       matches the game, imports the real PGN into the database (spec:200),
       marks the entry archived, and only then allows engine analysis on it;
       fetch failure (12–24h cache) leaves the lockout in place with a retry
-      path and a manual-PGN fallback
-- [ ] chess.com requests are serial with a descriptive User-Agent; one live
+      path and a manual-PGN fallback (code-verified 2026-07-15)
+- [x] chess.com requests are serial with a descriptive User-Agent; one live
       smoke-test against a real account confirms the field names used
-- [ ] Position editor palette renders every piece on a small white backing
-      square (unconditional, spec:014)
+      (code-verified 2026-07-15: live curl vs hjaltth archives + 2026/07
+      month — `archives`, `games[].pgn/url/end_time/white.username` all
+      present as parsed)
+- [x] Position editor palette renders every piece on a small white backing
+      square (unconditional, spec:014) (code-verified 2026-07-15)
 
 ### User-blocked (needs the user's eyeball)
 

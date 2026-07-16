@@ -22,6 +22,13 @@ import {
   type PieceMap,
   type CastlingOptions,
 } from "@chessgui/core/fen";
+import type { ActiveGameMeta } from "@chessgui/core/active-game";
+import {
+  ActiveGameSetupSection,
+  activeGameMetaFromSetup,
+  emptyActiveGameSetup,
+  type ActiveGameSetupValue,
+} from "@chessgui/ui/active-game-setup";
 import { clipboardEventImage, type ClipboardImage } from "@/lib/recognize-position";
 
 const Board = dynamic(
@@ -49,9 +56,17 @@ interface PositionEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentFen: string;
-  onSetPosition: (fen: string) => void;
+  /** `activeGame` is the spec 219 flag: non-null when the user marked the
+   *  position as coming from a live chess.com daily game (engine lockout). */
+  onSetPosition: (fen: string, activeGame: ActiveGameMeta | null) => void;
   /** Called when the user pastes a screenshot of a position instead of editing. */
   onImagePaste?: (image: ClipboardImage) => void;
+  /** Prefill for the active-game username field (the user's own account,
+   *  remembered per shell — they have more than one). */
+  defaultChesscomUsername?: string;
+  /** The OPEN game's active flag, when set: it carries over to the edited
+   *  position and cannot be unchecked here (spec 219 B "no bypass"). */
+  currentActiveGame?: ActiveGameMeta | null;
 }
 
 export function PositionEditorDialog({
@@ -60,6 +75,8 @@ export function PositionEditorDialog({
   currentFen,
   onSetPosition,
   onImagePaste,
+  defaultChesscomUsername = "",
+  currentActiveGame = null,
 }: PositionEditorDialogProps) {
   const [pieces, setPieces] = useState<PieceMap>(new Map());
   const [turn, setTurn] = useState<Color>("white");
@@ -68,6 +85,11 @@ export function PositionEditorDialog({
   const [orientation, setOrientation] = useState<Color>("white");
   const [fenText, setFenText] = useState("");
   const [fenError, setFenError] = useState<string | null>(null);
+  // Active-game flag (spec 219 A). Reset on every open; username prefilled
+  // with the shell-remembered default.
+  const [activeGameSetup, setActiveGameSetup] = useState<ActiveGameSetupValue>(
+    emptyActiveGameSetup,
+  );
 
   // Commit a placement change: intersect castling with what's now structurally
   // possible (auto-untick), regenerate the FEN text, and re-validate.
@@ -102,7 +124,8 @@ export function PositionEditorDialog({
       q: rights.includes("q"),
     });
     setTool({ kind: "pointer" });
-  }, [open, currentFen, applyState]);
+    setActiveGameSetup(emptyActiveGameSetup(defaultChesscomUsername));
+  }, [open, currentFen, applyState, defaultChesscomUsername]);
 
   const handleSelect = useCallback(
     (square: string) => {
@@ -228,7 +251,17 @@ export function PositionEditorDialog({
                       onClick={() => setTool({ kind: "piece", color, role })}
                       title={`${color} ${role}`}
                     >
-                      {GLYPH[color][role]}
+                      {/* White backing square (spec 219 E, unconditional):
+                          on the dark theme the bare glyphs made white vs
+                          black pieces ambiguous. Black glyph text on white
+                          keeps outlines dark, so ♔ reads white, ♚ black. */}
+                      <span
+                        aria-hidden
+                        className="w-7 h-7 rounded-[5px] bg-white text-black flex items-center justify-center"
+                        data-testid={`palette-${color}-${role}`}
+                      >
+                        {GLYPH[color][role]}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -337,6 +370,14 @@ export function PositionEditorDialog({
           </div>
         </div>
 
+        {/* Active-game flag (spec 219 A) — deliberately full-width and above
+            the confirm button, not buried in an options row. */}
+        <ActiveGameSetupSection
+          value={activeGameSetup}
+          onChange={setActiveGameSetup}
+          lockedMeta={currentActiveGame}
+        />
+
         <DialogFooter>
           <Button variant="ghost" className="text-muted-foreground" onClick={() => onOpenChange(false)}>
             Cancel
@@ -345,7 +386,13 @@ export function PositionEditorDialog({
             className="bg-green-600 hover:bg-green-700 text-white disabled:opacity-40"
             disabled={confirmDisabled}
             onClick={() => {
-              onSetPosition(boardFen);
+              // An already-flagged game keeps its ORIGINAL meta (same
+              // flaggedAt, so it stays the same active-games record) —
+              // spec 219 B: no unflag path through re-editing.
+              onSetPosition(
+                boardFen,
+                currentActiveGame ?? activeGameMetaFromSetup(activeGameSetup),
+              );
               onOpenChange(false);
             }}
           >

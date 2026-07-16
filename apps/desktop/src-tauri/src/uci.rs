@@ -41,13 +41,34 @@ pub struct EngineInfo {
     pub ready: bool,
 }
 
+/// Spec 219 B, layer 2: the defensive engine lockout for active chess.com
+/// daily games. Engine commands carry a game-context tag (computed by
+/// core/active-game.ts `engineContextTag` — keep the prefix rule in sync
+/// with its `isLockedEngineContext`); anything tagged as an active-game
+/// context is refused here regardless of what the frontend gate did. An
+/// absent tag means an unrestricted caller (engine lab, tournaments, tests):
+/// the per-game scoping lives in the use-engine hook, this layer is the
+/// guarantee that a tagged request can never reach the engine.
+const ACTIVE_GAME_CONTEXT_PREFIX: &str = "active-game";
+
+pub fn context_is_locked(context: Option<&str>) -> bool {
+    matches!(context, Some(tag) if tag.starts_with(ACTIVE_GAME_CONTEXT_PREFIX))
+}
+
+const ENGINE_LOCKED_ERROR: &str =
+    "Engine refused: this game is flagged as an active chess.com daily game (fair play lockout, spec 219)";
+
 /// Start a UCI engine process at the given binary path.
 #[tauri::command]
 pub async fn start_engine(
     path: String,
+    context: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, Mutex<EngineState>>,
 ) -> Result<EngineInfo, String> {
+    if context_is_locked(context.as_deref()) {
+        return Err(ENGINE_LOCKED_ERROR.to_string());
+    }
     let mut child = Command::new(&path)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -175,8 +196,15 @@ pub async fn start_engine(
 #[tauri::command]
 pub async fn send_command(
     command: String,
+    context: Option<String>,
     state: State<'_, Mutex<EngineState>>,
 ) -> Result<(), String> {
+    // Checked per command, not just at start: an engine started by an
+    // unrestricted context must still refuse commands tagged for an active
+    // game (spec 219 B "any evaluation request is refused").
+    if context_is_locked(context.as_deref()) {
+        return Err(ENGINE_LOCKED_ERROR.to_string());
+    }
     let tx = {
         let guard = state.lock().map_err(|e| e.to_string())?;
         guard
@@ -194,6 +222,29 @@ pub async fn send_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Spec 219 B: the defensive refusal keys on the active-game tag prefix.
+    // The tag values mirror core/active-game.ts engineContextTag.
+    #[test]
+    fn active_game_contexts_are_locked() {
+        assert!(context_is_locked(Some("active-game")));
+        assert!(context_is_locked(Some("active-game:unknown")));
+        assert!(context_is_locked(Some(
+            "active-game:https://www.chess.com/game/daily/123456"
+        )));
+    }
+
+    #[test]
+    fn unrestricted_and_untagged_contexts_are_allowed() {
+        // The frontend's tag for puzzles/training/spar/lab and normal games.
+        assert!(!context_is_locked(Some("unrestricted")));
+        // Untagged = legacy/internal callers (tournament runner, tests):
+        // their scoping gate is the use-engine hook, not this layer.
+        assert!(!context_is_locked(None));
+        assert!(!context_is_locked(Some("")));
+        // The prefix must be a prefix, not a substring match.
+        assert!(!context_is_locked(Some("not-an-active-game")));
+    }
 
     // The exit-handler path: a spawned child put into EngineState must be dead
     // after shutdown(). Uses /bin/sleep as a stand-in engine process.

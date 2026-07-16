@@ -64,8 +64,14 @@ export interface EngineProvider {
   readonly defaultEnginePath: string
 
   // --- UCI lifecycle (hooks/use-engine.ts) ---
-  startEngine(path: string): Promise<EngineStartResult>
-  sendCommand(command: string): Promise<void>
+  // `context` is the spec 219 game-context tag (core/active-game.ts
+  // engineContextTag): the desktop shell forwards it to the Rust UCI manager,
+  // which refuses active-game-tagged commands defensively. Optional so
+  // non-game callers (engine lab, tests) stay unchanged — an untagged
+  // command is treated as unrestricted; the per-game scoping gate lives in
+  // the use-engine hook, not here.
+  startEngine(path: string, context?: string): Promise<EngineStartResult>
+  sendCommand(command: string, context?: string): Promise<void>
   stopEngine(): Promise<void>
   /** Subscribe to the engine's stdout line stream — the app's only event
    *  stream. Resolves an unsubscribe function. Designed so a WASM worker
@@ -174,10 +180,26 @@ export interface StorageProvider {
   remove(key: string): void
 }
 
+/**
+ * The persisted active-games store (spec 219 C/D): one small JSON document
+ * (core/active-game.ts `ActiveGamesStore`) holding serialized trees +
+ * metadata for chess.com daily games in progress. Deliberately NOT the
+ * spec 200 database — that is for finished/imported games. The desktop
+ * shell keeps it in the app data dir (`active_games.json`); the browser
+ * fallback uses localStorage. The provider moves raw JSON; parsing and the
+ * store's invariants live in core/active-game.ts.
+ */
+export interface ActiveGamesProvider {
+  /** The stored JSON document, or null when nothing has been saved yet. */
+  load(): Promise<string | null>
+  save(json: string): Promise<void>
+}
+
 /** The full set a shell registers at boot. */
 export interface PlatformProviders {
   engine: EngineProvider
   database: DatabaseProvider
   dialog: DialogProvider
   storage: StorageProvider
+  activeGames: ActiveGamesProvider
 }

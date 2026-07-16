@@ -10,6 +10,7 @@ import { makeSan, parseSan } from "chessops/san";
 import { isNormal } from "chessops";
 import type { NormalMove } from "chessops";
 import { makeEngineUci, parseEngineUci } from "./uci-parser";
+import type { ActiveGameMeta } from "./active-game";
 
 export const INITIAL_FEN =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -59,6 +60,10 @@ export interface SerializedTree {
   startFen: string;
   headers: Record<string, string>;
   seq: number;
+  // Spec 219: active-game (OTB compliance) flag + metadata. Lives on the
+  // serialized game so EVERY load path re-applies the engine lockout.
+  // Optional so pre-219 saves load unchanged (absent = not an active game).
+  activeGame?: ActiveGameMeta | null;
 }
 
 // Backwards-compatible alias: page.tsx snapshots the game as an opaque blob.
@@ -97,6 +102,10 @@ export class GameTree {
   currentId: string;
   startFen: string;
   headers: Record<string, string>;
+  // Spec 219: non-null flags this as an ACTIVE chess.com daily game — the
+  // engine lockout key. Serialized with the tree; cleared only by the
+  // archive step (or explicit deletion behind the fair-play confirmation).
+  activeGame: ActiveGameMeta | null = null;
   private seq: number;
 
   private constructor(startFen: string, headers: Record<string, string>, seq = 0) {
@@ -477,7 +486,7 @@ export class GameTree {
   toJSON(): SerializedTree {
     const nodes: Record<string, MoveNode> = {};
     for (const [id, node] of this.nodes) nodes[id] = node;
-    return {
+    const out: SerializedTree = {
       v: 2,
       nodes,
       rootId: this.rootId,
@@ -486,6 +495,9 @@ export class GameTree {
       headers: this.headers,
       seq: this.seq,
     };
+    // Written only when set, so non-flagged saves keep their pre-219 shape.
+    if (this.activeGame) out.activeGame = this.activeGame;
+    return out;
   }
 
   static fromJSON(data: SerializedTree): GameTree {
@@ -503,6 +515,10 @@ export class GameTree {
     tree.currentId = tree.nodes.has(data.currentId) ? data.currentId : data.rootId;
     tree.startFen = data.startFen;
     tree.headers = data.headers || {};
+    // Spec 219: absent on pre-219 saves means "known not active" — a normal
+    // game, not an ambiguity. Normalized to null so the guard predicate
+    // (engineAllowedForGame) never sees undefined from a loaded tree.
+    tree.activeGame = data.activeGame ?? null;
     // Restore the id counter so freshly added nodes never collide with loaded
     // ones, even if the stored `seq` is missing (older saves).
     let maxSeq = data.seq ?? 0;
