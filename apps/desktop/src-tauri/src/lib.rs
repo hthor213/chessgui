@@ -33,6 +33,7 @@ pub fn run() {
         .manage(Mutex::new(uci::EngineState::default()))
         .manage(match_runner::BatchControl::default())
         .manage(db::DbManager::default())
+        .manage(db::CbhImportCancel::default())
         .manage(maia::MaiaState::default())
         .manage(human_search::HumanTreeState::default())
         .invoke_handler(tauri::generate_handler![
@@ -60,6 +61,7 @@ pub fn run() {
             match_runner::tablebase_probe,
             db::db_import_pgn,
             db::db_import_cbh,
+            db::db_cancel_cbh_import,
             db::db_list_games,
             db::db_search_position,
             db::db_get_game,

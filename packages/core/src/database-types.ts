@@ -56,6 +56,9 @@ export type CbhImportReport = {
   db_errors: number
   dropped_variations: number
   mainlines_truncated: number
+  /** Import was cancelled at a batch boundary; committed batches are kept
+   *  and the counts above cover exactly what landed. */
+  cancelled: boolean
 }
 
 /** One row of the game list. Mirrors Rust `GameHeader`. */

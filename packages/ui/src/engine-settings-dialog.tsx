@@ -4,6 +4,7 @@ import { useState } from "react"
 import { pickFile } from "@/lib/dialog"
 import { Button } from "@chessgui/ui/ui/button"
 import { Input } from "@chessgui/ui/ui/input"
+import { Switch } from "@chessgui/ui/ui/switch"
 import {
   Dialog,
   DialogContent,
@@ -247,6 +248,17 @@ export function EngineSettingsDialog({
               max={CONTEMPT_MAX}
               value={Number.isFinite(draft.contempt) ? draft.contempt : ""}
               onChange={(e) => setDraft({ ...draft, contempt: e.target.valueAsNumber })}
+            />
+          </SettingRow>
+
+          {/* Board coordinate display (spec 001) — not an engine option, but
+              this dialog is the app's settings surface. Default ON. */}
+          <SettingRow label="Coordinates" hint="Rank/file labels around the board">
+            <Switch
+              data-testid="show-coordinates-switch"
+              checked={draft.showCoordinates}
+              onCheckedChange={(checked) => setDraft({ ...draft, showCoordinates: checked })}
+              className="data-[state=checked]:bg-blue-600 data-[state=unchecked]:bg-zinc-600"
             />
           </SettingRow>
 

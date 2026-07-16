@@ -22,6 +22,7 @@ import {
 } from "@chessgui/ui/ui/dialog"
 import {
   addTag,
+  cancelCbhImport,
   deleteGames,
   getGame,
   importCbh,
@@ -886,6 +887,7 @@ function ImportDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cbhProgress, setCbhProgress] = useState<CbhImportProgress | null>(null)
+  const [cbhCancelling, setCbhCancelling] = useState(false)
   const [pgnProgress, setPgnProgress] = useState<PgnImportProgress | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -942,9 +944,11 @@ function ImportDialog({
     })
     if (!picked) return // cancelled
     setBusy(true)
+    setCbhCancelling(false)
     try {
       const report = await importCbh({ cbhPath: picked, dbPath, onProgress: setCbhProgress })
-      // Fold into the PGN-shaped report the parent banner expects.
+      // Fold into the PGN-shaped report the parent banner expects. A cancelled
+      // import still reports — its counts cover what genuinely landed.
       onImported({
         imported: report.imported,
         dups_skipped: report.dups_skipped,
@@ -955,6 +959,7 @@ function ImportDialog({
     } finally {
       setBusy(false)
       setCbhProgress(null)
+      setCbhCancelling(false)
     }
   }, [onImported, dbPath])
 
@@ -994,11 +999,27 @@ function ImportDialog({
         )}
         {cbhProgress && (
           <div className="text-sm text-muted-foreground" data-testid="db-import-cbh-progress">
-            <span>
-              Importing… {cbhProgress.processed.toLocaleString()} /{" "}
-              {cbhProgress.total.toLocaleString()} games ({cbhProgress.imported.toLocaleString()}{" "}
-              added, {cbhProgress.dups_skipped.toLocaleString()} duplicates)
-            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span>
+                Importing… {cbhProgress.processed.toLocaleString()} /{" "}
+                {cbhProgress.total.toLocaleString()} games ({cbhProgress.imported.toLocaleString()}{" "}
+                added, {cbhProgress.dups_skipped.toLocaleString()} duplicates)
+              </span>
+              {/* Stops the Rust loop at its next batch boundary; already-
+                  committed batches are kept and reported. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setCbhCancelling(true)
+                  void cancelCbhImport().catch(() => setCbhCancelling(false))
+                }}
+                disabled={cbhCancelling}
+                data-testid="db-import-cbh-cancel"
+              >
+                {cbhCancelling ? "Cancelling…" : "Cancel"}
+              </Button>
+            </div>
             <div className="mt-1 h-1.5 rounded bg-secondary overflow-hidden">
               <div
                 className="h-full bg-primary transition-[width]"

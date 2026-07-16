@@ -568,6 +568,9 @@ pub struct PersonaRuntime {
     pub style_bias: Option<persona::StyleBias>,
     /// Endgame arm (contract step 6): deep fixed-depth SF top-k at low material.
     pub endgame: Option<persona::EndgameArm>,
+    /// Corpus error model (contract step 5). None = OFF — only a config the
+    /// tuner enabled (held-out +2% bar, spec 214) ever carries one.
+    pub error_model: Option<persona::ErrorModel>,
 }
 
 /// A persona player: a warm lc0 process bound to the persona's net, driven once
@@ -585,6 +588,7 @@ struct PersonaPlayer {
     schedule: Option<persona::TemperatureSchedule>,
     style_bias: Option<persona::StyleBias>,
     endgame: Option<persona::EndgameArm>,
+    error_model: Option<persona::ErrorModel>,
 }
 
 impl PersonaPlayer {
@@ -603,6 +607,7 @@ impl PersonaPlayer {
             schedule: rt.schedule.clone(),
             style_bias: rt.style_bias.clone(),
             endgame: rt.endgame.clone(),
+            error_model: rt.error_model.clone(),
         })
     }
 
@@ -629,6 +634,7 @@ impl PersonaPlayer {
             schedule: self.schedule.clone(),
             style_bias: self.style_bias.clone(),
             endgame: self.endgame.clone(),
+            error_model: self.error_model.clone(),
         };
         let decision = persona::select_move_from_policy(
             fen,
@@ -1425,6 +1431,11 @@ pub struct PersonaConfig {
     /// to the policy arm when Stockfish is missing).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endgame: Option<persona::EndgameArm>,
+    /// Corpus error model (contract step 5). Absent = OFF — the spec 214
+    /// hard rule keeps mistake timing off until tune_persona.py's held-out
+    /// +2% bar enables it for a persona (fit: fit_error_model.py).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_model: Option<persona::ErrorModel>,
 }
 
 /// One game to be played as part of a batch. Self-describing so the runner can
@@ -1980,6 +1991,9 @@ async fn resolve_one(
                 schedule: Some(cfg.schedule.clone().unwrap_or_default()),
                 style_bias: cfg.style_bias.clone(),
                 endgame: Some(cfg.endgame.clone().unwrap_or_default()),
+                // Error model only when explicitly configured — the tuner
+                // gates it (spec 214); there is no default-ON variant.
+                error_model: cfg.error_model.clone(),
             }))
         }
     }
@@ -2925,9 +2939,10 @@ mod tests {
         assert_eq!(cfg.verify_depth, Some(12));
         assert_eq!(cfg.weights.as_deref(), Some("bt3"));
         assert_eq!(cfg.seed, Some(214214));
-        // Step 3/6 knobs are optional on the wire; absent = None (the resolver
-        // then defaults schedule + endgame ON, style bias OFF).
+        // Step 3/5/6 knobs are optional on the wire; absent = None (the resolver
+        // then defaults schedule + endgame ON, style bias + error model OFF).
         assert!(cfg.schedule.is_none() && cfg.style_bias.is_none() && cfg.endgame.is_none());
+        assert!(cfg.error_model.is_none());
 
         // And when present they deserialize (camelCase field names on the
         // config, snake_case inside the nested structs — the spar wire shape).
@@ -2937,7 +2952,8 @@ mod tests {
                 "level": 1700, "temperature": 0.5, "alpha": 1.0, "lambda": 0.75,
                 "schedule": {"opening_mult": 0.7, "panic_time_ms": 8000},
                 "styleBias": {"window_plies": 4, "multiplier": 1.5, "move_types": ["capture"]},
-                "endgame": {"depth": 14}
+                "endgame": {"depth": 14},
+                "errorModel": {"cells": {"middlegame|+0.0|none": 0.05}, "rate_scale": 1.5}
             }
         }"#;
         let p: Participant = serde_json::from_str(with_knobs).expect("knobbed persona deserializes");
@@ -2950,6 +2966,10 @@ mod tests {
         let arm = cfg.endgame.unwrap();
         assert_eq!(arm.depth, 14);
         assert_eq!(arm.phase_max, persona::ENDGAME_PHASE_MAX);
+        let em = cfg.error_model.unwrap();
+        assert_eq!(em.cells.get("middlegame|+0.0|none"), Some(&0.05));
+        assert_eq!(em.rate_scale, 1.5);
+        assert_eq!(em.mistake_drop_cp, 100, "unset error-model knobs keep defaults");
 
         let uci = r#"{"id":"sf","displayName":"Stockfish 18","kind":"uci","enginePath":"/opt/homebrew/bin/stockfish"}"#;
         let p: Participant = serde_json::from_str(uci).expect("uci participant deserializes");
@@ -3107,6 +3127,7 @@ mod tests {
             schedule: Some(persona::TemperatureSchedule::default()),
             style_bias: None,
             endgame: Some(persona::EndgameArm::default()),
+            error_model: None,
         };
 
         let cancel = AtomicBool::new(false);

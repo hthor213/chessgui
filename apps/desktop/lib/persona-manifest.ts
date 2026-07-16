@@ -33,6 +33,8 @@
 // loads, so a data/personas/*.config.json edit takes effect on the next
 // build/dev-server restart with no separate script to remember to run.
 
+import type { ErrorModel } from "@chessgui/core/persona-types"
+
 import fischerConfig from "@/data/personas/fischer.config.json"
 import kasparovConfig from "@/data/personas/kasparov.config.json"
 import karpovConfig from "@/data/personas/karpov.config.json"
@@ -60,6 +62,9 @@ interface RawPersonaConfig {
     lambda?: number
     top_k?: number
     verify_depth?: number
+    /** Corpus error model (spec 214 step 5); null/absent = OFF. Only a
+     *  tuner-enabled (held-out +2% bar) config ever carries one. */
+    error_model?: ErrorModel | null
   }
   harness?: { "match@1"?: number; "match@3"?: number; n?: number; date?: string }
 }
@@ -94,6 +99,8 @@ export interface GmPersonaManifestEntry {
   lambda: number
   topK?: number
   verifyDepth?: number
+  /** Corpus error model (spec 214 step 5), tuner-gated; undefined = OFF. */
+  errorModel?: ErrorModel
   weights: "bt3"
   /** Held-out move-match rate @1 candidate (spec 216 harness label basis). */
   matchAt1: number
@@ -119,6 +126,8 @@ export const GM_PERSONAS: GmPersonaManifestEntry[] = RAW_CONFIGS.filter((cfg) =>
   lambda: cfg.sampling.lambda ?? 0.75,
   topK: cfg.sampling.top_k,
   verifyDepth: cfg.sampling.verify_depth,
+  // null in the file = measured-and-rejected by the tuner — same as OFF.
+  ...(cfg.sampling.error_model ? { errorModel: cfg.sampling.error_model } : {}),
   weights: "bt3",
   matchAt1: cfg.harness!["match@1"]!,
   matchAt3: cfg.harness?.["match@3"] ?? null,

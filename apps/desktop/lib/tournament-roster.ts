@@ -144,6 +144,9 @@ function gmPersonaEntry(p: GmPersonaManifestEntry): TournamentRosterEntry {
         topK: p.topK,
         verifyDepth: p.verifyDepth,
         weights: p.weights,
+        // Corpus error model (spec 214 step 5): flows only from a config the
+        // tuner enabled (held-out +2% bar); undefined = OFF, the default.
+        ...(p.errorModel ? { errorModel: p.errorModel } : {}),
       },
     },
     label: `bot: ${p.slug} (BT3, ${pct}% move-match)`,

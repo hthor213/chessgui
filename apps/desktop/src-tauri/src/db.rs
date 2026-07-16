@@ -20,6 +20,7 @@
 use std::collections::HashMap;
 use std::io::{BufReader, Cursor, Read};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use pgn_reader::{Outcome, RawComment, RawTag, Reader, SanPlus, Skip, Visitor};
@@ -1694,12 +1695,61 @@ pub struct CbhImportReport {
     pub db_errors: u64,
     pub dropped_variations: u64,
     pub mainlines_truncated: u64,
+    /// The import was cancelled at a batch boundary. Every batch committed
+    /// before the cancel is kept; the counts above cover exactly what landed.
+    pub cancelled: bool,
 }
+
+/// Cancellation flag for the in-flight CBH import, managed as Tauri state.
+/// `db_cancel_cbh_import` sets it; `db_import_cbh` clears it on start and
+/// polls it once per flushed batch. One flag suffices because only one CBH
+/// import runs at a time (the import dialog is modal and busy-locked).
+#[derive(Default)]
+pub struct CbhImportCancel(pub AtomicBool);
 
 /// Games per `import_pgn_str` flush during a CBH import. Small enough that the
 /// DbManager mutex is released regularly (other db commands can interleave),
 /// large enough to amortize per-transaction overhead.
 const CBH_FLUSH_EVERY: u32 = 1000;
+
+/// Drive the convert → batch → flush loop of a CBH import. Split from the
+/// Tauri command so the cancellation path is unit-testable. `cancel` is
+/// polled once per flushed batch; on cancellation the loop stops immediately
+/// after the flush, so every committed batch is kept (each `flush` call is
+/// its own `import_pgn_str` transaction) and the returned report carries
+/// `cancelled: true` with honest counts for exactly what landed.
+fn run_cbh_import(
+    total: u32,
+    cancel: &AtomicBool,
+    mut convert: impl FnMut(u32) -> Result<crate::cbh::ConvertedGame, crate::cbh::CbhError>,
+    mut flush: impl FnMut(&mut CbhImportReport, &mut String, u32) -> Result<(), String>,
+) -> Result<CbhImportReport, String> {
+    let mut rep = CbhImportReport {
+        records: total,
+        ..Default::default()
+    };
+    let mut buf = String::new();
+    for id in 1..=total {
+        match convert(id) {
+            Ok(g) => {
+                rep.dropped_variations += g.dropped_variations as u64;
+                rep.mainlines_truncated += g.mainline_truncated as u64;
+                buf.push_str(&g.pgn);
+                buf.push('\n');
+            }
+            Err(_) => rep.convert_errors += 1,
+        }
+        if id % CBH_FLUSH_EVERY == 0 {
+            flush(&mut rep, &mut buf, id)?;
+            if cancel.load(Ordering::SeqCst) {
+                rep.cancelled = true;
+                return Ok(rep);
+            }
+        }
+    }
+    flush(&mut rep, &mut buf, total)?;
+    Ok(rep)
+}
 
 /// Import a ChessBase .cbh database into the game database. The decoder reads
 /// the sibling .cbg/.cba/.cbp/.cbt files next to `cbh_path` (see src/cbh.rs),
@@ -1719,6 +1769,9 @@ pub async fn db_import_cbh(
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Manager;
         let state = app.state::<DbManager>();
+        let cancel = app.state::<CbhImportCancel>();
+        // Fresh import: a cancel left over from a previous run must not apply.
+        cancel.0.store(false, Ordering::SeqCst);
 
         let cbh = crate::cbh::CbhDb::open(&cbh_path)
             .map_err(|e| format!("open {cbh_path}: {e}"))?;
@@ -1729,10 +1782,6 @@ pub async fn db_import_cbh(
         let source = format!("cbh:{basename}");
 
         let total = cbh.game_count();
-        let mut rep = CbhImportReport {
-            records: total,
-            ..Default::default()
-        };
         // A send failure just means the webview went away; the import keeps going.
         let emit = |rep: &CbhImportReport, processed: u32| {
             let _ = on_progress.send(CbhImportProgress {
@@ -1742,43 +1791,37 @@ pub async fn db_import_cbh(
                 dups_skipped: rep.dups_skipped,
             });
         };
-        emit(&rep, 0);
+        emit(&CbhImportReport::default(), 0);
 
-        let mut buf = String::new();
-        let flush = |rep: &mut CbhImportReport,
-                     buf: &mut String,
-                     processed: u32|
-         -> Result<(), String> {
-            if !buf.is_empty() {
-                let r = state.with(&path, |db| db.import_pgn_str(buf, &source))?;
-                buf.clear();
-                rep.imported += r.imported;
-                rep.dups_skipped += r.dups_skipped;
-                rep.db_errors += r.errors;
-            }
-            emit(rep, processed);
-            Ok(())
-        };
-
-        for id in 1..=total {
-            match cbh.convert_game(id) {
-                Ok(g) => {
-                    rep.dropped_variations += g.dropped_variations as u64;
-                    rep.mainlines_truncated += g.mainline_truncated as u64;
-                    buf.push_str(&g.pgn);
-                    buf.push('\n');
+        run_cbh_import(
+            total,
+            &cancel.0,
+            |id| cbh.convert_game(id),
+            |rep, buf, processed| {
+                if !buf.is_empty() {
+                    let r = state.with(&path, |db| db.import_pgn_str(buf, &source))?;
+                    buf.clear();
+                    rep.imported += r.imported;
+                    rep.dups_skipped += r.dups_skipped;
+                    rep.db_errors += r.errors;
                 }
-                Err(_) => rep.convert_errors += 1,
-            }
-            if id % CBH_FLUSH_EVERY == 0 {
-                flush(&mut rep, &mut buf, id)?;
-            }
-        }
-        flush(&mut rep, &mut buf, total)?;
-        Ok(rep)
+                emit(rep, processed);
+                Ok(())
+            },
+        )
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Request cancellation of the in-flight CBH import (spec 200). The import
+/// stops at its next batch boundary, keeps every batch already committed, and
+/// resolves with `cancelled: true` and counts for what landed. Harmless no-op
+/// when no import is running (the next import resets the flag on start).
+#[tauri::command]
+pub fn db_cancel_cbh_import(cancel: tauri::State<'_, CbhImportCancel>) -> Result<(), String> {
+    cancel.0.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 #[tauri::command]
@@ -2484,5 +2527,80 @@ mod tests {
         let mut db = Db::open_in_memory().unwrap();
         assert!(db.save_game("", "saved").is_err());
         assert_eq!(db.stats().unwrap().games, 0);
+    }
+
+    // -- CBH import cancellation (run_cbh_import flag path) -------------------
+
+    /// Minimal stand-in for a converted CBH game; the loop only reads the
+    /// PGN text and the two per-game counters.
+    fn fake_converted(id: u32) -> crate::cbh::ConvertedGame {
+        crate::cbh::ConvertedGame {
+            pgn: format!("[White \"P{id}\"]\n\n1. e4 *\n"),
+            white: format!("P{id}"),
+            black: "?".to_string(),
+            mainline_plies: 1,
+            has_variations: false,
+            has_annotations: false,
+            dropped_variations: 0,
+            mainline_truncated: false,
+        }
+    }
+
+    /// Cancel raised during the first batch: the loop stops right after that
+    /// batch's flush — the batch is kept, no further record is converted, and
+    /// the report says so honestly.
+    #[test]
+    fn cbh_import_cancel_stops_at_batch_boundary() {
+        let cancel = AtomicBool::new(false);
+        let mut converted = 0u32;
+        let mut flushed_batches: Vec<u32> = Vec::new();
+        let rep = run_cbh_import(
+            2 * CBH_FLUSH_EVERY + 500,
+            &cancel,
+            |id| {
+                converted += 1;
+                Ok(fake_converted(id))
+            },
+            |rep, buf, processed| {
+                flushed_batches.push(processed);
+                rep.imported += buf.lines().filter(|l| l.starts_with("[White")).count() as u64;
+                buf.clear();
+                // Simulate the user clicking Cancel while batch 1 commits.
+                cancel.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(rep.cancelled);
+        assert_eq!(converted, CBH_FLUSH_EVERY, "stops after the first batch");
+        assert_eq!(flushed_batches, vec![CBH_FLUSH_EVERY]);
+        assert_eq!(rep.imported, CBH_FLUSH_EVERY as u64, "committed batch is kept");
+    }
+
+    /// No cancel: every record converts, the remainder batch flushes, and the
+    /// report is not marked cancelled.
+    #[test]
+    fn cbh_import_without_cancel_runs_to_completion() {
+        let cancel = AtomicBool::new(false);
+        let total = 2 * CBH_FLUSH_EVERY + 500;
+        let mut flushed_batches: Vec<u32> = Vec::new();
+        let rep = run_cbh_import(
+            total,
+            &cancel,
+            |id| Ok(fake_converted(id)),
+            |rep, buf, processed| {
+                flushed_batches.push(processed);
+                rep.imported += buf.lines().filter(|l| l.starts_with("[White")).count() as u64;
+                buf.clear();
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(!rep.cancelled);
+        assert_eq!(rep.imported, total as u64);
+        assert_eq!(
+            flushed_batches,
+            vec![CBH_FLUSH_EVERY, 2 * CBH_FLUSH_EVERY, total]
+        );
     }
 }

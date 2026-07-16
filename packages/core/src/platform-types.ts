@@ -255,6 +255,9 @@ export interface DatabaseProvider {
     dbPath?: string
     onProgress?: (p: CbhImportProgress) => void
   }): Promise<CbhImportReport>
+  /** Cancel the in-flight CBH import at its next batch boundary; committed
+   *  batches are kept and the import resolves with `cancelled: true`. */
+  cancelCbhImport(): Promise<void>
   listGames(
     filter: GameFilter,
     limit: number,

@@ -25,6 +25,10 @@ export interface EngineSettings {
   multiPv: number;
   /** Draw the engine's best-move arrows on the board in analysis mode. */
   showArrows: boolean;
+  /** Rank/file labels around the board (spec 001). Not an engine option, but
+   *  this blob is the app's one persisted-settings surface (showArrows set
+   *  the precedent). Default ON. */
+  showCoordinates: boolean;
   /** Analysis search limit (spec 011). Play mode always uses clock-based go. */
   analysisMode: AnalysisLimitMode;
   /** Target depth when analysisMode is "depth". */
@@ -96,6 +100,7 @@ export function defaultEngineSettings(): EngineSettings {
     threads: Math.min(4, maxThreads()),
     multiPv: 3,
     showArrows: false,
+    showCoordinates: true,
     analysisMode: "infinite",
     analysisDepth: 30,
     analysisMoveTimeMs: 5000,
@@ -171,6 +176,12 @@ export function loadEngineSettings(): EngineSettings {
         : typeof saved.showArrows === "boolean"
           ? saved.showArrows
           : defaults.showArrows,
+      // Spec 001 addition: absent in pre-existing blobs → default (ON),
+      // independent of the showArrows migration above.
+      showCoordinates:
+        typeof saved.showCoordinates === "boolean"
+          ? saved.showCoordinates
+          : defaults.showCoordinates,
       // Spec 011 additions: absent in pre-existing blobs, so each falls back
       // to its default independently of the showArrows migration above.
       analysisMode:

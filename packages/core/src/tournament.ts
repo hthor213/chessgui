@@ -5,7 +5,7 @@
 // `GameSpec[]` payload, keeps the id -> eval side-table the Rust side does not
 // carry, and aggregates outcomes into an eval -> conversion probability map.
 
-import type { PersonaDecision } from "./persona-types"
+import type { ErrorModel, PersonaDecision } from "./persona-types"
 
 // ---------------------------------------------------------------------------
 // Participant wire shape (spec 218 "The Participant") — camelCase, matches
@@ -42,6 +42,10 @@ export interface PersonaConfig {
   /** Per-persona base seed; mixed with the game id server-side (spec 214
    *  contract step 8) so every game in a batch is distinct yet reproducible. */
   seed?: number
+  /** Corpus error model (spec 214 contract step 5); absent = OFF. Only a
+   *  config tune_persona.py's held-out +2% bar enabled ever carries one —
+   *  the runner never defaults it on. */
+  errorModel?: ErrorModel
 }
 
 /** The runtime object a surface spawns to field an opponent (spec 218). */

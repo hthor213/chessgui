@@ -116,6 +116,16 @@ export function importCbh(args: {
   return getProviders().database.importCbh(args)
 }
 
+/**
+ * Cancel the in-flight CBH import. The Rust loop stops at its next batch
+ * boundary, keeps every batch already committed, and the pending
+ * {@link importCbh} call resolves with `cancelled: true` and honest counts
+ * for what landed. No-op when no import is running.
+ */
+export function cancelCbhImport(): Promise<void> {
+  return getProviders().database.cancelCbhImport()
+}
+
 /** Paginated, filtered header list. Sort defaults to newest-inserted first. */
 export function listGames(
   filter: GameFilter,

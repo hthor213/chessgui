@@ -1097,6 +1097,7 @@ export default function Home() {
                 legalMoves={game.legalMoves}
                 lastMove={game.lastMove}
                 onBoardSize={setThinkingBoardSize}
+                coordinates={engine.settings.showCoordinates}
               >
                 {game.pendingPromotion && (
                   <PromotionDialog
@@ -1322,6 +1323,7 @@ export default function Home() {
                 }
                 lastMove={previewStep ? (previewStep.lastMove as [Key, Key]) : game.lastMove}
                 onBoardSize={setBoardSize}
+                coordinates={engine.settings.showCoordinates}
                 autoShapes={previewStep ? [] : boardAutoShapes}
                 userShapes={previewStep ? [] : userShapes}
                 onShapesChange={handleShapesChange}

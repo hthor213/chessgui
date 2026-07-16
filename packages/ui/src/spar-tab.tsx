@@ -195,6 +195,9 @@ function samplingParamsFor(pc: PersonaConfig | undefined) {
     ...(pc.topK !== undefined ? { top_k: pc.topK } : {}),
     ...(pc.topP !== undefined ? { top_p: pc.topP } : {}),
     ...(pc.verifyDepth !== undefined ? { verify_depth: pc.verifyDepth } : {}),
+    // Corpus error model (spec 214 step 5): present ONLY when the tuner's
+    // held-out bar enabled it for this persona's config; default OFF.
+    ...(pc.errorModel !== undefined ? { error_model: pc.errorModel } : {}),
   }
 }
 

@@ -22,6 +22,13 @@ ports src-tauri/src/persona.rs precisely:
                          | pawn_push | quiet_piece) get their policy prior
                          multiplied before the reweight. OFF by default
                          (spec 214 hard rule); tune_persona.py measures it.
+  * error model       — contract step 5 (ErrorModel): the fitted corpus
+                         P(mistake | eval, phase, clock, band) reassigns the
+                         final sampling weights' MASS between the mistake
+                         branch (candidates >= 1.0 pawn behind the best) and
+                         the sound branch, keeping the human distribution
+                         within each branch. OFF by default (same hard rule);
+                         tune_persona.py --error-model measures it.
 
 Documented, unavoidable divergences from the Rust runtime (kept in one place
 so every consumer states the same caveats):
@@ -294,6 +301,80 @@ def endgame_priors(policy: Dict[str, float], ucis: Sequence[str]) -> List[float]
 
 
 # ---------------------------------------------------------------------------
+# Error model (contract step 5, persona.rs ErrorModel) — gated via the tuner
+# ---------------------------------------------------------------------------
+
+# Defaults mirrored from persona.rs ErrorModel / scripts/mining/error_model.py.
+ERROR_MISTAKE_DROP_CP = 100
+ERROR_EVAL_BUCKET_CP = 50
+ERROR_EVAL_CLAMP_CP = 500
+
+# Clock buckets in remaining SECONDS (error_model.py CLOCK_BUCKETS).
+ERROR_CLOCK_BUCKETS = ((600, "600plus"), (300, "300-600"), (120, "120-300"),
+                       (60, "60-120"), (30, "30-60"), (0, "lt30"))
+
+
+def eval_bucket_label(cp: int, bucket_cp: int = ERROR_EVAL_BUCKET_CP,
+                      clamp_cp: int = ERROR_EVAL_CLAMP_CP) -> str:
+    """Mover-POV cp -> '+0.0'-style lower-edge label (error_model.py
+    eval_bucket, persona.rs ErrorModel::eval_bucket_label)."""
+    cp = max(-clamp_cp, min(clamp_cp - 1, cp))
+    lower = (cp // bucket_cp) * bucket_cp  # floor division, like div_euclid
+    return f"{lower / 100:+.1f}"
+
+
+def clock_bucket_label(clock_ms: Optional[int]) -> str:
+    """Remaining clock (ms; None = unclocked) -> corpus clock-bucket label.
+    The corpus 'none' bucket (games without [%clk]) doubles as the unclocked
+    spar loop's bucket — honest: both mean 'no clock signal'."""
+    if clock_ms is None:
+        return "none"
+    seconds = clock_ms // 1000
+    for lo, label in ERROR_CLOCK_BUCKETS:
+        if seconds >= lo:
+            return label
+    return "lt30"
+
+
+def mistake_rate(em: dict, phase: str, eval_before_cp: int,
+                 clock_ms: Optional[int] = None) -> Optional[float]:
+    """persona.rs ErrorModel::mistake_rate: fitted cell lookup x rate_scale,
+    clamped to [0, 1]. None when the cell is missing (no data -> the model
+    stays silent rather than inventing a rate)."""
+    key = "|".join((phase,
+                    eval_bucket_label(eval_before_cp,
+                                      em.get("eval_bucket_cp",
+                                             ERROR_EVAL_BUCKET_CP),
+                                      em.get("eval_clamp_cp",
+                                             ERROR_EVAL_CLAMP_CP)),
+                    clock_bucket_label(clock_ms)))
+    rate = em.get("cells", {}).get(key)
+    if rate is None:
+        return None
+    return min(max(rate * em.get("rate_scale", 1.0), 0.0), 1.0)
+
+
+def apply_error_model(weights: Sequence[float], penalties: Sequence[float],
+                      rate: float, drop_pawns: float) -> Tuple[List[float], bool]:
+    """persona.rs apply_error_model_mix: split the normalized sampling weights
+    into the mistake branch (candidates >= drop_pawns behind the best) and the
+    sound branch, then reassign branch MASS to (rate, 1 - rate) while keeping
+    the within-branch human distribution. The model conditions WHEN a mistake
+    happens, never WHICH random move gets played (spec 214 hard rule). Returns
+    (weights, applied); untouched/False when either branch is empty or
+    weightless — nothing to time."""
+    if rate <= 0.0:
+        return list(weights), False
+    rate = min(rate, 1.0)
+    mis = sum(w for w, p in zip(weights, penalties) if p >= drop_pawns)
+    ok = sum(w for w, p in zip(weights, penalties) if p < drop_pawns)
+    if mis <= 0.0 or ok <= 0.0:
+        return list(weights), False
+    return ([w * (rate / mis if p >= drop_pawns else (1.0 - rate) / ok)
+             for w, p in zip(weights, penalties)], True)
+
+
+# ---------------------------------------------------------------------------
 # Self-test — fixtures mirror persona.rs's unit tests where they exist
 # ---------------------------------------------------------------------------
 
@@ -434,6 +515,55 @@ def selftest() -> int:
             self.assertEqual(sample_index(w, 0.49), 0)
             self.assertEqual(sample_index(w, 0.6), 1)
             self.assertEqual(sample_index(w, 0.999), 2)
+
+        def test_error_bucket_labels_match_the_corpus_convention(self):
+            # Mirrors scripts/mining/error_model.py eval_bucket/clock_bucket
+            # and persona.rs ErrorModel labels.
+            self.assertEqual(eval_bucket_label(0), "+0.0")
+            self.assertEqual(eval_bucket_label(49), "+0.0")
+            self.assertEqual(eval_bucket_label(50), "+0.5")
+            self.assertEqual(eval_bucket_label(-1), "-0.5")   # floor, not trunc
+            self.assertEqual(eval_bucket_label(-500), "-5.0")
+            self.assertEqual(eval_bucket_label(-9999), "-5.0")  # clamp low
+            self.assertEqual(eval_bucket_label(9999), "+4.5")   # clamp high
+            self.assertEqual(clock_bucket_label(None), "none")
+            self.assertEqual(clock_bucket_label(600_000), "600plus")
+            self.assertEqual(clock_bucket_label(599_000), "300-600")
+            self.assertEqual(clock_bucket_label(29_000), "lt30")
+            self.assertEqual(clock_bucket_label(0), "lt30")
+
+        def test_mistake_rate_lookup_scale_and_clamp(self):
+            em = {"cells": {"middlegame|+0.0|none": 0.05},
+                  "rate_scale": 2.0}
+            self.assertAlmostEqual(mistake_rate(em, "middlegame", 10), 0.10)
+            # Missing cell -> None (the model stays silent, never invents).
+            self.assertIsNone(mistake_rate(em, "endgame", 10))
+            self.assertIsNone(mistake_rate(em, "middlegame", 10, 5_000))
+            # Scale can never push the rate past 1.
+            em30 = {"cells": {"middlegame|+0.0|none": 0.9}, "rate_scale": 30.0}
+            self.assertEqual(mistake_rate(em30, "middlegame", 10), 1.0)
+
+        def test_apply_error_model_reassigns_branch_mass(self):
+            # Candidate 2 is the only mistake (>= 1.0 pawn behind): rate 0.3
+            # puts exactly 0.3 there; the sound branch keeps its shape.
+            w, applied = apply_error_model([0.7, 0.2, 0.1], [0.0, 0.0, 2.0],
+                                           0.3, 1.0)
+            self.assertTrue(applied)
+            self.assertAlmostEqual(w[2], 0.3)
+            self.assertAlmostEqual(w[0], 0.7 * 0.7 / 0.9)
+            self.assertAlmostEqual(w[1], 0.2 * 0.7 / 0.9)
+            self.assertAlmostEqual(sum(w), 1.0)
+
+        def test_apply_error_model_needs_both_branches(self):
+            # No mistake candidate / only mistake candidates / zero rate:
+            # weights untouched, applied False.
+            base = [0.6, 0.4]
+            self.assertEqual(apply_error_model(base, [0.0, 0.5], 0.3, 1.0),
+                             (base, False))
+            self.assertEqual(apply_error_model(base, [1.5, 2.5], 0.3, 1.0),
+                             (base, False))
+            self.assertEqual(apply_error_model(base, [0.0, 2.5], 0.0, 1.0),
+                             (base, False))
 
     suite = unittest.TestLoader().loadTestsFromTestCase(T)
     res = unittest.TextTestRunner(verbosity=2).run(suite)

@@ -50,11 +50,23 @@ Pipeline per persona:
      (STYLE_BAR). Anything below the bar is reported as measured-and-rejected;
      the config keeps style_bias off. Opening KL stays bias-free (reported,
      never optimized).
+  7. Corpus error model (spec 214 contract step 5, gated the same way): with
+     --error-model <fit json> (fit_error_model.py output), stage D measures
+     the fitted P(mistake | eval, phase, clock, band) surface — applied via
+     persona_sim.apply_error_model, the 1:1 port of persona.rs's mix — as a
+     candidate arm. A small rate_scale grid is searched on the TUNE half on
+     top of the stage-A/B params; the winner is judged ONCE on the untouched
+     TEST half, and `sampling.error_model` is written into the staged v2
+     config ONLY when that held-out delta is >= +2% absolute argmax
+     move-match@1 (ERROR_MODEL_BAR). Below the bar = measured-and-rejected;
+     personas keep consulting NO error model (persona.rs default OFF).
 
 Usage:
     python tune_persona.py --selftest
     python tune_persona.py --personas kasparov --limit 20    # smoke
     python tune_persona.py --personas kasparov,karpov,hannes-stefansson,dad
+    python tune_persona.py --personas kasparov \\
+        --error-model ../../data/personas/error_model.fit.json
 """
 
 from __future__ import annotations
@@ -75,6 +87,7 @@ import chess.pgn
 
 import metrics214 as mx
 import persona_sim as sim
+from fit_error_model import band_cells_for
 from eval_harness import (
     DATA_DIR, LC0, MAIA_DIR, PERSONAS, SEED, STOCKFISH, STRONGNET,
     TARGET_PER_PERSONA, PersonaCfg, Position, extract_candidates,
@@ -110,6 +123,12 @@ STYLE_GRID = {
     "window_plies": [4, 8],
 }
 STYLE_BAR = 0.02  # spec 214 acceptance: +2% absolute match@1, held out
+
+# Stage D: the corpus error model (contract step 5) as a candidate arm — the
+# fitted surface itself is fixed (fit_error_model.py); the only searched knob
+# is a global rate multiplier (clamped to [0,1] per cell at lookup).
+ERROR_SCALE_GRID = [0.5, 1.0, 1.5, 2.0]
+ERROR_MODEL_BAR = STYLE_BAR  # same spec 214 acceptance bar as every prior
 
 # The shipped config defaults (all 15 configs carry the same sampling block;
 # no schedule field -> flat temperature, persona-engine v1 behavior).
@@ -393,8 +412,20 @@ def record_weights(rec: dict, params: dict) -> List[float]:
     t = sim.effective_temperature(params["temperature"], params.get("schedule"),
                                   rec["phase"], clock_ms=None)
     penalties = sim.penalties_from_cp(rec["cand_evals"])
-    return sim.reweight(priors, penalties, params["alpha"],
-                        params["lambda"], t)
+    w = sim.reweight(priors, penalties, params["alpha"],
+                     params["lambda"], t)
+    # Error model (contract step 5, stage D candidate): the eval BEFORE the
+    # move is the best candidate's mover-POV eval — the same estimate the
+    # Rust runtime uses; the harness is unclocked, so the clock bucket is
+    # "none" (identical to persona.rs's unclocked spar behavior).
+    em = params.get("error_model")
+    if em is not None and rec["cand_evals"]:
+        rate = sim.mistake_rate(em, rec["phase"], max(rec["cand_evals"]),
+                                clock_ms=None)
+        if rate is not None:
+            drop = em.get("mistake_drop_cp", sim.ERROR_MISTAKE_DROP_CP) / 100.0
+            w, _ = sim.apply_error_model(w, penalties, rate, drop)
+    return w
 
 
 def evaluate(records: List[dict], params: dict) -> dict:
@@ -590,6 +621,99 @@ def measure_style_prior(tune_recs: List[dict], test_recs: List[dict],
     out["verdict"] = ("ENABLED" if out["enabled"]
                       else "measured, below the bar — stays off")
     return out
+
+
+def error_model_wire(cells: Dict[str, float], rate_scale: float) -> dict:
+    """The persona.rs `ErrorModel` wire shape (snake_case, all knobs
+    explicit) — what an enabled arm writes into sampling.error_model."""
+    return {"cells": cells, "rate_scale": rate_scale,
+            "mistake_drop_cp": sim.ERROR_MISTAKE_DROP_CP,
+            "eval_bucket_cp": sim.ERROR_EVAL_BUCKET_CP,
+            "eval_clamp_cp": sim.ERROR_EVAL_CLAMP_CP}
+
+
+def measure_error_model(tune_recs: List[dict], test_recs: List[dict],
+                        params: dict, band: str,
+                        cells: Dict[str, float]) -> dict:
+    """Stage D — the corpus error model as a candidate arm (contract step 5),
+    gated exactly like the style priors: search ERROR_SCALE_GRID on the TUNE
+    half on top of `params` (a candidate must STRICTLY beat the no-model
+    baseline on match@1), judge the winner ONCE on the untouched TEST half,
+    and enable ONLY when the held-out delta meets ERROR_MODEL_BAR. The same
+    hard rule: mistake timing ships on measurement, never on vibes."""
+    def score(recs: List[dict], em: Optional[dict]) -> tuple:
+        p = dict(params)
+        if em is not None:
+            p["error_model"] = em
+        m = evaluate(recs, p)
+        return (m["match@1"], m["match@3"], -m["nll"])
+
+    def coverage(recs: List[dict]) -> int:
+        """Records whose (phase, eval, clock=none) cell the fit covers —
+        where the model can fire at all."""
+        em = error_model_wire(cells, 1.0)
+        return sum(1 for r in recs if r["cand_evals"] and sim.mistake_rate(
+            em, r["phase"], max(r["cand_evals"])) is not None)
+
+    base_tune = score(tune_recs, None)
+    best_em: Optional[dict] = None
+    best_score = base_tune
+    trials = []
+    for scale in ERROR_SCALE_GRID:
+        em = error_model_wire(cells, scale)
+        s = score(tune_recs, em)
+        trials.append({"rate_scale": scale, "match@1_tune": s[0]})
+        # Candidacy needs a STRICT match@1 gain in-sample (same reasoning as
+        # stage C: the gate is match@1); ties break on match@3 then -NLL.
+        if s[0] > base_tune[0] and s > best_score:
+            best_score, best_em = s, em
+
+    out = {
+        "band": band,
+        "grid": trials,
+        "base_match@1_tune": base_tune[0],
+        "covered_tune": coverage(tune_recs),
+        "covered_test": coverage(test_recs),
+        "bar": f"+{ERROR_MODEL_BAR:.0%} absolute argmax move-match@1 on the "
+               "test half vs the same tuned params without the model",
+        "model": None,
+        "enabled": False,
+    }
+    if best_em is None:
+        out["verdict"] = "no rate_scale beat the no-model baseline on the tune half"
+        return out
+
+    base_test = score(test_recs, None)
+    with_test = score(test_recs, best_em)
+    delta = round(with_test[0] - base_test[0], 4)
+    out.update({
+        "model": best_em,
+        "rate_scale": best_em["rate_scale"],
+        "match@1_tune_with_model": best_score[0],
+        "match@1_test_without": base_test[0],
+        "match@1_test_with": with_test[0],
+        "delta_match@1_test": delta,
+        "enabled": delta >= ERROR_MODEL_BAR,
+    })
+    out["verdict"] = ("ENABLED" if out["enabled"]
+                      else "measured, below the bar — stays off")
+    return out
+
+
+def persona_band_level(target: dict) -> int:
+    """The Elo level whose corpus band the persona's error model comes from:
+    a Maia-band backend states it directly; a GM persona uses its config's
+    declared sampling level (the strength it MODELS, not the gated spar
+    band)."""
+    m = re.match(r"maia-(\d+)$", target["backend"])
+    if m:
+        return int(m.group(1))
+    cfg_path: Optional[Path] = target["config_v1"]
+    if cfg_path is not None and cfg_path.exists():
+        level = json.loads(cfg_path.read_text()).get("sampling", {}).get("level")
+        if isinstance(level, int):
+            return level
+    return 1900
 
 
 # ---------------------------------------------------------------------------
@@ -813,7 +937,8 @@ def extract_dad_positions(text: str, cfg: PersonaCfg) -> List[Position]:
 # Per-persona run
 # ---------------------------------------------------------------------------
 
-def run_persona(target: dict, limit: Optional[int], budget_min: float) -> dict:
+def run_persona(target: dict, limit: Optional[int], budget_min: float,
+                error_fit: Optional[dict] = None) -> dict:
     t0 = time.time()
     deadline = t0 + budget_min * 60.0
     label = target["label"]
@@ -864,6 +989,20 @@ def run_persona(target: dict, limit: Optional[int], budget_min: float) -> dict:
         style_prior = measure_style_prior(tune_recs, test_recs, tuned_params)
         assert measure_style_prior(tune_recs, test_recs, tuned_params) == style_prior
 
+        # Stage D: the corpus error model (contract step 5), measured on top
+        # of the tuned params and gated on the same held-out +2% bar. Only
+        # runs when --error-model supplied a fit.
+        error_model = None
+        if error_fit is not None:
+            level = persona_band_level(target)
+            band, cells = band_cells_for(error_fit, level)
+            error_model = measure_error_model(tune_recs, test_recs,
+                                              tuned_params, band, cells)
+            error_model["level"] = level
+            assert measure_error_model(tune_recs, test_recs, tuned_params,
+                                       band, cells) == {
+                k: v for k, v in error_model.items() if k != "level"}
+
         # Opening KL (reported, never optimized; bias-free) at defaults and
         # tuned params.
         open_pos = opening_positions(text, cfg, target["surnames"])
@@ -889,6 +1028,7 @@ def run_persona(target: dict, limit: Optional[int], budget_min: float) -> dict:
             "default_params": DEFAULT_PARAMS,
             "tuned_params": tuned_params,
             "style_prior": style_prior,
+            "error_model": error_model,
             "tuning_trace": trace,
             "metrics": {
                 "tune_half": {"default": before_tune, "tuned": after_tune},
@@ -929,6 +1069,7 @@ def emit_config_v2(target: dict, result: dict) -> Optional[Path]:
     cfg = json.loads(v1_path.read_text())
     tp = result["tuned_params"]
     sp = result.get("style_prior") or {}
+    em = result.get("error_model") or {}
     cfg["version"] = 2
     cfg["sampling"] = {
         "level": cfg.get("sampling", {}).get("level", 1900),
@@ -941,6 +1082,9 @@ def emit_config_v2(target: dict, result: dict) -> Optional[Path]:
         # persona.rs StyleBias shape; null = OFF (the default everywhere).
         # Only a prior that beat STYLE_BAR on the held-out test half lands.
         "style_bias": sp.get("prior") if sp.get("enabled") else None,
+        # persona.rs ErrorModel shape (contract step 5); null = OFF. Only a
+        # fit that beat ERROR_MODEL_BAR on the held-out test half lands.
+        "error_model": em.get("model") if em.get("enabled") else None,
     }
     cfg["tuning"] = {
         "date": time.strftime("%Y-%m-%d"),
@@ -959,6 +1103,9 @@ def emit_config_v2(target: dict, result: dict) -> Optional[Path]:
         "style_prior": {k: sp.get(k) for k in
                         ("prior", "enabled", "delta_match@1_test", "bar",
                          "verdict")},
+        "error_model": {k: em.get(k) for k in
+                        ("band", "rate_scale", "enabled",
+                         "delta_match@1_test", "bar", "verdict")},
         "status": "staged — not loaded by the app; promotion is an explicit "
                   "step",
     }
@@ -1051,6 +1198,19 @@ def report_markdown(results: List[dict], total_s: float) -> str:
                   f"(delta {sp['delta_match@1_test']:+.4f}, bar +{STYLE_BAR}) "
                   f"-> **{sp['verdict']}**. Live windows (test half): "
                   f"{sp['windows_live_test']}.\n")
+        em = r.get("error_model")
+        if em:
+            if em.get("model") is None:
+                A(f"Error model (stage D, corpus band {em['band']}, "
+                  f"{len(em['grid'])} scales): {em['verdict']}. Coverage "
+                  f"(test half): {em['covered_test']}.\n")
+            else:
+                A(f"Error model (stage D, corpus band {em['band']}): best "
+                  f"rate_scale x{em['rate_scale']}; held-out match@1 "
+                  f"{em['match@1_test_without']} -> {em['match@1_test_with']} "
+                  f"(delta {em['delta_match@1_test']:+.4f}, bar "
+                  f"+{ERROR_MODEL_BAR}) -> **{em['verdict']}**. Coverage "
+                  f"(test half): {em['covered_test']}.\n")
     return "\n".join(L)
 
 
@@ -1171,6 +1331,66 @@ def selftest() -> int:
             self.assertFalse(sp["enabled"])
             self.assertLess(sp["delta_match@1_test"], STYLE_BAR)
 
+        def test_error_model_arm_enabled_when_both_halves_agree(self):
+            # The human consistently PLAYS the >=1-pawn "mistake" candidate
+            # the reweight suppresses; the corpus cell says mistakes are
+            # near-certain here. The mix must move argmax onto the human
+            # move on both halves -> enabled.
+            def half():
+                return [mkrec(actual="c", priors=(0.6, 0.3, 0.1),
+                              evals=(10, 0, -200), ply=20 + i)
+                        for i in range(20)]
+            cells = {"middlegame|+0.0|none": 0.9}
+            em = measure_error_model(half(), half(), DEFAULT_PARAMS,
+                                     "1500", cells)
+            self.assertTrue(em["enabled"])
+            self.assertIsNotNone(em["model"])
+            self.assertEqual(em["model"]["cells"], cells)
+            self.assertGreaterEqual(em["delta_match@1_test"], ERROR_MODEL_BAR)
+            self.assertEqual(em["covered_test"], 20)
+
+        def test_error_model_arm_not_enabled_when_test_half_disagrees(self):
+            cells = {"middlegame|+0.0|none": 0.9}
+            tune_h = [mkrec(actual="c", priors=(0.6, 0.3, 0.1),
+                            evals=(10, 0, -200), ply=20 + i)
+                      for i in range(20)]
+            test_h = [mkrec(actual="a", priors=(0.6, 0.3, 0.1),
+                            evals=(10, 0, -200), ply=20 + i)
+                      for i in range(20)]
+            em = measure_error_model(tune_h, test_h, DEFAULT_PARAMS,
+                                     "1500", cells)
+            self.assertFalse(em["enabled"])
+            self.assertLess(em["delta_match@1_test"], ERROR_MODEL_BAR)
+
+        def test_error_model_arm_silent_without_coverage(self):
+            # Cells for a phase the records never hit: rates come back None,
+            # weights never change, nothing can beat the baseline.
+            cells = {"endgame|+0.0|none": 0.9}
+            recs = [mkrec(actual="c", evals=(10, 0, -200), ply=20 + i)
+                    for i in range(10)]
+            em = measure_error_model(recs, recs, DEFAULT_PARAMS,
+                                     "1500", cells)
+            self.assertFalse(em["enabled"])
+            self.assertIsNone(em["model"])
+            self.assertEqual(em["covered_test"], 0)
+
+        def test_record_weights_error_model_mixes_the_mistake_branch(self):
+            # penalties (pawns): a 0.0, b 0.1, c 2.1 -> mistake branch = {c}.
+            rec = mkrec()
+            em = {"cells": {"middlegame|+0.0|none": 0.4}, "rate_scale": 1.0,
+                  "mistake_drop_cp": 100, "eval_bucket_cp": 50,
+                  "eval_clamp_cp": 500}
+            base = record_weights(rec, DEFAULT_PARAMS)
+            mixed = record_weights(rec, dict(DEFAULT_PARAMS, error_model=em))
+            self.assertAlmostEqual(mixed[2], 0.4)
+            self.assertAlmostEqual(sum(mixed), 1.0)
+            self.assertGreater(mixed[2], base[2])
+            # Uncovered cell -> untouched.
+            em_miss = dict(em, cells={"endgame|+0.0|none": 0.4})
+            self.assertEqual(
+                record_weights(rec, dict(DEFAULT_PARAMS, error_model=em_miss)),
+                base)
+
         def test_style_prior_none_when_nothing_beats_baseline(self):
             # Policy already ranks the human move first everywhere: no prior
             # can strictly improve the tune half.
@@ -1258,6 +1478,10 @@ def main() -> int:
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--no-report", action="store_true",
                     help="skip HARNESS_RESULTS.md / config emission (smoke)")
+    ap.add_argument("--error-model", type=Path, default=None,
+                    help="fitted error model (fit_error_model.py output) to "
+                         "measure as a stage-D candidate arm; absent = stage "
+                         "D skipped, personas keep no error model")
     args = ap.parse_args()
 
     if args.selftest:
@@ -1266,6 +1490,18 @@ def main() -> int:
     if not STRONGNET.exists():
         print(f"FATAL: strong net missing at {STRONGNET}", file=sys.stderr)
         return 2
+
+    error_fit = None
+    if args.error_model is not None:
+        if not args.error_model.exists():
+            print(f"FATAL: --error-model file missing: {args.error_model}",
+                  file=sys.stderr)
+            return 2
+        error_fit = json.loads(args.error_model.read_text())
+        if "bands" not in error_fit:
+            print("FATAL: --error-model is not a fit_error_model.py output "
+                  "(no 'bands')", file=sys.stderr)
+            return 2
 
     wanted = [s.strip() for s in args.personas.split(",") if s.strip()]
     targets = []
@@ -1280,19 +1516,21 @@ def main() -> int:
     t0 = time.time()
     results = []
     for target in targets:
-        r = run_persona(target, args.limit, args.budget_min)
+        r = run_persona(target, args.limit, args.budget_min, error_fit)
         results.append(r)
         out_json = target["out_dir"] / f"tuning_{target['label']}.json"
         out_json.write_text(json.dumps(r, indent=2) + "\n")
         print(f"[{target['label']}] wrote {out_json}", flush=True)
         style_on = (r.get("style_prior") or {}).get("enabled", False)
+        em_on = (r.get("error_model") or {}).get("enabled", False)
         if (not args.no_report and r["status"] == "ok"
-                and (r["acceptance"]["met"] or style_on)):
+                and (r["acceptance"]["met"] or style_on or em_on)):
             v2 = emit_config_v2(target, r)
             if v2:
                 what = " + ".join(w for w, ok in
                                   [("params", r["acceptance"]["met"]),
-                                   ("style prior", style_on)] if ok)
+                                   ("style prior", style_on),
+                                   ("error model", em_on)] if ok)
                 print(f"[{target['label']}] bar MET ({what}) -> staged {v2}",
                       flush=True)
 

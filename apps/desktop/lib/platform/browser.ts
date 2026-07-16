@@ -186,6 +186,9 @@ export const browserProviders: PlatformProviders = {
     importCbh(): Promise<CbhImportReport> {
       return Promise.reject(new Error("CBH import requires the desktop app"))
     },
+    cancelCbhImport(): Promise<void> {
+      return Promise.reject(new Error("CBH import requires the desktop app"))
+    },
     listGames(
       filter: GameFilter,
       limit: number,

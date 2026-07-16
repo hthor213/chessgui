@@ -41,6 +41,7 @@
 import { getProviders } from "@/lib/platform"
 import { MAIA_MAX_NATIVE_BAND } from "@/lib/maia"
 import type { RivalBook } from "@/lib/rival-book"
+import type { ErrorModel } from "@chessgui/core/persona-types"
 
 // The committed GM persona configs (spec 214 Tier 2 extraction pipeline).
 // Static imports — these are small public JSON files; the multi-MB *.book.json
@@ -98,6 +99,9 @@ export interface PersonaConfig {
   topK?: number
   topP?: number
   verifyDepth?: number
+  /** Corpus error model (spec 214 step 5), from a config whose tuner run
+   *  passed the held-out +2% bar; absent = OFF (the default everywhere). */
+  errorModel?: ErrorModel
 }
 
 export interface Participant {
@@ -282,6 +286,8 @@ function samplingOverrides(cfg: PersonaConfigFile): Partial<PersonaConfig> {
     ...(s.top_k !== undefined ? { topK: s.top_k } : {}),
     ...(s.top_p !== undefined ? { topP: s.top_p } : {}),
     ...(s.verify_depth !== undefined ? { verifyDepth: s.verify_depth } : {}),
+    // null in the file means measured-and-rejected — same as absent: OFF.
+    ...(s.error_model ? { errorModel: s.error_model } : {}),
   }
 }
 

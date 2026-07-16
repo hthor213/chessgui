@@ -1,11 +1,14 @@
 // Local play-vs-engine clocks (spec 011 "Later" box, 000:81). Pure model —
-// hooks/use-play-clock.ts owns the React state and ticking. Enforcement is
-// entirely local: the frontend adjudicates the flag (flag = loss), unlike the
+// hooks/use-play-clock.ts owns the React state and ticking — plus the
+// custom-time-control validation and its last-used persistence (the one
+// storage-seam touch in this file). Enforcement is entirely local: the
+// frontend adjudicates the flag (flag = loss), unlike the
 // server-adjudicated arena clocks (spec 217). Presentation reuses
 // lib/arena-moves' formatClockMs / timeControlLabel so every clock face in
 // the app reads the same.
 
 import { timeControlLabel } from "@/lib/arena-moves";
+import { getProviders } from "@/lib/platform";
 
 export type ClockColor = "white" | "black";
 
@@ -28,6 +31,65 @@ export const PLAY_CLOCK_PRESETS: PlayClockPreset[] = [
 ];
 
 export const UNTIMED_PRESET = PLAY_CLOCK_PRESETS[0];
+
+// --- Custom time control (spec 011) ---
+
+/** User-entered time control: whole base minutes + whole increment seconds. */
+export interface CustomTimeControl {
+  baseMin: number;
+  incS: number;
+}
+
+export const CUSTOM_BASE_MIN = 1; // minutes — "0 base" is spelled Untimed
+export const CUSTOM_BASE_MAX = 180;
+export const CUSTOM_INC_MIN = 0; // seconds
+export const CUSTOM_INC_MAX = 120;
+
+export const DEFAULT_CUSTOM_TC: CustomTimeControl = { baseMin: 10, incS: 0 };
+
+/** True when both fields are integers inside the allowed ranges (rejects
+ *  NaN from an emptied number input). */
+export function isValidCustomTimeControl(tc: CustomTimeControl): boolean {
+  return (
+    Number.isInteger(tc.baseMin) &&
+    tc.baseMin >= CUSTOM_BASE_MIN &&
+    tc.baseMin <= CUSTOM_BASE_MAX &&
+    Number.isInteger(tc.incS) &&
+    tc.incS >= CUSTOM_INC_MIN &&
+    tc.incS <= CUSTOM_INC_MAX
+  );
+}
+
+/** A validated custom TC as a preset the clock model already understands. */
+export function customClockPreset(tc: CustomTimeControl): PlayClockPreset {
+  return {
+    id: "custom",
+    label: `Custom ${timeControlLabel(tc.baseMin * 60, tc.incS)}`,
+    baseS: tc.baseMin * 60,
+    incS: tc.incS,
+  };
+}
+
+const CUSTOM_TC_KEY = "play-custom-tc";
+
+/** Last custom TC the user started a game with; the default until then
+ *  (or when the stored blob is garbage/out of range). */
+export function loadCustomTimeControl(): CustomTimeControl {
+  try {
+    const raw = getProviders().storage.get(CUSTOM_TC_KEY);
+    if (!raw) return DEFAULT_CUSTOM_TC;
+    const saved = JSON.parse(raw) as Partial<CustomTimeControl>;
+    const tc = { baseMin: Number(saved.baseMin), incS: Number(saved.incS) };
+    return isValidCustomTimeControl(tc) ? tc : DEFAULT_CUSTOM_TC;
+  } catch {
+    return DEFAULT_CUSTOM_TC;
+  }
+}
+
+export function saveCustomTimeControl(tc: CustomTimeControl): void {
+  if (!isValidCustomTimeControl(tc)) return; // never persist an invalid TC
+  getProviders().storage.set(CUSTOM_TC_KEY, JSON.stringify(tc));
+}
 
 export interface PlayClockState {
   /** Remaining ms per side, as of the moment the current turn started. */

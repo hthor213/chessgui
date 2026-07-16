@@ -331,6 +331,9 @@ export const tauriProviders: PlatformProviders = {
         onProgress: channel,
       })
     },
+    cancelCbhImport(): Promise<void> {
+      return invoke("db_cancel_cbh_import")
+    },
     listGames(
       filter: GameFilter,
       limit: number,

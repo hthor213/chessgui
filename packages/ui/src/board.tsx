@@ -34,6 +34,12 @@ interface BoardProps {
   userShapes?: DrawShape[];
   /** Fires when the user finishes drawing or clears shapes — persist them here. */
   onShapesChange?: (shapes: DrawShape[]) => void;
+  /**
+   * Rank/file labels in the gutters around the board (spec 001). Default ON;
+   * the setting lives in EngineSettings.showCoordinates. Off collapses the
+   * gutters so the board reclaims the space.
+   */
+  coordinates?: boolean;
   children?: React.ReactNode;
 }
 
@@ -43,7 +49,7 @@ const COORD_GUTTER = 26;
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, coordinates = true, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
@@ -58,6 +64,8 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
   const userShapesRef = useRef(userShapes);
   const onShapesChangeRef = useRef(onShapesChange);
   const [boardSize, setBoardSize] = useState(560);
+  // Coordinates off collapses the gutters entirely (labels AND their space).
+  const gutter = coordinates ? COORD_GUTTER : 0;
 
   onMoveRef.current = onMove;
   onSelectRef.current = onSelect;
@@ -82,7 +90,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       const rect = container.getBoundingClientRect();
       // Use the smaller of container width/height, leave room for controls
       // below and for the coordinate gutters on the left/bottom.
-      const size = Math.min(rect.width - COORD_GUTTER, rect.height - 48 - COORD_GUTTER);
+      const size = Math.min(rect.width - gutter, rect.height - 48 - gutter);
       const snapped = Math.max(160, Math.floor(size / 8) * 8);
       setBoardSize(snapped);
       onBoardSize?.(snapped);
@@ -92,7 +100,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
     const ro = new ResizeObserver(updateSize);
     ro.observe(container);
     return () => ro.disconnect();
-  }, []);
+  }, [gutter]);
 
   useEffect(() => {
     if (!boardRef.current) return;
@@ -115,6 +123,9 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       fen,
       orientation,
       viewOnly,
+      // Chessground's built-in (inside-the-board) labels stay off: coordinate
+      // display is the wrapper's gutter labels, driven by the `coordinates`
+      // prop (spec 001).
       coordinates: false,
       turnColor: fen.includes(" w ") ? "white" : "black",
       movable: {
@@ -210,17 +221,19 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
     // touchAction none (spec 223): the whole board area — gutters included —
     // owns its touch gestures, so a piece drag never scrolls or zooms the
     // page. No effect on mouse input.
-    <div style={{ position: "relative", width: boardSize + COORD_GUTTER, height: boardSize + COORD_GUTTER, flexShrink: 0, touchAction: "none" }}>
+    <div style={{ position: "relative", width: boardSize + gutter, height: boardSize + gutter, flexShrink: 0, touchAction: "none" }}>
       {/* Rank labels, left of the board */}
-      <div style={{ position: "absolute", left: 0, top: 0, width: COORD_GUTTER, height: boardSize, display: "flex", flexDirection: "column" }}>
-        {ranks.map((r) => (
-          <span key={r} className="flex-1 flex items-center justify-center text-base font-semibold text-muted-foreground select-none">
-            {r}
-          </span>
-        ))}
-      </div>
+      {coordinates && (
+        <div style={{ position: "absolute", left: 0, top: 0, width: gutter, height: boardSize, display: "flex", flexDirection: "column" }}>
+          {ranks.map((r) => (
+            <span key={r} className="flex-1 flex items-center justify-center text-base font-semibold text-muted-foreground select-none">
+              {r}
+            </span>
+          ))}
+        </div>
+      )}
       {/* Board + overlays (promotion dialog, etc.) stay aligned to the board square */}
-      <div style={{ position: "absolute", left: COORD_GUTTER, top: 0, width: boardSize, height: boardSize }}>
+      <div style={{ position: "absolute", left: gutter, top: 0, width: boardSize, height: boardSize }}>
         <div
           ref={boardRef}
           style={{
@@ -231,13 +244,15 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
         {children}
       </div>
       {/* File labels, below the board */}
-      <div style={{ position: "absolute", left: COORD_GUTTER, top: boardSize, width: boardSize, height: COORD_GUTTER, display: "flex" }}>
-        {files.map((f) => (
-          <span key={f} className="flex-1 flex items-center justify-center text-base font-semibold text-muted-foreground select-none">
-            {f}
-          </span>
-        ))}
-      </div>
+      {coordinates && (
+        <div style={{ position: "absolute", left: gutter, top: boardSize, width: boardSize, height: gutter, display: "flex" }}>
+          {files.map((f) => (
+            <span key={f} className="flex-1 flex items-center justify-center text-base font-semibold text-muted-foreground select-none">
+              {f}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

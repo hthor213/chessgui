@@ -1,0 +1,24 @@
+{
+  "meta": {
+    "generator": "error_model.py v1",
+    "spec": "214 contract step 5",
+    "months": ["fixture"],
+    "cell_key": "band|phase|eval_bucket_lower|clock_bucket",
+    "mistake_drop_cp": 100,
+    "total_moves": 363103,
+    "total_mistakes": 29303,
+    "merged_at": "2026-07-16T00:00:00+00:00",
+    "note": "hand-built fixture for fit_error_model.py --selftest; counts chosen so shrinkage/kernel behavior is assertable"
+  },
+  "cells": {
+    "1500|opening|+0.0|600plus": {"moves": 60000, "mistakes": 1200, "rate": 0.02},
+    "1500|middlegame|+0.0|600plus": {"moves": 100000, "mistakes": 5000, "rate": 0.05},
+    "1500|middlegame|-3.0|600plus": {"moves": 50000, "mistakes": 10000, "rate": 0.2},
+    "1500|middlegame|+0.0|lt30": {"moves": 20000, "mistakes": 4000, "rate": 0.2},
+    "1500|middlegame|+4.5|600plus": {"moves": 3, "mistakes": 3, "rate": 1.0},
+    "1500|endgame|+0.0|600plus": {"moves": 40000, "mistakes": 6000, "rate": 0.15},
+    "1800|middlegame|+0.0|600plus": {"moves": 80000, "mistakes": 2400, "rate": 0.03},
+    "1800|middlegame|+0.0|none": {"moves": 10000, "mistakes": 500, "rate": 0.05},
+    "1800|middlegame|-1.0|600plus": {"moves": 3100, "mistakes": 200, "rate": 0.064516}
+  }
+}

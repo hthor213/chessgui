@@ -43,6 +43,8 @@ export async function mockPersonaMove(
         phase: params.ply < 16 ? "opening" : "middlegame",
         temperature: params.temperature,
         style_bias_applied: false,
+        error_model_applied: false,
+        mistake_rate: null,
         candidates: [
           {
             uci: ply.uci,

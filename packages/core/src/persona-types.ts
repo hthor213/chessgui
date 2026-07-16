@@ -30,6 +30,24 @@ export interface StyleBias {
   move_types: string[];
 }
 
+/** Corpus error model (contract step 5): fitted P(mistake | eval, phase,
+ *  clock, band) surfaces (scripts/persona/fit_error_model.py) that remix the
+ *  final sampling weights' mass between the mistake branch (candidates >=
+ *  mistake_drop_cp behind the best) and the sound branch — mistake TIMING
+ *  from the corpus, the mistake itself still a human policy candidate. OFF
+ *  by default (never sent); a config carries it ONLY after tune_persona.py's
+ *  held-out +2% bar enabled it (spec 214 hard rule). */
+export interface ErrorModel {
+  /** Fitted P(mistake) per "phase|eval_bucket_lower|clock_bucket" cell. */
+  cells: Record<string, number>;
+  /** Tuner-searched multiplier on the fitted rate (default 1.0). */
+  rate_scale?: number;
+  /** Mistake-branch threshold in cp behind the best candidate (default 100). */
+  mistake_drop_cp?: number;
+  eval_bucket_cp?: number;
+  eval_clamp_cp?: number;
+}
+
 /** Endgame arm (contract step 6): at low non-pawn material (phase weight <=
  *  phase_max; 24 at the start, endgame at <= 8) the candidate source switches
  *  to deep fixed-depth Stockfish MultiPV top-k, still humanized through the
@@ -80,6 +98,8 @@ export interface PersonaParams {
   style_bias?: StyleBias;
   /** Endgame arm; undefined = disabled. */
   endgame?: EndgameArm;
+  /** Corpus error model; undefined = OFF (the gated default, see ErrorModel). */
+  error_model?: ErrorModel;
 }
 
 /** One candidate move's decision record (contract step 9). */
@@ -113,5 +133,10 @@ export interface PersonaDecision {
   temperature?: number;
   /** True when the style-bias window fired and a candidate matched. */
   style_bias_applied?: boolean;
+  /** True when the error model remixed the weights this move (step 5). */
+  error_model_applied?: boolean;
+  /** The fitted P(mistake) looked up for this move's cell; null/undefined =
+   *  model off, no eval evidence, or uncovered cell. */
+  mistake_rate?: number | null;
   candidates: PersonaCandidate[];
 }

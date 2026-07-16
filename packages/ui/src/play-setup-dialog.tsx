@@ -10,7 +10,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@chessgui/ui/ui/dialog"
-import { PLAY_CLOCK_PRESETS, type PlayClockPreset } from "@/lib/play-clock"
+import { Input } from "@chessgui/ui/ui/input"
+import {
+  CUSTOM_BASE_MAX,
+  CUSTOM_BASE_MIN,
+  CUSTOM_INC_MAX,
+  CUSTOM_INC_MIN,
+  customClockPreset,
+  isValidCustomTimeControl,
+  loadCustomTimeControl,
+  PLAY_CLOCK_PRESETS,
+  saveCustomTimeControl,
+  type CustomTimeControl,
+  type PlayClockPreset,
+} from "@/lib/play-clock"
 
 type ColorChoice = "white" | "random" | "black"
 
@@ -18,7 +31,7 @@ interface PlaySetupDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Start the game: color already resolved (random picked here), preset
-   *  from PLAY_CLOCK_PRESETS (untimed = no clock). */
+   *  from PLAY_CLOCK_PRESETS or a validated custom TC (untimed = no clock). */
   onStart: (color: "white" | "black", preset: PlayClockPreset) => void
 }
 
@@ -58,10 +71,23 @@ function ChoiceChip({
 export function PlaySetupDialog({ open, onOpenChange, onStart }: PlaySetupDialogProps) {
   const [color, setColor] = useState<ColorChoice>("white")
   const [presetId, setPresetId] = useState<string>("untimed")
+  // Custom TC fields (spec 011): seeded from the last game started with one
+  // (storage seam); saved back on Start so the values survive restarts.
+  const [custom, setCustom] = useState<CustomTimeControl>(() => loadCustomTimeControl())
+
+  const customValid = isValidCustomTimeControl(custom)
+  const startDisabled = presetId === "custom" && !customValid
 
   const handleStart = () => {
-    const preset =
-      PLAY_CLOCK_PRESETS.find((p) => p.id === presetId) ?? PLAY_CLOCK_PRESETS[0]
+    let preset: PlayClockPreset
+    if (presetId === "custom") {
+      if (!customValid) return
+      saveCustomTimeControl(custom)
+      preset = customClockPreset(custom)
+    } else {
+      preset =
+        PLAY_CLOCK_PRESETS.find((p) => p.id === presetId) ?? PLAY_CLOCK_PRESETS[0]
+    }
     const resolved =
       color === "random" ? (Math.random() < 0.5 ? "white" : "black") : color
     onStart(resolved, preset)
@@ -119,7 +145,48 @@ export function PlaySetupDialog({ open, onOpenChange, onStart }: PlaySetupDialog
                   {p.label}
                 </ChoiceChip>
               ))}
+              <ChoiceChip
+                selected={presetId === "custom"}
+                onClick={() => setPresetId("custom")}
+                testId="play-preset-custom"
+              >
+                Custom
+              </ChoiceChip>
             </div>
+            {presetId === "custom" && (
+              <div className="flex items-center gap-2 pt-1">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  Minutes
+                  <Input
+                    type="number"
+                    data-testid="play-custom-base"
+                    className="h-7 w-16 text-right font-mono"
+                    min={CUSTOM_BASE_MIN}
+                    max={CUSTOM_BASE_MAX}
+                    value={Number.isFinite(custom.baseMin) ? custom.baseMin : ""}
+                    onChange={(e) => setCustom({ ...custom, baseMin: e.target.valueAsNumber })}
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  Increment (s)
+                  <Input
+                    type="number"
+                    data-testid="play-custom-inc"
+                    className="h-7 w-16 text-right font-mono"
+                    min={CUSTOM_INC_MIN}
+                    max={CUSTOM_INC_MAX}
+                    value={Number.isFinite(custom.incS) ? custom.incS : ""}
+                    onChange={(e) => setCustom({ ...custom, incS: e.target.valueAsNumber })}
+                  />
+                </label>
+              </div>
+            )}
+            {presetId === "custom" && !customValid && (
+              <span className="text-xs text-red-400" data-testid="play-custom-error">
+                Base {CUSTOM_BASE_MIN}–{CUSTOM_BASE_MAX} whole minutes, increment{" "}
+                {CUSTOM_INC_MIN}–{CUSTOM_INC_MAX} whole seconds.
+              </span>
+            )}
           </div>
         </div>
 
@@ -131,6 +198,7 @@ export function PlaySetupDialog({ open, onOpenChange, onStart }: PlaySetupDialog
             size="sm"
             className="bg-green-600 hover:bg-green-700 text-white"
             onClick={handleStart}
+            disabled={startDisabled}
             data-testid="play-setup-start"
           >
             Start game

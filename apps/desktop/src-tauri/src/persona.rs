@@ -10,6 +10,7 @@
 // This module also serves the rival opening book to the UI (`rival_book`), read
 // from the local, gitignored data/rivals — dad's games stay on the machine.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -222,6 +223,11 @@ pub struct PersonaParams {
     /// Endgame arm (contract step 6). None = disabled (v1 behavior).
     #[serde(default)]
     pub endgame: Option<EndgameArm>,
+    /// Corpus error model (contract step 5). None = OFF — the default
+    /// EVERYWHERE; a config carries this only after tune_persona.py's
+    /// held-out +2% bar enabled it (spec 214 hard rule).
+    #[serde(default)]
+    pub error_model: Option<ErrorModel>,
 }
 
 /// One candidate move's full decision record (contract step 9).
@@ -262,6 +268,15 @@ pub struct PersonaDecision {
     /// True when the post-book style-bias window was active AND at least one
     /// candidate matched a biased move type this move.
     pub style_bias_applied: bool,
+    /// True when the error model (contract step 5) actually remixed the
+    /// sampling weights this move (a rate was found AND both a mistake and a
+    /// sound branch existed among the candidates).
+    pub error_model_applied: bool,
+    /// The fitted P(mistake) the error model looked up for this move's
+    /// (phase, eval, clock) cell — logged even when the mix couldn't apply
+    /// (realism-debugging record); None when the model is off, no eval
+    /// evidence exists, or the cell is uncovered.
+    pub mistake_rate: Option<f64>,
     pub candidates: Vec<PersonaCandidate>,
 }
 
@@ -508,6 +523,156 @@ impl Default for EndgameArm {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Corpus error model (contract step 5) — gated via the tuner, OFF by default
+// ---------------------------------------------------------------------------
+
+/// Corpus-derived error model (spec 214 contract step 5): the 11M-game
+/// evals-on corpus's P(mistake | eval, phase, clock, band), fitted/smoothed
+/// per band by scripts/persona/fit_error_model.py. A persona may consult it
+/// ONLY when tune_persona.py's stage D proved a held-out +2% move-match@1
+/// win — the enabled fit lands in the staged v2 config's
+/// `sampling.error_model`; absent = OFF, the default everywhere.
+///
+/// Application is a branch-mass remix of the FINAL sampling weights, never
+/// noise: candidates >= `mistake_drop_cp` behind the best form the mistake
+/// branch, and the model reassigns total mass (rate, 1-rate) between the
+/// branches while keeping the human distribution WITHIN each. It conditions
+/// WHEN mistakes happen (human-band timing); the mistake itself is still a
+/// human-plausible policy candidate (the hard rule: candidate-set realism,
+/// not random weakening).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ErrorModel {
+    /// Fitted P(mistake) cells for THIS persona's band, keyed
+    /// "phase|eval_bucket_lower|clock_bucket" — scripts/mining/error_model.py
+    /// conventions: eval is the mover-POV eval BEFORE the move in
+    /// `eval_bucket_cp` buckets clamped to ±`eval_clamp_cp`, labeled by the
+    /// lower edge in pawns ("+0.0"); clock buckets are remaining seconds
+    /// (600plus/300-600/120-300/60-120/30-60/lt30/none).
+    pub cells: HashMap<String, f64>,
+    /// Tuner-searched multiplier on the fitted rate (result clamped to [0,1]).
+    #[serde(default = "default_rate_scale")]
+    pub rate_scale: f64,
+    /// Candidates at least this many cp behind the best candidate form the
+    /// mistake branch (the corpus's MISTAKE_DROP_CP definition of "mistake").
+    #[serde(default = "default_mistake_drop_cp")]
+    pub mistake_drop_cp: i64,
+    #[serde(default = "default_eval_bucket_cp")]
+    pub eval_bucket_cp: i64,
+    #[serde(default = "default_eval_clamp_cp")]
+    pub eval_clamp_cp: i64,
+}
+
+fn default_rate_scale() -> f64 {
+    1.0
+}
+fn default_mistake_drop_cp() -> i64 {
+    100
+}
+fn default_eval_bucket_cp() -> i64 {
+    50
+}
+fn default_eval_clamp_cp() -> i64 {
+    500
+}
+
+impl ErrorModel {
+    /// Mover-POV cp -> the corpus's '+0.0'-style lower-edge bucket label
+    /// (error_model.py `eval_bucket`; floor division so -1 cp lands in -0.5).
+    fn eval_bucket_label(&self, cp: i64) -> String {
+        let cp = cp.clamp(-self.eval_clamp_cp, self.eval_clamp_cp - 1);
+        let lower = cp.div_euclid(self.eval_bucket_cp) * self.eval_bucket_cp;
+        format!("{:+.1}", lower as f64 / 100.0)
+    }
+
+    /// The fitted mistake probability for this move's cell, x `rate_scale`,
+    /// clamped to [0, 1]. None when the cell is uncovered — the model stays
+    /// silent rather than inventing a rate.
+    fn mistake_rate(&self, phase: Phase, eval_before_cp: i64, clock_ms: Option<i64>) -> Option<f64> {
+        let key = format!(
+            "{}|{}|{}",
+            phase.label(),
+            self.eval_bucket_label(eval_before_cp),
+            clock_bucket_label(clock_ms)
+        );
+        self.cells
+            .get(&key)
+            .map(|r| (r * self.rate_scale).clamp(0.0, 1.0))
+    }
+}
+
+/// Remaining clock (ms; None = unclocked, e.g. the spar loop) -> corpus
+/// clock-bucket label. The corpus "none" bucket (games without [%clk] tags)
+/// doubles as the unclocked bucket — both honestly mean "no clock signal".
+fn clock_bucket_label(clock_ms: Option<i64>) -> &'static str {
+    let Some(ms) = clock_ms else { return "none" };
+    let s = ms / 1000;
+    match s {
+        s if s >= 600 => "600plus",
+        s if s >= 300 => "300-600",
+        s if s >= 120 => "120-300",
+        s if s >= 60 => "60-120",
+        s if s >= 30 => "30-60",
+        _ => "lt30",
+    }
+}
+
+/// The error-model mix (see [`ErrorModel`]): reassign the normalized sampling
+/// weights' branch mass to (rate, 1-rate) across the mistake / sound split at
+/// `drop_pawns`, keeping each branch's internal distribution. Returns false
+/// (weights untouched) when either branch is empty or weightless — the
+/// candidate set can't offer, or can't avoid, a mistake, so there is nothing
+/// to time. Pure.
+fn apply_error_model_mix(weights: &mut [f64], penalties: &[f64], rate: f64, drop_pawns: f64) -> bool {
+    if rate <= 0.0 {
+        return false;
+    }
+    let rate = rate.min(1.0);
+    let mut mis = 0.0;
+    let mut ok = 0.0;
+    for (w, p) in weights.iter().zip(penalties) {
+        if *p >= drop_pawns {
+            mis += *w;
+        } else {
+            ok += *w;
+        }
+    }
+    if mis <= 0.0 || ok <= 0.0 {
+        return false;
+    }
+    for (w, p) in weights.iter_mut().zip(penalties) {
+        if *p >= drop_pawns {
+            *w *= rate / mis;
+        } else {
+            *w *= (1.0 - rate) / ok;
+        }
+    }
+    true
+}
+
+/// Consult the error model for one move (both selection arms route through
+/// this): the eval BEFORE the move is estimated as the best candidate's
+/// mover-POV eval, so the model is only live when verification evidence
+/// exists (verify reweight or endgame arm) — without evals there is no honest
+/// eval bucket, and the model stays off. Returns (applied, looked-up rate).
+fn consult_error_model(
+    em: Option<&ErrorModel>,
+    weights: &mut [f64],
+    penalties: &[f64],
+    eval_before_cp: Option<i64>,
+    phase: Phase,
+    clock_ms: Option<i64>,
+) -> (bool, Option<f64>) {
+    let (Some(em), Some(before)) = (em, eval_before_cp) else {
+        return (false, None);
+    };
+    let Some(rate) = em.mistake_rate(phase, before, clock_ms) else {
+        return (false, None);
+    };
+    let applied = apply_error_model_mix(weights, penalties, rate, em.mistake_drop_cp as f64 / 100.0);
+    (applied, Some(rate))
+}
+
 /// Per-move selection context (contract steps 3 + 6 knobs plus the state they
 /// condition on). Shared by the spar `persona_move` command and the match
 /// runner's persona arm; `Default` = persona engine v1 behavior (flat
@@ -523,6 +688,8 @@ pub(crate) struct SelectContext {
     pub schedule: Option<TemperatureSchedule>,
     pub style_bias: Option<StyleBias>,
     pub endgame: Option<EndgameArm>,
+    /// Corpus error model (contract step 5); None = OFF, the gated default.
+    pub error_model: Option<ErrorModel>,
 }
 
 // ---------------------------------------------------------------------------
@@ -570,22 +737,14 @@ fn select_candidates(
     kept
 }
 
-/// Combined policy + verification softmax, temperature-scaled, then inverse-CDF
-/// sampled with `u ∈ [0, 1)`. `penalties[i]` is pawns behind the best candidate
-/// (all zero disables the eval term -> pure tempered policy). Returns the chosen
-/// index and the normalized weights (for the decision log). Pure.
-fn reweight_and_sample(
-    policy: &[f64],
-    penalties: &[f64],
-    alpha: f64,
-    lambda: f64,
-    temperature: f64,
-    u: f64,
-) -> (usize, Vec<f64>) {
+/// Combined policy + verification softmax, temperature-scaled: the normalized
+/// sampling weights. `penalties[i]` is pawns behind the best candidate (all
+/// zero disables the eval term -> pure tempered policy). Pure.
+fn reweight(policy: &[f64], penalties: &[f64], alpha: f64, lambda: f64, temperature: f64) -> Vec<f64> {
     let n = policy.len();
     debug_assert_eq!(n, penalties.len());
     if n == 0 {
-        return (0, Vec::new());
+        return Vec::new();
     }
     let t = temperature.max(1e-6);
     let logits: Vec<f64> = (0..n)
@@ -594,21 +753,42 @@ fn reweight_and_sample(
     let maxl = logits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let exps: Vec<f64> = logits.iter().map(|l| (l - maxl).exp()).collect();
     let total: f64 = exps.iter().sum();
-    let weights: Vec<f64> = if total > 0.0 && total.is_finite() {
+    if total > 0.0 && total.is_finite() {
         exps.iter().map(|e| e / total).collect()
     } else {
         vec![1.0 / n as f64; n]
-    };
+    }
+}
 
+/// Inverse-CDF sample from normalized weights with `u ∈ [0, 1)`. Pure.
+fn sample_weighted(weights: &[f64], u: f64) -> usize {
     let target = u.clamp(0.0, 1.0);
     let mut acc = 0.0;
     for (i, w) in weights.iter().enumerate() {
         acc += w;
         if target < acc {
-            return (i, weights);
+            return i;
         }
     }
-    (n - 1, weights)
+    weights.len().saturating_sub(1)
+}
+
+/// [`reweight`] + [`sample_weighted`] in one step — the pre-error-model
+/// pipeline shape, kept because the unit tests pin its exact semantics.
+#[cfg(test)]
+fn reweight_and_sample(
+    policy: &[f64],
+    penalties: &[f64],
+    alpha: f64,
+    lambda: f64,
+    temperature: f64,
+    u: f64,
+) -> (usize, Vec<f64>) {
+    let weights = reweight(policy, penalties, alpha, lambda, temperature);
+    if weights.is_empty() {
+        return (0, weights);
+    }
+    (sample_weighted(&weights, u), weights)
 }
 
 // ---------------------------------------------------------------------------
@@ -978,8 +1158,18 @@ pub(crate) async fn select_move_from_policy(
                         .iter()
                         .map(|(_, cp)| ((best - cp) as f64 / 100.0).max(0.0))
                         .collect();
-                    let (idx, weights) =
-                        reweight_and_sample(&probs, &penalties, alpha, lambda, eff_temp, u);
+                    let mut weights = reweight(&probs, &penalties, alpha, lambda, eff_temp);
+                    // Error model (step 5): the MultiPV evals are the eval
+                    // evidence; best candidate eval = eval before the move.
+                    let (em_applied, em_rate) = consult_error_model(
+                        ctx.error_model.as_ref(),
+                        &mut weights,
+                        &penalties,
+                        Some(best),
+                        phase,
+                        ctx.clock_ms,
+                    );
+                    let idx = sample_weighted(&weights, u);
                     let candidates: Vec<PersonaCandidate> = top
                         .iter()
                         .enumerate()
@@ -996,15 +1186,31 @@ pub(crate) async fn select_move_from_policy(
                         .collect();
                     let chosen = &top[idx].0;
                     let san = san_for(fen, chosen)?;
+                    // Reason arm "error-model" (contract step 9) when the mix
+                    // was live AND it timed a mistake here (the chosen move is
+                    // in the mistake branch); otherwise the arm that supplied
+                    // the candidates keeps the credit.
+                    let drop_pawns = ctx
+                        .error_model
+                        .as_ref()
+                        .map(|em| em.mistake_drop_cp as f64 / 100.0)
+                        .unwrap_or(f64::INFINITY);
+                    let reason = if em_applied && penalties[idx] >= drop_pawns {
+                        "error-model"
+                    } else {
+                        "endgame"
+                    };
                     return Ok(PersonaDecision {
                         uci: chosen.clone(),
                         san,
-                        reason: "endgame".to_string(),
+                        reason: reason.to_string(),
                         band: policy.band,
                         derived_seed,
                         phase: phase.label().to_string(),
                         temperature: eff_temp,
                         style_bias_applied: bias_applied,
+                        error_model_applied: em_applied,
+                        mistake_rate: em_rate,
                         candidates,
                     });
                 }
@@ -1045,7 +1251,19 @@ pub(crate) async fn select_move_from_policy(
     let bias_applied =
         bias_live && apply_style_bias(&pos, &ucis, &mut probs, ctx.style_bias.as_ref().unwrap());
 
-    let (idx, weights) = reweight_and_sample(&probs, &penalties, alpha, lambda, eff_temp, u);
+    let mut weights = reweight(&probs, &penalties, alpha, lambda, eff_temp);
+    // Error model (step 5): live only with verification evidence — the best
+    // candidate's mover-POV eval stands in for the eval before the move.
+    let eval_before = eval_cps.iter().flatten().max().copied();
+    let (em_applied, em_rate) = consult_error_model(
+        ctx.error_model.as_ref(),
+        &mut weights,
+        &penalties,
+        eval_before,
+        phase,
+        ctx.clock_ms,
+    );
+    let idx = sample_weighted(&weights, u);
 
     let candidates: Vec<PersonaCandidate> = cands
         .iter()
@@ -1063,6 +1281,16 @@ pub(crate) async fn select_move_from_policy(
 
     let chosen = &cands[idx];
     let san = san_for(fen, &chosen.uci)?;
+    // Reason arm "error-model" (contract step 9) when the mix was live AND it
+    // timed a mistake here (the chosen move is in the mistake branch).
+    let drop_pawns = ctx
+        .error_model
+        .as_ref()
+        .map(|em| em.mistake_drop_cp as f64 / 100.0)
+        .unwrap_or(f64::INFINITY);
+    if em_applied && penalties[idx] >= drop_pawns {
+        reason = "error-model";
+    }
     Ok(PersonaDecision {
         uci: chosen.uci.clone(),
         san,
@@ -1072,6 +1300,8 @@ pub(crate) async fn select_move_from_policy(
         phase: phase.label().to_string(),
         temperature: eff_temp,
         style_bias_applied: bias_applied,
+        error_model_applied: em_applied,
+        mistake_rate: em_rate,
         candidates,
     })
 }
@@ -1100,6 +1330,7 @@ pub async fn persona_move(
         schedule: params.schedule.clone(),
         style_bias: params.style_bias.clone(),
         endgame: params.endgame.clone(),
+        error_model: params.error_model.clone(),
     };
     select_move_from_policy(
         &fen,
@@ -1535,6 +1766,134 @@ mod tests {
         let any2 = apply_style_bias(&pos, &["d2d4", "b1c3"], &mut probs2, &b);
         assert!(!any2);
         assert_eq!(probs2, vec![0.5, 0.5]);
+    }
+
+    // -- Corpus error model (contract step 5, gated via the tuner) -----------
+
+    fn em_with(cells: &[(&str, f64)]) -> ErrorModel {
+        ErrorModel {
+            cells: cells.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            rate_scale: default_rate_scale(),
+            mistake_drop_cp: default_mistake_drop_cp(),
+            eval_bucket_cp: default_eval_bucket_cp(),
+            eval_clamp_cp: default_eval_clamp_cp(),
+        }
+    }
+
+    #[test]
+    fn error_model_bucket_labels_match_the_corpus_convention() {
+        // Mirrors scripts/mining/error_model.py eval_bucket/clock_bucket and
+        // persona_sim.py's port — all four stay in sync.
+        let em = em_with(&[]);
+        assert_eq!(em.eval_bucket_label(0), "+0.0");
+        assert_eq!(em.eval_bucket_label(49), "+0.0");
+        assert_eq!(em.eval_bucket_label(50), "+0.5");
+        assert_eq!(em.eval_bucket_label(-1), "-0.5"); // floor, not trunc
+        assert_eq!(em.eval_bucket_label(-500), "-5.0");
+        assert_eq!(em.eval_bucket_label(-9999), "-5.0"); // clamp low
+        assert_eq!(em.eval_bucket_label(9999), "+4.5"); // clamp high
+        assert_eq!(clock_bucket_label(None), "none");
+        assert_eq!(clock_bucket_label(Some(600_000)), "600plus");
+        assert_eq!(clock_bucket_label(Some(599_000)), "300-600");
+        assert_eq!(clock_bucket_label(Some(29_000)), "lt30");
+        assert_eq!(clock_bucket_label(Some(0)), "lt30");
+    }
+
+    #[test]
+    fn error_model_rate_lookup_scales_and_clamps() {
+        let mut em = em_with(&[("middlegame|+0.0|none", 0.05)]);
+        em.rate_scale = 2.0;
+        assert_eq!(em.mistake_rate(Phase::Middlegame, 10, None), Some(0.1));
+        // Uncovered cells stay silent — wrong phase, or a clocked bucket.
+        assert_eq!(em.mistake_rate(Phase::Endgame, 10, None), None);
+        assert_eq!(em.mistake_rate(Phase::Middlegame, 10, Some(5_000)), None);
+        // Scale can never push a rate past 1.
+        em.rate_scale = 30.0;
+        assert_eq!(em.mistake_rate(Phase::Middlegame, 10, None), Some(1.0));
+    }
+
+    #[test]
+    fn apply_error_model_mix_reassigns_branch_mass() {
+        // Candidate 2 is the only mistake (>= 1.0 pawn behind): rate 0.3 puts
+        // exactly 0.3 there; the sound branch keeps its internal shape.
+        let mut w = vec![0.7, 0.2, 0.1];
+        let applied = apply_error_model_mix(&mut w, &[0.0, 0.0, 2.0], 0.3, 1.0);
+        assert!(applied);
+        assert!((w[2] - 0.3).abs() < 1e-12);
+        assert!((w[0] - 0.7 * 0.7 / 0.9).abs() < 1e-12);
+        assert!((w[1] - 0.2 * 0.7 / 0.9).abs() < 1e-12);
+        assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn apply_error_model_mix_needs_both_branches() {
+        // No mistake candidate / only mistakes / zero rate: untouched, false.
+        let base = vec![0.6, 0.4];
+        let mut w = base.clone();
+        assert!(!apply_error_model_mix(&mut w, &[0.0, 0.5], 0.3, 1.0));
+        assert_eq!(w, base);
+        let mut w = base.clone();
+        assert!(!apply_error_model_mix(&mut w, &[1.5, 2.5], 0.3, 1.0));
+        assert_eq!(w, base);
+        let mut w = base.clone();
+        assert!(!apply_error_model_mix(&mut w, &[0.0, 2.5], 0.0, 1.0));
+        assert_eq!(w, base);
+    }
+
+    #[test]
+    fn consult_error_model_requires_eval_evidence() {
+        // No eval before (verification never ran) -> silent even when the
+        // model covers the cell; covered cell + evidence -> rate logged.
+        let em = em_with(&[("middlegame|+0.0|none", 0.5)]);
+        let mut w = vec![0.7, 0.3];
+        let pen = vec![0.0, 2.0];
+        let (applied, rate) =
+            consult_error_model(Some(&em), &mut w, &pen, None, Phase::Middlegame, None);
+        assert!(!applied);
+        assert_eq!(rate, None);
+        assert_eq!(w, vec![0.7, 0.3]);
+        let (applied, rate) =
+            consult_error_model(Some(&em), &mut w, &pen, Some(10), Phase::Middlegame, None);
+        assert!(applied);
+        assert_eq!(rate, Some(0.5));
+        assert!((w[1] - 0.5).abs() < 1e-12, "mistake branch got the rate");
+        // No model at all (the default everywhere) -> silent.
+        let mut w2 = vec![0.7, 0.3];
+        let (applied, rate) =
+            consult_error_model(None, &mut w2, &pen, Some(10), Phase::Middlegame, None);
+        assert!(!applied);
+        assert_eq!(rate, None);
+    }
+
+    #[tokio::test]
+    async fn core_error_model_is_off_by_default_and_inert_without_evals() {
+        // Default context (no model): fields honestly report OFF.
+        let policy = fake_policy(vec![mv("e2e4", 0.6), mv("d2d4", 0.4)]);
+        let d = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, None,
+            &SelectContext::default(),
+        )
+        .await
+        .unwrap();
+        assert!(!d.error_model_applied);
+        assert_eq!(d.mistake_rate, None);
+
+        // Model configured but NO stockfish -> no eval evidence -> the model
+        // must stay silent (never guess an eval bucket), and the decision is
+        // bit-identical to the model-free one.
+        let ctx = SelectContext {
+            error_model: Some(em_with(&[("opening|+0.0|none", 0.9)])),
+            ..Default::default()
+        };
+        let d2 = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, None, &ctx,
+        )
+        .await
+        .unwrap();
+        assert!(!d2.error_model_applied);
+        assert_eq!(d2.mistake_rate, None);
+        assert_eq!(d2.uci, d.uci);
+        assert_eq!(d2.reason, "policy");
     }
 
     // -- Endgame arm plumbing (contract step 6) ------------------------------

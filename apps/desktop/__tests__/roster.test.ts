@@ -115,6 +115,26 @@ describe("buildRoster", () => {
     }
   });
 
+  it("flows a tuner-enabled error model into the persona config, and ONLY then (spec 214 step 5 gate)", () => {
+    // Absent and null (measured-and-rejected) both mean OFF.
+    const roster = buildRoster(null, [LOCAL_RIVAL]);
+    expect(roster.find((x) => x.id === "rival-testrival")!.personaConfig?.errorModel).toBeUndefined();
+    const rejected: LocalRivalPersona = {
+      config: rivalConfig({ sampling: { level: 1300, error_model: null } }),
+      book: LOCAL_RIVAL.book,
+    };
+    const r2 = buildRoster(null, [rejected]);
+    expect(r2.find((x) => x.id === "rival-testrival")!.personaConfig?.errorModel).toBeUndefined();
+    // An enabled fit (only the tuner writes one) flows through verbatim.
+    const em = { cells: { "middlegame|+0.0|none": 0.05 }, rate_scale: 1.5 };
+    const enabled: LocalRivalPersona = {
+      config: rivalConfig({ sampling: { level: 1300, error_model: em } }),
+      book: LOCAL_RIVAL.book,
+    };
+    const r3 = buildRoster(null, [enabled]);
+    expect(r3.find((x) => x.id === "rival-testrival")!.personaConfig?.errorModel).toEqual(em);
+  });
+
   it("includes local private rivals from their configs, at their own band, honestly unmeasured", () => {
     const roster = buildRoster(null, [LOCAL_RIVAL]);
     const p = roster.find((x) => x.id === "rival-testrival");

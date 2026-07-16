@@ -73,6 +73,33 @@ describe("engine settings — arrows default + migration (spec 202 bugfix)", () 
   });
 });
 
+describe("board coordinates (spec 001)", () => {
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = installFakeStorage();
+  });
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).window;
+    delete (globalThis as Record<string, unknown>).localStorage;
+  });
+
+  it("defaults ON, including for blobs saved before the setting existed", () => {
+    expect(defaultEngineSettings().showCoordinates).toBe(true);
+    store.set(
+      "engine-settings",
+      JSON.stringify({ hash: 256, threads: 4, multiPv: 3, showArrows: false, version: 2 }),
+    );
+    expect(loadEngineSettings().showCoordinates).toBe(true);
+  });
+
+  it("round-trips OFF", () => {
+    saveEngineSettings({ ...defaultEngineSettings(), showCoordinates: false });
+    expect(loadEngineSettings().showCoordinates).toBe(false);
+  });
+});
+
 describe("analysis limit + contempt + custom UCI options (spec 011)", () => {
   let store: Map<string, string>;
 
