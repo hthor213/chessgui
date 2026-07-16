@@ -18,19 +18,19 @@ import {
   per100,
   swingComment,
   LABEL_NAG,
-} from "@/lib/tournament-analysis"
+} from "@chessgui/core/tournament-analysis"
 import {
   computeMoveSwings,
   DEFAULT_LOGISTIC_K,
   type WinProbCurve,
-} from "@/lib/win-prob"
+} from "@chessgui/core/win-prob"
 import {
   STANDARD_START_FEN,
   type EvalMap,
   type GameOutcome,
   type PlyEval,
-} from "@/lib/tournament"
-import { parsePgnToTrees } from "@/lib/pgn"
+} from "@chessgui/core/tournament"
+import { parsePgnToTrees } from "@chessgui/core/pgn"
 
 // Linear curve over [-8, +8]: winProb(e) = (e + 8) / 16 exactly, so a 400cp
 // White-POV swing is a float-exact 0.25 win-prob drop (= blunder threshold).

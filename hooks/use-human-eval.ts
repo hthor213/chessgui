@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import type { PvLine } from "@/lib/uci-parser";
+import type { PvLine } from "@chessgui/core/uci-parser";
 import { maiaStatus, maiaPolicy, type MaiaStatus, type MaiaPolicy } from "@/lib/maia";
 import { computeHumanEval, type HumanEvalResult } from "@/lib/human-eval";
 import { humanEvalTree, type HumanTreeResult } from "@/lib/human-eval-tree";

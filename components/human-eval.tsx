@@ -7,7 +7,7 @@ import { MAIA_SLIDER_BANDS } from "@/lib/maia"
 import { materialPawns } from "@/lib/human-eval"
 import { clampTreePawns } from "@/lib/human-eval-tree"
 import { useHumanEval } from "@/hooks/use-human-eval"
-import type { PvLine } from "@/lib/uci-parser"
+import type { PvLine } from "@chessgui/core/uci-parser"
 
 interface HumanEvalSectionProps {
   analysisFen: string;

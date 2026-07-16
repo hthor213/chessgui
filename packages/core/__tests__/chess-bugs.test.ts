@@ -5,7 +5,7 @@ import { makeSan, parseSan } from "chessops/san";
 import { makeSquare } from "chessops";
 import { chessgroundDests } from "chessops/compat";
 import type { NormalMove } from "chessops";
-import { parseEngineUci, makeEngineUci, uciToArrow, uciMovesToSan } from "@/lib/uci-parser";
+import { parseEngineUci, makeEngineUci, uciToArrow, uciMovesToSan } from "@chessgui/core/uci-parser";
 
 const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 

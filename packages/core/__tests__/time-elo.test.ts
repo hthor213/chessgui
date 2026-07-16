@@ -17,7 +17,7 @@ import {
   paceStrength,
   secondsPerMoveOf,
   type EloCurve,
-} from "@/lib/time-elo"
+} from "@chessgui/core/time-elo"
 
 const L2 = (x: number) => Math.log2(x)
 

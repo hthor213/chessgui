@@ -2,8 +2,8 @@
 
 import { Card } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { nagsToGlyphs, splitComment } from "@/lib/annotations"
-import type { GameTree, MoveNode } from "@/lib/game-tree"
+import { nagsToGlyphs, splitComment } from "@chessgui/core/annotations"
+import type { GameTree, MoveNode } from "@chessgui/core/game-tree"
 
 interface MoveListProps {
   tree: GameTree;

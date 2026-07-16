@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { GameTree } from "@/lib/game-tree";
+import { GameTree } from "@chessgui/core/game-tree";
 import { shouldEngineMove } from "@/hooks/use-engine";
 
 function line(sans: string[]): GameTree {

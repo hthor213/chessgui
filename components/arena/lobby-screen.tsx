@@ -22,7 +22,7 @@ import {
   type ArenaColor,
   type ArenaPersonaInfo,
   type ArenaSideChoice,
-} from "@/lib/arena-api"
+} from "@chessgui/core/arena-api"
 
 function resolveColor(choice: ArenaSideChoice): ArenaColor {
   return choice === "random" ? (Math.random() < 0.5 ? "white" : "black") : choice

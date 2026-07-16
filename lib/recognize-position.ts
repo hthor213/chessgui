@@ -13,10 +13,10 @@ import {
   homeSquareCastling,
 } from "@/lib/fen-consensus";
 
-export interface ClipboardImage {
-  base64: string;
-  mediaType: string;
-}
+// Extracted to @chessgui/core (spec 220 step 5); re-exported so existing
+// importers keep working.
+import type { ClipboardImage } from "@chessgui/core/clipboard-types";
+export type { ClipboardImage };
 
 /**
  * Extract an image from a native paste event (e.g. ⌘V inside a dialog).

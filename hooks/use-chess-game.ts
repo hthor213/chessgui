@@ -14,8 +14,8 @@ import {
   type MoveNode,
   type NodeEval,
   type SerializedTree,
-} from "@/lib/game-tree";
-import { treeToPgn } from "@/lib/pgn";
+} from "@chessgui/core/game-tree";
+import { treeToPgn } from "@chessgui/core/pgn";
 import { getProviders } from "@/lib/platform";
 
 export type PromotionRole = "queen" | "rook" | "bishop" | "knight";

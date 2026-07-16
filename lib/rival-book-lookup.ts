@@ -18,7 +18,7 @@
 import { Chess } from "chessops/chess";
 import { parseFen, makeFen } from "chessops/fen";
 import { parseSan } from "chessops/san";
-import { makeEngineUci } from "@/lib/uci-parser";
+import { makeEngineUci } from "@chessgui/core/uci-parser";
 import type { RivalBookEntry } from "@/lib/rival-book";
 import type { SparColor } from "@/lib/spar";
 

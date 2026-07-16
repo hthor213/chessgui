@@ -1,6 +1,6 @@
 "use client"
 
-import { PIECE_POINTS, type CapturedCounts, type CapturedRole } from "@/lib/material"
+import { PIECE_POINTS, type CapturedCounts, type CapturedRole } from "@chessgui/core/material"
 
 // Solid glyphs render legibly at small sizes on the dark theme; the outlined
 // (white) variants read as hairlines. Which side's pieces they are is implied

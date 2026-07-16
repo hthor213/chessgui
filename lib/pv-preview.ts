@@ -10,7 +10,7 @@ import { Chess, castlingSide } from "chessops/chess"
 import { parseFen, makeFen } from "chessops/fen"
 import { makeSanAndPlay } from "chessops/san"
 import { kingCastlesTo, isNormal, makeSquare } from "chessops"
-import { parseEngineUci } from "@/lib/uci-parser"
+import { parseEngineUci } from "@chessgui/core/uci-parser"
 
 export type PvStep = {
   /** Position after this ply of the PV. */

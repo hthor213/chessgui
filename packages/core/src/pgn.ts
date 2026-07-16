@@ -26,7 +26,7 @@ import {
   type ArrowAnnotation,
   type MoveNode,
   type NodeEval,
-} from "@/lib/game-tree";
+} from "./game-tree";
 
 const SHAPE_COLORS: ReadonlySet<string> = new Set(["green", "red", "yellow", "blue"]);
 

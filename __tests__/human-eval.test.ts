@@ -8,9 +8,9 @@ import {
   MATE_PAWNS,
   type HumanEvalArgs,
 } from "@/lib/human-eval";
-import type { PvLine } from "@/lib/uci-parser";
+import type { PvLine } from "@chessgui/core/uci-parser";
 import type { MaiaPolicy } from "@/lib/maia";
-import { INITIAL_FEN } from "@/lib/game-tree";
+import { INITIAL_FEN } from "@chessgui/core/game-tree";
 
 function line(multipv: number, cp: number, uci: string): PvLine {
   return {

@@ -1,7 +1,7 @@
 // NAG codes, comment-tag handling and [%eval] parsing — pure helpers shared by
 // the move list, the annotation bar and the eval graph (spec 202).
 
-import type { NodeEval } from "@/lib/game-tree";
+import type { NodeEval } from "./game-tree";
 
 /** NAG code → display glyph (PGN standard subset). */
 export const NAG_GLYPHS: Record<number, string> = {

@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@chessgui/core/*": [
+        "./packages/core/src/*"
       ]
     },
     "forceConsistentCasingInFileNames": true

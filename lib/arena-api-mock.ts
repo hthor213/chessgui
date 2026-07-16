@@ -16,7 +16,7 @@
 import { Chess } from "chessops/chess"
 import { parseFen, INITIAL_FEN } from "chessops/fen"
 import { chessgroundDests } from "chessops/compat"
-import { replayFens, sansFromUci } from "@/lib/game-replay"
+import { replayFens, sansFromUci } from "@chessgui/core/game-replay"
 import { buildArenaRoster } from "@/lib/arena-roster"
 import {
   ArenaApiError,
@@ -28,7 +28,7 @@ import {
   type ArenaMove,
   type ArenaResult,
   type ArenaUser,
-} from "@/lib/arena-api"
+} from "@chessgui/core/arena-api"
 import { ARENA_DISCLOSURE_TEXT } from "@/lib/arena-disclosure"
 
 const MOCK_THINKING_MS = 350

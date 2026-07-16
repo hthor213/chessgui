@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { GameTree, type SerializedTree } from "@/lib/game-tree";
+import { GameTree, type SerializedTree } from "@chessgui/core/game-tree";
 import {
   toggleNag,
   nagsToGlyphs,
@@ -11,7 +11,7 @@ import {
   evalToUnit,
   formatEval,
   judgeMove,
-} from "@/lib/annotations";
+} from "@chessgui/core/annotations";
 
 function line(sans: string[]): GameTree {
   const t = GameTree.create();

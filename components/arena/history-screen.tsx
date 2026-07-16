@@ -13,8 +13,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
 import type { Key } from "@lichess-org/chessground/types"
 import { Button } from "@/components/ui/button"
-import { replayFens } from "@/lib/game-replay"
-import { ArenaApiError, getArenaApi, type ArenaGameState, type ArenaGameSummary } from "@/lib/arena-api"
+import { replayFens } from "@chessgui/core/game-replay"
+import { ArenaApiError, getArenaApi, type ArenaGameState, type ArenaGameSummary } from "@chessgui/core/arena-api"
 import { arenaResultBadge, pairArenaMoves } from "@/lib/arena-moves"
 
 const Board = dynamic(() => import("@/components/board").then((m) => ({ default: m.Board })), {

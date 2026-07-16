@@ -9,8 +9,8 @@
 // `window.__TAURI_INTERNALS__` is absent, so it does not ship in the Tauri
 // bundle. State is a module-level singleton that persists for the session.
 
-import { parsePgnToTrees, treeToPgn } from "@/lib/pgn"
-import { GameTree } from "@/lib/game-tree"
+import { parsePgnToTrees, treeToPgn } from "@chessgui/core/pgn"
+import { GameTree } from "@chessgui/core/game-tree"
 import type {
   DatabaseApi,
   DbStats,

@@ -3,10 +3,14 @@ import path from "path";
 
 export default defineConfig({
   test: {
-    include: ["__tests__/**/*.test.ts"],
+    include: [
+      "__tests__/**/*.test.ts",
+      "packages/core/__tests__/**/*.test.ts",
+    ],
   },
   resolve: {
     alias: {
+      "@chessgui/core": path.resolve(__dirname, "packages/core/src"),
       "@": path.resolve(__dirname, "."),
     },
   },

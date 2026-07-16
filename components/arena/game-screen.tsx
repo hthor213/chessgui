@@ -30,7 +30,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { initialsFor } from "@/lib/roster"
 import { dragToUci, turnOf } from "@/lib/spar"
-import { ArenaApiError, getArenaApi, type ArenaGameState } from "@/lib/arena-api"
+import { ArenaApiError, getArenaApi, type ArenaGameState } from "@chessgui/core/arena-api"
 import { arenaStatusLabel, pairArenaMoves } from "@/lib/arena-moves"
 
 const Board = dynamic(() => import("@/components/board").then((m) => ({ default: m.Board })), {

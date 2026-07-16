@@ -16,72 +16,48 @@ import { getProviders } from "@/lib/platform"
 // Types mirroring the Rust structs
 // ---------------------------------------------------------------------------
 
-/** One position to judge, with its Stockfish ground truth. Mirrors Rust
- *  `CalibrationPosition`. All engine numbers are White-POV. */
-export type CalibrationPosition = {
-  fen: string
-  /** White-POV centipawns; null when the position is a forced mate. */
-  sf_cp: number | null
-  /** White-POV mate distance (+ = White mates); null when `sf_cp` is set. */
-  sf_mate: number | null
-  sf_best_uci: string
-  sf_best_san: string | null
-  /** |eval(pv1) − eval(pv2)| in centipawns; null when unavailable. */
-  multipv_gap_cp: number | null
-  /** Material balance in points, White minus Black. */
-  material: number
-  /** |SF eval| band: "0-0.5" | "0.5-1.5" | "1.5-3" | "3+". */
-  band: string
-  /** "middlegame" | "endgame". */
-  phase: string
-  game_id: number
-  ply: number
-  // --- v2: known-Elo game context. NEVER shown in the answering UI (would
-  //     anchor the user's eval); revealed only on the results screen. ---
-  white_elo: number | null
-  black_elo: number | null
-  /** Average-Elo band of the source game: "<1600" | "1600-2000" | "2000-2400" | "2400+". */
-  elo_band: string
-  /** Side to move: "white" | "black" — whose move `played_*` is. */
-  to_move: string
-  /** The move actually played from this position in the source game. */
-  played_uci: string | null
-  played_san: string | null
-  /** The next up-to-three moves after the played one, SAN. */
-  continuation_san: string[]
-  // --- v3: training-value stratification + engine line (optional; v1/v2
-  //     sessions lack them). ---
-  /** Training deck: "conversion" | "critical" | "endgame" | "level". */
-  deck?: string
-  /** Stockfish's best-play line (PV1), SAN, up to 6 plies. */
-  sf_pv_san?: string[]
-}
-
-/** A calibration session. Mirrors Rust `CalibrationSession`. */
-export type CalibrationSession = {
-  version: number
-  n: number
-  /** Unix-ms creation time; the session's stable id. */
-  created_at: number
-  stockfish_path: string
-  positions: CalibrationPosition[]
-}
-
-/** Sampler progress. Mirrors Rust `CalibrationProgress`. */
-export type CalibrationProgress = {
-  evaluated: number
-  accepted: number
-  target: number
+// Extracted to @chessgui/core (spec 220 step 5); re-exported so existing
+// importers keep working. The elicitation constants and session math below
+// stay here — core holds the types the platform seam needs.
+import type {
+  BandStat,
+  CalibrationAnswer,
+  CalibrationPosition,
+  CalibrationProgress,
+  CalibrationResults,
+  CalibrationSession,
+  CalibrationSummary,
+  CoachFeedback,
+  CoachInput,
+  DeckStat,
+  EvalRange,
+  LabelerProfile,
+  Miss,
+  PhaseStat,
+  ProfilePhaseCell,
+} from "@chessgui/core/calibration-types"
+export type {
+  BandStat,
+  CalibrationAnswer,
+  CalibrationPosition,
+  CalibrationProgress,
+  CalibrationResults,
+  CalibrationSession,
+  CalibrationSummary,
+  CoachFeedback,
+  CoachInput,
+  DeckStat,
+  EvalRange,
+  LabelerProfile,
+  Miss,
+  PhaseStat,
+  ProfilePhaseCell,
 }
 
 // ---------------------------------------------------------------------------
 // Range elicitation (spec 213 Phase 0)
 // ---------------------------------------------------------------------------
 
-/** One log-spaced answer range in pawns, White-POV. A `null` bound is
- *  unbounded ("+4 or more" → `{ lo: 4, hi: null }`). Every defined range has
- *  at least one finite bound. */
-export type EvalRange = { lo: number | null; hi: number | null }
 
 /** The six positive-side log-spaced ranges (Weber-Fechner spacing — nobody
  *  distinguishes 1.6 from 1.8, so a point answer adds pure input noise):
@@ -128,255 +104,12 @@ export function answerRange(a: CalibrationAnswer): EvalRange | null {
   return { lo: a.eval_lo ?? null, hi: a.eval_hi ?? null }
 }
 
-/** The user's response to one position. */
-export type CalibrationAnswer = {
-  /** Index of the position within the session. */
-  index: number
-  /** Perceived eval in pawns (+ = White better); null if skipped. On
-   *  range-elicitation answers this is a DERIVED representative point
-   *  (`rangePoint`) kept for point back-compat — `eval_lo`/`eval_hi` are the
-   *  actual assertion. */
-  eval: number | null
-  /** Range elicitation (spec 213): the asserted range's bounds in pawns,
-   *  White-POV; a null side is unbounded ("4+"). Both null/absent = a point
-   *  answer (pre-range session) or a skip. Never retrofitted onto stored
-   *  point answers. */
-  eval_lo?: number | null
-  eval_hi?: number | null
-  /** One-or-two-sentence reason. */
-  why: string
-  /** UCI of the move they'd play, or null if they didn't pick one. */
-  move_uci: string | null
-  /** Wall time from position-shown to submit, milliseconds (includes typing). */
-  elapsed_ms: number
-  /**
-   * Think time: position-shown → first input interaction (first keystroke in the
-   * eval or why field, or first board move — whichever comes first). This is the
-   * meaningful metric — "I've formed a view when I start typing", so typing time
-   * is not thinking time. Null if the user never interacted before advancing, or
-   * for pre-think_ms (upgraded) answers.
-   */
-  think_ms: number | null
-  /**
-   * The user asked not to count their time on this position (e.g. distracted).
-   * The answer still counts for eval accuracy; only time analysis ignores it.
-   * Set automatically on old answers that predate think_ms.
-   */
-  time_excluded: boolean
-  /**
-   * Unix-ms at which the answer was locked — stamped before any post-answer
-   * reveal is rendered, so the reveal provably cannot have influenced the
-   * answer. 0 for answers that predate this field.
-   */
-  answer_locked_at: number
-  // --- Second look: an optional revision the user makes AFTER locking but
-  //     BEFORE any engine feedback. The original eval/why above are immutable;
-  //     these record the self-correction (a per-band skill signature). ---
-  /** Revised eval in pawns, or null if they didn't revise. */
-  revised_eval: number | null
-  /** One-line note on what they caught (e.g. "missed the Qe1"), or null. */
-  revision_note: string | null
-  /** Unix-ms of the revision, or null. */
-  revised_at: number | null
-  /** AI coach's critique of the written reasoning, attached async after the
-   *  reveal; null until it arrives (or if the coach was off / unavailable). */
-  coach: CoachFeedback | null
-  /** The user's reply to the coach's note ("I saw that move but…"), or null.
-   *  First-class data: it separates "didn't see it" from "saw it and rejected
-   *  it for a reason" — a different error class the note alone can't reach. */
-  rebuttal: string | null
-  /** The coach's one follow-up reply to the rebuttal, or null. */
-  coach_reply: string | null
-  skipped: boolean
-}
-
-/** The AI coach's critique of one answer. Mirrors Rust `CoachFeedback`. */
-export type CoachFeedback = {
-  /** 2-4 sentence coach note addressed to the user. */
-  note: string
-  /** Cause labels from the fixed taxonomy (see docs/research/calibration-data-format.md). */
-  cause_tags: string[]
-  /** "sound" | "partial" | "flawed". */
-  reasoning_quality: string
-  /** Direction right, magnitude off. */
-  scale_error: boolean
-}
-
-/** Everything the coach needs about one answered position. Mirrors Rust `CoachInput`. */
-export type CoachInput = {
-  fen: string
-  to_move: string
-  sf_cp: number | null
-  sf_mate: number | null
-  sf_best_san: string | null
-  sf_best_uci: string | null
-  multipv_gap_cp: number | null
-  material: number | null
-  user_eval: number | null
-  /** Range elicitation: the asserted range's bounds (null side = unbounded;
-   *  both null = point answer). The coach critiques what was actually
-   *  asserted — the range, not the derived point. */
-  user_eval_lo: number | null
-  user_eval_hi: number | null
-  user_why: string
-  user_move_uci: string | null
-  revised_eval: number | null
-  revision_note: string | null
-  played_san: string | null
-  continuation_san: string[] | null
-  white_elo: number | null
-  black_elo: number | null
-  sf_pv_san: string[] | null
-}
-
-/** Per-band accuracy row. */
-export type BandStat = {
-  band: string
-  count: number
-  /** Mean absolute error in pawns, or null when the band has no answers. */
-  mae: number | null
-}
-
-/** Per-phase accuracy row (middlegame / endgame). Fuller than a band row: a
- *  chess eval skill is per-phase, so we surface correlation and move accuracy
- *  too. `null` metrics mean too few (or no) answers to compute them. */
-export type PhaseStat = {
-  phase: string
-  count: number
-  mae: number | null
-  pearson: number | null
-  bestMoveHitRate: number | null
-  /** Positions in this phase on which the user chose a move. */
-  moveAnswers: number
-}
-
-/** Per-deck accuracy row (v3 training-value decks: conversion / critical /
- *  endgame / level). Same depth as a phase row — the deck IS the training
- *  axis, so correlation and move accuracy matter per deck. All counts are 0
- *  on v1/v2 sessions, whose positions carry no deck; the UI hides the table
- *  then. */
-export type DeckStat = {
-  deck: string
-  count: number
-  mae: number | null
-  pearson: number | null
-  bestMoveHitRate: number | null
-  /** Positions in this deck on which the user chose a move. */
-  moveAnswers: number
-}
-
-/** A position the user was furthest off on. */
-export type Miss = {
-  index: number
-  fen: string
-  band: string
-  /** The asserted point, or the range's derived representative point. */
-  userEval: number
-  /** The asserted range (range-elicitation sessions), else null. */
-  userRange: EvalRange | null
-  sfEval: number
-  absError: number
-}
-
-/** Summary statistics for a completed session. */
-export type CalibrationSummary = {
-  answered: number
-  skipped: number
-  /** Positions on which the user chose a move. */
-  moveAnswers: number
-  /** Pearson correlation of user vs Stockfish eval; null if < 2 answers. */
-  pearson: number | null
-  /** Mean absolute error in pawns; null if no answers. */
-  mae: number | null
-  /** Fraction of move-answers matching Stockfish's best move; null if none. */
-  bestMoveHitRate: number | null
-  /** Median think time (ms) over time-included, interacted answers; null if none. */
-  medianThinkMs: number | null
-  /** Answers whose time the user excluded (or that predate think_ms). */
-  timeExcludedCount: number
-  perBand: BandStat[]
-  perPhase: PhaseStat[]
-  /** v3 training-deck rows; all-zero counts on v1/v2 sessions. */
-  perDeck: DeckStat[]
-  biggestMisses: Miss[]
-}
 
 /** Fewer than this many answers in a phase → its metrics are too thin to read
  *  much into; the UI flags it. */
 export const MIN_PHASE_N = 8
 
-// ---------------------------------------------------------------------------
-// Labeler profile (spec 213 adaptive elicitation, Phase A)
-// ---------------------------------------------------------------------------
 
-/** One phase of the labeler's skill vector. */
-export type ProfilePhaseCell = {
-  phase: string
-  /** Usable (answered, eval-given) answers in this phase, across sessions. */
-  count: number
-  /** Mean absolute error in pawns, or null with no answers. */
-  mae: number | null
-  /** Mean signed error (user − SF, pawns; + = White-optimistic), or null. */
-  bias: number | null
-}
-
-/** The labeler's established profile — who is producing the labels (design doc
- *  §6.1: "a ~1300 with a 1500-ish endgame perceived this as +1.2" is data; an
- *  anonymous "+1.2" is not). Built from saved results files and merged exactly
- *  across sessions; Phase-A lock-in fills whichever phase is least pinned. */
-export type LabelerProfile = {
-  /** Completed sessions folded into this profile. */
-  sessions: number
-  /** Usable answers across them. */
-  answers: number
-  /** Overall mean signed error, or null with no answers. */
-  bias: number | null
-  /** Population std-dev of the signed error, or null with no answers. */
-  sd: number | null
-  /** Per-phase skill vector, in PHASES order. */
-  per_phase: ProfilePhaseCell[]
-}
-
-/** The research artifact written on completion. Self-contained: it carries the
- *  full session so each file stands alone. Mirrors the schema documented in
- *  docs/research/calibration-data-format.md. */
-export type CalibrationResults = {
-  version: number
-  finished_at: number
-  /**
-   * Whether the post-answer reveal was shown during this session. A blind
-   * session (false) is methodologically distinct data — no feedback between
-   * positions — so the mode is recorded with the artifact.
-   */
-  show_reveal: boolean
-  /** Whether AI coach feedback was enabled (off = no API calls were made). */
-  show_coach: boolean
-  /**
-   * How evals were elicited this session: `"point"` (typed number, v1/v2) or
-   * `"range"` (log-spaced range buttons, spec 213 range elicitation). Fixed at
-   * session creation and never mixed mid-session — mixing point and range
-   * answers muddies the per-player curve. Absent on pre-v3 files ⇒ point.
-   */
-  elicitation: "point" | "range"
-  /**
-   * Phase-A profile lock-in (spec 213 adaptive elicitation, v4): how many
-   * positions at the head of the session were the lock-in burst — chosen to
-   * pin the labeler's least-pinned phase. 0 when the prior profile was
-   * already locked. Absent on pre-v4 files (which had no lock-in).
-   */
-  lock_in_n?: number
-  /**
-   * Phase A (v4): the labeler profile computed from all PRIOR saved results
-   * at session start — the lock-in prior, i.e. who the labeler was believed
-   * to be BEFORE this session's answers. Null/absent when there were none.
-   */
-  profile_prior?: LabelerProfile | null
-  session: CalibrationSession
-  /** Answers in presentation order (each carries its `index`), so learning /
-   *  drift effects over the session are analysable. */
-  answers: CalibrationAnswer[]
-  summary: CalibrationSummary
-}
 
 /** On-disk schema version this build writes (v2 added known-Elo game context;
  *  v3 added range elicitation: `elicitation` + per-answer `eval_lo`/`eval_hi`;

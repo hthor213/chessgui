@@ -50,7 +50,7 @@ import {
   fetchLichessExplorer,
   type LichessExplorerResult,
 } from "@/lib/lichess-explorer"
-import { ecoName } from "@/lib/eco"
+import { ecoName } from "@chessgui/core/eco"
 import { addDbPath, dbDisplayName, loadDbPaths, saveDbPaths } from "@/lib/db-registry"
 
 const PAGE_SIZE = 50

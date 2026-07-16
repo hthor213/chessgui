@@ -5,7 +5,7 @@ import {
   TIER0_PERSONA_SLUGS,
   type ArenaRosterEntry,
 } from "@/lib/arena-roster";
-import type { ArenaPersonaInfo } from "@/lib/arena-api";
+import type { ArenaPersonaInfo } from "@chessgui/core/arena-api";
 
 /** An /api/personas entry the way server/arena/app/main.py shapes it after
  *  lib/arena-api.ts's wire mapping. */

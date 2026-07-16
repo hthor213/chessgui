@@ -15,7 +15,7 @@ import {
   STANDARD_START_FEN,
   type EvalMap,
   type GameOutcome,
-} from "@/lib/tournament"
+} from "./tournament"
 import {
   computeMoveSwings,
   decisiveMoment,
@@ -24,8 +24,8 @@ import {
   type MoveSwing,
   type SwingThresholds,
   type WinProbCurve,
-} from "@/lib/win-prob"
-import { replayFens, sansFromUci } from "@/lib/game-replay"
+} from "./win-prob"
+import { replayFens, sansFromUci } from "./game-replay"
 
 // ---------------------------------------------------------------------------
 // Game phases (spec 212:38 "opening/middle/endgame by material+ply heuristic")

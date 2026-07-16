@@ -57,9 +57,9 @@ import {
   type RoundRobinResultExport,
   type SavedTournamentMeta,
   type PairCell,
-} from "@/lib/tournament"
-import { replayFens, movesToPgn, sansFromUci, numberMoves, type NumberedPly } from "@/lib/game-replay"
-import { deriveWinProbCurve, type MoveSwing, type WinProbCurve } from "@/lib/win-prob"
+} from "@chessgui/core/tournament"
+import { replayFens, movesToPgn, sansFromUci, numberMoves, type NumberedPly } from "@chessgui/core/game-replay"
+import { deriveWinProbCurve, type MoveSwing, type WinProbCurve } from "@chessgui/core/win-prob"
 import {
   analyzeGame,
   annotatedGamePgn,
@@ -75,7 +75,7 @@ import {
   type EngineErrorProfile,
   type GameAnalysis,
   type TrajectoryBand,
-} from "@/lib/tournament-analysis"
+} from "@chessgui/core/tournament-analysis"
 import { buildTournamentRoster, type TournamentRosterEntry, type EngineOption } from "@/lib/tournament-roster"
 import { loadRivalBook, type RivalBook } from "@/lib/rival-book"
 import type { PersonaCandidate, PersonaDecision } from "@/lib/persona"
@@ -88,7 +88,7 @@ import {
   paceStrength,
   secondsPerMoveOf,
   type EloCurve,
-} from "@/lib/time-elo"
+} from "@chessgui/core/time-elo"
 import { useMachineProfile, type MachineProfile } from "@/hooks/use-machine-profile"
 import type { Key } from "@lichess-org/chessground/types"
 

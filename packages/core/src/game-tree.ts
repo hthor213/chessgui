@@ -9,7 +9,7 @@ import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
 import { isNormal } from "chessops";
 import type { NormalMove } from "chessops";
-import { makeEngineUci, parseEngineUci } from "@/lib/uci-parser";
+import { makeEngineUci, parseEngineUci } from "./uci-parser";
 
 export const INITIAL_FEN =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";

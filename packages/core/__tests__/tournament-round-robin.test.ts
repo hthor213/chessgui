@@ -15,7 +15,7 @@ import {
   type Participant,
   type RoundRobinPairing,
   type Seed,
-} from "@/lib/tournament"
+} from "@chessgui/core/tournament"
 
 const SF = "/opt/stockfish"
 const RK = "/opt/reckless"

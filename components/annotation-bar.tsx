@@ -10,8 +10,8 @@ import {
   toggleNag,
   splitComment,
   joinComment,
-} from "@/lib/annotations";
-import type { MoveNode } from "@/lib/game-tree";
+} from "@chessgui/core/annotations";
+import type { MoveNode } from "@chessgui/core/game-tree";
 
 interface AnnotationBarProps {
   /** The move under the cursor (annotations attach to it). */

@@ -47,7 +47,7 @@
 // separate login PAGE to redirect to — login is a client-rendered screen,
 // components/arena/login-screen.tsx).
 
-import { getProviders } from "@/lib/platform"
+import { getProviders } from "./platform"
 
 export type ArenaColor = "white" | "black"
 /** UI-only side choice; "random" never reaches the wire — the client

@@ -39,7 +39,7 @@ import type { LocalRivalPersona } from "@/lib/roster"
 import type { BenchResult, MachineProfile } from "@/hooks/use-machine-profile"
 import { readBrowserClipboardImage, readBrowserClipboardText } from "./clipboard"
 import { localStorageKV } from "./storage"
-import type { PlatformProviders } from "./types"
+import type { PlatformProviders } from "@chessgui/core/platform-types"
 
 function noEngine(what: string): Promise<never> {
   return Promise.reject(new Error(`${what} requires the desktop app`))

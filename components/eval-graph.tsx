@@ -2,8 +2,8 @@
 
 import { useMemo, useRef, useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
-import { evalToUnit, formatEval, judgeMove, nodeEval, type MoveJudgment } from "@/lib/annotations";
-import type { GameTree, MoveNode } from "@/lib/game-tree";
+import { evalToUnit, formatEval, judgeMove, nodeEval, type MoveJudgment } from "@chessgui/core/annotations";
+import type { GameTree, MoveNode } from "@chessgui/core/game-tree";
 
 interface EvalGraphProps {
   tree: GameTree;

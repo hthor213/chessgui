@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parsePgnToTrees, treeToPgn } from "@/lib/pgn";
-import { GameTree, type MoveNode } from "@/lib/game-tree";
+import { parsePgnToTrees, treeToPgn } from "@chessgui/core/pgn";
+import { GameTree, type MoveNode } from "@chessgui/core/game-tree";
 
 // Structural comparison of two trees: headers, start position, and the move
 // graph with all annotations. Node ids and generated fields aside, two trees

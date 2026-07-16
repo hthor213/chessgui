@@ -3,7 +3,7 @@
 // existing replay/PGN helpers it's factored out of.
 
 import { describe, it, expect } from "vitest"
-import { replayFens, movesToPgn, sansFromUci, numberMoves } from "@/lib/game-replay"
+import { replayFens, movesToPgn, sansFromUci, numberMoves } from "@chessgui/core/game-replay"
 
 const STANDARD_START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 // 1.e4 e5 2.Nf3

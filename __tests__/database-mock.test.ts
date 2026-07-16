@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createMockDatabase } from "@/lib/database-mock";
-import { parsePgnToTrees } from "@/lib/pgn";
-import { GameTree } from "@/lib/game-tree";
+import { parsePgnToTrees } from "@chessgui/core/pgn";
+import { GameTree } from "@chessgui/core/game-tree";
 
 // Derive a position FEN the same way the app does (chessops via GameTree), so
 // the mock's stored FENs and the search key share the exact ep/castling

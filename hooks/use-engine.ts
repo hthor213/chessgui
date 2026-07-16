@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { getProviders } from "@/lib/platform";
 import { Chess } from "chessops/chess";
 import { parseFen } from "chessops/fen";
-import { parseUciInfo, uciMovesToSan, parseEngineUci, type PvLine } from "@/lib/uci-parser";
+import { parseUciInfo, uciMovesToSan, parseEngineUci, type PvLine } from "@chessgui/core/uci-parser";
 import {
   defaultEnginePath,
   clearEnginePath,

@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { getArenaApi, setStoredToken, ArenaApiError, type ArenaUser } from "@/lib/arena-api"
+import { getArenaApi, setStoredToken, ArenaApiError, type ArenaUser } from "@chessgui/core/arena-api"
 
 const GIS_SRC = "https://accounts.google.com/gsi/client"
 const CLIENT_ID = process.env.NEXT_PUBLIC_ARENA_GOOGLE_CLIENT_ID ?? ""

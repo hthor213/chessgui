@@ -29,7 +29,7 @@ import {
   setStoredToken,
   setUnauthorizedHandler,
   type ArenaUser,
-} from "@/lib/arena-api"
+} from "@chessgui/core/arena-api"
 import { installArenaApiMock } from "@/lib/arena-api-mock"
 
 // Headless-verification seam (mirrors app/page.tsx's window.__enterThinkingMode

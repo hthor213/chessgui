@@ -3,7 +3,7 @@
 // share this implementation; a shell without reliable localStorage (mobile
 // WebViews, spec 223) registers its own instead of praying.
 
-import type { StorageProvider } from "./types"
+import type { StorageProvider } from "@chessgui/core/platform-types"
 
 export const localStorageKV: StorageProvider = {
   get(key: string): string | null {

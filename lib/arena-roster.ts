@@ -25,7 +25,7 @@
 
 import { GM_PERSONAS, type GmPersonaManifestEntry } from "@/lib/persona-manifest"
 import { initialsFor } from "@/lib/roster"
-import type { ArenaPersonaInfo } from "@/lib/arena-api"
+import type { ArenaPersonaInfo } from "@chessgui/core/arena-api"
 
 /** Tier-0 playable slugs, in the order spec 217 lists them. */
 export const TIER0_PERSONA_SLUGS: readonly string[] = [

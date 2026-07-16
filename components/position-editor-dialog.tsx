@@ -21,7 +21,7 @@ import {
   computeCastlingOptions,
   type PieceMap,
   type CastlingOptions,
-} from "@/lib/fen";
+} from "@chessgui/core/fen";
 import { clipboardEventImage, type ClipboardImage } from "@/lib/recognize-position";
 
 const Board = dynamic(

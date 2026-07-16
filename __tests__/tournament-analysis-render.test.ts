@@ -21,13 +21,13 @@ import {
   SeedBreakdownSection,
   TerminationQualitySection,
 } from "@/components/tournament-tab"
-import { DEFAULT_LOGISTIC_K, type WinProbCurve } from "@/lib/win-prob"
+import { DEFAULT_LOGISTIC_K, type WinProbCurve } from "@chessgui/core/win-prob"
 import {
   STANDARD_START_FEN,
   type EvalMap,
   type GameOutcome,
   type PlyEval,
-} from "@/lib/tournament"
+} from "@chessgui/core/tournament"
 
 const LINEAR_CURVE: WinProbCurve = {
   anchors: [

@@ -46,7 +46,7 @@ import type { LocalRivalPersona } from "@/lib/roster"
 import type { BenchResult, MachineProfile } from "@/hooks/use-machine-profile"
 import { readBrowserClipboardImage, readBrowserClipboardText } from "./clipboard"
 import { localStorageKV } from "./storage"
-import type { EngineStartResult, PickFileOptions, PlatformProviders } from "./types"
+import type { EngineStartResult, PickFileOptions, PlatformProviders } from "@chessgui/core/platform-types"
 
 /** The desktop default engine binary (spec 011). macOS-only knowledge by
  *  design — spec 222's Windows/Linux builds change THIS constant's slot, not

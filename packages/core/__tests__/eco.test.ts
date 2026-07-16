@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { ecoLabel, ecoName } from "@/lib/eco"
+import { ecoLabel, ecoName } from "@chessgui/core/eco"
 
 describe("ECO → opening-name lookup (spec 200)", () => {
   it("names famous codes", () => {

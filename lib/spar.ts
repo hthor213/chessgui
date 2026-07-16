@@ -8,9 +8,12 @@
 import { Chess } from "chessops/chess";
 import { parseFen, makeFen } from "chessops/fen";
 import { makeSan } from "chessops/san";
-import { parseEngineUci } from "@/lib/uci-parser";
+import { parseEngineUci } from "@chessgui/core/uci-parser";
 
-export type SparColor = "white" | "black";
+// SparColor extracted to @chessgui/core (spec 220 step 5); re-exported so
+// existing importers keep working.
+import type { SparColor } from "@chessgui/core/spar-types";
+export type { SparColor };
 
 export interface SparPly {
   fen: string; // position AFTER the move

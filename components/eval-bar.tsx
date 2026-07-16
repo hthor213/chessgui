@@ -1,6 +1,6 @@
 "use client"
 
-import { scoreToNumeric, type PvLine } from "@/lib/uci-parser"
+import { scoreToNumeric, type PvLine } from "@chessgui/core/uci-parser"
 
 interface EvalBarProps {
   score: PvLine["score"];

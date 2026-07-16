@@ -8,7 +8,7 @@
 // used only where the server doesn't already hand back SAN (the replay
 // view's per-ply FEN stepping).
 
-import type { ArenaGameState, ArenaMove } from "@/lib/arena-api"
+import type { ArenaGameState, ArenaMove } from "@chessgui/core/arena-api"
 
 export interface ArenaMoveRow {
   no: number

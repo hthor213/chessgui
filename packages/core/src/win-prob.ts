@@ -22,7 +22,7 @@ import {
   type GameOutcome,
   type PlyEval,
   type ProbBin,
-} from "@/lib/tournament"
+} from "./tournament"
 
 // ---------------------------------------------------------------------------
 // Thresholds (spec 212:28-29)

@@ -1,0 +1,14 @@
+{
+  "name": "@chessgui/core",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0",
+  "type": "module",
+  "description": "ChessGUI shared core (spec 220): pure TS chess logic, tournament math, arena API client, and the platform adapter interfaces. Zero React, zero platform SDKs.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "chessops": "^0.14.0"
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeMaterial } from "@/lib/material";
-import { INITIAL_FEN } from "@/lib/game-tree";
+import { computeMaterial } from "@chessgui/core/material";
+import { INITIAL_FEN } from "@chessgui/core/game-tree";
 
 // New semantics (board-only): each tray is the opponent's pieces MISSING FROM A
 // FULL STANDARD SET (8P 2N 2B 2R 1Q), and the +x badge is the direct

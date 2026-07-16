@@ -38,7 +38,7 @@ import { buildRoster, MAIA_ROSTER_BANDS, PRIVATE_RIVAL_ID } from "@/lib/roster"
 import type { RivalBook } from "@/lib/rival-book"
 import { DEFAULT_PERSONA_PARAMS } from "@/lib/persona"
 import { GM_PERSONAS, type GmPersonaManifestEntry } from "@/lib/persona-manifest"
-import type { Participant } from "@/lib/tournament"
+import type { Participant } from "@chessgui/core/tournament"
 
 /** One dropdown option: a ready-to-send wire `Participant` plus its exact
  *  decision-5 label ("engine: …" / "bot: …"). */

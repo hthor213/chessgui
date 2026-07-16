@@ -1,5 +1,5 @@
-# spec:220 step 4 — workspace scaffolding, zero moves.
-# The repo root is the sole workspace package for now; steps 5-7 add
-# packages/* (core, ui) and apps/* (desktop, web) as they are extracted.
+# spec:220 workspace (steps 4-5). The repo root is still the app shell package
+# until steps 6-7 move it to apps/; packages/* holds the extracted libraries.
 packages:
   - .
+  - packages/*

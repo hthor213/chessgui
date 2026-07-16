@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Chess } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { parseSan } from "chessops/san";
-import { GameTree, INITIAL_FEN } from "@/lib/game-tree";
+import { GameTree, INITIAL_FEN } from "@chessgui/core/game-tree";
 
 // Replay a SAN line and return the FEN after the last move — an independent
 // oracle for the FENs the tree stores per node.

@@ -26,7 +26,7 @@ import {
   type PlyEval,
   type Seed,
   type EvalMap,
-} from "@/lib/tournament"
+} from "@chessgui/core/tournament"
 
 const FEN_AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
 const SF = "/opt/stockfish"

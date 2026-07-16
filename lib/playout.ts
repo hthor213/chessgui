@@ -20,8 +20,8 @@ import {
   DEFAULT_LOGISTIC_K,
   winProb,
   type WinProbCurve,
-} from "@/lib/win-prob"
-import { MATE_EVAL_PAWNS } from "@/lib/tournament"
+} from "@chessgui/core/win-prob"
+import { MATE_EVAL_PAWNS } from "@chessgui/core/tournament"
 import { getProviders } from "@/lib/platform"
 import { resultFromLabel, type SparResultOutcome } from "@/lib/spar-results"
 import type { SparColor } from "@/lib/spar"

@@ -5,7 +5,7 @@
 // `GameSpec[]` payload, keeps the id -> eval side-table the Rust side does not
 // carry, and aggregates outcomes into an eval -> conversion probability map.
 
-import type { PersonaDecision } from "@/lib/persona"
+import type { PersonaDecision } from "./persona-types"
 
 // ---------------------------------------------------------------------------
 // Participant wire shape (spec 218 "The Participant") — camelCase, matches

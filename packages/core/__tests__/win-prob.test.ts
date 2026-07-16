@@ -15,7 +15,7 @@ import {
   type ClockByPly,
   type SwingThresholds,
   type WinProbCurve,
-} from "@/lib/win-prob"
+} from "@chessgui/core/win-prob"
 import {
   buildProbabilityMap,
   expectedWinPct,
@@ -23,7 +23,7 @@ import {
   type GameOutcome,
   type PlyEval,
   type ProbBin,
-} from "@/lib/tournament"
+} from "@chessgui/core/tournament"
 
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 const START_FEN_BLACK = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"

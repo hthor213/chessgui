@@ -12,9 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { validateFen, padFen } from "@/lib/fen";
-import { parsePgnToTrees } from "@/lib/pgn";
-import { GameTree, INITIAL_FEN } from "@/lib/game-tree";
+import { validateFen, padFen } from "@chessgui/core/fen";
+import { parsePgnToTrees } from "@chessgui/core/pgn";
+import { GameTree, INITIAL_FEN } from "@chessgui/core/game-tree";
 import { clipboardEventImage, type ClipboardImage } from "@/lib/recognize-position";
 
 interface PgnImportDialogProps {

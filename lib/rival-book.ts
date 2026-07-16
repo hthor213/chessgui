@@ -14,23 +14,10 @@ import { getProviders } from "@/lib/platform";
 import type { SparColor } from "@/lib/spar";
 import { turnOf } from "@/lib/spar";
 
-export interface RivalBookEntry {
-  fen: string;
-  /** SAN line with move numbers, e.g. "1.e4 c5 2.Nf3". */
-  line: string;
-  ply: number;
-  /** The colour the rival played in the game this line came from. */
-  rival_color: SparColor;
-  weight: number;
-}
-
-export interface RivalBook {
-  version: number;
-  max_ply: number;
-  rival: string;
-  entries: RivalBookEntry[];
-  stats?: Record<string, number>;
-}
+// Extracted to @chessgui/core (spec 220 step 5); re-exported so existing
+// importers keep working.
+import type { RivalBook, RivalBookEntry } from "@chessgui/core/rival-book-types";
+export type { RivalBook, RivalBookEntry };
 
 /** The user's colour for an entry: the side to move in the FEN, i.e. the
  *  opposite of the colour the rival played. */

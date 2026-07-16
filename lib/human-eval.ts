@@ -20,9 +20,9 @@
 //
 // All evals are White-POV pawns, matching every other eval in the app.
 
-import type { UciScore, PvLine } from "@/lib/uci-parser";
+import type { UciScore, PvLine } from "@chessgui/core/uci-parser";
 import type { MaiaPolicy } from "@/lib/maia";
-import { computeMaterial } from "@/lib/material";
+import { computeMaterial } from "@chessgui/core/material";
 
 /**
  * Bounded pawn-equivalent for a mate score inside the blend. A raw ±M value has

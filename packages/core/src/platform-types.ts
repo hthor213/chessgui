@@ -18,28 +18,28 @@ import type {
   PgnImportProgress,
   PositionHit,
   Sort,
-} from "@/lib/database"
+} from "./database-types"
 import type {
   DeckRequest,
   MoveCheck,
   PuzzleImportReport,
   PuzzleRow,
   PuzzleStats,
-} from "@/lib/puzzles"
-import type { MaiaPolicy, MaiaStatus, PersonaMove } from "@/lib/maia"
-import type { PersonaDecision, PersonaParams } from "@/lib/persona"
-import type { HumanTreeOptions, HumanTreeResult } from "@/lib/human-eval-tree"
-import type { RivalBook } from "@/lib/rival-book"
-import type { LocalRivalPersona } from "@/lib/roster"
-import type { BenchResult, MachineProfile } from "@/hooks/use-machine-profile"
+} from "./puzzle-types"
+import type { MaiaPolicy, MaiaStatus, PersonaMove } from "./maia-types"
+import type { PersonaDecision, PersonaParams } from "./persona-types"
+import type { HumanTreeOptions, HumanTreeResult } from "./human-eval-tree-types"
+import type { RivalBook } from "./rival-book-types"
+import type { LocalRivalPersona } from "./roster-types"
+import type { BenchResult, MachineProfile } from "./machine-profile-types"
 import type {
   CalibrationProgress,
   CalibrationResults,
   CalibrationSession,
   CoachFeedback,
   CoachInput,
-} from "@/lib/calibration"
-import type { ClipboardImage } from "@/lib/recognize-position"
+} from "./calibration-types"
+import type { ClipboardImage } from "./clipboard-types"
 
 /** `start_engine`'s handshake result. */
 export interface EngineStartResult {
