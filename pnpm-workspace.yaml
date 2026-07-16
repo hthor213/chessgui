@@ -1,5 +1,5 @@
-# spec:220 workspace (steps 4-5). The repo root is still the app shell package
-# until steps 6-7 move it to apps/; packages/* holds the extracted libraries.
+# spec:220 workspace (steps 4-7). packages/* holds the extracted libraries;
+# apps/* holds the platform shells (desktop today; web per spec:221 next).
 packages:
-  - .
   - packages/*
+  - apps/*

@@ -10,8 +10,8 @@ cd "$(dirname "$0")/.."
 source "$HOME/.cargo/env"
 
 MODE="${1:-}"
-DEBUG_APP="src-tauri/target/debug/bundle/macos/ChessGUI.app"
-RELEASE_APP="src-tauri/target/release/bundle/macos/ChessGUI.app"
+DEBUG_APP="apps/desktop/src-tauri/target/debug/bundle/macos/ChessGUI.app"
+RELEASE_APP="apps/desktop/src-tauri/target/release/bundle/macos/ChessGUI.app"
 
 case "$MODE" in
   --debug)    pnpm tauri build --debug; SRC="$DEBUG_APP" ;;

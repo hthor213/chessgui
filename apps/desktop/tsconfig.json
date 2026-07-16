@@ -23,14 +23,17 @@
       }
     ],
     "paths": {
+      "@/data/*": [
+        "../../data/*"
+      ],
       "@/*": [
         "./*"
       ],
       "@chessgui/core/*": [
-        "./packages/core/src/*"
+        "../../packages/core/src/*"
       ],
       "@chessgui/ui/*": [
-        "./packages/ui/src/*"
+        "../../packages/ui/src/*"
       ]
     },
     "forceConsistentCasingInFileNames": true
@@ -39,6 +42,7 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    "../../packages/core/__tests__/**/*.ts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "dist/types/**/*.ts",

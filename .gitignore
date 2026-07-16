@@ -2,7 +2,7 @@ node_modules/
 dist/
 __pycache__/
 *.pyc
-src-tauri/target/
+apps/desktop/src-tauri/target/
 .env
 .env.*
 *.log
