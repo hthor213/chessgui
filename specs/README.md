@@ -41,10 +41,11 @@ Feature specs live here. They define **what** we're building and **when it's don
 | 221 | [Web Client @ spliffdonk.com/chess](221-web-client.md) | Draft |
 | 222 | [PC Client (Windows & Linux)](222-pc-client.md) | Draft |
 | 223 | [Mobile Client (iOS/Android)](223-mobile-client.md) | Draft |
+| 224 | [Learn Tab — Rolling Elo Estimate](224-learn-elo-estimate.md) | Draft |
 | 900 | [Backlog](900-backlog.md) | Ideas |
 
 (Index gap fixed 2026-07-15: 214–217 existed on disk but were unlisted. Next free
-number: 224. 220–223 are the multi-client platform wave.)
+number: 225. 220–223 are the multi-client platform wave.)
 
 ## Dependency Graph
 
@@ -65,7 +66,7 @@ number: 224. 220–223 are the multi-client platform wave.)
  │              └── 217 Persona Arena (web surface; roster via 218, personas per 214)
  └── 013 PGN Import/Export ← export needs 016
 
-211 Avoidance Puzzles ─→ 215
+211 Avoidance Puzzles ─→ 215, 224 (rolling Elo estimate; renders on 215's Learn surface)
 213 Elo-Conditioned Evaluator ─→ 214, 215
 014 Position Setup & Import ─→ 219 Active Game Mode — OTB compliance (also needs 200)
 
