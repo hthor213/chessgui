@@ -21,6 +21,7 @@ import type {
   GameHeader,
   ImportReport,
   PositionHit,
+  SaveReport,
   Sort,
 } from "@/lib/database"
 import type { HumanTreeResult } from "@/lib/human-eval-tree"
@@ -39,7 +40,13 @@ import type { LocalRivalPersona } from "@/lib/roster"
 import type { BenchResult, MachineProfile } from "@/hooks/use-machine-profile"
 import { readBrowserClipboardImage, readBrowserClipboardText } from "./clipboard"
 import { localStorageKV } from "./storage"
-import type { PlatformProviders } from "@chessgui/core/platform-types"
+import type {
+  OpenedTextFile,
+  PickFileOptions,
+  PlatformProviders,
+  SaveTextFileOptions,
+  SaveTextFileResult,
+} from "@chessgui/core/platform-types"
 
 function noEngine(what: string): Promise<never> {
   return Promise.reject(new Error(`${what} requires the desktop app`))
@@ -65,6 +72,13 @@ export const browserProviders: PlatformProviders = {
     machineProfileGet: (): Promise<MachineProfile | null> => noEngine("The machine profile"),
     machineBench: (): Promise<BenchResult> => noEngine("The machine bench"),
     machineFingerprint: (): Promise<string> => noEngine("The machine fingerprint"),
+    machineProfileImport: (): Promise<MachineProfile> => noEngine("Machine profile import"),
+    // Empty, not a rejection — the browser shell renders the equivalence
+    // section quietly with nothing in it.
+    async machineProfilesList(): Promise<MachineProfile[]> {
+      return []
+    },
+    machineProfileRemove: (): Promise<void> => noEngine("Machine profile removal"),
 
     maiaMove(fen: string, level: number): Promise<PersonaMove> {
       return import("@/lib/maia-mock").then((m) => m.mockMaiaMove(fen, level))
@@ -147,6 +161,9 @@ export const browserProviders: PlatformProviders = {
     getGame(id: number, dbPath?: string): Promise<string | null> {
       return import("@/lib/database-mock").then((m) => m.mockDatabase.getGame(id, dbPath))
     },
+    saveGame(args): Promise<SaveReport> {
+      return import("@/lib/database-mock").then((m) => m.mockDatabase.saveGame(args))
+    },
     deleteGames(ids: number[], dbPath?: string): Promise<number> {
       return import("@/lib/database-mock").then((m) => m.mockDatabase.deleteGames(ids, dbPath))
     },
@@ -173,6 +190,43 @@ export const browserProviders: PlatformProviders = {
       // No native picker; components fall back to their <input type=file>
       // paths (the real web shell wires the File System Access API, spec 221).
       return null
+    },
+    // Programmatic <input type=file> (spec 013): unlike pickFile, the
+    // contents-based contract CAN be honored without a native dialog, so
+    // callers get one code path on every shell. Synchronous up to click()
+    // to stay inside the user-gesture window.
+    openTextFile(options: PickFileOptions = {}): Promise<OpenedTextFile | null> {
+      return new Promise((resolve) => {
+        const input = document.createElement("input")
+        input.type = "file"
+        const exts = (options.filters ?? []).flatMap((f) => f.extensions)
+        if (exts.length) input.accept = exts.map((e) => `.${e}`).join(",")
+        input.onchange = () => {
+          const file = input.files?.[0]
+          if (!file) return resolve(null)
+          file.text().then((text) => resolve({ name: file.name, text }))
+        }
+        // Modern engines (incl. WKWebView 16.4+) fire "cancel" on dismissal;
+        // where unsupported the promise stays pending, which is harmless —
+        // the caller only acts on resolution.
+        input.oncancel = () => resolve(null)
+        input.click()
+      })
+    },
+    // Blob + object-URL download — the same fallback app/page.tsx's PGN
+    // export used inline before the seam. Never "cancelled": the download
+    // starts as soon as the anchor is clicked.
+    async saveTextFile(options: SaveTextFileOptions): Promise<SaveTextFileResult> {
+      const blob = new Blob([options.text], { type: options.mimeType ?? "text/plain" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = options.defaultName ?? "download.txt"
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      return { saved: true }
     },
     readClipboardImage(): Promise<ClipboardImage | null> {
       return readBrowserClipboardImage()

@@ -35,6 +35,21 @@ Pipeline per persona:
      improves by >= +2% absolute over the config defaults. Bar met -> emit a
      NEW config snapshot (<slug>.config.v2.json; v1 is never mutated) as a
      STAGED artifact — promotion to the live config is an explicit later step.
+  6. Style priors (spec 214 tier 3, "Style priors, gated on measured
+     move-match improvement"): stage C measures the shipped StyleBias
+     mechanism (persona.rs; OFF by default everywhere) as a candidate prior.
+     plies_since_book_exit — the window StyleBias keys off — is reconstructed
+     per position by replaying the eval games against the persona's book
+     parent map (first persona-to-move position missing from the book = book
+     exit; a FEN seen in several games keeps its smallest distance-from-exit).
+     A small grid (one v1 move class x multiplier x window) is searched on the
+     TUNE half ON TOP of the stage-A/B tuned params; the winner is judged on
+     the TEST half against the SAME params without the prior, and the prior is
+     enabled — written into the staged v2 config's sampling.style_bias —
+     ONLY when that held-out delta is >= +2% absolute argmax move-match@1
+     (STYLE_BAR). Anything below the bar is reported as measured-and-rejected;
+     the config keeps style_bias off. Opening KL stays bias-free (reported,
+     never optimized).
 
 Usage:
     python tune_persona.py --selftest
@@ -85,6 +100,16 @@ GRID = {
     "endgame_mult": [0.5, 0.8, 1.0, 1.3],
 }
 MAX_SWEEPS = 4
+
+# Stage C: candidate style priors — every v1 move class, single-class only
+# (multi-class combos would multiply the grid and invite overfitting on a
+# 50%-split tune half), overweight and underweight, two window lengths.
+STYLE_GRID = {
+    "move_types": [[t] for t in sim.STYLE_MOVE_TYPES],
+    "multiplier": [0.5, 1.5, 2.0],
+    "window_plies": [4, 8],
+}
+STYLE_BAR = 0.02  # spec 214 acceptance: +2% absolute match@1, held out
 
 # The shipped config defaults (all 15 configs carry the same sampling block;
 # no schedule field -> flat temperature, persona-engine v1 behavior).
@@ -212,11 +237,72 @@ class EngineFarm:
 
 
 # ---------------------------------------------------------------------------
+# plies_since_book_exit reconstruction (StyleBias window input)
+# ---------------------------------------------------------------------------
+
+def _game_color(game: chess.pgn.Game, names: List[str]) -> Optional[chess.Color]:
+    white = game.headers.get("White", "").lower()
+    black = game.headers.get("Black", "").lower()
+    if any(s in white for s in names):
+        return chess.WHITE
+    if any(s in black for s in names):
+        return chess.BLACK
+    return None
+
+
+def book_exit_map(pgn_text: str, cfg: PersonaCfg,
+                  surnames: List[str],
+                  parent_map: Dict[str, Dict[str, float]]) -> Dict[str, int]:
+    """fen -> plies since book exit, reconstructed by replaying the eval
+    games. The runtime tracks plies_since_book_exit along a live game; here
+    the eval games ARE the games, so: a persona-to-move position present in
+    the book parent map is in book (the book arm would answer — no bias
+    there, and it gets no entry); the first persona-to-move position NOT in
+    the map is the exit (distance 0, matching the Rust gate
+    `n < window_plies`); later positions carry the half-move distance from
+    that exit. A FEN reached in several games keeps the SMALLEST distance.
+    An empty parent map (no book) means every game is out of book from the
+    persona's first move — honest for a persona that would play bookless."""
+    names = [s.lower() for s in surnames]
+    out: Dict[str, int] = {}
+    stream = io.StringIO(pgn_text)
+    while True:
+        game = chess.pgn.read_game(stream)
+        if game is None:
+            break
+        color = _game_color(game, names)
+        if color is None:
+            continue
+        if cfg.year_range is not None:
+            head = game.headers.get("Date", "").split(".")[0]
+            yr = int(head) if head.isdigit() and len(head) == 4 else None
+            if yr is None or not (cfg.year_range[0] <= yr <= cfg.year_range[1]):
+                continue
+        board = game.board()
+        ply = 1
+        exit_ply: Optional[int] = None
+        for move in game.mainline_moves():
+            if board.turn == color:
+                fen = board.fen()
+                if exit_ply is None and fen not in parent_map:
+                    exit_ply = ply
+                if exit_ply is not None:
+                    psbe = ply - exit_ply
+                    if fen not in out or psbe < out[fen]:
+                        out[fen] = psbe
+            board.push(move)
+            ply += 1
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Record building (engine-facing; everything downstream is pure)
 # ---------------------------------------------------------------------------
 
 def build_records(positions: List[Position], farm: EngineFarm, backend: str,
-                  weights: str, deadline: float) -> Tuple[List[dict], dict]:
+                  weights: str, deadline: float,
+                  psbe_map: Optional[Dict[str, int]] = None
+                  ) -> Tuple[List[dict], dict]:
     """One record per position with every number the pure evaluator needs.
     Stops early (scope reduction, not corruption) when `deadline` passes."""
     records: List[dict] = []
@@ -280,6 +366,11 @@ def build_records(positions: List[Position], farm: EngineFarm, backend: str,
             "cand_evals": cand_evals,
             "cpl_actual": mx.cpl(best_cp, actual_cp),
             "cand_cpls": [mx.cpl(best_cp, v) for v in cand_evals],
+            # Stage C inputs (param-independent, computed once): v1 move
+            # classes per candidate and the reconstructed StyleBias window
+            # position. None = in book / unknown -> bias never live (Rust gate).
+            "cand_classes": [sim.move_classes(board, u) for u in cand_ucis],
+            "psbe": psbe_map.get(pos.fen) if psbe_map else None,
         })
     farm.flush()
     return records, skipped
@@ -292,11 +383,17 @@ def build_records(positions: List[Position], farm: EngineFarm, backend: str,
 def record_weights(rec: dict, params: dict) -> List[float]:
     """The persona's final sampling weights for one record — persona.rs
     semantics via persona_sim (penalties over CANDIDATES only, scheduled
-    temperature, unclocked)."""
+    temperature, style bias inside its post-book window, unclocked)."""
+    priors = rec["cand_priors"]
+    bias = params.get("style_bias")
+    if bias is not None and sim.style_bias_active(bias, rec.get("psbe")):
+        classes = rec.get("cand_classes")
+        if classes is not None and len(classes) == len(priors):
+            priors, _ = sim.apply_style_bias(classes, priors, bias)
     t = sim.effective_temperature(params["temperature"], params.get("schedule"),
                                   rec["phase"], clock_ms=None)
     penalties = sim.penalties_from_cp(rec["cand_evals"])
-    return sim.reweight(rec["cand_priors"], penalties, params["alpha"],
+    return sim.reweight(priors, penalties, params["alpha"],
                         params["lambda"], t)
 
 
@@ -422,6 +519,77 @@ def tune(records_tune: List[dict]) -> Tuple[dict, dict]:
             break
 
     return params_b(sched), trace
+
+
+def measure_style_prior(tune_recs: List[dict], test_recs: List[dict],
+                        params: dict) -> dict:
+    """Stage C — candidate style priors on held-out splits (spec 214 tier 3).
+
+    Grid-search STYLE_GRID on the TUNE half on top of `params` (the stage-A/B
+    result); a candidate is only considered live where its window covers the
+    record's reconstructed plies_since_book_exit. The tune-half winner (ties:
+    match@3, then -NLL; must strictly beat no-bias) is then judged ONCE on the
+    untouched TEST half against the same params without a prior. `enabled` is
+    True ONLY when the held-out delta meets STYLE_BAR (+2% absolute match@1) —
+    the spec's hard rule: no style parameter ships on vibes."""
+    def score(recs: List[dict], bias: Optional[dict]) -> tuple:
+        p = dict(params)
+        if bias is not None:
+            p["style_bias"] = bias
+        m = evaluate(recs, p)
+        return (m["match@1"], m["match@3"], -m["nll"])
+
+    def live_count(recs: List[dict], window: int) -> int:
+        return sum(1 for r in recs
+                   if r.get("psbe") is not None and r["psbe"] < window)
+
+    base_tune = score(tune_recs, None)
+    best_bias: Optional[dict] = None
+    best_score = base_tune
+    trials = []
+    for types in STYLE_GRID["move_types"]:
+        for mult in STYLE_GRID["multiplier"]:
+            for window in STYLE_GRID["window_plies"]:
+                bias = {"window_plies": window, "multiplier": mult,
+                        "move_types": list(types)}
+                s = score(tune_recs, bias)
+                trials.append({**bias, "match@1_tune": s[0]})
+                # Candidacy needs a STRICT match@1 gain in-sample (the gate
+                # is match@1; an NLL-only tiebreak win could never pass it);
+                # among gainers, ties break on match@3 then -NLL.
+                if s[0] > base_tune[0] and s > best_score:
+                    best_score, best_bias = s, bias
+
+    out = {
+        "grid_size": len(trials),
+        "base_match@1_tune": base_tune[0],
+        "windows_live_tune": {str(w): live_count(tune_recs, w)
+                              for w in STYLE_GRID["window_plies"]},
+        "windows_live_test": {str(w): live_count(test_recs, w)
+                              for w in STYLE_GRID["window_plies"]},
+        "bar": f"+{STYLE_BAR:.0%} absolute argmax move-match@1 on the test "
+               "half vs the same tuned params without the prior",
+        "prior": None,
+        "enabled": False,
+    }
+    if best_bias is None:
+        out["verdict"] = "no candidate beat the no-prior baseline on the tune half"
+        return out
+
+    base_test = score(test_recs, None)
+    with_test = score(test_recs, best_bias)
+    delta = round(with_test[0] - base_test[0], 4)
+    out.update({
+        "prior": best_bias,
+        "match@1_tune_with_prior": best_score[0],
+        "match@1_test_without": base_test[0],
+        "match@1_test_with": with_test[0],
+        "delta_match@1_test": delta,
+        "enabled": delta >= STYLE_BAR,
+    })
+    out["verdict"] = ("ENABLED" if out["enabled"]
+                      else "measured, below the bar — stays off")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -668,10 +836,14 @@ def run_persona(target: dict, limit: Optional[int], budget_min: float) -> dict:
                           "tuning", "candidates": len(cands),
                 "split_info": target.get("split_info")}
 
+    pmap = book_parent_map(target["book"]) if target["book"].exists() else {}
+    psbe_map = book_exit_map(text, cfg, target["surnames"], pmap)
+
     farm = EngineFarm(target["cache_root"])
     try:
         records, skipped = build_records(positions, farm, target["backend"],
-                                         target["weights"], deadline)
+                                         target["weights"], deadline,
+                                         psbe_map)
         print(f"[{label}] {len(records)} records "
               f"(skipped {skipped}) in {time.time()-t0:.0f}s", flush=True)
 
@@ -687,9 +859,14 @@ def run_persona(target: dict, limit: Optional[int], budget_min: float) -> dict:
         assert evaluate(test_recs, tuned_params) == after_test
         assert tune(tune_recs)[0] == tuned_params
 
-        # Opening KL (reported, never optimized) at defaults and tuned params.
+        # Stage C: style priors, measured on top of the tuned params and
+        # gated on the held-out +2% bar (spec 214 tier 3).
+        style_prior = measure_style_prior(tune_recs, test_recs, tuned_params)
+        assert measure_style_prior(tune_recs, test_recs, tuned_params) == style_prior
+
+        # Opening KL (reported, never optimized; bias-free) at defaults and
+        # tuned params.
         open_pos = opening_positions(text, cfg, target["surnames"])
-        pmap = book_parent_map(target["book"]) if target["book"].exists() else {}
         kl_default = mx.opening_kl(opening_kl_entries(
             open_pos, pmap, farm, target["backend"], target["weights"],
             DEFAULT_PARAMS, deadline))
@@ -711,6 +888,7 @@ def run_persona(target: dict, limit: Optional[int], budget_min: float) -> dict:
                       "seed": SEED},
             "default_params": DEFAULT_PARAMS,
             "tuned_params": tuned_params,
+            "style_prior": style_prior,
             "tuning_trace": trace,
             "metrics": {
                 "tune_half": {"default": before_tune, "tuned": after_tune},
@@ -750,6 +928,7 @@ def emit_config_v2(target: dict, result: dict) -> Optional[Path]:
                                                      ".config.v2.json"))
     cfg = json.loads(v1_path.read_text())
     tp = result["tuned_params"]
+    sp = result.get("style_prior") or {}
     cfg["version"] = 2
     cfg["sampling"] = {
         "level": cfg.get("sampling", {}).get("level", 1900),
@@ -759,6 +938,9 @@ def emit_config_v2(target: dict, result: dict) -> Optional[Path]:
         "top_k": TOP_K,
         "verify_depth": VERIFY_DEPTH,
         "schedule": tp["schedule"],
+        # persona.rs StyleBias shape; null = OFF (the default everywhere).
+        # Only a prior that beat STYLE_BAR on the held-out test half lands.
+        "style_bias": sp.get("prior") if sp.get("enabled") else None,
     }
     cfg["tuning"] = {
         "date": time.strftime("%Y-%m-%d"),
@@ -774,6 +956,9 @@ def emit_config_v2(target: dict, result: dict) -> Optional[Path]:
                        for k in ("match@1", "match@3", "expected_match@1",
                                  "nll")},
         "predecessor": v1_path.name,
+        "style_prior": {k: sp.get(k) for k in
+                        ("prior", "enabled", "delta_match@1_test", "bar",
+                         "verdict")},
         "status": "staged — not loaded by the app; promotion is an explicit "
                   "step",
     }
@@ -812,8 +997,13 @@ def report_markdown(results: List[dict], total_s: float) -> str:
       f"{OPENING_K_PLIES} plies, visit-weighted.\n")
     A("Tuning: coordinate descent — stage A (alpha, lambda) maximizes "
       "move-match@1 on the tune half; stage B (T, opening/endgame mults) "
-      "minimizes NLL. The test half is untouched by the optimizer; the "
-      "acceptance bar (+2% absolute match@1) is judged there.\n")
+      "minimizes NLL; stage C grid-searches candidate style priors "
+      "(persona.rs StyleBias: one v1 move class x multiplier x post-book "
+      "window, with plies-since-book-exit reconstructed from the eval "
+      "games). The test half is untouched by the optimizers; the acceptance "
+      "bar (+2% absolute match@1) is judged there — for params AND, "
+      "separately, for the style prior, which ships OFF unless its own "
+      "held-out delta meets the bar.\n")
     for r in results:
         A(f"### {r['label']}\n")
         if r["status"] != "ok":
@@ -846,6 +1036,21 @@ def report_markdown(results: List[dict], total_s: float) -> str:
         A(f"\n**Acceptance bar ({acc['bar']}): "
           f"delta {acc['delta_match@1_test']:+.4f} -> "
           f"{'MET' if acc['met'] else 'NOT MET'}.**\n")
+        sp = r.get("style_prior")
+        if sp:
+            if sp.get("prior") is None:
+                A(f"Style prior (stage C, {sp['grid_size']} candidates): "
+                  f"{sp['verdict']}.\n")
+            else:
+                p = sp["prior"]
+                A(f"Style prior (stage C, {sp['grid_size']} candidates): best "
+                  f"= {'/'.join(p['move_types'])} x{p['multiplier']} for "
+                  f"{p['window_plies']} plies after book exit; held-out "
+                  f"match@1 {sp['match@1_test_without']} -> "
+                  f"{sp['match@1_test_with']} "
+                  f"(delta {sp['delta_match@1_test']:+.4f}, bar +{STYLE_BAR}) "
+                  f"-> **{sp['verdict']}**. Live windows (test half): "
+                  f"{sp['windows_live_test']}.\n")
     return "\n".join(L)
 
 
@@ -857,14 +1062,17 @@ def selftest() -> int:
     import unittest
 
     def mkrec(phase="middlegame", ply=30, actual="a", priors=(0.5, 0.3, 0.2),
-              evals=(10, 0, -200), cpl_actual=0):
+              evals=(10, 0, -200), cpl_actual=0, psbe=None, classes=None):
         ucis = ["a", "b", "c"][:len(priors)]
         best = max(evals)
         return {"fen": "x", "ply": ply, "phase": phase, "arm": "policy",
                 "actual": actual, "cand_ucis": ucis,
                 "cand_priors": list(priors), "cand_evals": list(evals),
                 "cpl_actual": cpl_actual,
-                "cand_cpls": [mx.cpl(best, v) for v in evals]}
+                "cand_cpls": [mx.cpl(best, v) for v in evals],
+                "cand_classes": classes if classes is not None
+                else [()] * len(priors),
+                "psbe": psbe}
 
     class T(unittest.TestCase):
         def test_evaluate_deterministic(self):
@@ -919,6 +1127,85 @@ def selftest() -> int:
                 w = record_weights(rec, p)
                 self.assertEqual(mx.weight_ranking(rec["cand_ucis"], w)[0],
                                  "a")
+
+        def test_style_bias_changes_weights_only_in_window(self):
+            classes = [("quiet_piece",), ("capture",), ("pawn_push",)]
+            bias = {"window_plies": 6, "multiplier": 2.5,
+                    "move_types": ["capture"]}
+            p = dict(DEFAULT_PARAMS, style_bias=bias)
+            in_win = mkrec(psbe=2, classes=classes)
+            out_win = mkrec(psbe=6, classes=classes)
+            in_book = mkrec(psbe=None, classes=classes)
+            base = record_weights(mkrec(classes=classes), DEFAULT_PARAMS)
+            self.assertNotEqual(record_weights(in_win, p), base)
+            self.assertGreater(record_weights(in_win, p)[1], base[1])
+            self.assertEqual(record_weights(out_win, p), base)
+            self.assertEqual(record_weights(in_book, p), base)
+
+        def test_style_prior_found_and_gated_on_test_half(self):
+            # Human plays the capture the policy underweights, inside the
+            # post-book window, consistently on BOTH halves -> the capture
+            # prior wins the tune grid AND meets the +2% bar held out.
+            classes = [("quiet_piece",), ("capture",)]
+            def half():
+                return [mkrec(actual="b", priors=(0.6, 0.4), evals=(0, 0),
+                              psbe=i % 4, classes=classes, ply=20 + i)
+                        for i in range(20)]
+            sp = measure_style_prior(half(), half(), DEFAULT_PARAMS)
+            self.assertTrue(sp["enabled"])
+            self.assertEqual(sp["prior"]["move_types"], ["capture"])
+            self.assertGreater(sp["prior"]["multiplier"], 1.0)
+            self.assertGreaterEqual(sp["delta_match@1_test"], STYLE_BAR)
+
+        def test_style_prior_not_enabled_when_test_half_disagrees(self):
+            # Tune half loves captures, test half punishes them: the winner
+            # of the grid must NOT be enabled (held-out gate).
+            classes = [("quiet_piece",), ("capture",)]
+            tune_h = [mkrec(actual="b", priors=(0.6, 0.4), evals=(0, 0),
+                            psbe=1, classes=classes, ply=20 + i)
+                      for i in range(20)]
+            test_h = [mkrec(actual="a", priors=(0.6, 0.4), evals=(0, 0),
+                            psbe=1, classes=classes, ply=20 + i)
+                      for i in range(20)]
+            sp = measure_style_prior(tune_h, test_h, DEFAULT_PARAMS)
+            self.assertFalse(sp["enabled"])
+            self.assertLess(sp["delta_match@1_test"], STYLE_BAR)
+
+        def test_style_prior_none_when_nothing_beats_baseline(self):
+            # Policy already ranks the human move first everywhere: no prior
+            # can strictly improve the tune half.
+            recs = [mkrec(psbe=1,
+                          classes=[("capture",), ("quiet_piece",),
+                                   ("pawn_push",)])
+                    for _ in range(10)]
+            sp = measure_style_prior(recs, recs, DEFAULT_PARAMS)
+            self.assertFalse(sp["enabled"])
+            self.assertIsNone(sp["prior"])
+
+        def test_book_exit_map_distances(self):
+            # Kasparov's book covers 1.e4 only: exit at his second move.
+            import tempfile
+            book = {"entries": [
+                {"fen": "after-e4", "line": "1.e4", "ply": 1, "weight": 3}]}
+            with tempfile.NamedTemporaryFile("w", suffix=".json",
+                                             delete=False) as fh:
+                json.dump(book, fh)
+                bpath = Path(fh.name)
+            pmap = book_parent_map(bpath)
+            bpath.unlink()
+            pgn = ('[White "Kasparov, Garry"]\n[Black "Someone"]\n\n'
+                   "1. e4 c5 2. Nf3 d6 3. d4 cxd4 *\n")
+            cfg = PersonaCfg("kasparov", "kasparov", Path("/dev/null"))
+            got = book_exit_map(pgn, cfg, ["kasparov"], pmap)
+            start = chess.Board().fen()
+            self.assertNotIn(start, got)  # in book -> no entry (bias off)
+            b = chess.Board()
+            for san in ("e4", "c5"):
+                b.push_san(san)
+            self.assertEqual(got[b.fen()], 0)  # first out-of-book position
+            for san in ("Nf3", "d6"):
+                b.push_san(san)
+            self.assertEqual(got[b.fen()], 2)  # two plies past exit
 
         def test_book_parent_map_roundtrip(self):
             import tempfile
@@ -998,11 +1285,16 @@ def main() -> int:
         out_json = target["out_dir"] / f"tuning_{target['label']}.json"
         out_json.write_text(json.dumps(r, indent=2) + "\n")
         print(f"[{target['label']}] wrote {out_json}", flush=True)
+        style_on = (r.get("style_prior") or {}).get("enabled", False)
         if (not args.no_report and r["status"] == "ok"
-                and r["acceptance"]["met"]):
+                and (r["acceptance"]["met"] or style_on)):
             v2 = emit_config_v2(target, r)
             if v2:
-                print(f"[{target['label']}] bar MET -> staged {v2}", flush=True)
+                what = " + ".join(w for w, ok in
+                                  [("params", r["acceptance"]["met"]),
+                                   ("style prior", style_on)] if ok)
+                print(f"[{target['label']}] bar MET ({what}) -> staged {v2}",
+                      flush=True)
 
     total_s = time.time() - t0
     if not args.no_report:

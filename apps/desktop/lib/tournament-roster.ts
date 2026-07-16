@@ -34,6 +34,7 @@
 // backend at all (e.g. a config with no BT3 net); none of today's entries use
 // it.
 
+import { getProviders } from "@/lib/platform"
 import { buildRoster, MAIA_ROSTER_BANDS, PRIVATE_RIVAL_ID } from "@/lib/roster"
 import type { RivalBook } from "@/lib/rival-book"
 import { DEFAULT_PERSONA_PARAMS } from "@/lib/persona"
@@ -52,11 +53,12 @@ export type TournamentRosterEntry = {
   disabledReason?: string
 }
 
-/** The two MVP tournament engines (spec:210). No "Add-engine UI" yet
- *  (spec:210 Phase 6, unstarted) — the dropdown is fixed to these two, not a
- *  free-text path. `label` is supplied by the caller so it can fold in the
- *  live-detected UCI version (tournament-tab.tsx already resolves this via
- *  `engine_id`) without this pure function depending on Tauri. */
+/** A dropdown engine: the two fixed MVP engines (spec:210) plus any
+ *  user-registered custom engine (spec:210 Phase 6 "Add-engine UI" — see
+ *  `loadCustomEngines`/`customEngineOption` below). `label` is supplied by
+ *  the caller so it can fold in the live-detected UCI version
+ *  (tournament-tab.tsx already resolves this via `engine_id`) without this
+ *  pure function depending on Tauri. */
 export type EngineOption = {
   id: string
   displayName: string
@@ -173,3 +175,84 @@ export function buildTournamentRoster(
 /** Fallback if lib/roster.ts's private-rival participant ever omits a level
  *  (it doesn't today — belt-and-suspenders only). */
 const DEFAULT_RIVAL_LEVEL = 1700
+
+// ---------------------------------------------------------------------------
+// Custom UCI engines (spec 210 Phase 6 "Add-engine UI": register any UCI
+// binary as a named engine — a spec:218 Participant of kind `uci`).
+// Persisted via the platform StorageProvider, the same seam
+// lib/engine-settings.ts uses, so registrations survive restarts and the
+// store stays unit-testable with an injected memory provider.
+// ---------------------------------------------------------------------------
+
+/** A user-registered UCI engine: display name + binary path. */
+export type CustomEngine = {
+  /** Stable "custom-<slug>" id (bumped on collision) so a saved side
+   *  selection keeps resolving across sessions. */
+  id: string
+  name: string
+  path: string
+}
+
+export const CUSTOM_ENGINES_KEY = "chessgui-custom-engines"
+
+export function loadCustomEngines(): CustomEngine[] {
+  try {
+    const raw = getProviders().storage.get(CUSTOM_ENGINES_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    // Drop malformed entries rather than failing the whole list — one corrupt
+    // record must not empty the roster.
+    return parsed.filter(
+      (e): e is CustomEngine =>
+        !!e &&
+        typeof (e as CustomEngine).id === "string" &&
+        typeof (e as CustomEngine).name === "string" &&
+        typeof (e as CustomEngine).path === "string",
+    )
+  } catch {
+    return []
+  }
+}
+
+function persistCustomEngines(list: CustomEngine[]): void {
+  getProviders().storage.set(CUSTOM_ENGINES_KEY, JSON.stringify(list))
+}
+
+/** Register an engine (name is trimmed; empty falls back to the binary's base
+ *  name). Returns the updated, persisted list. */
+export function addCustomEngine(name: string, path: string): CustomEngine[] {
+  const list = loadCustomEngines()
+  const trimmed = name.trim() || (path.split("/").pop() ?? "engine")
+  const slug =
+    trimmed
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-+|-+$)/g, "") || "engine"
+  let id = `custom-${slug}`
+  let bump = 1
+  while (list.some((e) => e.id === id)) id = `custom-${slug}-${++bump}`
+  const next = [...list, { id, name: trimmed, path }]
+  persistCustomEngines(next)
+  return next
+}
+
+/** Unregister by id. Returns the updated, persisted list. */
+export function removeCustomEngine(id: string): CustomEngine[] {
+  const next = loadCustomEngines().filter((e) => e.id !== id)
+  persistCustomEngines(next)
+  return next
+}
+
+/** Map a registered engine onto the dropdown's `EngineOption` shape, folding
+ *  in the caller-resolved UCI version when known — the same lowercase
+ *  "engine: stockfish 18" label style the two fixed engines use. */
+export function customEngineOption(e: CustomEngine, version?: string | null): EngineOption {
+  const display = version && version !== "not found" ? version : e.name
+  return {
+    id: e.id,
+    displayName: display,
+    enginePath: e.path,
+    label: `engine: ${display.toLowerCase()}`,
+  }
+}

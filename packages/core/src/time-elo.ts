@@ -163,6 +163,35 @@ export function equivalentSeconds(
   return (fromSeconds * fromNps) / toNps
 }
 
+/** Seconds for display in an equivalence line: whole above 10s, one decimal
+ *  down to 1s, two below — "22s", "5.5s", "0.25s". */
+function formatEquivSeconds(seconds: number): string {
+  if (seconds >= 10) return `${Math.round(seconds)}s`
+  const s = seconds >= 1 ? seconds.toFixed(1) : seconds.toFixed(2)
+  return `${s.replace(/\.?0+$/, "")}s`
+}
+
+/**
+ * Human-readable cross-machine equivalence (216 Tier 2): what `refSeconds`
+ * per move buys in nodes on the `remote` machine, restated as seconds per
+ * move on the `local` one — "homeserver 60s/move ≈ laptop 22s/move". Null
+ * when either side lacks a positive nps (no honest equivalence without both
+ * benches). Same-nodes mapping via `equivalentSeconds`.
+ */
+export function equivalenceLine(
+  curve: EloCurve,
+  local: { hostname: string; nps: number },
+  remote: { hostname: string; nps: number },
+  refSeconds = 60,
+): string | null {
+  if (!(local.nps > 0) || !(remote.nps > 0) || !(refSeconds > 0)) return null
+  const localSeconds = equivalentSeconds(curve, refSeconds, local.nps, remote.nps)
+  return (
+    `${remote.hostname} ${formatEquivSeconds(refSeconds)}/move` +
+    ` ≈ ${local.hostname} ${formatEquivSeconds(localSeconds)}/move`
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Time control → seconds per move
 // ---------------------------------------------------------------------------

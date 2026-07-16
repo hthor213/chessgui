@@ -154,6 +154,24 @@ def list_move_feedback(game_id: int) -> List[Dict[str, Any]]:
                  (game_id,))
 
 
+def wdl_by_persona(user_id: int) -> List[Dict[str, Any]]:
+    """Spec 217 Tier 1: per-opponent W/D/L record from the player's side.
+    Finished games only (an active game has no result yet); win/loss is the
+    result crossed with player_color — the same mapping the client's history
+    badge uses (lib/arena-moves.ts arenaResultBadge)."""
+    return _rows(
+        "SELECT persona, "
+        "SUM(CASE WHEN (result='1-0' AND player_color='white') "
+        "          OR (result='0-1' AND player_color='black') "
+        "    THEN 1 ELSE 0 END) AS wins, "
+        "SUM(CASE WHEN result='1/2-1/2' THEN 1 ELSE 0 END) AS draws, "
+        "SUM(CASE WHEN (result='0-1' AND player_color='white') "
+        "          OR (result='1-0' AND player_color='black') "
+        "    THEN 1 ELSE 0 END) AS losses "
+        "FROM games WHERE user_id=? AND status='finished' "
+        "GROUP BY persona ORDER BY persona", (user_id,))
+
+
 def finish_game(game_id: int, result: str, reason: str) -> None:
     _exec("UPDATE games SET status='finished', result=?, result_reason=?, "
           "updated_at=datetime('now') WHERE id=?", (result, reason, game_id))

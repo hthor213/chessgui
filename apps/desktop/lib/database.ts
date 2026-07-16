@@ -27,6 +27,7 @@ import type {
   ImportReport,
   PgnImportProgress,
   PositionHit,
+  SaveReport,
   Sort,
   SortColumn,
 } from "@chessgui/core/database-types"
@@ -39,6 +40,7 @@ export type {
   ImportReport,
   PgnImportProgress,
   PositionHit,
+  SaveReport,
   Sort,
   SortColumn,
 }
@@ -60,6 +62,7 @@ export interface DatabaseApi {
   ): Promise<GameHeader[]>
   searchPosition(fen: string, limit?: number, dbPath?: string): Promise<PositionHit[]>
   getGame(id: number, dbPath?: string): Promise<string | null>
+  saveGame(args: { pgn: string; source?: string; dbPath?: string }): Promise<SaveReport>
   deleteGames(ids: number[], dbPath?: string): Promise<number>
   stats(dbPath?: string): Promise<DbStats>
 }
@@ -137,6 +140,21 @@ export function searchPosition(
 /** Full PGN (tags + movetext) for one game, ready to load into a GameTree. */
 export function getGame(id: number, dbPath?: string): Promise<string | null> {
   return getProviders().database.getGame(id, dbPath)
+}
+
+/**
+ * Save one game's PGN — the spec-202 "save annotated game" action. Upsert
+ * semantics: a game with the same mainline + result gets its headers and
+ * movetext (comments, NAGs, `[%…]` tags) refreshed in place; anything else
+ * inserts a new row. `source` labels new rows in the game list (default
+ * "saved" on the backend).
+ */
+export function saveGame(args: {
+  pgn: string
+  source?: string
+  dbPath?: string
+}): Promise<SaveReport> {
+  return getProviders().database.saveGame(args)
 }
 
 /** Delete games by id (their indexed positions cascade). Returns count removed. */

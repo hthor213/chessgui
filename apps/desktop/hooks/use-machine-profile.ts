@@ -29,9 +29,15 @@ const PROFILE_UPDATED_EVENT = "machine-profile-updated";
  * automatically — `hwChanged` tells the UI why. On shells without a native
  * engine the hook is inert (`profile` stays null) so the frontend can render
  * in a plain browser.
+ *
+ * Also carries the OTHER machines' imported profiles (spec 216 Tier 2 —
+ * cross-machine equivalence): `remoteProfiles` lists them, `importProfile`
+ * takes the raw JSON of another machine's `machine_profile.json`, and
+ * `removeProfile` drops one by hostname.
  */
 export function useMachineProfile() {
   const [profile, setProfile] = useState<MachineProfile | null>(null);
+  const [remoteProfiles, setRemoteProfiles] = useState<MachineProfile[]>([]);
   const [benching, setBenching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hwChanged, setHwChanged] = useState(false);
@@ -51,6 +57,49 @@ export function useMachineProfile() {
       return undefined;
     }
   }, []);
+
+  // Reload the imported remote profiles. A read failure leaves the previous
+  // list in place rather than blanking rows the user can still act on.
+  const refreshRemotes = useCallback(async () => {
+    const engine = getProviders().engine;
+    if (!engine.hasNativeEngine) return;
+    try {
+      setRemoteProfiles(await engine.machineProfilesList());
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  const importProfile = useCallback(
+    async (json: string) => {
+      const engine = getProviders().engine;
+      if (!engine.hasNativeEngine) return;
+      setError(null);
+      try {
+        await engine.machineProfileImport(json);
+        await refreshRemotes();
+        window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT));
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refreshRemotes],
+  );
+
+  const removeProfile = useCallback(
+    async (hostname: string) => {
+      const engine = getProviders().engine;
+      if (!engine.hasNativeEngine) return;
+      try {
+        await engine.machineProfileRemove(hostname);
+        await refreshRemotes();
+        window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT));
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refreshRemotes],
+  );
 
   const runBench = useCallback(
     async (enginePath?: string) => {
@@ -80,6 +129,7 @@ export function useMachineProfile() {
     const engine = getProviders().engine;
     if (!engine.hasNativeEngine) return;
     let cancelled = false;
+    refreshRemotes();
     (async () => {
       const p = await refresh();
       let changed = false;
@@ -104,18 +154,19 @@ export function useMachineProfile() {
     return () => {
       cancelled = true;
     };
-  }, [refresh, runBench]);
+  }, [refresh, refreshRemotes, runBench]);
 
   // Follow benches performed by other instances of this hook.
   useEffect(() => {
     if (!getProviders().engine.hasNativeEngine) return;
     const onUpdated = () => {
       refresh();
+      refreshRemotes();
       setHwChanged(false);
     };
     window.addEventListener(PROFILE_UPDATED_EVENT, onUpdated);
     return () => window.removeEventListener(PROFILE_UPDATED_EVENT, onUpdated);
-  }, [refresh]);
+  }, [refresh, refreshRemotes]);
 
-  return { profile, benching, error, hwChanged, runBench };
+  return { profile, remoteProfiles, benching, error, hwChanged, runBench, importProfile, removeProfile };
 }

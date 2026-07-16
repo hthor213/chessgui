@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,7 @@ import { validateFen, padFen } from "@chessgui/core/fen";
 import { parsePgnToTrees } from "@chessgui/core/pgn";
 import { GameTree, INITIAL_FEN } from "@chessgui/core/game-tree";
 import { clipboardEventImage, type ClipboardImage } from "@/lib/recognize-position";
+import { openTextFile } from "@/lib/dialog";
 
 interface PgnImportDialogProps {
   open: boolean;
@@ -50,7 +51,6 @@ export function PgnImportDialog({
   const [pgnText, setPgnText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [parsedGames, setParsedGames] = useState<GameTree[] | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Seed the textarea when the dialog is opened with pre-filled text.
   useEffect(() => {
@@ -102,14 +102,16 @@ export function PgnImportDialog({
 
   const handleLoad = () => doLoad(pgnText);
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    file.text().then((text) => {
-      setPgnText(text);
-      doLoad(text);
+  // Open a .pgn from disk (spec 013): native dialog on desktop, programmatic
+  // <input type=file> in the browser — both behind lib/dialog's openTextFile.
+  const handleOpenFile = async () => {
+    const file = await openTextFile({
+      title: "Open PGN file",
+      filters: [{ name: "PGN", extensions: ["pgn", "txt"] }],
     });
+    if (!file) return; // cancelled
+    setPgnText(file.text);
+    doLoad(file.text);
   };
 
   const handlePickGame = (tree: GameTree) => {
@@ -187,18 +189,11 @@ export function PgnImportDialog({
                 {error}
               </span>
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pgn,.txt"
-              className="hidden"
-              onChange={handleFile}
-            />
             <DialogFooter>
               <Button
                 variant="ghost"
                 className="text-muted-foreground mr-auto"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={handleOpenFile}
               >
                 Open file…
               </Button>

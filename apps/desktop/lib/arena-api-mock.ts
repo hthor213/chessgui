@@ -26,9 +26,11 @@ import {
   type ArenaGameStatus,
   type ArenaGameSummary,
   type ArenaMove,
+  type ArenaPersonaRecord,
   type ArenaResult,
   type ArenaUser,
 } from "@chessgui/core/arena-api"
+import { arenaResultBadge } from "@/lib/arena-moves"
 import { ARENA_DISCLOSURE_TEXT } from "@/lib/arena-disclosure"
 
 const MOCK_THINKING_MS = 350
@@ -248,6 +250,29 @@ export function createMockArenaApiClient(): ArenaApiClient {
     async listGames(): Promise<ArenaGameSummary[]> {
       await delay(80)
       return [...games.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(toSummary)
+    },
+
+    async listPersonaRecords(): Promise<ArenaPersonaRecord[]> {
+      // Spec 217 Tier 1 W/D/L parity: same aggregation the server does in
+      // SQL (db.wdl_by_persona) — finished games only, one row per persona,
+      // sorted by slug. Outcome classification reuses arenaResultBadge so
+      // the mock can never disagree with the history row badges it sits
+      // beside.
+      await delay(80)
+      const byPersona = new Map<string, ArenaPersonaRecord>()
+      for (const g of games.values()) {
+        if (g.status !== "finished") continue
+        let rec = byPersona.get(g.persona)
+        if (!rec) {
+          rec = { persona: g.persona, wins: 0, draws: 0, losses: 0 }
+          byPersona.set(g.persona, rec)
+        }
+        const badge = arenaResultBadge(g.status, g.result, g.playerColor)
+        if (badge === "Win") rec.wins++
+        else if (badge === "Draw") rec.draws++
+        else rec.losses++
+      }
+      return [...byPersona.values()].sort((a, b) => a.persona.localeCompare(b.persona))
     },
 
     async submitMove(gameId: number, uci: string): Promise<ArenaGameState> {

@@ -2174,6 +2174,33 @@ pub fn load_tournament_result(
     load_tournament_result_in(&tournaments_dir(&app)?, &file)
 }
 
+/// Byte cap for `read_opening_positions`. The largest published UHO books are
+/// a few MB of text; the cap only exists so a mispicked huge file (e.g. a
+/// binary) can't flood the IPC channel.
+const OPENING_FILE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// Read a user-picked EPD/FEN opening-positions file (spec 210 Phase 3:
+/// "loaded from disk via file picker"). Returns the raw text — line parsing
+/// lives client-side (`parseOpeningPositions`, packages/core/src/tournament.ts)
+/// next to the seed sampling that consumes it. Pure core (no AppHandle) so the
+/// cap and error paths are unit-testable, matching the persistence fns above.
+pub fn read_opening_positions_in(path: &str, max_bytes: u64) -> Result<String, String> {
+    let meta = std::fs::metadata(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
+    if meta.len() > max_bytes {
+        return Err(format!(
+            "{path} is {} bytes — over the {max_bytes}-byte cap for a position file",
+            meta.len()
+        ));
+    }
+    std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))
+}
+
+/// Tauri command: read an EPD/FEN opening-positions file for the tournament tab.
+#[tauri::command]
+pub fn read_opening_positions(path: String) -> Result<String, String> {
+    read_opening_positions_in(&path, OPENING_FILE_MAX_BYTES)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2763,6 +2790,34 @@ mod tests {
         // A corrupt sidecar file is skipped by the listing, not fatal.
         std::fs::write(dir.join("garbage.json"), "{not json").unwrap();
         assert_eq!(list_tournament_results_in(&dir).unwrap().len(), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `read_opening_positions_in` round-trips a text file, errors on a
+    /// missing path, and enforces the byte cap (tested with a tiny cap so the
+    /// test never writes megabytes).
+    #[test]
+    fn read_opening_positions_round_trip_and_cap() {
+        let dir = std::env::temp_dir().join(format!(
+            "chessgui-openings-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("book.epd");
+        let text = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - ce 25;\n";
+        std::fs::write(&file, text).unwrap();
+        let path = file.to_string_lossy().into_owned();
+
+        assert_eq!(read_opening_positions_in(&path, 1024).unwrap(), text);
+        assert!(read_opening_positions_in(&path, 8).is_err(), "over-cap file rejected");
+        assert!(
+            read_opening_positions_in(&dir.join("missing.epd").to_string_lossy(), 1024).is_err(),
+            "missing file is a descriptive error"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

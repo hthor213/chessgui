@@ -28,6 +28,7 @@ import type {
   ImportReport,
   PgnImportProgress,
   PositionHit,
+  SaveReport,
   Sort,
 } from "@/lib/database"
 import type { HumanTreeOptions, HumanTreeResult } from "@/lib/human-eval-tree"
@@ -46,7 +47,14 @@ import type { LocalRivalPersona } from "@/lib/roster"
 import type { BenchResult, MachineProfile } from "@/hooks/use-machine-profile"
 import { readBrowserClipboardImage, readBrowserClipboardText } from "./clipboard"
 import { localStorageKV } from "./storage"
-import type { EngineStartResult, PickFileOptions, PlatformProviders } from "@chessgui/core/platform-types"
+import type {
+  EngineStartResult,
+  OpenedTextFile,
+  PickFileOptions,
+  PlatformProviders,
+  SaveTextFileOptions,
+  SaveTextFileResult,
+} from "@chessgui/core/platform-types"
 
 // --- Default engine path (spec 222 Tier 0) --------------------------------
 // The real resolution — bundled sidecar → PATH lookup → macOS Homebrew
@@ -116,6 +124,15 @@ export const tauriProviders: PlatformProviders = {
     },
     machineFingerprint(): Promise<string> {
       return invoke<string>("machine_fingerprint")
+    },
+    machineProfileImport(json: string): Promise<MachineProfile> {
+      return invoke<MachineProfile>("machine_profile_import", { json })
+    },
+    machineProfilesList(): Promise<MachineProfile[]> {
+      return invoke<MachineProfile[]>("machine_profiles_list")
+    },
+    async machineProfileRemove(hostname: string): Promise<void> {
+      await invoke("machine_profile_remove", { hostname })
     },
 
     maiaMove(fen: string, level: number): Promise<PersonaMove> {
@@ -227,6 +244,13 @@ export const tauriProviders: PlatformProviders = {
     getGame(id: number, dbPath?: string): Promise<string | null> {
       return invoke<string | null>("db_get_game", { id, dbPath: dbPath ?? null })
     },
+    saveGame(args): Promise<SaveReport> {
+      return invoke<SaveReport>("db_save_game", {
+        pgn: args.pgn,
+        source: args.source ?? null,
+        dbPath: args.dbPath ?? null,
+      })
+    },
     deleteGames(ids: number[], dbPath?: string): Promise<number> {
       return invoke<number>("db_delete_games", { ids, dbPath: dbPath ?? null })
     },
@@ -263,6 +287,28 @@ export const tauriProviders: PlatformProviders = {
       const { open } = await import("@tauri-apps/plugin-dialog")
       const picked = await open({ multiple: false, directory: false, ...options })
       return typeof picked === "string" && picked ? picked : null
+    },
+    // Native open picker + Rust read (spec 013 PGN import): the webview
+    // can't read a picked path itself, so the contents cross via IPC
+    // (src-tauri/src/files.rs read_text_file, 32MB cap).
+    async openTextFile(options: PickFileOptions = {}): Promise<OpenedTextFile | null> {
+      const path = await tauriProviders.dialog.pickFile(options)
+      if (!path) return null // cancelled
+      const text = await invoke<string>("read_text_file", { path })
+      return { name: path.split("/").pop() || path, text }
+    },
+    // Native save dialog + Rust write (spec 013 PGN export). saved:false
+    // means the user cancelled — callers show no status and do nothing.
+    async saveTextFile(options: SaveTextFileOptions): Promise<SaveTextFileResult> {
+      const { save } = await import("@tauri-apps/plugin-dialog")
+      const path = await save({
+        title: options.title,
+        defaultPath: options.defaultName,
+        filters: options.filters,
+      })
+      if (!path) return { saved: false }
+      await invoke("write_text_file", { path, text: options.text })
+      return { saved: true, path }
     },
     async readClipboardImage(): Promise<ClipboardImage | null> {
       try {

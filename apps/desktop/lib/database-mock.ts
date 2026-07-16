@@ -18,6 +18,7 @@ import type {
   GameHeader,
   ImportReport,
   PositionHit,
+  SaveReport,
   Sort,
 } from "@/lib/database"
 
@@ -226,6 +227,42 @@ class MockDb implements DatabaseApi {
   async getGame(id: number): Promise<string | null> {
     const g = this.games.find((x) => x.id === id)
     return g ? treeToPgn(g.tree) : null
+  }
+
+  /**
+   * Upsert one game's PGN, mirroring the Rust `save_game`: the dup key is the
+   * mainline + result, so re-saving an annotated copy of a stored game
+   * replaces that game's tree (headers + comments/NAGs/[%…] tags) in place;
+   * a new mainline inserts. Rejects on unparseable/empty PGN like the backend.
+   */
+  async saveGame(args: { pgn: string; source?: string }): Promise<SaveReport> {
+    const trees = parsePgnToTrees(args.pgn)
+    const tree = trees[0]
+    if (!tree) throw new Error("no game found in the PGN")
+    const { positions, uci } = indexTree(tree)
+    // Same emptiness guard as ingest(): a blank input parses to a headerless,
+    // moveless "game" — reject it like the backend does.
+    if (uci.length === 0 && Object.keys(tree.headers).length === 0)
+      throw new Error("no game found in the PGN")
+    const result = tree.headers.Result ?? "*"
+    const dupKey = `${uci.join(" ")}|${result}`
+    const existing = this.games.find((g) => g.dupKey === dupKey)
+    if (existing) {
+      existing.tree = tree
+      existing.header = headerFromTree(existing.id, tree, existing.header.source)
+      return { id: existing.id, updated: true }
+    }
+    const source = args.source || "saved"
+    const id = this.nextId++
+    this.dupKeys.add(dupKey)
+    this.games.push({
+      id,
+      header: headerFromTree(id, tree, source),
+      tree,
+      positions,
+      dupKey,
+    })
+    return { id, updated: false }
   }
 
   async deleteGames(ids: number[]): Promise<number> {

@@ -55,6 +55,15 @@ pub struct ImportReport {
     pub errors: u64,
 }
 
+/// Outcome of saving one game (spec 202: save the annotated game to the DB).
+/// `updated` is true when a game with the same mainline + result already
+/// existed and its headers/annotations were refreshed in place.
+#[derive(Debug, Clone, Serialize)]
+pub struct SaveReport {
+    pub id: i64,
+    pub updated: bool,
+}
+
 /// Header row for the game list. Elos are optional (absent/`?` in many PGNs).
 #[derive(Debug, Clone, Serialize)]
 pub struct GameHeader {
@@ -694,6 +703,68 @@ impl Db {
         Ok(report)
     }
 
+    /// Save one game's PGN (spec 202: save the annotated game to the DB).
+    /// Parses with the same visitor as import, then upserts on the dup hash —
+    /// annotations (comments, NAGs, `[%eval]`/`[%cal]`/`[%csl]` tags) live in
+    /// the movetext, so saving an annotated copy of an already-stored game
+    /// refreshes that game's headers + movetext in place rather than being
+    /// skipped as a duplicate. Returns the row id and whether it was an update.
+    pub fn save_game(&mut self, pgn: &str, source: &str) -> rusqlite::Result<SaveReport> {
+        let mut visitor = ImportVisitor {
+            ply_cap: DEFAULT_PLY_CAP,
+        };
+        let mut reader = Reader::new(Cursor::new(pgn.as_bytes()));
+        let game = reader
+            .read_game(&mut visitor)
+            .map_err(|e| save_err(&format!("PGN parse failed: {e}")))?
+            .ok_or_else(|| save_err("no game found in the PGN"))?;
+        if let Some(err) = &game.error {
+            return Err(save_err(&format!("invalid game: {err}")));
+        }
+        let batch_id = format!("{source}@{}", now_stamp());
+        // The row is found by hash in both branches: `last_insert_rowid` is
+        // useless here because `insert_game` inserts position rows after the
+        // game row.
+        let hash = dup_hash(&game.packed_moves, &game.result);
+        let tx = self.conn.transaction()?;
+        let updated = match insert_game(&tx, &game, source, &batch_id)? {
+            InsertOutcome::Inserted => false,
+            InsertOutcome::Duplicate => {
+                // Same mainline + result already stored: refresh the headers
+                // and the movetext (where the annotations live). Provenance
+                // columns (source, import_batch, created_at) keep the original
+                // row's values, and the position index is keyed on the
+                // unchanged mainline, so neither is touched.
+                let t = &game.tags;
+                tx.execute(
+                    "UPDATE games SET white=?1, black=?2, white_elo=?3, black_elo=?4, \
+                     event=?5, site=?6, round=?7, date=?8, eco=?9, pgn_moves=?10 \
+                     WHERE dup_hash=?11",
+                    params![
+                        t.white,
+                        t.black,
+                        t.white_elo,
+                        t.black_elo,
+                        t.event,
+                        t.site,
+                        t.round,
+                        t.date,
+                        t.eco,
+                        game.movetext,
+                        hash,
+                    ],
+                )?;
+                true
+            }
+            // Unreachable in practice — `game.error` was checked above — but
+            // surface it rather than silently reporting success.
+            InsertOutcome::Error => return Err(save_err("game could not be stored")),
+        };
+        let id = tx.query_row("SELECT id FROM games WHERE dup_hash=?1", [&hash], |r| r.get(0))?;
+        tx.commit()?;
+        Ok(SaveReport { id, updated })
+    }
+
     /// Paginated, filtered header list. Sort defaults to newest-inserted first
     /// (`id DESC`); `sort_by` is validated against a column whitelist so it can
     /// never inject SQL.
@@ -1197,6 +1268,16 @@ impl GameForPgn {
     }
 }
 
+/// Wrap a save-time validation failure (unparseable/empty PGN) in a rusqlite
+/// error so `save_game` shares the `DbManager::with` plumbing, which maps all
+/// errors to display strings for the frontend.
+fn save_err(msg: &str) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        msg.to_string(),
+    )))
+}
+
 fn now_stamp() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
@@ -1455,6 +1536,23 @@ pub fn db_get_game(
 ) -> Result<Option<String>, String> {
     let path = resolve_db_path(&app, db_path)?;
     state.with(&path, |db| db.get_game_pgn(id))
+}
+
+/// Save the current game's PGN into the database (spec 202). Upserts on the
+/// mainline+result dup hash so re-saving an annotated game updates it in
+/// place. `source` defaults to "saved" (shows in the game list's provenance
+/// column for new rows).
+#[tauri::command]
+pub fn db_save_game(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbManager>,
+    pgn: String,
+    source: Option<String>,
+    db_path: Option<String>,
+) -> Result<SaveReport, String> {
+    let path = resolve_db_path(&app, db_path)?;
+    let source = source.filter(|s| !s.is_empty()).unwrap_or_else(|| "saved".to_string());
+    state.with(&path, |db| db.save_game(&pgn, &source))
 }
 
 #[tauri::command]
@@ -1764,5 +1862,83 @@ mod tests {
         assert!(mv.contains("Sicilian"), "comment retained: {mv}");
         // Only mainline plies are indexed: 1.e4 e5 2.Nf3 Nc6 = 4 plies.
         assert_eq!(ids[0].ply_count, 4);
+    }
+
+    /// An annotated game (comments, NAGs, [%eval]/[%cal] tags) saved via
+    /// `save_game` must round-trip its annotations through `get_game_pgn`
+    /// (spec 202 "annotations persist in database").
+    #[test]
+    fn save_game_round_trips_annotations() {
+        let mut db = Db::open_in_memory().unwrap();
+        let pgn = "\
+[Event \"Analysis\"]\n[White \"Me\"]\n[Black \"Rival\"]\n[Result \"*\"]\n\n\
+1. e4 {[%eval 0.25] Best by test. [%cal Ge2e4]} c5 $2 2. Nf3 $1 d6 *\n";
+        let rep = db.save_game(pgn, "saved").unwrap();
+        assert!(!rep.updated, "first save inserts");
+        assert_eq!(db.stats().unwrap().games, 1);
+
+        let out = db.get_game_pgn(rep.id).unwrap().unwrap();
+        assert!(out.contains("[%eval 0.25]"), "eval tag survives: {out}");
+        assert!(out.contains("Best by test."), "comment survives: {out}");
+        assert!(out.contains("[%cal Ge2e4]"), "arrow tag survives: {out}");
+        assert!(out.contains("$2"), "NAG on c5 survives: {out}");
+        assert!(out.contains("$1"), "NAG on Nf3 survives: {out}");
+    }
+
+    /// Re-saving the same mainline with changed annotations/headers updates
+    /// the existing row (same id, no duplicate), preserving provenance and
+    /// the position index.
+    #[test]
+    fn save_game_updates_existing_row_in_place() {
+        let mut db = Db::open_in_memory().unwrap();
+        let v1 = "\
+[Event \"Casual\"]\n[White \"Me\"]\n[Black \"Rival\"]\n[Result \"1-0\"]\n\n\
+1. e4 e5 2. Nf3 Nc6 1-0\n";
+        let first = db.save_game(v1, "saved").unwrap();
+        assert!(!first.updated);
+        let positions_before = db.stats().unwrap().positions;
+
+        // Same mainline + result, now annotated and with a corrected event.
+        let v2 = "\
+[Event \"Club Championship\"]\n[White \"Me\"]\n[Black \"Rival\"]\n[Result \"1-0\"]\n\n\
+1. e4 {[%eval 0.3]} e5 2. Nf3 $1 {Develops with tempo.} Nc6 1-0\n";
+        let second = db.save_game(v2, "saved").unwrap();
+        assert!(second.updated, "same mainline+result updates in place");
+        assert_eq!(second.id, first.id, "row identity is stable across saves");
+        assert_eq!(db.stats().unwrap().games, 1, "no duplicate row");
+        assert_eq!(
+            db.stats().unwrap().positions,
+            positions_before,
+            "position index untouched (mainline unchanged)"
+        );
+
+        let out = db.get_game_pgn(first.id).unwrap().unwrap();
+        assert!(out.contains("Club Championship"), "headers refreshed: {out}");
+        assert!(out.contains("Develops with tempo."), "annotations refreshed: {out}");
+        assert!(out.contains("[%eval 0.3]"), "eval tag refreshed: {out}");
+    }
+
+    /// A different mainline (or result) is a new game, not an update.
+    #[test]
+    fn save_game_distinct_mainline_inserts_new_row() {
+        let mut db = Db::open_in_memory().unwrap();
+        let a = db
+            .save_game("[Result \"*\"]\n\n1. e4 e5 *\n", "saved")
+            .unwrap();
+        let b = db
+            .save_game("[Result \"*\"]\n\n1. d4 d5 *\n", "saved")
+            .unwrap();
+        assert!(!a.updated);
+        assert!(!b.updated);
+        assert_ne!(a.id, b.id);
+        assert_eq!(db.stats().unwrap().games, 2);
+    }
+
+    /// Garbage in → an error out, never a silent empty row.
+    #[test]
+    fn save_game_rejects_empty_pgn() {
+        let mut db = Db::open_in_memory().unwrap();
+        assert!(db.save_game("", "saved").is_err());
+        assert_eq!(db.stats().unwrap().games, 0);
     }
 }

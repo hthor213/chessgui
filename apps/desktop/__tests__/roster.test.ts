@@ -7,6 +7,8 @@ import {
   MAIA_ROSTER_BANDS,
   PRIVATE_RIVAL_ID,
   PRIVATE_RIVAL_DISPLAY_NAME,
+  SELF_PERSONA_ID,
+  SELF_PERSONA_DISPLAY_NAME,
   resolveParticipantBook,
   type LocalRivalPersona,
   type PersonaConfigFile,
@@ -38,6 +40,13 @@ function rivalConfig(overrides: Partial<PersonaConfigFile> = {}): PersonaConfigF
 const LOCAL_RIVAL: LocalRivalPersona = {
   config: rivalConfig(),
   book: { version: 1, max_ply: 8, rival: "testrival", entries: [] },
+};
+
+/** The self persona the way scripts/persona/build_self_persona.py writes it
+ *  (spec 218 "Own-persona entry") — kind "self", Maia-band backend. */
+const SELF_PERSONA: LocalRivalPersona = {
+  config: rivalConfig({ slug: "self", display_name: "You", kind: "self", backend: { kind: "maia", level: 1200 }, sampling: { level: 1200 } }),
+  book: { version: 1, max_ply: 8, rival: "self", entries: [] },
 };
 
 describe("buildRoster", () => {
@@ -115,6 +124,28 @@ describe("buildRoster", () => {
     expect(p!.personaConfig?.book).toBe("local");
     expect(p!.strengthLabel).toMatch(/unmeasured/i);
     expect(p!.actions).toEqual(["play"]);
+  });
+
+  it("surfaces the self persona as 'You', first, when its book artifact exists (spec 218 own-persona entry)", () => {
+    const roster = buildRoster(SAMPLE_BOOK, [LOCAL_RIVAL, SELF_PERSONA]);
+    const you = roster.find((p) => p.id === SELF_PERSONA_ID);
+    expect(you).toBeDefined();
+    expect(roster[0]).toBe(you);
+    expect(you!.displayName).toBe(SELF_PERSONA_DISPLAY_NAME);
+    expect(you!.personaConfig?.level).toBe(1200);
+    expect(you!.personaConfig?.approximate).toBeUndefined();
+    expect(you!.personaConfig?.book).toBe("local");
+    expect(you!.personaConfig?.bookSlug).toBe("self");
+    expect(you!.strengthLabel).toMatch(/your real openings/i);
+    expect(you!.actions).toEqual(["play"]);
+    // Its own card only — never doubled as a generic local-rival entry.
+    expect(roster.find((p) => p.id === "rival-self")).toBeUndefined();
+  });
+
+  it("omits the self persona entirely while its book is unbuilt (gated on the artifact)", () => {
+    const roster = buildRoster(null, [{ config: SELF_PERSONA.config, book: null }]);
+    expect(roster.find((p) => p.id === SELF_PERSONA_ID)).toBeUndefined();
+    expect(roster.find((p) => p.id === "rival-self")).toBeUndefined();
   });
 
   it("degrades silently when rival configs are absent — no rival entries, no errors", () => {

@@ -37,6 +37,8 @@ import {
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine } from "@/hooks/use-engine"
 import { readClipboardImage, readClipboardText, imageToFen, type ClipboardImage } from "@/lib/recognize-position"
+import { saveGame } from "@/lib/database"
+import { saveTextFile } from "@/lib/dialog"
 import { uciToArrow, type PvLine } from "@chessgui/core/uci-parser"
 import { walkPv, type PvStep } from "@/lib/pv-preview"
 import { ecoLabel } from "@chessgui/core/eco"
@@ -392,8 +394,8 @@ export default function Home() {
   }, [recognizeImage])
 
   // Export the current game as a PGN: copy to clipboard (best-effort) and
-  // download a .pgn file. Native Tauri save dialog is a later enhancement; the
-  // webview download works in both the app and a plain browser.
+  // save a .pgn file — native save dialog on desktop, Blob download in a
+  // plain browser (spec 013; both paths behind lib/dialog's saveTextFile).
   const handleExport = useCallback(async () => {
     const pgn = game.exportPgn()
     let copied = false
@@ -401,24 +403,44 @@ export default function Home() {
       await navigator.clipboard.writeText(pgn)
       copied = true
     } catch {
-      // clipboard write blocked — the file download still happens
+      // clipboard write blocked — the file save still happens
     }
     const white = game.headers.White
     const black = game.headers.Black
     const base = white || black ? `${white || "white"}_vs_${black || "black"}` : "game"
     const name = `${base.replace(/[^\w.-]+/g, "_")}.pgn`
-    const blob = new Blob([pgn], { type: "application/x-chess-pgn" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = name
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-    setPasteStatus(copied ? "PGN exported (copied to clipboard)" : "PGN exported")
+    try {
+      const result = await saveTextFile({
+        title: "Export PGN",
+        defaultName: name,
+        filters: [{ name: "PGN", extensions: ["pgn"] }],
+        mimeType: "application/x-chess-pgn",
+        text: pgn,
+      })
+      if (!result.saved) return // cancelled the native save dialog
+      setPasteStatus(copied ? "PGN exported (copied to clipboard)" : "PGN exported")
+    } catch (e) {
+      setPasteStatus(
+        `Export failed: ${typeof e === "string" ? e : e instanceof Error ? e.message : "unknown error"}`,
+      )
+    }
     setTimeout(() => setPasteStatus(null), 3000)
   }, [game.exportPgn, game.headers])
+
+  // Save the current game — annotations and all, via treeToPgn — into the
+  // game database (spec 202). Upsert: re-saving the same game after further
+  // annotation updates the stored copy instead of piling up duplicates.
+  const handleSaveToDb = useCallback(async () => {
+    try {
+      const report = await saveGame({ pgn: game.exportPgn() })
+      setPasteStatus(report.updated ? "Game updated in database" : "Game saved to database")
+    } catch (e) {
+      setPasteStatus(
+        `Save failed: ${typeof e === "string" ? e : e instanceof Error ? e.message : "unknown error"}`,
+      )
+    }
+    setTimeout(() => setPasteStatus(null), 3000)
+  }, [game.exportPgn])
 
   // Test hook for headless UI verification (see .claude/skills/verify) —
   // paste can't be driven through Tauri from Playwright.
@@ -1133,6 +1155,14 @@ export default function Home() {
                 title="Export game as PGN"
               >
                 Export
+              </button>
+              <button
+                className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
+                onClick={handleSaveToDb}
+                title="Save game (with annotations) to the database"
+                data-testid="save-to-db"
+              >
+                Save
               </button>
               <button
                 className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"

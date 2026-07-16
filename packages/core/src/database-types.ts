@@ -10,6 +10,17 @@ export type ImportReport = {
 }
 
 /**
+ * Outcome of saving one game (spec 202: save the annotated game to the DB).
+ * `updated` is true when a game with the same mainline + result already
+ * existed and its headers/annotations were refreshed in place.
+ * Mirrors Rust `SaveReport`.
+ */
+export type SaveReport = {
+  id: number
+  updated: boolean
+}
+
+/**
  * Progress snapshot streamed during a CBH import: once up front (carrying
  * `total`) and then after every imported batch. Mirrors Rust `CbhImportProgress`.
  */

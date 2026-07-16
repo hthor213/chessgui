@@ -17,6 +17,7 @@ import type {
   ImportReport,
   PgnImportProgress,
   PositionHit,
+  SaveReport,
   Sort,
 } from "./database-types"
 import type {
@@ -82,6 +83,12 @@ export interface EngineProvider {
   machineProfileGet(): Promise<MachineProfile | null>
   machineBench(enginePath?: string | null): Promise<BenchResult>
   machineFingerprint(): Promise<string>
+  /** Import another machine's profile JSON (216 Tier 2); returns the parsed profile. */
+  machineProfileImport(json: string): Promise<MachineProfile>
+  /** Imported remote profiles, sorted by hostname (empty where unsupported). */
+  machineProfilesList(): Promise<MachineProfile[]>
+  /** Remove an imported profile by hostname; no-op when absent. */
+  machineProfileRemove(hostname: string): Promise<void>
 
   // --- Persona / AI move sources (spec 213/214) ---
   maiaMove(fen: string, level: number): Promise<PersonaMove>
@@ -135,6 +142,9 @@ export interface DatabaseProvider {
   ): Promise<GameHeader[]>
   searchPosition(fen: string, limit?: number, dbPath?: string): Promise<PositionHit[]>
   getGame(id: number, dbPath?: string): Promise<string | null>
+  /** Upsert one game's PGN (spec 202): annotations update the existing row
+   *  when the mainline + result already exist, insert otherwise. */
+  saveGame(args: { pgn: string; source?: string; dbPath?: string }): Promise<SaveReport>
   deleteGames(ids: number[], dbPath?: string): Promise<number>
   stats(dbPath?: string): Promise<DbStats>
 
@@ -157,13 +167,50 @@ export interface PickFileOptions {
   filters?: { name: string; extensions: string[] }[]
 }
 
+/** A text file the user opened via `DialogProvider.openTextFile`. */
+export interface OpenedTextFile {
+  /** Basename shown to the user (browsers never expose the full path). */
+  name: string
+  text: string
+}
+
+/** Native file-save dialog options (spec 013 PGN export). */
+export interface SaveTextFileOptions {
+  /** Window title for the save dialog. */
+  title?: string
+  /** Suggested filename, e.g. "white_vs_black.pgn". */
+  defaultName?: string
+  /** Extension filters, e.g. [{ name: "PGN", extensions: ["pgn"] }]. */
+  filters?: { name: string; extensions: string[] }[]
+  /** MIME type for shells that save via download (browser Blob fallback). */
+  mimeType?: string
+  /** The file contents to write. */
+  text: string
+}
+
+/** Outcome of `DialogProvider.saveTextFile`: saved=false means cancelled. */
+export interface SaveTextFileResult {
+  saved: boolean
+  /** Absolute path written, when the shell has one (native save only). */
+  path?: string
+}
+
 /**
  * File pickers and clipboard access (spec 220 "DialogProvider"): pickFile
  * resolves null when cancelled or when the shell has no native picker; the
  * clipboard readers resolve null when the clipboard has no matching content.
+ *
+ * openTextFile/saveTextFile (spec 013) carry the file CONTENTS across the
+ * seam, so every shell can honor them: the desktop shell uses native dialogs
+ * plus Rust fs commands, the browser fallback uses a programmatic
+ * `<input type=file>` / Blob download. Both resolve "cancelled" (null /
+ * saved:false) rather than rejecting, so callers never need an isTauri()
+ * branch to decide on a fallback.
  */
 export interface DialogProvider {
   pickFile(options?: PickFileOptions): Promise<string | null>
+  openTextFile(options?: PickFileOptions): Promise<OpenedTextFile | null>
+  saveTextFile(options: SaveTextFileOptions): Promise<SaveTextFileResult>
   readClipboardImage(): Promise<ClipboardImage | null>
   readClipboardText(): Promise<string | null>
 }

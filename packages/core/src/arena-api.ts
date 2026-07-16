@@ -18,6 +18,9 @@
 //   GET  /api/personas                              -> 200 {disclosure, personas: [...]} | 401
 //   POST /api/game  {persona, player_color}         -> 200 ArenaGameState | 400 | 401 | 503 (engine stall)
 //   GET  /api/games                                 -> 200 {games: ArenaGameSummary[]} | 401
+//   GET  /api/stats                                  -> 200 {records: ArenaPersonaRecord[]} | 401
+//        (spec 217 Tier 1: per-opponent W/D/L history — finished games only,
+//        aggregated server-side per persona faced, scoped to the caller)
 //   GET  /api/game/{id}                              -> 200 ArenaGameState | 401 | 404 | 503
 //        (a plain GET can trigger a pending persona reply server-side — the
 //        "resume" path IS this endpoint, no separate resume call exists)
@@ -130,6 +133,17 @@ export interface ArenaGameSummary {
   movesCount: number
 }
 
+/** One row of the player's per-opponent record (GET /api/stats) — spec 217
+ *  Tier 1 W/D/L history. Counts are from the PLAYER's side (wins = games the
+ *  player won against this persona) and cover finished games only; wire shape
+ *  is already camel-safe (single-word keys), so no mapping layer exists. */
+export interface ArenaPersonaRecord {
+  persona: string
+  wins: number
+  draws: number
+  losses: number
+}
+
 export class ArenaApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -148,6 +162,9 @@ export interface ArenaApiClient {
   createGame(persona: string, playerColor: ArenaColor): Promise<ArenaGameState>
   getGame(gameId: number): Promise<ArenaGameState>
   listGames(): Promise<ArenaGameSummary[]>
+  /** GET /api/stats — the player's W/D/L record per persona faced (spec 217
+   *  Tier 1). One row per persona with at least one finished game. */
+  listPersonaRecords(): Promise<ArenaPersonaRecord[]>
   submitMove(gameId: number, uci: string): Promise<ArenaGameState>
   resign(gameId: number): Promise<ArenaGameState>
   /** POST /api/game/{id}/feedback — "I would never do this" on a persona
@@ -320,6 +337,11 @@ function createFetchArenaApiClient(): ArenaApiClient {
     async listGames() {
       const res = await request<{ games: Parameters<typeof gameSummaryFromWire>[0][] }>("/api/games")
       return res.games.map(gameSummaryFromWire)
+    },
+
+    async listPersonaRecords() {
+      const res = await request<{ records: ArenaPersonaRecord[] }>("/api/stats")
+      return res.records
     },
 
     async submitMove(gameId, uci) {

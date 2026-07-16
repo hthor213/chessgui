@@ -4,6 +4,7 @@ pub mod calibration;
 pub mod coach;
 pub mod db;
 pub mod engine_path;
+pub mod files;
 pub mod human_search;
 pub mod machine;
 pub mod maia;
@@ -38,6 +39,8 @@ pub fn run() {
             uci::send_command,
             uci::stop_engine,
             engine_path::default_engine_path,
+            files::read_text_file,
+            files::write_text_file,
             match_runner::play_game,
             match_runner::play_batch,
             match_runner::cancel_batch,
@@ -49,11 +52,13 @@ pub fn run() {
             match_runner::save_tournament_result,
             match_runner::list_tournament_results,
             match_runner::load_tournament_result,
+            match_runner::read_opening_positions,
             db::db_import_pgn,
             db::db_import_cbh,
             db::db_list_games,
             db::db_search_position,
             db::db_get_game,
+            db::db_save_game,
             db::db_delete_games,
             db::db_stats,
             puzzles::puzzles_import,
@@ -67,6 +72,9 @@ pub fn run() {
             machine::machine_bench,
             machine::machine_profile_get,
             machine::machine_fingerprint,
+            machine::machine_profile_import,
+            machine::machine_profiles_list,
+            machine::machine_profile_remove,
             maia::maia_status,
             maia::maia_policy,
             human_search::human_eval_tree,

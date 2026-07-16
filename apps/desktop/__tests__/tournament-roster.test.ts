@@ -2,8 +2,18 @@
 // & tournament" checklist item 1; decision 5 picker style + the item's
 // HONESTY GATE for BT3-backed GM personas).
 
-import { describe, it, expect } from "vitest"
-import { buildTournamentRoster, type EngineOption } from "@/lib/tournament-roster"
+import { describe, it, expect, beforeEach } from "vitest"
+import {
+  buildTournamentRoster,
+  loadCustomEngines,
+  addCustomEngine,
+  removeCustomEngine,
+  customEngineOption,
+  CUSTOM_ENGINES_KEY,
+  type EngineOption,
+} from "@/lib/tournament-roster"
+import { registerProviders, type StorageProvider } from "@/lib/platform"
+import { browserProviders } from "@/lib/platform/browser"
 import { GM_PERSONAS } from "@/lib/persona-manifest"
 import { MAIA_ROSTER_BANDS, PRIVATE_RIVAL_ID } from "@/lib/roster"
 import type { RivalBook } from "@/lib/rival-book"
@@ -95,5 +105,79 @@ describe("buildTournamentRoster", () => {
         expect(typeof cfg.level).toBe("number")
       }
     })
+  })
+})
+
+// Custom-engine store (spec 210 Phase 6 "Add-engine UI"): persistence goes
+// through the StorageProvider seam, proven with an injected memory provider
+// (same pattern as kv-store.test.ts).
+describe("custom UCI engines", () => {
+  let store: Map<string, string>
+
+  beforeEach(() => {
+    store = new Map<string, string>()
+    const provider: StorageProvider = {
+      get: (k) => store.get(k) ?? null,
+      set: (k, v) => void store.set(k, v),
+      remove: (k) => void store.delete(k),
+    }
+    registerProviders({ ...browserProviders, storage: provider })
+  })
+
+  it("add -> load -> remove round-trips through the injected provider", () => {
+    expect(loadCustomEngines()).toEqual([])
+    const added = addCustomEngine("My Engine", "/tmp/my-engine")
+    expect(added).toEqual([{ id: "custom-my-engine", name: "My Engine", path: "/tmp/my-engine" }])
+    expect(store.has(CUSTOM_ENGINES_KEY)).toBe(true)
+    expect(loadCustomEngines()).toEqual(added)
+    expect(removeCustomEngine("custom-my-engine")).toEqual([])
+    expect(loadCustomEngines()).toEqual([])
+  })
+
+  it("bumps the id on a name collision so both entries stay addressable", () => {
+    addCustomEngine("Lc0", "/a/lc0")
+    const list = addCustomEngine("lc0", "/b/lc0")
+    expect(list.map((e) => e.id)).toEqual(["custom-lc0", "custom-lc0-2"])
+  })
+
+  it("falls back to the binary's base name when the name is blank", () => {
+    const [e] = addCustomEngine("   ", "/opt/engines/patricia")
+    expect(e.name).toBe("patricia")
+    expect(e.id).toBe("custom-patricia")
+  })
+
+  it("drops malformed stored entries instead of failing the list", () => {
+    store.set(
+      CUSTOM_ENGINES_KEY,
+      JSON.stringify([{ id: "custom-ok", name: "Ok", path: "/ok" }, { id: 42 }, "junk", null]),
+    )
+    expect(loadCustomEngines()).toEqual([{ id: "custom-ok", name: "Ok", path: "/ok" }])
+    store.set(CUSTOM_ENGINES_KEY, "{not json")
+    expect(loadCustomEngines()).toEqual([])
+  })
+
+  it("customEngineOption folds in a resolved version, decision-5 label style", () => {
+    const e = { id: "custom-lc0", name: "Lc0", path: "/a/lc0" }
+    expect(customEngineOption(e)).toEqual({
+      id: "custom-lc0",
+      displayName: "Lc0",
+      enginePath: "/a/lc0",
+      label: "engine: lc0",
+    })
+    expect(customEngineOption(e, "Lc0 v0.31")).toMatchObject({
+      displayName: "Lc0 v0.31",
+      label: "engine: lc0 v0.31",
+    })
+    // "not found" is a probe failure, not a version — keep the given name.
+    expect(customEngineOption(e, "not found").label).toBe("engine: lc0")
+  })
+
+  it("registered engines flow into buildTournamentRoster as uci participants", () => {
+    const [e] = addCustomEngine("Lc0", "/a/lc0")
+    const roster = buildTournamentRoster(null, [...ENGINES, customEngineOption(e)])
+    const entry = roster.find((r) => r.participant.id === "custom-lc0")
+    expect(entry).toBeDefined()
+    expect(entry!.participant).toMatchObject({ kind: "uci", enginePath: "/a/lc0" })
+    expect(entry!.label).toBe("engine: lc0")
   })
 })

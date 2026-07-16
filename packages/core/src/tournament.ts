@@ -366,6 +366,68 @@ export type TaggedPosition = {
   source: string
 }
 
+/** Result of parsing a user-picked EPD/FEN opening-positions file
+ *  (spec 210 Phase 3: "loaded from disk via file picker"). */
+export type ParsedPositionsFile = {
+  positions: TaggedPosition[]
+  /** How many positions carried an eval tag (EPD `ce` opcode). */
+  tagged: number
+  /** Non-empty, non-comment lines that didn't parse as a position. */
+  skipped: number
+}
+
+// A position line's first four fields: board (8 ranks), side to move,
+// castling (letters allowed a-h for X-FEN/Chess960 files), en passant.
+const BOARD_FIELD_RE = /^[pnbrqkPNBRQK1-8]+(?:\/[pnbrqkPNBRQK1-8]+){7}$/
+const CASTLING_FIELD_RE = /^(-|[KQkqA-Ha-h]+)$/
+const EP_FIELD_RE = /^(-|[a-h][36])$/
+
+/**
+ * Parse a UHO-style opening-positions file: one EPD record or full FEN per
+ * line. Bare 4-field EPD gets " 0 1" counters appended so the result is
+ * always a runnable FEN. An EPD `ce` opcode (centipawns, side-to-move POV
+ * per the EPD standard) becomes the position's eval, flipped to White POV to
+ * match data/tagged_positions.json; untagged lines get eval 0 (fine for Book
+ * mode's balance filter, degenerate for Eval mode's buckets — the UI warns).
+ * Unparseable lines are counted, never fatal: one bad line must not hide the
+ * rest of the book. `source` labels every position (the seed/family
+ * breakdown shows it), typically the file's base name.
+ */
+export function parseOpeningPositions(text: string, source: string): ParsedPositionsFile {
+  const positions: TaggedPosition[] = []
+  let tagged = 0
+  let skipped = 0
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line === "" || line.startsWith("#") || line.startsWith("//") || line.startsWith(";")) continue
+    const fields = line.split(/\s+/)
+    if (
+      fields.length < 4 ||
+      !BOARD_FIELD_RE.test(fields[0]) ||
+      (fields[1] !== "w" && fields[1] !== "b") ||
+      !CASTLING_FIELD_RE.test(fields[2]) ||
+      !EP_FIELD_RE.test(fields[3])
+    ) {
+      skipped++
+      continue
+    }
+    // Fields 5+6 both numeric = a full FEN (halfmove + fullmove counters);
+    // anything else is bare EPD with opcodes starting at field 5.
+    const isFullFen = fields.length >= 6 && /^\d+$/.test(fields[4]) && /^\d+$/.test(fields[5])
+    const fen = isFullFen ? fields.slice(0, 6).join(" ") : `${fields.slice(0, 4).join(" ")} 0 1`
+    const ops = fields.slice(isFullFen ? 6 : 4).join(" ")
+    let evalCp = 0
+    const ce = /(?:^|;)\s*ce\s+(-?\d+)/.exec(ops)
+    if (ce) {
+      const stmCp = Number(ce[1])
+      evalCp = fields[1] === "b" ? -stmCp : stmCp
+      tagged++
+    }
+    positions.push({ fen, eval_cp: evalCp, eval_pawns: evalCp / 100, source })
+  }
+  return { positions, tagged, skipped }
+}
+
 /** A seed for a pair of (color-flipped) games. */
 export type Seed = {
   fen: string | null

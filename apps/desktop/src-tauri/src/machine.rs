@@ -311,6 +311,110 @@ pub fn machine_fingerprint() -> String {
     hardware_fingerprint()
 }
 
+// ---------------------------------------------------------------------------
+// Imported remote profiles (spec 216 Tier 2 — cross-machine equivalence)
+// ---------------------------------------------------------------------------
+//
+// Other machines' profiles (the homeserver's, dad's PC per spec:000) are the
+// same `machine_profile.json` documents this module writes, carried over by
+// hand and imported here. They live one-per-hostname under
+// `<app_data_dir>/machine_profiles/` — separate from this machine's own
+// profile, which stays the single `machine_profile.json` the bench owns.
+
+/// `<app_data_dir>/machine_profiles/`, creating it if absent.
+fn profiles_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("machine_profiles");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// A hostname reduced to a safe filename stem: alphanumerics, `-`, `_`, `.`
+/// pass through; everything else becomes `_`. Never empty (falls back to
+/// "unnamed"), never a dotfile.
+fn hostname_filename(hostname: &str) -> String {
+    let stem: String = hostname
+        .trim()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+        .collect();
+    let stem = stem.trim_matches('.').to_string();
+    if stem.is_empty() {
+        "unnamed".to_string()
+    } else {
+        stem
+    }
+}
+
+/// Gate on an imported profile: it must carry the two facts equivalence needs
+/// (a hostname to label it and a positive nps to compare with), and it must
+/// not be THIS machine wearing a different hostname — same silicon means the
+/// bench, not an import, is the honest source.
+fn validate_import(profile: &MachineProfile, live_fingerprint: &str) -> Result<(), String> {
+    if profile.hostname.trim().is_empty() {
+        return Err("profile has no hostname".to_string());
+    }
+    if profile.nps == 0 {
+        return Err("profile has no nps — bench that machine first".to_string());
+    }
+    if !profile.hw_fingerprint.is_empty() && profile.hw_fingerprint == live_fingerprint {
+        return Err(
+            "that profile was measured on THIS machine — use \"Bench this machine\" instead"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Import another machine's profile JSON (the `machine_profile.json` that
+/// machine's own bench wrote). Validates, then persists it under
+/// `machine_profiles/<hostname>.json` — re-importing the same hostname
+/// replaces the previous copy. Returns the parsed profile.
+#[tauri::command]
+pub fn machine_profile_import(
+    app: tauri::AppHandle,
+    json: String,
+) -> Result<MachineProfile, String> {
+    let profile: MachineProfile =
+        serde_json::from_str(&json).map_err(|e| format!("not a machine profile: {e}"))?;
+    validate_import(&profile, &hardware_fingerprint())?;
+    let file = profiles_dir(&app)?.join(format!("{}.json", hostname_filename(&profile.hostname)));
+    write_profile(&file, &profile)?;
+    Ok(profile)
+}
+
+/// All imported remote profiles, sorted by hostname. Files that no longer
+/// parse are skipped (one corrupt import must not hide the rest), as is
+/// anything that isn't a `.json` file.
+#[tauri::command]
+pub fn machine_profiles_list(app: tauri::AppHandle) -> Result<Vec<MachineProfile>, String> {
+    let dir = profiles_dir(&app)?;
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("reading {dir:?}: {e}"))?;
+    let mut profiles: Vec<MachineProfile> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|p| read_profile(&p).ok().flatten())
+        .collect();
+    profiles.sort_by(|a, b| a.hostname.cmp(&b.hostname));
+    Ok(profiles)
+}
+
+/// Remove an imported profile by hostname. Removing one that isn't there is
+/// a no-op, so a stale UI row can't error its way into being permanent.
+#[tauri::command]
+pub fn machine_profile_remove(app: tauri::AppHandle, hostname: String) -> Result<(), String> {
+    let file = profiles_dir(&app)?.join(format!("{}.json", hostname_filename(&hostname)));
+    match std::fs::remove_file(&file) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("removing {file:?}: {e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +463,55 @@ Nodes/second    : 1853879
         let fp = hardware_fingerprint();
         assert_eq!(fp, hardware_fingerprint());
         assert!(!fp.starts_with("unknown-cpu | 0 cores"), "fingerprint fully degenerate: {fp}");
+    }
+
+    fn sample_profile() -> MachineProfile {
+        MachineProfile {
+            hostname: "homeserver".to_string(),
+            engine_name: "Stockfish 17".to_string(),
+            engine_path: "/usr/bin/stockfish".to_string(),
+            nps: 4_000_000,
+            threads: 1,
+            measured_at: "2026-07-15T00:00:00Z".to_string(),
+            hw_fingerprint: "AMD Ryzen | 16 cores | 32G".to_string(),
+            curve: None,
+        }
+    }
+
+    /// A healthy remote profile passes; the three gates each reject.
+    #[test]
+    fn validate_import_gates() {
+        let live = hardware_fingerprint();
+        assert!(validate_import(&sample_profile(), &live).is_ok());
+
+        let mut no_host = sample_profile();
+        no_host.hostname = "  ".to_string();
+        assert!(validate_import(&no_host, &live).unwrap_err().contains("hostname"));
+
+        let mut no_nps = sample_profile();
+        no_nps.nps = 0;
+        assert!(validate_import(&no_nps, &live).unwrap_err().contains("nps"));
+
+        // Same fingerprint as the live machine = it IS this machine.
+        let mut same_hw = sample_profile();
+        same_hw.hw_fingerprint = live.clone();
+        assert!(validate_import(&same_hw, &live).unwrap_err().contains("THIS machine"));
+
+        // A legacy profile without a fingerprint can't be identity-checked;
+        // it imports (the nps is still a usable fact).
+        let mut legacy = sample_profile();
+        legacy.hw_fingerprint = String::new();
+        assert!(validate_import(&legacy, &live).is_ok());
+    }
+
+    /// Hostnames become safe filename stems; degenerate ones don't vanish.
+    #[test]
+    fn hostname_filename_sanitizes() {
+        assert_eq!(hostname_filename("homeserver"), "homeserver");
+        assert_eq!(hostname_filename("Mac.localdomain"), "Mac.localdomain");
+        assert_eq!(hostname_filename("dad's PC/#1"), "dad_s_PC__1");
+        assert_eq!(hostname_filename("  "), "unnamed");
+        assert_eq!(hostname_filename("..."), "unnamed");
     }
 
     /// A profile written before fingerprinting (no `hw_fingerprint` key) still

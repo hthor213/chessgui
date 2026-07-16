@@ -14,7 +14,7 @@ import dynamic from "next/dynamic"
 import type { Key } from "@lichess-org/chessground/types"
 import { Button } from "@chessgui/ui/ui/button"
 import { replayFens } from "@chessgui/core/game-replay"
-import { ArenaApiError, getArenaApi, type ArenaGameState, type ArenaGameSummary } from "@chessgui/core/arena-api"
+import { ArenaApiError, getArenaApi, type ArenaGameState, type ArenaGameSummary, type ArenaPersonaRecord } from "@chessgui/core/arena-api"
 import { arenaResultBadge, pairArenaMoves } from "@/lib/arena-moves"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
@@ -32,6 +32,7 @@ export function HistoryScreen({
   onBack: () => void
 }) {
   const [games, setGames] = useState<ArenaGameSummary[] | null>(null)
+  const [records, setRecords] = useState<ArenaPersonaRecord[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [replayId, setReplayId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState<number | null>(null)
@@ -39,7 +40,13 @@ export function HistoryScreen({
   const load = useCallback(async () => {
     setError(null)
     try {
-      setGames(await getArenaApi().listGames())
+      // Games list + per-persona W/D/L record (spec 217 Tier 1), one screen.
+      const [gs, recs] = await Promise.all([
+        getArenaApi().listGames(),
+        getArenaApi().listPersonaRecords(),
+      ])
+      setGames(gs)
+      setRecords(recs)
     } catch (e) {
       setError(e instanceof ArenaApiError ? e.message : "Couldn't load your games.")
     }
@@ -55,6 +62,9 @@ export function HistoryScreen({
       try {
         await getArenaApi().deleteGame(id)
         setGames((prev) => (prev ? prev.filter((g) => g.id !== id) : prev))
+        // A deleted finished game leaves the W/D/L record too ("deletable on
+        // request" means gone from the tally, not just the list).
+        setRecords(await getArenaApi().listPersonaRecords())
       } catch (e) {
         setError(e instanceof ArenaApiError ? e.message : "Couldn't delete the game.")
       } finally {
@@ -82,6 +92,25 @@ export function HistoryScreen({
           <p className="text-sm text-red-400" data-testid="arena-history-error">
             {error}
           </p>
+        )}
+
+        {records && records.length > 0 && (
+          <div
+            className="rounded-lg border border-white/10 bg-white/[0.03] p-3"
+            data-testid="arena-history-record"
+          >
+            <div className="text-sm font-medium mb-2">Your score</div>
+            <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 text-sm">
+              {records.map((r) => (
+                <div key={r.persona} className="contents" data-testid={`arena-history-record-${r.persona}`}>
+                  <span className="truncate">{r.persona}</span>
+                  <span className="font-mono text-muted-foreground" title="wins / draws / losses">
+                    +{r.wins} ={r.draws} −{r.losses}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {!games ? (

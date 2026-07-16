@@ -12,6 +12,7 @@ import {
   POLICY_PERSONA_REASON,
   bAt,
   deltaElo,
+  equivalenceLine,
   equivalentSeconds,
   paceFloor,
   paceStrength,
@@ -121,6 +122,44 @@ describe("equivalentSeconds — cross-machine, equal nodes", () => {
 
   it("guards a non-positive target nps", () => {
     expect(equivalentSeconds(DEFAULT_PRIOR_CURVE, 22, 0, 2_000_000)).toBe(0)
+  })
+})
+
+describe("equivalenceLine — spec 216 Tier 2 display", () => {
+  const laptop = { hostname: "laptop", nps: 8_000_000 }
+  const server = { hostname: "homeserver", nps: 2_933_333 }
+
+  it('reads "server 60s/move ≈ laptop 22s/move" (equal nodes, rounded)', () => {
+    // 60 × 2 933 333 / 8 000 000 = 22.0s on the laptop.
+    expect(equivalenceLine(DEFAULT_PRIOR_CURVE, laptop, server)).toBe(
+      "homeserver 60s/move ≈ laptop 22s/move",
+    )
+  })
+
+  it("shows one decimal under 10s and two under 1s, trimming zeros", () => {
+    // 60 × 0.5M / 8M = 3.75 → "3.8s"; 60 × 0.1M / 8M = 0.75 → "0.75s".
+    expect(equivalenceLine(DEFAULT_PRIOR_CURVE, laptop, { hostname: "pi", nps: 500_000 })).toBe(
+      "pi 60s/move ≈ laptop 3.8s/move",
+    )
+    expect(equivalenceLine(DEFAULT_PRIOR_CURVE, laptop, { hostname: "pi", nps: 100_000 })).toBe(
+      "pi 60s/move ≈ laptop 0.75s/move",
+    )
+    // Exactly 4× slower local: 240 → whole seconds, no decimals.
+    expect(
+      equivalenceLine(DEFAULT_PRIOR_CURVE, { hostname: "old", nps: 2_000_000 }, laptop),
+    ).toBe("laptop 60s/move ≈ old 240s/move")
+  })
+
+  it("honors a custom reference budget", () => {
+    expect(equivalenceLine(DEFAULT_PRIOR_CURVE, laptop, server, 120)).toBe(
+      "homeserver 120s/move ≈ laptop 44s/move",
+    )
+  })
+
+  it("is null when either bench is missing (nps ≤ 0)", () => {
+    expect(equivalenceLine(DEFAULT_PRIOR_CURVE, { hostname: "x", nps: 0 }, server)).toBeNull()
+    expect(equivalenceLine(DEFAULT_PRIOR_CURVE, laptop, { hostname: "x", nps: 0 })).toBeNull()
+    expect(equivalenceLine(DEFAULT_PRIOR_CURVE, laptop, server, 0)).toBeNull()
   })
 })
 

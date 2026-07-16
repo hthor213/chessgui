@@ -6,6 +6,8 @@ Routes (all /api/* behind JWT except /health and /api/auth/google-login):
   POST /api/game {persona, player_color}      -> game state (persona moves
                                                  first if it has White)
   GET  /api/games                             -> my games
+  GET  /api/stats                             -> my per-persona W/D/L record
+                                                 (217 Tier 1)
   GET  /api/game/{id}                         -> full state (resume)
   POST /api/game/{id}/move {uci}              -> player move + persona reply
   POST /api/game/{id}/resign                  -> resign
@@ -240,6 +242,14 @@ def create_game(req: CreateGameRequest, user: dict = Depends(current_user)):
 @app.get("/api/games")
 def my_games(user: dict = Depends(current_user)):
     return {"games": db.list_games(user["id"])}
+
+
+@app.get("/api/stats")
+def my_stats(user: dict = Depends(current_user)):
+    """Spec 217 Tier 1: per-opponent W/D/L history for the logged-in player.
+    Aggregated in SQL (db.wdl_by_persona); finished games only, scoped to
+    this user — one row per persona faced."""
+    return {"records": db.wdl_by_persona(user["id"])}
 
 
 @app.get("/api/game/{game_id}")

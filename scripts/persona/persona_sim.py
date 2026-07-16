@@ -16,6 +16,12 @@ ports src-tauri/src/persona.rs precisely:
   * penalties          — pawns behind the best CANDIDATE: max(0, (best-cp)/100).
   * endgame arm priors — Maia policy prob floored at 0.01 for every SF
                          candidate (seen or unseen).
+  * style bias        — post-book style-prior window (StyleBias): for
+                         window_plies after book exit, candidates in any of
+                         the persona's move classes (capture | check | castle
+                         | pawn_push | quiet_piece) get their policy prior
+                         multiplied before the reweight. OFF by default
+                         (spec 214 hard rule); tune_persona.py measures it.
 
 Documented, unavoidable divergences from the Rust runtime (kept in one place
 so every consumer states the same caveats):
@@ -214,6 +220,72 @@ def sample_index(weights: Sequence[float], u: float) -> int:
     return len(weights) - 1
 
 
+# ---------------------------------------------------------------------------
+# Style bias (contract step 3, persona.rs StyleBias) — the v1 style prior
+# ---------------------------------------------------------------------------
+
+# The v1 move classes (persona.rs move_matches_types). A move may fall in
+# several classes ("check" is not exclusive of the others).
+STYLE_MOVE_TYPES = ("capture", "check", "castle", "pawn_push", "quiet_piece")
+
+
+def move_classes(board: chess.Board, uci: str) -> Tuple[str, ...]:
+    """The v1 classes `uci` falls in, persona.rs semantics. Unparseable or
+    illegal candidates get no classes (they'd never match in Rust either)."""
+    try:
+        mv = chess.Move.from_uci(uci)
+    except ValueError:
+        return ()
+    if mv not in board.legal_moves:
+        return ()
+    capture = board.is_capture(mv)   # includes en passant, like shakmaty
+    castle = board.is_castling(mv)
+    pawn = board.piece_type_at(mv.from_square) == chess.PAWN
+    out = []
+    if capture:
+        out.append("capture")
+    if board.gives_check(mv):
+        out.append("check")
+    if castle:
+        out.append("castle")
+    if pawn and not capture:
+        out.append("pawn_push")
+    if not pawn and not capture and not castle:
+        out.append("quiet_piece")
+    return tuple(out)
+
+
+def style_bias_active(bias: Optional[dict],
+                      plies_since_book_exit: Optional[int]) -> bool:
+    """persona.rs style_bias_active: live while plies_since_book_exit <
+    window_plies; a no-op bias (mult 1.0 or no move types) is never live."""
+    if bias is None or plies_since_book_exit is None:
+        return False
+    return (plies_since_book_exit < bias["window_plies"]
+            and bias["multiplier"] != 1.0
+            and bool(bias["move_types"]))
+
+
+def apply_style_bias(cand_classes: Sequence[Sequence[str]],
+                     priors: Sequence[float],
+                     bias: dict) -> Tuple[List[float], bool]:
+    """persona.rs apply_style_bias over precomputed classes: multiply matching
+    candidates' priors (multiplier clamped at 0, like Rust); returns the new
+    priors and whether any candidate matched (the decision log's
+    `style_bias_applied`). The softmax downstream normalizes."""
+    mult = max(bias["multiplier"], 0.0)
+    want = set(bias["move_types"])
+    out: List[float] = []
+    applied = False
+    for classes, p in zip(cand_classes, priors):
+        if want.intersection(classes):
+            out.append(p * mult)
+            applied = True
+        else:
+            out.append(p)
+    return out, applied
+
+
 def endgame_priors(policy: Dict[str, float], ucis: Sequence[str]) -> List[float]:
     """Endgame-arm priors (persona.rs): each SF candidate's prior is its Maia
     policy prob floored at ENDGAME_UNSEEN_PRIOR — floored whether seen or not."""
@@ -303,6 +375,58 @@ def selftest() -> int:
             pol = {"a1a2": 0.5, "b1b2": 0.001}
             self.assertEqual(endgame_priors(pol, ["a1a2", "b1b2", "c1c2"]),
                              [0.5, 0.01, 0.01])
+
+        def test_move_classification_covers_the_v1_types(self):
+            # Mirrors persona.rs move_classification_covers_the_v1_types.
+            b = chess.Board()
+            b.push_san("Nf3")
+            b.push_san("e5")   # 1.Nf3 e5?? — Nxe5 is a real capture
+            self.assertIn("capture", move_classes(b, "f3e5"))
+            self.assertNotIn("pawn_push", move_classes(b, "f3e5"))
+            self.assertIn("pawn_push", move_classes(b, "d2d4"))
+            self.assertIn("quiet_piece", move_classes(b, "b1c3"))
+            self.assertEqual(move_classes(b, "not-a-move"), ())
+            self.assertEqual(move_classes(b, "e5e6"), ())  # illegal (wrong side)
+            castle = chess.Board(
+                "r3k2r/pppq1ppp/2n2n2/3pp3/3PP3/2N2N2/PPPQ1PPP/R3K2R w KQkq - 0 8")
+            self.assertIn("castle", move_classes(castle, "e1g1"))
+            check = chess.Board(
+                "rnbqkbnr/ppppp1pp/8/5p2/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2")
+            self.assertIn("check", move_classes(check, "d1h5"))
+            self.assertIn("quiet_piece", move_classes(check, "d1h5"))
+
+        def test_style_bias_window_gates_correctly(self):
+            # Mirrors persona.rs style_bias_window_gates_correctly.
+            b = {"window_plies": 4, "multiplier": 1.5,
+                 "move_types": ["capture"]}
+            self.assertTrue(style_bias_active(b, 0))
+            self.assertTrue(style_bias_active(b, 3))
+            self.assertFalse(style_bias_active(b, 4))
+            self.assertFalse(style_bias_active(b, None))
+            self.assertFalse(style_bias_active(None, 0))
+            self.assertFalse(style_bias_active(
+                {"window_plies": 4, "multiplier": 1.0,
+                 "move_types": ["capture"]}, 0))
+            self.assertFalse(style_bias_active(
+                {"window_plies": 4, "multiplier": 1.5, "move_types": []}, 0))
+
+        def test_apply_style_bias_overweights_matching_candidates_only(self):
+            bias = {"window_plies": 4, "multiplier": 2.0,
+                    "move_types": ["pawn_push"]}
+            got, any_ = apply_style_bias(
+                [("pawn_push",), ("quiet_piece",)], [0.4, 0.6], bias)
+            self.assertTrue(any_)
+            self.assertEqual(got, [0.8, 0.6])
+            got2, any2 = apply_style_bias(
+                [("quiet_piece",), ("capture", "check")], [0.4, 0.6], bias)
+            self.assertFalse(any2)
+            self.assertEqual(got2, [0.4, 0.6])
+            # Negative multipliers clamp at 0, like Rust's .max(0.0).
+            got3, _ = apply_style_bias(
+                [("pawn_push",)], [0.4],
+                {"window_plies": 4, "multiplier": -1.0,
+                 "move_types": ["pawn_push"]})
+            self.assertEqual(got3, [0.0])
 
         def test_sample_index_inverse_cdf(self):
             w = [0.5, 0.3, 0.2]

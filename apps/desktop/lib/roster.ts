@@ -6,6 +6,11 @@
 //   { id, displayName, avatar?, kind: uci | persona, enginePath? | personaConfig? }
 //
 // Contents (spec 218 decision 4, "everything modeled so far"):
+//   - the local player's OWN persona ("You" — spec 218 "Own-persona entry"),
+//     ONLY when the self persona has been built locally (data/rivals/
+//     self.config.json + self.book.json via scripts/persona/
+//     build_self_persona.py — gitignored like every private persona; absent =
+//     silently absent, same as the rivals below).
 //   - the private rival ("dad"), ONLY when his local book has loaded
 //     (data/rivals is gitignored — spec 214 hard rule: personas of private
 //     individuals stay LOCAL, so this entry simply doesn't exist when the book
@@ -236,6 +241,13 @@ export const PRIVATE_RIVAL_ID = "rival"
 /** Generic by design (spec 214/218 hard rule) — never the rival's name. */
 export const PRIVATE_RIVAL_DISPLAY_NAME = "Private rival"
 
+export const SELF_PERSONA_ID = "self"
+/** The `kind` field that marks a local config as the player's own persona
+ *  (scripts/persona/build_self_persona.py writes it); every other local
+ *  config is kind "private-rival". */
+export const SELF_PERSONA_KIND = "self"
+export const SELF_PERSONA_DISPLAY_NAME = "You"
+
 /** Every published Maia-1 net (src-tauri/src/maia.rs BANDS), surfaced as
  *  generic strength-band bots. */
 export const MAIA_ROSTER_BANDS = [1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900] as const
@@ -311,6 +323,32 @@ function localRivalParticipant(rp: LocalRivalPersona): Participant {
   }
 }
 
+/** The local player's own persona (spec 218 "Own-persona entry": "the
+ *  logged-in/local player's OWN persona appears in their roster when one
+ *  exists" — in the local app, "You"). Arrives through the same local-config
+ *  channel as the private rivals (gitignored data/rivals, never bundled), but
+ *  is its own roster card: fixed "You" display name, and — unlike the
+ *  friends/family configs — its Maia band is the self-report's MEASURED
+ *  move-quality estimate, so the label says "Maia-estimated", not
+ *  "unmeasured". */
+function selfParticipant(rp: LocalRivalPersona): Participant {
+  const gate = gatePersonaLevel(rp.config)
+  return {
+    id: SELF_PERSONA_ID,
+    displayName: SELF_PERSONA_DISPLAY_NAME,
+    kind: "persona",
+    personaConfig: {
+      level: gate.level,
+      ...(gate.approximate ? { approximate: true } : {}),
+      book: "local",
+      bookSlug: rp.config.slug,
+      ...samplingOverrides(rp.config),
+    },
+    strengthLabel: `~${gate.level} (Maia policy) playing your real openings — Maia-estimated self-model`,
+    actions: ["play"],
+  }
+}
+
 /** The original private rival ("dad") — the only dial-able, improvable entry;
  *  his book still arrives via the legacy `rival_book` command. */
 function privateRivalParticipant(): Participant {
@@ -335,8 +373,16 @@ export function buildRoster(
   localRivals: LocalRivalPersona[] = [],
 ): Participant[] {
   const roster: Participant[] = []
+  // The self persona leads the roster, gated on its book artifact existing
+  // (spec 218 "Own-persona entry": appears only when a self-persona has been
+  // built; a config without its book is not a playable self-model yet).
+  const self = localRivals.find((rp) => rp.config.kind === SELF_PERSONA_KIND)
+  if (self?.book) roster.push(selfParticipant(self))
   if (book) roster.push(privateRivalParticipant())
-  for (const rp of localRivals) roster.push(localRivalParticipant(rp))
+  for (const rp of localRivals) {
+    if (rp.config.kind === SELF_PERSONA_KIND) continue
+    roster.push(localRivalParticipant(rp))
+  }
   for (const cfg of GM_PERSONA_CONFIGS) roster.push(gmPersonaParticipant(cfg))
   for (const level of MAIA_ROSTER_BANDS) roster.push(maiaBandBot(level))
   return roster

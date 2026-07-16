@@ -27,6 +27,7 @@ import {
   gameError,
   isOk,
   summarizeErrors,
+  parseOpeningPositions,
   uciSquares,
   averageEvalByPly,
   gameEvalSeries,
@@ -76,7 +77,17 @@ import {
   type GameAnalysis,
   type TrajectoryBand,
 } from "@chessgui/core/tournament-analysis"
-import { buildTournamentRoster, type TournamentRosterEntry, type EngineOption } from "@/lib/tournament-roster"
+import {
+  buildTournamentRoster,
+  loadCustomEngines,
+  addCustomEngine,
+  removeCustomEngine,
+  customEngineOption,
+  type CustomEngine,
+  type TournamentRosterEntry,
+  type EngineOption,
+} from "@/lib/tournament-roster"
+import { pickFile } from "@/lib/dialog"
 import { loadRivalBook, type RivalBook } from "@/lib/rival-book"
 import type { PersonaCandidate, PersonaDecision } from "@/lib/persona"
 import { Slider } from "@chessgui/ui/ui/slider"
@@ -84,6 +95,7 @@ import { Badge } from "@chessgui/ui/ui/badge"
 import { EvalBar } from "@chessgui/ui/eval-bar"
 import {
   DEFAULT_PRIOR_CURVE,
+  equivalenceLine,
   paceFloor,
   paceStrength,
   secondsPerMoveOf,
@@ -308,6 +320,25 @@ export function TournamentTab({
   // Live UCI version of each configured engine (e.g. "Stockfish 18").
   const [sfVersion, setSfVersion] = useState<string | null>(null)
   const [rkVersion, setRkVersion] = useState<string | null>(null)
+  // User-registered UCI engines (spec 210 Phase 6 "Add-engine UI"), loaded
+  // from the StorageProvider on mount and appended to the fixed pair in
+  // `engines` below. `customVersions` holds each one's live `engine_id`
+  // pre-flight result ("not found" = binary missing or not UCI).
+  const [customEngines, setCustomEngines] = useState<CustomEngine[]>([])
+  const [customVersions, setCustomVersions] = useState<Record<string, string>>({})
+  // Inline add-engine form: a picked-but-not-yet-registered binary path with
+  // an editable display name (defaults to the binary's base name).
+  const [pendingEnginePath, setPendingEnginePath] = useState<string | null>(null)
+  const [pendingEngineName, setPendingEngineName] = useState("")
+  // User-picked EPD/FEN opening file (spec 210 Phase 3 "file picker") —
+  // replaces the curated tagged_positions.json pool for Book/Eval runs.
+  // Session-only by design: persisting just the path would mean re-reading
+  // (and re-validating) a possibly-stale file on every startup; the curated
+  // set stays the durable default.
+  const [customPositions, setCustomPositions] = useState<
+    { name: string; positions: TaggedPosition[]; tagged: number; skipped: number } | null
+  >(null)
+  const [positionsError, setPositionsError] = useState<string | null>(null)
 
   const [running, setRunning] = useState(false)
   // Round-robin run state, lifted here so the head-to-head Run / exhibition
@@ -469,6 +500,60 @@ export function TournamentTab({
     return () => { cancelled = true }
   }, [])
 
+  // Registered custom engines: restore on mount, then resolve each one's UCI
+  // version once (same `engine_id` pre-flight as the fixed engines above).
+  useEffect(() => {
+    setCustomEngines(loadCustomEngines())
+  }, [])
+  useEffect(() => {
+    let cancelled = false
+    for (const e of customEngines) {
+      if (customVersions[e.id] !== undefined) continue
+      invoke<string>("engine_id", { path: e.path })
+        .then((v) => { if (!cancelled) setCustomVersions((prev) => ({ ...prev, [e.id]: v })) })
+        .catch(() => { if (!cancelled) setCustomVersions((prev) => ({ ...prev, [e.id]: "not found" })) })
+    }
+    return () => { cancelled = true }
+  }, [customEngines, customVersions])
+
+  // Add-engine flow (spec 210 Phase 6 "Add-engine UI"): pick the binary via
+  // the native DialogProvider picker, confirm/edit the name, register.
+  const pickEngineBinary = useCallback(async () => {
+    const picked = await pickFile({ title: "Select UCI engine binary" })
+    if (!picked) return
+    setPendingEnginePath(picked)
+    setPendingEngineName(engineLabel(picked))
+  }, [])
+  const registerEngine = useCallback(() => {
+    if (!pendingEnginePath) return
+    setCustomEngines(addCustomEngine(pendingEngineName, pendingEnginePath))
+    setPendingEnginePath(null)
+    setPendingEngineName("")
+  }, [pendingEnginePath, pendingEngineName])
+
+  // Opening-positions file picker (spec 210 Phase 3): read via the
+  // `read_opening_positions` command (webviews can't read arbitrary paths),
+  // parse client-side, and hold the pool for this session's Book/Eval runs.
+  const pickPositionsFile = useCallback(async () => {
+    setPositionsError(null)
+    const picked = await pickFile({
+      title: "Select EPD/FEN opening positions",
+      filters: [{ name: "EPD/FEN positions", extensions: ["epd", "fen", "txt"] }],
+    })
+    if (!picked) return
+    try {
+      const text = await invoke<string>("read_opening_positions", { path: picked })
+      const name = picked.split("/").pop() || picked
+      const parsed = parseOpeningPositions(text, name)
+      if (parsed.positions.length === 0) {
+        throw new Error(`No valid EPD/FEN lines found in ${name}`)
+      }
+      setCustomPositions({ name, ...parsed })
+    } catch (e) {
+      setPositionsError(String(e))
+    }
+  }, [])
+
   // The two fixed engine options + the roster (spec 218 decision 5): one flat
   // dropdown per side, kind-prefixed labels. `engines` folds in the live
   // version once resolved ("engine: stockfish 18"); before that it reads
@@ -479,8 +564,10 @@ export function TournamentTab({
     return [
       { id: "engine-stockfish", displayName: sfName, enginePath: STOCKFISH_DEFAULT, label: `engine: ${sfName.toLowerCase()}` },
       { id: "engine-reckless", displayName: rkName, enginePath: RECKLESS_DEFAULT, label: `engine: ${rkName.toLowerCase()}` },
+      // User-registered engines (spec 210 Phase 6), same label style.
+      ...customEngines.map((e) => customEngineOption(e, customVersions[e.id])),
     ]
-  }, [sfVersion, rkVersion])
+  }, [sfVersion, rkVersion, customEngines, customVersions])
   const roster: TournamentRosterEntry[] = useMemo(
     () => buildTournamentRoster(rivalBook, engines),
     [rivalBook, engines],
@@ -551,9 +638,13 @@ export function TournamentTab({
       const lo = Math.min(a, b)
       const hi = Math.max(a, b)
 
-      // "normal"/"current" don't need the tagged-position set — skip the fetch.
+      // "normal"/"current" don't need the tagged-position set — skip the
+      // fetch. A user-picked EPD/FEN file (spec 210 Phase 3) replaces the
+      // curated pool for this run.
       const positions =
-        mode === "normal" || mode === "current" ? [] : await loadPositions()
+        mode === "normal" || mode === "current"
+          ? []
+          : customPositions?.positions ?? (await loadPositions())
       const nSeeds = seedsForGames(nGamesNum)
       const seeds = buildSeeds(mode, nSeeds, positions, lo, hi, currentFen ?? null)
       // Current-position mode keeps its own board-bottom-color control
@@ -803,7 +894,7 @@ export function TournamentTab({
       setNowTs(Date.now()) // freeze elapsed at the final value
       setRunning(false)
     }
-  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, effectiveBaseMs, effectiveIncMs, concurrency, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, onLiveUpdate])
+  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, nGames, tcId, customBaseS, customIncS, effectiveBaseMs, effectiveIncMs, concurrency, adjudicateTb, useEvaluator, evaluatorPath, autoStartNext, moveDelayMs, currentFen, engineASide, customPositions, onLiveUpdate])
 
   // --- Exhibition ("Watch two bots play") — spec 218 "Exhibition framing" ---
   // A batch of 1 through the SAME `play_batch` runner (no separate code path
@@ -833,7 +924,10 @@ export function TournamentTab({
       const b = Number.isFinite(Number(maxEval)) ? Math.abs(Number(maxEval)) : 1.5
       const lo = Math.min(a, b)
       const hi = Math.max(a, b)
-      const positions = mode === "normal" || mode === "current" ? [] : await loadPositions()
+      const positions =
+        mode === "normal" || mode === "current"
+          ? []
+          : customPositions?.positions ?? (await loadPositions())
       const seeds = buildSeeds(mode, 1, positions, lo, hi, currentFen ?? null)
       const seed: Seed = seeds[0] ?? { fen: null, eval: 0 }
 
@@ -892,7 +986,7 @@ export function TournamentTab({
     } finally {
       setExhibitionRunning(false)
     }
-  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, effectiveBaseMs, effectiveIncMs, adjudicateTb, useEvaluator, evaluatorPath, moveDelayMs, currentFen])
+  }, [participantA, participantB, firstWhite, mode, minEval, maxEval, effectiveBaseMs, effectiveIncMs, adjudicateTb, useEvaluator, evaluatorPath, moveDelayMs, currentFen, customPositions])
 
   const cancel = useCallback(async () => {
     try {
@@ -960,9 +1054,11 @@ export function TournamentTab({
   // positions the run sampled (already cached by loadPositions; undefined
   // when the run's mode never fetched them).
   const tagByFen = useMemo(() => {
-    if (!report || !positionsCache) return undefined
-    return new Map(positionsCache.map((p) => [p.fen, p.source]))
-  }, [report])
+    // A user-picked file supplies its own source labels (the file name).
+    const pool = customPositions?.positions ?? positionsCache
+    if (!report || !pool) return undefined
+    return new Map(pool.map((p) => [p.fen, p.source]))
+  }, [report, customPositions])
   // Clock-pressure threshold (spec 212:39 "sub-N-seconds flag"): 30s, capped
   // at half the run's base clock so a blitz run isn't 100% "under pressure".
   const lowClockMs = Math.min(DEFAULT_LOW_CLOCK_MS, Math.max(1_000, Math.round(reportBaseMs / 2)))
@@ -1069,6 +1165,83 @@ export function TournamentTab({
             </div>
           )}
 
+          {/* Add-engine registration (spec 210 Phase 6 "Add-engine UI"):
+              register any UCI binary as a named roster engine (kind "uci").
+              Persisted via lib/tournament-roster.ts's StorageProvider store;
+              the version readout is the same engine_id pre-flight the fixed
+              engines get, so a non-UCI pick shows "not found" immediately. */}
+          <div className="flex flex-col gap-2 pt-1 border-t border-white/10">
+            {customEngines.length > 0 && (
+              <ul className="flex flex-col gap-1 pt-2">
+                {customEngines.map((e) => (
+                  <li key={e.id} className="flex items-center gap-2 text-xs">
+                    <span className="text-foreground whitespace-nowrap">engine: {e.name.toLowerCase()}</span>
+                    <span className={`font-mono whitespace-nowrap ${customVersions[e.id] === "not found" ? "text-amber-400" : "text-green-400"}`}>
+                      {customVersions[e.id] ? `→ ${customVersions[e.id]}` : "→ checking…"}
+                    </span>
+                    <span className="font-mono text-muted-foreground truncate max-w-[16rem]" title={e.path}>
+                      {e.path}
+                    </span>
+                    <Button
+                      data-testid={`tournament-remove-engine-${e.id}`}
+                      variant="ghost"
+                      size="sm"
+                      disabled={running}
+                      onClick={() => setCustomEngines(removeCustomEngine(e.id))}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {pendingEnginePath === null ? (
+              <div className="flex items-center gap-2 pt-2">
+                <Button
+                  data-testid="tournament-add-engine"
+                  variant="outline"
+                  size="sm"
+                  onClick={pickEngineBinary}
+                  disabled={running}
+                >
+                  Add engine…
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Register any UCI binary as a roster engine.
+                </span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-end gap-2 pt-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Engine name</span>
+                  <input
+                    data-testid="tournament-add-engine-name"
+                    className="w-40 bg-background border border-input rounded-md px-2 py-1.5 text-sm text-foreground"
+                    value={pendingEngineName}
+                    onChange={(e) => setPendingEngineName(e.target.value)}
+                  />
+                </label>
+                <span
+                  className="text-xs font-mono text-muted-foreground truncate max-w-[16rem] pb-2"
+                  title={pendingEnginePath}
+                >
+                  {pendingEnginePath}
+                </span>
+                <Button
+                  data-testid="tournament-add-engine-confirm"
+                  size="sm"
+                  onClick={registerEngine}
+                  disabled={pendingEngineName.trim() === ""}
+                >
+                  Register
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setPendingEnginePath(null)}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
+
           {/* Exhibition entry point (spec 218 "Exhibition framing" checklist
               item): "batch of 1" through the SAME runner, featured single-game
               presentation below instead of the stats-first batch view. */}
@@ -1107,17 +1280,21 @@ export function TournamentTab({
           />
         )}
 
-        {/* Machine profile (spec 216 Tier 0) — calibrates the pacing floor and,
-            eventually, cross-machine equivalence. */}
+        {/* Machine profile (spec 216 Tier 0) — calibrates the pacing floor —
+            plus cross-machine equivalence from imported profiles (Tier 2). */}
         <MachineProfileCard
           profile={machineProfile.profile}
+          remoteProfiles={machineProfile.remoteProfiles}
           benching={machineProfile.benching}
           error={machineProfile.error}
           hwChanged={machineProfile.hwChanged}
+          curve={curve}
           onBench={() => {
             const enginePath = getProviders().storage.get("engine-path") ?? undefined
             machineProfile.runBench(enginePath)
           }}
+          onImport={machineProfile.importProfile}
+          onRemove={machineProfile.removeProfile}
         />
 
         {/* Start mode + run params */}
@@ -1217,6 +1394,56 @@ export function TournamentTab({
               <span className="text-xs text-muted-foreground pb-2 max-w-[18rem]">
                 Absolute edge, either color (each position is played both ways).
               </span>
+            </div>
+          )}
+
+          {/* Opening-positions source (spec 210 Phase 3: "UHO-format position
+              file (EPD/FEN list) can be loaded from disk via file picker").
+              Book and Eval both draw from this pool; Normal/Current never
+              touch it. Session-only — clearing returns to the curated set. */}
+          {(mode === "book" || mode === "eval") && (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Opening positions</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span data-testid="tournament-positions-source" className="text-xs text-foreground">
+                  {customPositions
+                    ? `${customPositions.name} — ${customPositions.positions.length} positions` +
+                      ` (${customPositions.tagged} eval-tagged` +
+                      `${customPositions.skipped > 0 ? `, ${customPositions.skipped} lines skipped` : ""})`
+                    : "Curated set (built-in, eval-tagged)"}
+                </span>
+                <Button
+                  data-testid="tournament-pick-positions"
+                  variant="outline"
+                  size="sm"
+                  onClick={pickPositionsFile}
+                  disabled={running}
+                >
+                  Choose EPD/FEN file…
+                </Button>
+                {customPositions && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCustomPositions(null)}
+                    disabled={running}
+                  >
+                    Use curated set
+                  </Button>
+                )}
+              </div>
+              {mode === "eval" && customPositions && customPositions.tagged === 0 && (
+                <span className="text-xs text-amber-400">
+                  No eval tags (EPD &quot;ce&quot; opcode) in this file — every position counts
+                  as 0.00, so the imbalance range and eval buckets are meaningless. Use
+                  Book mode, or an eval-tagged file.
+                </span>
+              )}
+              {positionsError && (
+                <span data-testid="tournament-positions-error" className="text-xs text-red-400">
+                  {positionsError}
+                </span>
+              )}
             </div>
           )}
 
@@ -1738,25 +1965,58 @@ export function TournamentTab({
 // the ladder reruns.
 function MachineProfileCard({
   profile,
+  remoteProfiles,
   benching,
   error,
   hwChanged,
+  curve,
   onBench,
+  onImport,
+  onRemove,
 }: {
   profile: MachineProfile | null
+  remoteProfiles: MachineProfile[]
   benching: boolean
   error: string | null
   hwChanged: boolean
+  curve: EloCurve
   onBench: () => void
+  onImport: (json: string) => void
+  onRemove: (hostname: string) => void
 }) {
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   return (
     <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-foreground">Machine profile</h2>
-        <Button size="sm" variant="outline" onClick={onBench} disabled={benching}>
-          {benching ? "Benching…" : "Bench this machine"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => importInputRef.current?.click()}
+            title="Import another machine's machine_profile.json (e.g. the homeserver's) for cross-machine equivalence"
+          >
+            Import profile…
+          </Button>
+          <Button size="sm" variant="outline" onClick={onBench} disabled={benching}>
+            {benching ? "Benching…" : "Bench this machine"}
+          </Button>
+        </div>
       </div>
+      {/* Hidden picker behind "Import profile…": reads the chosen JSON and
+          hands the raw text to the provider, which validates it. Value is
+          cleared so re-picking the same file re-imports. */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ""
+          if (file) onImport(await file.text())
+        }}
+      />
       {profile ? (
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground font-mono">
           <span className="text-foreground">{profile.hostname}</span>
@@ -1772,6 +2032,32 @@ function MachineProfileCard({
             : "Not benched yet — calibrates pace floors and cross-machine equivalence."}
         </span>
       )}
+      {/* Cross-machine equivalence (spec 216 Tier 2): each imported profile
+          restated at equal nodes — "homeserver 60s/move ≈ laptop 22s/move". */}
+      {remoteProfiles.map((remote) => (
+        <div
+          key={remote.hostname}
+          data-testid="machine-equivalence-row"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground font-mono"
+        >
+          <span className="text-foreground">{remote.hostname}</span>
+          <span>{remote.engine_name}</span>
+          <span>{formatNps(remote.nps)}</span>
+          <span>
+            {profile
+              ? equivalenceLine(curve, profile, remote) ?? "no equivalence (missing nps)"
+              : "bench this machine to see the equivalence"}
+          </span>
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground"
+            title={`Remove ${remote.hostname}'s profile`}
+            onClick={() => onRemove(remote.hostname)}
+          >
+            ×
+          </button>
+        </div>
+      ))}
       {hwChanged && (
         <span className="text-xs text-amber-400">
           Hardware changed since this profile was measured —{" "}

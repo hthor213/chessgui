@@ -4,6 +4,7 @@
 import { describe, it, expect } from "vitest"
 import {
   buildSeeds,
+  parseOpeningPositions,
   buildSpecs,
   buildParticipantSpecs,
   buildExhibitionSpec,
@@ -517,5 +518,77 @@ describe("buildTournamentResultExport — JSON export shape (spec 210 Tournament
     expect(exported.completedAt).toBe("2026-07-15T00:00:00.000Z")
     expect(exported.buckets).toHaveLength(1)
     expect(exported.buckets[0]).toMatchObject({ games: 1, winPct: 100, drawPct: 0, lossPct: 0 })
+  })
+})
+
+describe("parseOpeningPositions — user-picked EPD/FEN files (spec 210 Phase 3)", () => {
+  const START_BOARD = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
+
+  it("parses full-FEN lines verbatim, one position per line", () => {
+    const text = `${START_BOARD} w KQkq - 0 1\n${START_BOARD} b KQkq - 3 12\n`
+    const parsed = parseOpeningPositions(text, "book.fen")
+    expect(parsed.positions.map((p) => p.fen)).toEqual([
+      `${START_BOARD} w KQkq - 0 1`,
+      `${START_BOARD} b KQkq - 3 12`,
+    ])
+    expect(parsed.tagged).toBe(0)
+    expect(parsed.skipped).toBe(0)
+    // Untagged lines get eval 0 (Book mode's balance filter accepts them).
+    expect(parsed.positions.every((p) => p.eval_cp === 0 && p.eval_pawns === 0)).toBe(true)
+    expect(parsed.positions.every((p) => p.source === "book.fen")).toBe(true)
+  })
+
+  it("completes bare 4-field EPD with ' 0 1' counters so the FEN is runnable", () => {
+    const parsed = parseOpeningPositions(`${START_BOARD} w KQkq -\n`, "uho.epd")
+    expect(parsed.positions).toHaveLength(1)
+    expect(parsed.positions[0].fen).toBe(`${START_BOARD} w KQkq - 0 1`)
+  })
+
+  it("reads the EPD `ce` opcode as side-to-move centipawns, stored White-POV", () => {
+    const text = [
+      `${START_BOARD} w KQkq - ce 90;`, // White to move, +90 stm = +90 White
+      `${START_BOARD} b KQkq - hmvc 0; ce 90;`, // Black to move: +90 stm = -90 White
+      `${START_BOARD} b KQkq - ce -25;`, // Black to move: -25 stm = +25 White
+    ].join("\n")
+    const parsed = parseOpeningPositions(text, "uho.epd")
+    expect(parsed.tagged).toBe(3)
+    expect(parsed.positions.map((p) => p.eval_cp)).toEqual([90, -90, 25])
+    expect(parsed.positions.map((p) => p.eval_pawns)).toEqual([0.9, -0.9, 0.25])
+  })
+
+  it("skips comment lines silently and counts unparseable lines without failing", () => {
+    const text = [
+      "# UHO 2024 sample",
+      "// generator note",
+      "; another comment",
+      "",
+      `${START_BOARD} w KQkq -`,
+      "this is not a position",
+      "8/8/8 w - -", // wrong rank count
+      `${START_BOARD} x KQkq -`, // bad side to move
+    ].join("\n")
+    const parsed = parseOpeningPositions(text, "mixed.epd")
+    expect(parsed.positions).toHaveLength(1)
+    expect(parsed.skipped).toBe(3)
+  })
+
+  it("handles CRLF line endings and interleaved FEN/EPD lines", () => {
+    const text = `${START_BOARD} w KQkq - 0 1\r\n${START_BOARD} b KQkq - ce 40;\r\n`
+    const parsed = parseOpeningPositions(text, "crlf.epd")
+    expect(parsed.positions).toHaveLength(2)
+    expect(parsed.positions[1].eval_cp).toBe(-40) // Black to move, stm -> White POV
+    expect(parsed.tagged).toBe(1)
+  })
+
+  it("feeds buildSeeds book mode directly (balanced filter accepts |eval| <= 0.5)", () => {
+    const text = [
+      `${START_BOARD} w KQkq - ce 30;`,
+      `${START_BOARD} w KQkq - ce 240;`, // too imbalanced for book mode
+    ].join("\n")
+    const { positions } = parseOpeningPositions(text, "uho.epd")
+    const seeds = buildSeeds("book", 4, positions)
+    expect(seeds).toHaveLength(4)
+    // Only the balanced position qualifies; the pool cycles it.
+    expect(seeds.every((s) => s.fen === `${START_BOARD} w KQkq - 0 1`)).toBe(true)
   })
 })
