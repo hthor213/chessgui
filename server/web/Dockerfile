@@ -18,7 +18,11 @@ COPY apps/desktop/package.json apps/desktop/
 COPY apps/web/package.json apps/web/
 COPY packages/core/package.json packages/core/
 COPY packages/ui/package.json packages/ui/
-RUN pnpm install --frozen-lockfile --filter @chessgui/web...
+# @chessgui/desktop is NOT a dependency of web, but web's tsconfig aliases
+# compile desktop source files in place — those files resolve chessops etc.
+# from apps/desktop/node_modules, which pnpm only materializes when the
+# desktop importer is included in the install filter.
+RUN pnpm install --frozen-lockfile --filter @chessgui/web... --filter @chessgui/desktop
 
 # .git + git binary so next.config.mjs's `git rev-parse` stamps the header
 # build info with the real commit (it falls back to "dev" without them).
@@ -28,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 COPY .git ./.git
 COPY packages ./packages
 COPY data/personas ./data/personas
+COPY apps/desktop/app ./apps/desktop/app
 COPY apps/desktop/hooks ./apps/desktop/hooks
 COPY apps/desktop/lib ./apps/desktop/lib
 COPY apps/web ./apps/web

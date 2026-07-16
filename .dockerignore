@@ -9,6 +9,7 @@
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !apps/desktop/package.json
+!apps/desktop/app
 !apps/desktop/hooks
 !apps/desktop/lib
 !apps/web
