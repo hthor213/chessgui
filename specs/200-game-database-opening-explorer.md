@@ -101,3 +101,32 @@ breakdown). A dedicated live explorer panel is a later slice.
 - [x] Lichess API fallback when local database is empty — when the local search returns 0 games, the panel queries `explorer.lichess.ovh` with a clear "online — Lichess" badge; graceful offline failure message; 64-position in-memory cache (`lib/lichess-explorer.ts`, unit-tested with mocked fetch; online/offline paths driven headless with intercepted network)
 - [x] Average Elo and performance rating shown per move — avg Elo plus a per-move performance rating for the side to move (mean opponent rating + FIDE logistic dp, ±800 clamp for perfect scores; `lib/explorer-stats.ts`, unit-tested). Lichess fallback rows show avg rating only — per-game opponent ratings aren't in the aggregate API, so a true performance number can't be computed there
 - [x] Tree computation is async — no UI freeze on large databases — all data access is async; Tauri runs the query off the UI thread
+- [ ] Dedicated live opening-explorer panel on the analyze board — separate from the
+      Database tab's position-search panel above (000:60-61, 200:93 "a later slice")
+
+### Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] Extend search beyond player/ECO/date to event, result, Elo range, full-text (000:60-61)
+- [ ] Material signature search (e.g. R+P vs R endgames) (000:63)
+- [ ] Tag/favorite games in the game list (000:64)
+- [ ] Merge databases with dedup beyond import-time hash (000:66)
+- [ ] Explorer surfaces transpositions explicitly (UI claim + test) — Zobrist hashing
+      already makes transposition detection inherent to the position-search index, but
+      no UI surfaces it as a named claim and no test asserts it (000:73)
+
+### CBH Importer (shipped in code, undocumented here — audit 2026-07-16)
+
+`src-tauri/src/cbh.rs` (+ `examples/import_cbh.rs`) implements ChessBase `.cbh`
+import; `220-multiclient-architecture.md:101-103` references it as one of the 7
+`db_*` commands with progress, and `221-web-client.md:122` / `223-mobile-client.md:117`
+both note it as desktop-only by design. No section here ever specced its scope —
+recorded per memory `project_chessbase_parity.md` / the overnight mining block.
+
+- [ ] User test against `Testsets/nunn.cbh`: file picker → progress → completion banner
+- [ ] Cancel button on an in-progress CBH import
+- [ ] `.2cbh` (compressed CBH variant) — no open-source reader exists; watch item, not a
+      commitment
+- [ ] Non-zero CBH text-encoding modes beyond the default (requires a legal/licensing call
+      before implementing — clean-room constraint per the ChessBase parity roadmap)
+- [ ] `.cba` graphical annotations (arrows/highlights stored in ChessBase's own annotation
+      format) import

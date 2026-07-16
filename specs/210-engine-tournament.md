@@ -211,6 +211,9 @@ codebase area; the spec text lives in 218.
       still pending a live-app check, same as the runner itself.)
 - [ ] Deeper UHO integration: filter by ECO code, opening family, or custom FEN lists
 - [ ] Concurrency settings exposed in UI (max parallel games, engine thread count per game)
+- [ ] Gauntlet scheduling alongside round-robin (000:88; 900:17)
+- [ ] Export all games as one PGN file (bulk export of an entire tournament run,
+      distinct from the existing per-game "Open in Analyze" PGN handoff) (000:93)
 
 ### Phase 7 — Neutral Evaluator & Game Browser (2026-07-13)
 
@@ -299,3 +302,24 @@ stop-marks-aborted, pause-holds-until-resumed, and throttle tests), `pnpm test`
 succeed. As before, the end-to-end live behavior (a real paused/throttled run,
 the viewer control bar, ply-nav) needs the Tauri app — the Chrome extension for
 headless UI driving was not connected on this machine, so that check is pending.
+
+### Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] Live-in-Tauri verification pass (still open as of 2026-07-16; +M-pool audit
+      found no eyeball annotations at all beyond the "needs a live-app check" notes
+      already inline): current-position run (210:137), multi-engine round-robin
+      save/load clicks (210:211), Phase-7 live evaluator + graphs (210:252-259),
+      Phase-8 stop/pause/throttle/ply-nav control bar (210:295-301)
+- [ ] Bounded `curate_positions.py` re-run (explorer-validated, denser per-bin to
+      ±1.5; the full run over-scoped and was killed; explorer cache already warmed
+      at `data/openings/explorer_cache.json`) (BACKLOG.md)
+- [ ] Narrow-range presets (e.g. ±0.6) where engine skill, not the advantage size,
+      decides — more discriminating power per game (BACKLOG.md)
+- [ ] Locate the persisted 3000-game Stockfish-18-vs-Reckless run (2026-06-15) and
+      compute: real per-band W/D/L; a sign test on the |eval| ≥ 1.6 tail (replacing
+      the eyeballed "Reckless won ~16 from ≥0.38 down vs SF's ~4" observation); a
+      difficulty-weighted score crediting each win/save by
+      `1 − expected_score(starting_eval)` (memory `project_tournament.md` PENDING ANALYSIS)
+- [ ] Gradual-drift starting-position generator, a tablebase-OFF comparison run, and
+      a depth-to-discovery / instructiveness metric (memory `project_tournament.md`
+      Backlog)

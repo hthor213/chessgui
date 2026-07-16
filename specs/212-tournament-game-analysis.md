@@ -123,3 +123,20 @@ profile match the human band it imitates?).
       populates too. Round-trip test walks the tree and finds nag/comment/eval
       on the blunder node.
 - [ ] Spec review with user after tier-1 lands
+
+### Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] Full-game "Analyze Game" blunder check on one loaded game (not a tournament
+      run) with threshold annotations — a single-game entry point into this spec's
+      error-report machinery (000:43-44; 900:7 "not yet verified shipped")
+- [ ] Persist tournament runs into the database proper, not just JSON-on-disk
+      (212:70-71 Non-goal; save/load already shipped via spec:210's own
+      `tournaments/` directory, but games never land in the SQLite game DB from spec:200)
+- [ ] Deep multi-PV re-analysis pass on decisive moments (212:72-73 Non-goal; the
+      neutral evaluator's quick pass is tier-1 only)
+- [ ] FEN→ECO classification table, so the seed/opening breakdown's "ECO where known"
+      arm actually works — `lib/eco.ts` today only maps ECO code→name, not
+      position→ECO code (212:110-113 NOTE inside the shipped seed-breakdown box)
+- [ ] Phase 9 bridge: refutation-feature extraction (piece geometry, line length,
+      quiet-vs-forcing, motif) on engine errors, plus an engine-vs-human error-profile
+      contrast metric (212:63-67)

@@ -94,6 +94,7 @@ Red dots where eval drops significantly:
 - [x] User can add/edit text comments on any move (annotation bar; `[%…]` tags preserved through edits) — not yet verified in-app
 - [x] NAG symbols (!, ?, !!, ??, !?, ?!) via keyboard (`!`/`?` combos, `=` for equality) and toolbar buttons — not yet verified in-app
 - [x] Annotations visible in move list (comment text + NAG glyphs; per-move eval badges deferred — evals live in the graph tooltip)
+- [ ] Per-move eval badges in the move list itself (202:96 deferral above)
 - [x] Arrow annotations drawn on board (right-click drag), persisted per node — not yet verified in-app
 - [x] Square annotations highlighted on board (right-click), persisted as dest-less arrows — not yet verified in-app
 - [x] Annotated PGN export includes comments, evals, NAGs, arrows, squares (spec:013 task) — shipped and ticked in spec:013:29 (`treeToPgn`/`makePgn`, round-trip tested in `__tests__/pgn.test.ts`); cross-verified 2026-07-15
@@ -108,4 +109,15 @@ Red dots where eval drops significantly:
 - [x] Current move shown with vertical indicator (variations mark their mainline branch point)
 - [x] White/dark fill regions show advantage (Lichess-style sigmoid scaling)
 - [x] Mate scores at full extent (clamped to ±1, unit-tested)
-- [ ] Blunders/mistakes visually highlighted (stretch goal — deferred)
+- [x] Blunders/mistakes visually highlighted — code-verified 2026-07-16: `packages/ui/src/eval-graph.tsx`
+      renders judgment dots (amber `MISTAKE`, red `BLUNDER`) at each point where the
+      classifier flags a mistake/blunder; inaccuracies stay tooltip-only. Supersedes the
+      "stretch goal — deferred" note above; not yet confirmed by in-app user eyeball (see
+      verification pass below).
+
+### Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] User eyeball / approved-`/verify` run confirming, in the running app, all the
+      "not yet verified in-app" items above: text comments (202:94), NAG keyboard/toolbar
+      (202:95), arrows (202:97), squares (202:98), and the eval-graph blunder/mistake dots
+      (202:111) — tick each inline note once confirmed (202:83, 111 + plan §1)

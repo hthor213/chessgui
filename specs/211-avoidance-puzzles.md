@@ -153,8 +153,10 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
     spaced repetition, calm-position mixing.
 - [x] Calm-position decks mixed in (70/30 default) (code-verified 2026-07-15)
 - [x] Session flow + streak/score, failed-puzzle respawn (spaced repetition hook) (code-verified 2026-07-15)
-- [ ] Tier-2: band miss-rate difficulty once mining data exists
-- [ ] Tier-3: feature-filtered decks; "from your own games" mode
+- [ ] Tier-2: band miss-rate difficulty once mining data exists (user-blocked: user
+      signs off on the mining methodology before any long homeserver job runs — plan §4 Decisions)
+- [ ] Tier-3: feature-filtered decks; "from your own games" mode (user-blocked: user
+      signs off on the mining methodology before any long homeserver job runs — plan §4 Decisions)
 - [x] "Play it out" (2026-07-14): from any puzzle/calibration position — especially
       conversion and endgame decks — hand the position to play-vs-engine and play it to a
       result; score conversion rate vs the position's expected score. Perceiving +2 and
@@ -185,3 +187,43 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
     calmDeck, mock) — cargo + vitest + real-engine `--max-ply 8` run all green.
     Box stays open because the own-games opening-leak report (module 9 pairing)
     was deliberately deferred this batch.
+
+### Later / uncaptured requirements (audit 2026-07-16)
+
+- [ ] Mining run over the full 11M-game corpus (211:107-115,137; the 2026-07-15
+      LAST_SESSION Known-issues #2 batch was a 20k-puzzle sample, not the full corpus)
+- [ ] One-click import of the pending server batch via the "Import puzzles…" picker
+      once that batch finishes (211:137; LAST_SESSION Known-issues #2)
+- [ ] Solver session polish — the wave-7 wip (commit 71db879, 2026-07-15) named this as
+      a remaining NOW item but did not itemize it beyond the one-line pointer in
+      LAST_SESSION.md:98; itemize on pickup, then box the resulting sub-items here
+- [ ] Opening-leak report over the user's own imported games — which openings YOU
+      bleed in (000:114; 211:178 deferral above)
+- [ ] Revisit LLM-generated puzzle explanations after the mistake taxonomy (Phase 9 /
+      spec:214 Tier-3) exists (211:86)
+- [ ] Verify the homeserver checkout has pulled fix 202d5e3
+      (`build_reference_pack.py` crashes on plain `.pgn` input); once confirmed, strike
+      the "Server checkout predates the fix — git pull there before using it" caveat
+      above (211:115; LAST_SESSION)
+- [ ] Reconcile `scripts/mining/README.md`'s header (still describes the superseded
+      four-TC set `600+5,900+10,1800+0,1800+20`) with the broadened 8-TC decision
+      actually recorded above (`600+0,600+5,900+0,900+10,1200+0,1800+0,1800+20,2700+0`,
+      decided 2026-07-14); confirm README "Decisions to confirm" #4–8 (no upper Elo
+      cut; one PGN file per month; `curl` not stdlib `urllib`; unknown-Elo games go to
+      band `"?"`; 100-Elo band width) still hold and record the confirmation
+- [ ] Assess within-month selection bias from first-come-first-kept band capping
+      (kept games are the earliest in the chronological dump, not a random sample);
+      move to reservoir sampling if it matters for the Tier-2 miss-rate statistics or
+      spec:213 validation (scripts/mining/README.md "Decisions to confirm" #3)
+- [ ] `mine_cliffs.py` budget rule, restated here so it isn't spec-silent: never run a
+      month open-ended — engine-bound at ~1.2s/candidate depth 16, and a full month has
+      candidates in the ~10⁶ range; always bound with `--limit`, `--threads`, or a
+      shallower depth (scripts/mining/README.md Tier-1 section)
+- [ ] Verify CQL (Chess Query Language) redistribution license before bundling its
+      motif detection for Tier-3 feature tagging (mistake-mining-prior-art.md concl. 5)
+- [ ] Priority experiment #1: replicate Guid–Bratko complexity-vs-error on our own
+      corpus as a pipeline sanity check (mistake-mining-prior-art.md "First five experiments")
+- [ ] Priority experiment #4: cause-conditioned Maia fine-tune + mini Turing test
+      (mistake-mining-prior-art.md "First five experiments")
+- [ ] Priority experiment #5: cross-validate entropy (Barthélemy 2025) vs Guid–Bratko —
+      divergence is itself a finding (mistake-mining-prior-art.md "First five experiments")
