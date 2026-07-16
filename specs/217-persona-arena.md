@@ -67,7 +67,17 @@ Family-scale operations, not scaling engineering:
   games are resumable.
 - **Crash-restart**: the standard Docker restart policy, same as the other homeserver
   services.
-- **Resource limits**: modest per-process limits — enough for a family, nothing more.
+- **Resource limits (hobby-server rule, 2026-07-15 user)**: the homeserver is a
+  shared hobby box (gitea, golf app, other services) — chess engines must never
+  degrade it. Policy: engines always run at LOW scheduler priority (Docker
+  cpu-shares / nice), so under contention every other service wins. Ceilings on
+  the 16-core box: interactive move search may burst to 4 cores (25%) — engine
+  load is bursty (one move at a time, only during an active game), and a flat
+  ~10% cap would push BT3 to ~40s/move and kill the honeypot UX; batch jobs
+  (mining, ladders) cap at 2 cores (12.5%), self-niced; combined engine footprint
+  targets ≤40% sustained, and the interactive ceiling is the first thing lowered
+  if anything else on the box degrades. Memory: arena container ≤6g. (Staged
+  container currently allows cpus:6 — re-cap to 4 at next deploy touch.)
 
 The arena DB is canonical for arena games; games are deletable on request.
 
