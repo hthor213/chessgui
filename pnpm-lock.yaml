@@ -121,6 +121,58 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  apps/web:
+    dependencies:
+      '@chessgui/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@chessgui/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@lichess-org/chessground':
+        specifier: ^10.1.1
+        version: 10.1.1
+      autoprefixer:
+        specifier: ^10.4.27
+        version: 10.4.27(postcss@8.5.8)
+      chessops:
+        specifier: ^0.14.0
+        version: 0.14.2
+      cm-polyglot:
+        specifier: ^1.1.0
+        version: 1.1.0
+      lucide-react:
+        specifier: ^1.7.0
+        version: 1.7.0(react@19.2.4)
+      next:
+        specifier: ^16.2.2
+        version: 16.2.2(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      postcss:
+        specifier: ^8.5.8
+        version: 8.5.8
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      tailwindcss:
+        specifier: ^3.4.19
+        version: 3.4.19
+    devDependencies:
+      '@types/node':
+        specifier: 25.5.0
+        version: 25.5.0
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   packages/core:
     dependencies:
       chessops:
