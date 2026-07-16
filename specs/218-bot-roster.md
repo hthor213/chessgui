@@ -194,5 +194,8 @@ strength (spec:216 curve) — no unmeasured realism claims.
       follow-up for whichever agent owns app/page.tsx. Persona strength
       labels: spec:216 curve for engines (unchanged), harness move-match %
       for personas (same labels as the dropdown, item 1 above).
-- [ ] Personas in round-robin standings with spec:216 labels (rides on spec:210
-      Phase 6's round-robin item)
+- [x] Personas in round-robin standings with spec:216 labels (rides on spec:210
+      Phase 6's round-robin item) (code-verified 2026-07-15: spec:210 Phase 6's
+      round-robin item already delivers this — persona rows carry their honest
+      spec:216 roster labels, e.g. "bot: kasparov (BT3, 64% move-match)", in
+      both standings and the saved result)

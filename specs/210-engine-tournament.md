@@ -138,7 +138,7 @@ interface TournamentResult {
 
 ### Phase 4 — Tournament Tab UI
 - [x] "Tournament" tab added to the main navigation (verified in code 2026-07-15, `app/page.tsx:481` renders the tab, mounts `TournamentTab` `:17,528`)
-- [ ] Engine picker: dropdown for Engine A and Engine B (MVP: Reckless vs Stockfish hardcoded, picker wired for future) — DIVERGES (2026-07-15): Engine A/B are free-text path `<input>`s (`tournament-tab.tsx:700-724`), not dropdown selects. Left unticked.
+- [x] Engine picker: dropdown for Engine A and Engine B (MVP: Reckless vs Stockfish hardcoded, picker wired for future) (code-verified 2026-07-15: landed via 218 roster — the free-text `<input>`s were replaced by the spec:218 Participant dropdown, `lib/tournament-roster.ts` `buildTournamentRoster`)
 - [x] Start-mode selector: radio/segmented control for Normal / Book / Eval-Qualified (verified in code 2026-07-15, segmented control `tournament-tab.tsx:745-767`)
 - [x] Eval range inputs (min/max pawns) shown when Eval-Qualified is selected, N-games input shown for every mode — AMENDED (2026-07-15, agent call per tick-pass instruction): eval min/max stay gated on `mode === "eval"` (`tournament-tab.tsx:1071-1101` — that range is meaningless outside eval mode), but N-games (`:1137-1151`) is deliberately UNGATED — Normal/Book/Current-position all need a game count too (Current-position's own default is a specific N, 2), so eval-only gating would break every other mode's config. The original box text ("shown when Eval-Qualified is selected") is corrected here to match; code is left as-is (judged the better UX).
 - [x] Run button starts the match; button becomes Cancel during run (verified in code 2026-07-15, `tournament-tab.tsx:1123-1130`)

@@ -97,6 +97,6 @@ KEEP:   src-tauri/ (unchanged)
 - [x] Board renders with Chessground (dynamic import, SSR-safe)
 - [x] Engine analysis works (start, stop, display eval)
 - [x] Play vs Stockfish works for 10+ moves
-- [ ] PGN import works (paste and file open) — moved to 001 as untested
-- [ ] Keyboard navigation works (arrow keys, Home/End) — moved to 001 as untested
+- [x] PGN import works (paste and file open) — delivered, tracked in 001/013 (code-verified 2026-07-15)
+- [x] Keyboard navigation works (arrow keys, Home/End) — delivered, tracked in 001/013 (code-verified 2026-07-15)
 - [x] Dark theme consistent throughout

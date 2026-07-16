@@ -72,10 +72,12 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
     counts; anomaly flags (short game / early resign — length proxies until the
     spar loop has clocks) shown next to the score, never excluded; per-game
     "counts" reclassification lives in the Training tab's Spar games card.
-    DEVIATION: the game-START intent toggle is currently the existing
-    Serious/Probe mode picker (intent by mode) — a dedicated per-game toggle on
-    the spar config screen remains open (spar-tab owned by parallel work).
-    endgame_playout + rake_deck still blocked on 211/corpus.
+    UPDATE 2026-07-15 (code-verified): the dedicated "counts toward training"
+    toggle on the spar config screen is now BUILT (spar-tab), superseding the
+    DEVIATION noted above — intent is no longer inferred from the Serious/Probe
+    mode picker alone. rake_deck is also BUILT: the Training tab's rake_deck
+    blocks (c1-mon/c1-thu, ids preserved) launch a deck from the user's Maia
+    band via spec:211's puzzle solver, no longer blocked on the corpus.
   - *Progress 2026-07-15 — endgame_playout BUILT* (211's play-it-out landed):
     the three "Endgame play-it-out" blocks are now type `endgame_playout` (ids
     unchanged, check-offs preserved) and launch the Play-it-out screen

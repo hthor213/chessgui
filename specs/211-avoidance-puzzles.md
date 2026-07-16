@@ -116,9 +116,9 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
 
 ## Checklist
 
-- [ ] Tier-1 generator: eval-cliff scanner over the games DB (Rust, batch command)
-- [ ] Engine re-verification pass (local Stockfish, fixed depth, threshold config)
-- [ ] Attractiveness filters (played-by-human, ≥3 alternatives, natural-move heuristics)
+- [x] Tier-1 generator: eval-cliff scanner over the games DB (scripts/mining/mine_cliffs.py, Python) (code-verified 2026-07-15)
+- [x] Engine re-verification pass (local Stockfish, fixed depth, threshold config) (code-verified 2026-07-15)
+- [x] Attractiveness filters (played-by-human, ≥3 alternatives, natural-move heuristics) (code-verified 2026-07-15)
 - [ ] Engagement filter (2026-07-14, from rival-analysis methodology): a blunder in a
       distracted game is not a perceptual rake. Use %clk signals (near-instant move
       bursts, big clock gap then collapse, timeout/abandon terminations) to exclude
@@ -151,8 +151,8 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
     (import dry-run JSONL → solve safe → fail on the trap → replay shapes →
     summary; Training launch drivable). NOT here (still open below): streaks,
     spaced repetition, calm-position mixing.
-- [ ] Calm-position decks mixed in (70/30 default)
-- [ ] Session flow + streak/score, failed-puzzle respawn (spaced repetition hook)
+- [x] Calm-position decks mixed in (70/30 default) (code-verified 2026-07-15)
+- [x] Session flow + streak/score, failed-puzzle respawn (spaced repetition hook) (code-verified 2026-07-15)
 - [ ] Tier-2: band miss-rate difficulty once mining data exists
 - [ ] Tier-3: feature-filtered decks; "from your own games" mode
 - [x] "Play it out" (2026-07-14): from any puzzle/calibration position — especially

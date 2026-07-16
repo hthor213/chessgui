@@ -38,7 +38,7 @@ Stockfish binary: user-selected via file picker (currently hardcoded for dev)
 ## Done When
 
 ### Engine Wiring (from spec:011)
-- [x] User can select Stockfish binary via file dialog
+- [ ] User can select Stockfish binary via file dialog (unticked 2026-07-15: not actually implemented; in progress) — `use-engine.ts` hardcodes the path
 - [x] Engine starts and handshake completes (name shown in UI)
 - [x] Analysis runs automatically when position changes
 - [x] Eval (cp and mate scores) displayed with proper +/- formatting

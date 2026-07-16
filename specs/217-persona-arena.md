@@ -99,11 +99,11 @@ data/rivals; never committed, never bundled) — same hard rule as spec 214.
 Family-scale operations, not scaling engineering:
 
 - **Move-latency budget**: target under ~2s per persona move, with a visible thinking
-  indicator in the game screen. MEASURED (2026-07-15, Tier-0 staging): BT3 on the
-  server CPU ≈ 3-4 NN evals/s → ~10s/move at the staged 32 nodes — 5x over budget.
+  indicator in the game screen. MEASURED (2026-07-15, Tier-0 staging, commit 2daff06):
+  BT3 on the server CPU ≈ 3-4 NN evals/s → ~10s/move at the staged 32 nodes — 5x over budget.
   Options open (user decision): accept ~10s with the indicator; rebuild lc0 with the
   onednn backend (likely 2-4x); or a smaller strong net (needs harness re-validation).
-  ARENA_SEARCH_NODES is env-tunable without rebuild.
+  ARENA_SEARCH_NODES is env-tunable without rebuild (code-verified 2026-07-15).
 - **Engine stalls**: retry, then respawn the engine process — never silently hang a
   game.
 - **Disconnect/resume**: every move is persisted server-side as it happens; partial
@@ -150,7 +150,8 @@ per-capita math.
 ## The Icelandic canon (user-supplied roster + lore, 2026-07-15)
 
 Iceland's infamous brag — "best per capita :-)", ~10 GMs at peak for ~330k people —
-is the arena's flavor (candidate lobby tagline: "Best per capita"). Extraction
+is the arena's flavor (lobby tagline: "Best per capita" — code-verified 2026-07-15,
+shipped as the lobby tagline). Extraction
 candidates, all public figures, check Lumbra coverage per name:
 - **Friðrik Ólafsson** — Iceland's first GM, dad's-generation hero (also FIDE
   president 1978-82).
@@ -178,6 +179,8 @@ accurate as a direct consequence — the arena feeds the Florida milestone.
 - **Tier 0**: LAN/Tailscale-only arena — lobby with 3 personas (Gudmundur peak,
   Fischer, Kasparov), Google auth allowlist, disclosure screen, games persisted
   server-side, dad invited in the same room (first session assisted).
+  (code-verified 2026-07-15: code-complete and staged on the homeserver — see
+  the move-latency measurement and resource-policy sections above.)
 - **Tier 1**: public-internet exposure (same pattern as the golf app), Karpov + more
   Icelandic GMs, per-opponent W/D/L history for the player, clocks with increment
   (match protocol from spec 215).

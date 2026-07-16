@@ -89,14 +89,14 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 - Minimal modal usage — prefer inline panels and drawers over popups
 
 ### Done When (UX Design)
-- [ ] Three-column grid layout implemented (player panel | board | analytics)
+- [x] Three-column grid layout implemented (player panel | board | analytics) (code-verified 2026-07-15)
 - [ ] Header with NavigationMenu, logo, nav buttons, avatar
-- [ ] Player cards with glassmorphism styling and monospace clocks
+- [x] Player cards with glassmorphism styling and monospace clocks (code-verified 2026-07-15)
 - [ ] Board renders as `aspect-square` with drop-shadow pieces and overlay highlights
 - [ ] Control bar below board (Undo, Hint, Flip, Analyze)
-- [ ] Right panel: eval bar, PGN scroll area, engine graph, recommended moves
-- [ ] Dark theme with `#0a0a0a` background + radial gradient depth
-- [ ] Framer Motion piece transitions
+- [x] Right panel: eval bar, PGN scroll area, engine graph, recommended moves (code-verified 2026-07-15)
+- [x] Dark theme with `#0a0a0a` background + radial gradient depth (code-verified 2026-07-15)
+- [ ] Framer Motion piece transitions — superseded: Chessground animates natively
 - [ ] Consistent `gap-6`/`gap-8` spacing throughout
 - [ ] Component mapping follows the shadcn/Tailwind strategy table above
 
@@ -135,4 +135,3 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 
 ### Untested (from spec:002 migration)
 - [ ] PGN import works (paste and file open)
-- [ ] Keyboard navigation works (arrow keys, Home/End)

@@ -20,10 +20,10 @@ Connect the Rust UCI backend to the frontend so the user can load Stockfish and 
 
 ## Done When
 - [ ] User can select Stockfish binary via file dialog
-- [ ] Engine starts and handshake completes (name shown in UI)
-- [ ] Analysis runs automatically when position changes
-- [ ] Eval (cp and mate scores) displayed with proper +/- formatting
-- [ ] Top 3 PV lines shown with SAN notation
-- [ ] Depth and nodes/sec displayed
-- [ ] Stop/start analysis toggle works
-- [ ] Engine process cleaned up on app quit
+- [x] Engine starts and handshake completes (name shown in UI) (code-verified 2026-07-15)
+- [x] Analysis runs automatically when position changes (code-verified 2026-07-15)
+- [x] Eval (cp and mate scores) displayed with proper +/- formatting (code-verified 2026-07-15)
+- [x] Top 3 PV lines shown with SAN notation (code-verified 2026-07-15)
+- [x] Depth and nodes/sec displayed (code-verified 2026-07-15)
+- [x] Stop/start analysis toggle works (code-verified 2026-07-15)
+- [x] Engine process cleaned up on app quit (code-verified 2026-07-15)

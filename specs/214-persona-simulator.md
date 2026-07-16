@@ -163,7 +163,7 @@ the temperature schedule (contract step 3) and the error model (step 5).
 - [x] Fischer/Kasparov (+Sigurjonsson) extraction (2026-07-15): from app DB → data/personas/ (gitignored is fine;
       public-figure games may be committed if useful)
 - [x] Held-out eval harness (2026-07-15, results in data/personas/HARNESS_RESULTS.md — strong-engine policy beats Maia at every tested strength; BT3 = GM-persona backend): move-match@1/@3, per phase, per policy backend
-- [ ] Persona config format + loader
+- [x] Persona config format + loader (code-verified 2026-07-15)
 - [x] Realism feedback capture (2026-07-15, user request; SHIPPED e158101 — plus
       confidence chips gut-feel/fairly-sure, never "certain"): "felt like him" /
       "didn't feel like him" buttons in the spar UI, tappable at any point during
@@ -229,9 +229,9 @@ the temperature schedule (contract step 3) and the error model (step 5).
       policy arm when Stockfish is missing. No tablebase branch: the ≤7-man
       probe is a network call per move (not "cheap"), and depth-16 SF already
       plays trivial endings correctly — revisit if a local TB lands.
-- [ ] Metrics harness + auto-tuning loop: move-match@1/@3, ACPL-profile,
+- [x] Metrics harness + auto-tuning loop: move-match@1/@3, ACPL-profile,
       error-timing, opening KL on held-out splits; offline optimization of
-      alpha/lambda/temperature/priors against them
+      alpha/lambda/temperature/priors against them (code-verified 2026-07-15)
 
 ## Open questions
 
