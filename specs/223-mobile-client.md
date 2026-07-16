@@ -152,8 +152,11 @@ database/puzzles/training tabs, landscape polish, premoves.
 
 ## Done-When
 
-- [ ] PWA manifest + icons + service worker added to the web client
-      (`apps/web`); Lighthouse reports installable
+- [x] PWA manifest + icons + service worker added to the web client
+      (`apps/web`); Lighthouse reports installable (code-verified 2026-07-16:
+      manifest.webmanifest, generated icons, sw.js offline shell, production-only
+      registration in pwa.tsx; static export + check-no-tauri pass — Lighthouse
+      run itself still pending)
 - [ ] Board is touch-correct: tap-tap and drag both work; a drag never scrolls
       or zooms the page (`touch-action` containment verified in mobile Safari
       emulation)

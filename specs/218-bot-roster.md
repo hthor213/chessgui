@@ -135,6 +135,12 @@ strength (spec:216 curve) — no unmeasured realism claims.
       `lib/roster.ts` surfaces "You" first, gated on kind + built book, excluded
       from the rival loop (2 roster tests). Arena-lobby per-account half NOT yet
       built — box stays unticked until that lands.
+      Arena export tooling code-verified 2026-07-16: `build_self_persona.py
+      --arena-staging` packages artifacts + net for scp, server pins Maia nets
+      by sha256 (`MAIA_NET_SHA256` in config.py, `_net_verified` in persona.py,
+      mismatch = skip-never-invent), and `_strength_label` renders the self
+      persona's measured band ("Maia-estimated") instead of "unmeasured".
+      Deployment to the homeserver + dad's lobby eyeball still pending.
 
 - [x] Play vs Bot rename + roster (2026-07-15): "Spar vs Dad" → "Play vs Bot"
       (app/page.tsx Learn sub-tab + spar-tab.tsx headings); a roster of

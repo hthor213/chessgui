@@ -171,7 +171,7 @@ optional move, and score them against Stockfish. Files are the research artifact
       `overlooked_defender` + `scale_miscalibration`.
 - [ ] Collect a real self-rated session (user is the ~1300/1650-puzzle datapoint) and
       fold it into the E1 corpus once the evaluator exists.
-- [ ] **Adaptive elicitation** (design doc §6): active learning FOR THE MODEL — "we use
+- [x] (code-verified 2026-07-16: Phase B lands — `DISAGREEMENT_BANDS`/`phaseBScore`/`pickNext`/`promoteAt`/`phaseBReadout` in lib/calibration-profile.ts, prefetcher in calibration-tab.tsx, zero Rust changes — drives the existing `human_eval_sweep`) **Adaptive elicitation** (design doc §6): active learning FOR THE MODEL — "we use
       the human to make human mistakes; what data do you need more of." Phase A: brief
       profile lock-in (~10–20 positions) so labels read as a known-level human's
       perception — the profile display stays as a fun by-product. Phase B: every next
@@ -241,7 +241,7 @@ optional move, and score them against Stockfish. Files are the research artifact
       "Engine line (best play)" when present; the outside-your-data guard applies only
       when no PV is provided), rendered in the reveal (calibration-tab.tsx), nulled —
       never dropped — for pre-v3 positions (`coachInputFor`, vitest-covered).
-- [ ] Plan elicitation (2026-07-14): on selected decks, before the eval, also ask "what's
+- [x] (code-verified 2026-07-16: `PLAN_DECKS` conversion+endgame, `plan`/`plan_b` answer fields, coach grades `plan_grade` direction vs engine PV with wrong→`wrong_plan_priority` tag, `planDirection` rollup in summarize, RESULTS_VERSION 5) Plan elicitation (2026-07-14): on selected decks, before the eval, also ask "what's
       the plan for the side to move?" (one line, e.g. "queenside minority attack" /
       "trade into the pawn endgame"). The coach grades plan DIRECTION against the engine
       PV, separately from the eval number — measures wrong_plan_priority directly instead
@@ -315,6 +315,9 @@ optional move, and score them against Stockfish. Files are the research artifact
 - [ ] Killer experiment E1 (outcome prediction vs Stockfish eval on held-out R-vs-R
       corpus games) run and written up; tier-1 hyperparameters (p, depth, caps) frozen
       from E5 ablations
+      (script shipped 2026-07-16: `scripts/e1_outcome_prediction.py`, stdlib +
+      python-chess, 27-check `--selftest` green; the run + writeup are still to do,
+      box stays unticked)
 - [ ] E-attention (design doc §5.1): action-zone local-Zobrist matched-pair mining on
       the corpus; bystander dose-response curves per band → perceptual-load
       coefficients for candidate breadth

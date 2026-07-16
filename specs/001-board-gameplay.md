@@ -90,15 +90,15 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 
 ### Done When (UX Design)
 - [x] Three-column grid layout implemented (player panel | board | analytics) (code-verified 2026-07-15)
-- [ ] Header with NavigationMenu, logo, nav buttons, avatar
+- [x] Header with NavigationMenu, logo, nav buttons, avatar (code-verified 2026-07-16)
 - [x] Player cards with glassmorphism styling and monospace clocks (code-verified 2026-07-15)
-- [ ] Board renders as `aspect-square` with drop-shadow pieces and overlay highlights
-- [ ] Control bar below board (Undo, Hint, Flip, Analyze)
+- [x] Board renders as `aspect-square` with drop-shadow pieces and overlay highlights (code-verified 2026-07-16)
+- [x] Control bar below board (Undo, Hint, Flip, Analyze) (code-verified 2026-07-16)
 - [x] Right panel: eval bar, PGN scroll area, engine graph, recommended moves (code-verified 2026-07-15)
 - [x] Dark theme with `#0a0a0a` background + radial gradient depth (code-verified 2026-07-15)
 - [ ] Framer Motion piece transitions — superseded: Chessground animates natively
-- [ ] Consistent `gap-6`/`gap-8` spacing throughout
-- [ ] Component mapping follows the shadcn/Tailwind strategy table above
+- [x] Consistent `gap-6`/`gap-8` spacing throughout (code-verified 2026-07-16)
+- [x] Component mapping follows the shadcn/Tailwind strategy table above (code-verified 2026-07-16)
 
 ## Done When (Functionality)
 

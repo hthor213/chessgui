@@ -181,19 +181,19 @@ worth" figure; a heavily recency-weighted window has a smaller ESS and therefore
 
 Agent-verifiable:
 
-- [ ] Pure MLE performance-rating estimator in `packages/core` — recency-weighted logistic
+- [x] (code-verified 2026-07-16) Pure MLE performance-rating estimator in `packages/core` — recency-weighted logistic
       (spec:211 store as input), reusing the Elo expected-score curve
       (`expectedScoreElo`, house form `1/(1+10^(−diff/400))`).
-- [ ] Adaptive window: smallest recent-N with σ ≤ ~180 Elo + ~5 buffer, capped by data; ±
+- [x] (code-verified 2026-07-16) Adaptive window: smallest recent-N with σ ≤ ~180 Elo + ~5 buffer, capped by data; ±
       from the sandwich weighted-Fisher variance (95% band); ESS computed and exposed.
-- [ ] Minimum-window guard (~15 band-carrying attempts) returns a `need N more` status
+- [x] (code-verified 2026-07-16) Minimum-window guard (~15 band-carrying attempts) returns a `need N more` status
       instead of a number.
-- [ ] Invariant: the estimate is a per-puzzle-rating MLE, never a solve-rate averaged across
+- [x] (code-verified 2026-07-16) Invariant: the estimate is a per-puzzle-rating MLE, never a solve-rate averaged across
       bands; null-band attempts excluded; rake+calm pooled as one avoidance Elo.
-- [ ] Unit tests over synthetic sequences: breakout (200@1700 → 30@1850) converges toward
+- [x] (code-verified 2026-07-16) Unit tests over synthetic sequences: breakout (200@1700 → 30@1850) converges toward
       ~1850 within ~2 sessions; stagnation holds the mean flat with a shrinking ±; sparse
       data (<15) returns the guard status.
-- [ ] Learn UI renders `Unfinished Session: Elo <e> ± <u>` (and the `need N more` fallback)
+- [x] (code-verified 2026-07-16: puzzles-tab.tsx renders `eloEstimateLine(estimateElo(entries))`) Learn UI renders `Unfinished Session: Elo <e> ± <u>` (and the `need N more` fallback)
       from the store via the estimator — value present in the DOM at the specified placement.
 
 User-blocked (needs the user's eye):
