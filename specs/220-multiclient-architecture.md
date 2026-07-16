@@ -235,30 +235,30 @@ moves last — the moves are then mechanical.
 
 ## Done when
 
-- [ ] Step-1 seam heal: `grep -r "@tauri-apps" --include="*.tsx" components/`
-      returns zero hits; tournament tab hidden off-desktop
-- [ ] Four provider interfaces (EngineProvider, DatabaseProvider,
+- [x] Step-1 seam heal: `grep -r "@tauri-apps" --include="*.tsx" components/`
+      returns zero hits; tournament tab hidden off-desktop (code-verified 2026-07-15)
+- [x] Four provider interfaces (EngineProvider, DatabaseProvider,
       DialogProvider, StorageProvider) defined as types with a Tauri
       implementation and a browser stub each; the 14 former direct importers
-      import providers only
-- [ ] `DEFAULT_ENGINE_PATH` macOS constant gone from shared code (lives in
-      desktop provider defaults)
-- [ ] KVStore: zero bare `localStorage.` call sites outside the StorageProvider
-      implementations
+      import providers only (code-verified 2026-07-15)
+- [x] `DEFAULT_ENGINE_PATH` macOS constant gone from shared code (lives in
+      desktop provider defaults) (code-verified 2026-07-15)
+- [x] KVStore: zero bare `localStorage.` call sites outside the StorageProvider
+      implementations (code-verified 2026-07-15)
 - [ ] `pnpm-workspace.yaml` in place; `pnpm tauri dev` and
       `scripts/install-app.sh --debug` verified green (workspace, pre-move)
-- [ ] `packages/core` extracted: zero React/DOM/platform imports inside it
+- [x] `packages/core` extracted: zero React/DOM/platform imports inside it
       (verifiable via its package.json deps + `tsc`), all tests moved with it
-      still passing
-- [ ] `packages/ui` extracted with `board-theme.css`, square-state CSS, and the
-      tailwind preset; `app/globals.css` no longer contains cg-board rules
+      still passing (code-verified 2026-07-15)
+- [x] `packages/ui` extracted with `board-theme.css`, square-state CSS, and the
+      tailwind preset; `app/globals.css` no longer contains cg-board rules (code-verified 2026-07-15)
 - [ ] Single-source proof: change the piece-set import in
       `packages/ui/board-theme.css` once → desktop build AND web build both
       show the new pieces, no other file touched
-- [ ] `apps/desktop` holds app/ + src-tauri/; `@tauri-apps/*` appears in no
-      other package.json; macOS build + install works as before
+- [x] `apps/desktop` holds app/ + src-tauri/; `@tauri-apps/*` appears in no
+      other package.json; macOS build + install works as before (code-verified 2026-07-15)
 - [ ] `apps/web` builds a static export with zero Tauri code in the bundle
       (bundle grep), boots against browser/HTTP providers — handoff point to
       spec:221
-- [ ] All workspace package.json files declare GPL-3.0
+- [x] All workspace package.json files declare GPL-3.0 (code-verified 2026-07-15)
 - [x] specs/README.md index + dependency graph updated with 220→221/222/223

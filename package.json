@@ -2,6 +2,7 @@
   "name": "chessgui",
   "private": true,
   "version": "0.3.0",
+  "license": "GPL-3.0",
   "type": "module",
   "scripts": {
     "dev": "pnpm -C apps/desktop dev",
