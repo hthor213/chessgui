@@ -197,8 +197,8 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
 - [ ] Solver session polish — the wave-7 wip (commit 71db879, 2026-07-15) named this as
       a remaining NOW item but did not itemize it beyond the one-line pointer in
       LAST_SESSION.md:98; itemize on pickup, then box the resulting sub-items here
-- [ ] Opening-leak report over the user's own imported games — which openings YOU
-      bleed in (000:114; 211:178 deferral above)
+- [x] Opening-leak report over the user's own imported games — which openings YOU
+      bleed in (000:114; 211:178 deferral above) (code-verified 2026-07-16: scripts/mining/leak_report.py + 19-test selftest; script-level, no GUI surface yet)
 - [ ] Revisit LLM-generated puzzle explanations after the mistake taxonomy (Phase 9 /
       spec:214 Tier-3) exists (211:86)
 - [ ] Verify the homeserver checkout has pulled fix 202d5e3

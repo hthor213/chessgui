@@ -211,9 +211,9 @@ codebase area; the spec text lives in 218.
       still pending a live-app check, same as the runner itself.)
 - [ ] Deeper UHO integration: filter by ECO code, opening family, or custom FEN lists
 - [ ] Concurrency settings exposed in UI (max parallel games, engine thread count per game)
-- [ ] Gauntlet scheduling alongside round-robin (000:88; 900:17)
-- [ ] Export all games as one PGN file (bulk export of an entire tournament run,
-      distinct from the existing per-game "Open in Analyze" PGN handoff) (000:93)
+- [x] Gauntlet scheduling alongside round-robin (000:88; 900:17) (code-verified 2026-07-16: buildGauntletSpecs + Format picker in tournament-tab)
+- [x] Export all games as one PGN file (bulk export of an entire tournament run,
+      distinct from the existing per-game "Open in Analyze" PGN handoff) (000:93) (code-verified 2026-07-16: gamesToPgn multi-game export)
 
 ### Phase 7 — Neutral Evaluator & Game Browser (2026-07-13)
 

@@ -94,7 +94,7 @@ Red dots where eval drops significantly:
 - [x] User can add/edit text comments on any move (annotation bar; `[%…]` tags preserved through edits) — not yet verified in-app
 - [x] NAG symbols (!, ?, !!, ??, !?, ?!) via keyboard (`!`/`?` combos, `=` for equality) and toolbar buttons — not yet verified in-app
 - [x] Annotations visible in move list (comment text + NAG glyphs; per-move eval badges deferred — evals live in the graph tooltip)
-- [ ] Per-move eval badges in the move list itself (202:96 deferral above)
+- [x] Per-move eval badges in the move list itself (202:96 deferral above) (code-verified 2026-07-16: move-list.tsx evalBadge, gated off in play mode / spec-219 lockout)
 - [x] Arrow annotations drawn on board (right-click drag), persisted per node — not yet verified in-app
 - [x] Square annotations highlighted on board (right-click), persisted as dest-less arrows — not yet verified in-app
 - [x] Annotated PGN export includes comments, evals, NAGs, arrows, squares (spec:013 task) — shipped and ticked in spec:013:29 (`treeToPgn`/`makePgn`, round-trip tested in `__tests__/pgn.test.ts`); cross-verified 2026-07-15

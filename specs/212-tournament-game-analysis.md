@@ -126,17 +126,17 @@ profile match the human band it imitates?).
 
 ### Later / uncaptured requirements (audit 2026-07-16)
 
-- [ ] Full-game "Analyze Game" blunder check on one loaded game (not a tournament
+- [x] Full-game "Analyze Game" blunder check on one loaded game (not a tournament
       run) with threshold annotations — a single-game entry point into this spec's
-      error-report machinery (000:43-44; 900:7 "not yet verified shipped")
-- [ ] Persist tournament runs into the database proper, not just JSON-on-disk
+      error-report machinery (000:43-44; 900:7 "not yet verified shipped") (code-verified 2026-07-16: lib/game-analysis.ts + use-game-analysis + judgment NAGs)
+- [x] Persist tournament runs into the database proper, not just JSON-on-disk
       (212:70-71 Non-goal; save/load already shipped via spec:210's own
-      `tournaments/` directory, but games never land in the SQLite game DB from spec:200)
-- [ ] Deep multi-PV re-analysis pass on decisive moments (212:72-73 Non-goal; the
-      neutral evaluator's quick pass is tier-1 only)
-- [ ] FEN→ECO classification table, so the seed/opening breakdown's "ECO where known"
+      `tournaments/` directory, but games never land in the SQLite game DB from spec:200) (code-verified 2026-07-16: Save-to-DB bulk importPgn in tournament-tab lands the games in SQLite; run metadata/standings remain JSON)
+- [x] Deep multi-PV re-analysis pass on decisive moments (212:72-73 Non-goal; the
+      neutral evaluator's quick pass is tier-1 only) (code-verified 2026-07-16: lib/deep-analysis.ts, 3-PV @ 4s on dedicated session)
+- [x] FEN→ECO classification table, so the seed/opening breakdown's "ECO where known"
       arm actually works — `lib/eco.ts` today only maps ECO code→name, not
-      position→ECO code (212:110-113 NOTE inside the shipped seed-breakdown box)
+      position→ECO code (212:110-113 NOTE inside the shipped seed-breakdown box) (code-verified 2026-07-16: ECO_LINES + ecoForFen/ecoForFens in packages/core/src/eco.ts, wired into buildSeedBreakdown)
 - [ ] Phase 9 bridge: refutation-feature extraction (piece geometry, line length,
       quiet-vs-forcing, motif) on engine errors, plus an engine-vs-human error-profile
       contrast metric (212:63-67)
