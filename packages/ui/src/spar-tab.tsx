@@ -36,11 +36,15 @@ import {
   buildRoster,
   initialsFor,
   loadLocalRivalPersonas,
+  loadPlayerProfiles,
   resolveParticipantBook,
+  type LocalPlayerProfile,
   type LocalRivalPersona,
   type Participant,
   type PersonaConfig,
 } from "@/lib/roster"
+import { buildBeatPlan, beatTargetFor } from "@/lib/beat-program"
+import { AddProfileScreen } from "@chessgui/ui/add-profile-screen"
 import {
   loadRivalBook,
   pickBookEntry,
@@ -83,7 +87,9 @@ type SideChoice = "white" | "black" | "either"
 // that replaced the old single-rival "intro" screen; "config" is the
 // per-participant options screen (side/level/opening/mode) that used to BE
 // "intro", now parameterized by whichever roster entry was picked.
-type Phase = "roster" | "config" | "playing"
+// "addProfile" is the spec 225 "Add player profile…" flow — it lives here
+// because this is where the roster lives.
+type Phase = "roster" | "config" | "playing" | "addProfile"
 
 // Move-by-move rival book (spec 214, "Move-by-move rival book" checklist item,
 // supersedes drop-into-line as the default): the game starts at move 1 (or the
@@ -229,6 +235,12 @@ export function SparTab() {
   // the rival_personas command) — [] when absent, silently (spec 214 hard
   // rule: private personas stay local; absence is not an error state).
   const [localRivals, setLocalRivals] = useState<LocalRivalPersona[]>([])
+  // Pipeline-built player profiles (spec 225, data/rivals/*.profile.json via
+  // the rival_profiles command) — same silent-absence contract. They badge
+  // the persona cards (LOW-CONFIDENCE) and surface dossier-only players.
+  const [profiles, setProfiles] = useState<LocalPlayerProfile[]>([])
+  // Beat-X generation feedback (spec 225 Part 2), shown on the roster screen.
+  const [beatMsg, setBeatMsg] = useState<string | null>(null)
   // The PICKED participant's opening book: dad's already-loaded book, a
   // committed GM persona book (lazy JSON chunk), or a local rival's book —
   // resolved by the effect below whenever the pick changes.
@@ -258,7 +270,10 @@ export function SparTab() {
   // state for its absence — spec 214 hard rule: his data stays local) plus
   // whatever private-rival configs exist locally. The 12 committed GM
   // personas and the Maia bands are always present.
-  const roster = useMemo(() => buildRoster(book, localRivals), [book, localRivals])
+  const roster = useMemo(
+    () => buildRoster(book, localRivals, profiles),
+    [book, localRivals, profiles],
+  )
   // Any book-carrying entry (the private rivals AND the GM personas, whose
   // committed books are legitimately theirs) plays its book move-by-move;
   // only the ORIGINAL private rival keeps the dial-able level (everyone else
@@ -400,17 +415,21 @@ export function SparTab() {
     countsTowardTraining: effectiveCountsTowardTraining,
   })
 
-  // Load the book + the local private-rival configs once on mount.
+  // Load the book + the local private-rival configs + the pipeline profiles
+  // once on mount. reloadNonce bumps after "Add player profile…" finishes so
+  // the new card appears through the same artifact-existence gate.
+  const [reloadNonce, setReloadNonce] = useState(0)
   useEffect(() => {
     let live = true
     loadRivalBook()
       .then((b) => live && setBook(b))
       .catch((e) => live && setBookError(String(e)))
     loadLocalRivalPersonas().then((r) => live && setLocalRivals(r))
+    loadPlayerProfiles().then((p) => live && setProfiles(p))
     return () => {
       live = false
     }
-  }, [])
+  }, [reloadNonce])
 
   // Resolve the picked participant's opening book. Book participants can't
   // start until this lands (canStart below); a GM persona's book is a lazy
@@ -722,6 +741,49 @@ export function SparTab() {
     return [{ orig: uci.slice(0, 2) as Key, dest: uci.slice(2, 4) as Key, brush: "green" }]
   }, [plies, reviewing])
 
+  // Beat-X generation (spec 225 Part 2): build the training program from the
+  // picked entry's STORED profile artifacts, write the plan doc to
+  // data/rivals/<slug>.BEAT.md, and point at the Training tab for the in-app
+  // program (derived there from the same artifacts — one source of truth).
+  const generateBeatPlan = useCallback(
+    (p: Participant) => {
+      const row = profiles.find((pr) => pr.profile.slug === p.profileSlug)
+      if (!row) return
+      const hasPersona = p.actions.includes("play") && !!p.personaConfig
+      const plan = buildBeatPlan(
+        beatTargetFor(row, {
+          hasPersona,
+          personaLevel: p.personaConfig?.level,
+          book: localRivals.find((r) => r.config.slug === p.profileSlug)?.book ?? null,
+        }),
+      )
+      getProviders()
+        .engine.saveBeatPlan(row.profile.slug, plan.markdown)
+        .then((path) =>
+          setBeatMsg(
+            `"${plan.program.name}" written to ${path} — the in-app program is in the Training tab's picker.`,
+          ),
+        )
+        .catch((e) =>
+          setBeatMsg(
+            `Couldn't write the plan file (${e instanceof Error ? e.message : String(e)}) — the in-app program is still in the Training tab's picker.`,
+          ),
+        )
+    },
+    [profiles, localRivals],
+  )
+
+  // "Add player profile…" (spec 225): the pipeline flow, living with the
+  // roster it feeds.
+  if (phase === "addProfile") {
+    return (
+      <AddProfileScreen
+        onBack={() => setPhase("roster")}
+        onCreated={() => setReloadNonce((n) => n + 1)}
+      />
+    )
+  }
+
   // Roster card browser (spec 218 "Roster" checklist item, decision 5: the
   // card-style browser with avatars belongs here, not the tournament tab).
   if (phase === "roster") {
@@ -737,6 +799,9 @@ export function SparTab() {
           setCountsTowardTraining(true)
           setPhase("config")
         }}
+        onAddProfile={() => setPhase("addProfile")}
+        onBeat={generateBeatPlan}
+        beatMsg={beatMsg}
       />
     )
   }
@@ -780,6 +845,17 @@ export function SparTab() {
             <AvatarFallback className="text-[10px]">{initialsFor(opponentLabel)}</AvatarFallback>
           </Avatar>
           <span className="text-sm font-medium">{opponentLabel}</span>
+          {participant?.verdictBadge && (
+            // Spec 225: the stored sample-honesty badge follows the persona
+            // into the game — roster card and in-game header, same verdict.
+            <span
+              className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border border-amber-400/40 bg-amber-400/10 text-amber-300"
+              title={participant.badgeTitle}
+              data-testid="spar-verdict-badge"
+            >
+              {participant.verdictBadge}
+            </span>
+          )}
           <span className="text-xs text-muted-foreground" data-testid="spar-label">
             {dialable
               ? `a ~${effectiveLevel} playing ${opponentLabel.toLowerCase()}'s openings`
@@ -1202,20 +1278,40 @@ function MoveList({
 function RosterScreen({
   roster,
   onPick,
+  onAddProfile,
+  onBeat,
+  beatMsg,
 }: {
   roster: Participant[]
   onPick: (p: Participant, action: "play" | "improve") => void
+  /** Spec 225: opens the "Add player profile…" pipeline flow. */
+  onAddProfile: () => void
+  /** Spec 225 Part 2: generate the Beat-X training plan for a profile-backed
+   *  entry (the only entries carrying the "beat" action). */
+  onBeat: (p: Participant) => void
+  beatMsg: string | null
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-auto p-6" data-testid="spar-roster">
       <div className="max-w-3xl mx-auto space-y-5">
-        <div>
-          <h1 className="text-2xl font-bold">Play vs Bot</h1>
-          <p className="text-muted-foreground mt-1">
-            Pick an opponent. Every card states its honest strength — nothing here
-            claims to BE the person it&apos;s modeled on.
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">Play vs Bot</h1>
+            <p className="text-muted-foreground mt-1">
+              Pick an opponent. Every card states its honest strength — nothing here
+              claims to BE the person it&apos;s modeled on.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={onAddProfile} data-testid="roster-add-profile">
+            Add player profile…
+          </Button>
         </div>
+
+        {beatMsg && (
+          <p className="text-xs text-emerald-300/90" data-testid="roster-beat-msg">
+            {beatMsg}
+          </p>
+        )}
 
         {roster.length === 0 ? (
           <p className="text-sm text-muted-foreground">Loading roster…</p>
@@ -1233,14 +1329,19 @@ function RosterScreen({
                     <AvatarFallback>{initialsFor(p.displayName)}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{p.displayName}</div>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-sm font-medium truncate">{p.displayName}</span>
+                      {p.verdictBadge && <VerdictBadge participant={p} />}
+                    </div>
                     <div className="text-xs text-muted-foreground">{p.strengthLabel}</div>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-auto">
-                  <Button size="sm" onClick={() => onPick(p, "play")} data-testid={`roster-play-${p.id}`}>
-                    Play
-                  </Button>
+                  {p.actions.includes("play") && (
+                    <Button size="sm" onClick={() => onPick(p, "play")} data-testid={`roster-play-${p.id}`}>
+                      Play
+                    </Button>
+                  )}
                   {p.actions.includes("improve") && (
                     <Button
                       size="sm"
@@ -1251,6 +1352,17 @@ function RosterScreen({
                       Improve profile
                     </Button>
                   )}
+                  {p.actions.includes("beat") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onBeat(p)}
+                      title={`Generate a training program aimed at beating ${p.displayName} — anti-book lines, rake decks in their structures, conversion work where they leak, spar sessions.`}
+                      data-testid={`roster-beat-${p.id}`}
+                    >
+                      Beat plan
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
@@ -1258,6 +1370,27 @@ function RosterScreen({
         )}
       </div>
     </div>
+  )
+}
+
+/** The sample-size honesty badge (spec 225): renders the verdict STORED by
+ *  the profile pipeline — LOW-CONFIDENCE (persona from a thin sample) amber,
+ *  DOSSIER-ONLY (fields no bot) sky — with the pipeline's own reasons as the
+ *  tooltip. One stored verdict, identical on every surface. */
+function VerdictBadge({ participant: p }: { participant: Participant }) {
+  if (!p.verdictBadge) return null
+  const cls =
+    p.verdictBadge === "LOW-CONFIDENCE"
+      ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+      : "border-sky-400/40 bg-sky-400/10 text-sky-300"
+  return (
+    <span
+      className={`inline-block shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium border ${cls}`}
+      title={p.badgeTitle}
+      data-testid={`verdict-badge-${p.id}`}
+    >
+      {p.verdictBadge}
+    </span>
   )
 }
 

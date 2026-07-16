@@ -13,6 +13,8 @@ import type {
   CalibrationSession,
   CoachFeedback,
   CoachInput,
+  LineVerification,
+  PlayedMoveEval,
 } from "@/lib/calibration"
 import type {
   CbhImportReport,
@@ -49,6 +51,10 @@ import type {
   SaveTextFileOptions,
   SaveTextFileResult,
 } from "@chessgui/core/platform-types"
+import type {
+  LocalPlayerProfile,
+  ProfileRunReport,
+} from "@chessgui/core/player-profile-types"
 
 function noEngine(what: string): Promise<never> {
   return Promise.reject(new Error(`${what} requires the desktop app`))
@@ -111,6 +117,18 @@ export const browserProviders: PlatformProviders = {
       return [] // private rivals live in local desktop data only (spec 214)
     },
 
+    // Any-player profiles (spec 225): same locality rule as the personas —
+    // profiles exist only in local desktop data, so the honest browser answer
+    // is "none", and the pipeline/plan-file writes need the desktop shell.
+    async rivalProfiles(): Promise<LocalPlayerProfile[]> {
+      return []
+    },
+    playerProfileRun: (): Promise<ProfileRunReport> => noEngine("The player profile pipeline"),
+    async playerProfileCancel(): Promise<boolean> {
+      return false // nothing ever runs here
+    },
+    saveBeatPlan: (): Promise<string> => noEngine("Writing a Beat plan file"),
+
     puzzleCheckMove(fen: string, uci: string, depth: number): Promise<MoveCheck | null> {
       // The mock resolves null — the HONEST "no engine here" answer.
       return import("@/lib/puzzles-mock").then((m) => m.mockPuzzles.checkMove(fen, uci, depth))
@@ -134,6 +152,12 @@ export const browserProviders: PlatformProviders = {
     },
     coachFollowup(_input: CoachInput, _note: string, rebuttal: string): Promise<string> {
       return import("@/lib/calibration-mock").then((m) => m.mockCoachFollowup(rebuttal))
+    },
+    evalPlayedMove(fen: string, moveUci: string): Promise<PlayedMoveEval> {
+      return import("@/lib/calibration-mock").then((m) => m.mockPlayedMoveEval(fen, moveUci))
+    },
+    verifyLine(fen: string, moves: string[]): Promise<LineVerification> {
+      return import("@/lib/calibration-mock").then((m) => m.mockVerifyLine(fen, moves))
     },
     recognizeFen: (): Promise<string> => noEngine("Position recognition"),
 

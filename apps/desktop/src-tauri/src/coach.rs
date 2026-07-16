@@ -15,6 +15,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::verify::{self, LineVerification};
 use crate::vision::anthropic_api_key;
 
 /// Model for coach feedback. Accuracy matters more than cost here; keep Opus.
@@ -112,6 +113,17 @@ pub struct CoachInput {
     pub user_plan_b: Option<String>,
     /// The move the user said they'd play (UCI), if any.
     pub user_move_uci: Option<String>,
+    /// Line verification, 1-PLY (2026-07-16): White-POV engine eval of the
+    /// USER'S move (searchmoves-restricted, same budget as the stored best-
+    /// move eval) so the coach can grade the move itself, plus the mover-POV
+    /// gap to best in centipawns. `#[serde(default)]` so older stored answers
+    /// (no played-move eval) deserialize as None.
+    #[serde(default)]
+    pub user_move_eval_cp: Option<i64>,
+    #[serde(default)]
+    pub user_move_eval_mate: Option<i64>,
+    #[serde(default)]
+    pub user_move_gap_cp: Option<i64>,
     /// Second-look revision, if the user made one.
     pub revised_eval: Option<f64>,
     pub revision_note: Option<String>,
@@ -227,6 +239,28 @@ fn user_text(input: &CoachInput) -> String {
     }));
     if let Some(mv) = &input.user_move_uci {
         s.push_str(&format!("The move they'd play: {mv}\n"));
+        // 1-PLY verification: the engine's read of THEIR move, rendered next
+        // to it so the coach grades the move they chose, not just the number.
+        if let Some(m) = input.user_move_eval_mate {
+            s.push_str(&format!(
+                "Engine eval of their move (same depth as the best-move eval): mate in {m} (White-POV)\n"
+            ));
+        } else if let Some(cp) = input.user_move_eval_cp {
+            s.push_str(&format!(
+                "Engine eval of their move (same depth as the best-move eval): {:+.2} pawns (White-POV)\n",
+                cp as f64 / 100.0
+            ));
+        }
+        if let Some(gap) = input.user_move_gap_cp {
+            if gap <= 10 {
+                s.push_str("Their move matches the best move within search noise.\n");
+            } else {
+                s.push_str(&format!(
+                    "Their move is {:.2} pawns worse than the best move (for the side to move).\n",
+                    gap as f64 / 100.0
+                ));
+            }
+        }
     }
     if input.revised_eval.is_some() || input.revision_note.is_some() {
         s.push_str("On a second look, before seeing this evidence, they revised: ");
@@ -316,6 +350,11 @@ HARD RULES:\n\
 evaluations. If their objection turns on a concrete line you were not given (e.g. \"doesn't that \
 lose material?\", \"isn't there a check?\"), say plainly that the data you have cannot settle it \
 and that their question is the right one to check on the board.\n\
+- When an ENGINE CHECK OF THE STUDENT'S LINE section is present, the student's own described \
+line has been verified move by move — that IS engine data. Ground your answer in it: walk them \
+through where their line holds and where the eval turns, or, if it breaks down, name the exact \
+move that is illegal or where the game already ended. Cite only the moves and numbers in that \
+section.\n\
 - Take their stated reason seriously as a window into HOW they decide: castling rights, pin \
 aversion, king safety fears, simplification urges. If the reason reflects a sound practical \
 instinct, say so even when the engine disagrees with the conclusion. If it reflects a bias \
@@ -324,19 +363,164 @@ instinct, say so even when the engine disagrees with the conclusion. If it refle
 - Write 2 to 4 sentences, direct and warm, addressing the student as \"you\". No labels, no \
 lists — just the reply.";
 
-/// Build the follow-up request: prior context + coach note + student reply,
-/// plain text response (no tool call — this is conversational).
-fn build_followup_request(input: &CoachInput, note: &str, rebuttal: &str) -> serde_json::Value {
+/// Render an engine-checked line (N-PLY verification) for the follow-up
+/// prompt: per-ply White-POV evals, the net swing, and — when the line breaks
+/// down — the exact move that is illegal. Grounded citations only.
+fn checked_line_text(v: &LineVerification) -> String {
+    let mut s = String::from(
+        "\n\nENGINE CHECK OF THE STUDENT'S LINE (their described moves, verified move by move \
+— this IS engine data; cite these moves and numbers freely)\n",
+    );
+    if let Some(m) = v.start_mate {
+        s.push_str(&format!("Start (before the line): mate in {m} (White-POV)\n"));
+    } else if let Some(cp) = v.start_cp {
+        s.push_str(&format!("Start (before the line): {:+.2} (White-POV pawns)\n", cp as f64 / 100.0));
+    }
+    for (i, p) in v.plies.iter().enumerate() {
+        let eval = if let Some(t) = &p.terminal {
+            t.clone()
+        } else if let Some(m) = p.eval_mate {
+            format!("mate in {m}")
+        } else if let Some(cp) = p.eval_cp {
+            format!("{:+.2}", cp as f64 / 100.0)
+        } else {
+            "no read".to_string()
+        };
+        s.push_str(&format!("  ply {}: {} → {}\n", i + 1, p.san, eval));
+    }
+    if !v.legal {
+        let at = v.illegal_at.unwrap_or(v.plies.len()) + 1;
+        let mv = v.illegal_move.as_deref().unwrap_or("?");
+        s.push_str(&format!(
+            "LINE BREAKS DOWN: move {at} (\"{mv}\") is not legal at that point — everything \
+before it is verified, nothing after it exists.\n"
+        ));
+    } else if v.ends_in_mate {
+        s.push_str("The line ends in checkmate on the board.\n");
+    } else if let Some(d) = v.delta_cp {
+        s.push_str(&format!(
+            "Net swing over the line: {:+.2} pawns (White-POV)\n",
+            d as f64 / 100.0
+        ));
+    }
+    s
+}
+
+/// Build the follow-up request: prior context + coach note + student reply
+/// (+ the engine check of any line the student described), plain text
+/// response (no tool call — this is conversational).
+fn build_followup_request(
+    input: &CoachInput,
+    note: &str,
+    rebuttal: &str,
+    checked: Option<&LineVerification>,
+) -> serde_json::Value {
     let mut text = user_text(input);
     text.push_str(&format!(
-        "\n\nYOUR EARLIER COACHING NOTE\n{note}\n\nTHE STUDENT'S REPLY\n{rebuttal}\n\nAnswer the student's reply."
+        "\n\nYOUR EARLIER COACHING NOTE\n{note}\n\nTHE STUDENT'S REPLY\n{rebuttal}"
     ));
+    if let Some(v) = checked {
+        text.push_str(&checked_line_text(v));
+    }
+    text.push_str("\n\nAnswer the student's reply.");
     json!({
         "model": MODEL,
         "max_tokens": 512,
         "system": FOLLOWUP_SYSTEM,
         "messages": [{ "role": "user", "content": text }]
     })
+}
+
+// ---------------------------------------------------------------------------
+// Line extraction (N-PLY verification, 2026-07-16): pull a concrete move
+// sequence out of the student's free-text reply so verify.rs can check it
+// before the coach opines. Best-effort end to end — any failure degrades to
+// the plain follow-up.
+// ---------------------------------------------------------------------------
+
+const EXTRACT_SYSTEM: &str = "You extract a concrete chess move sequence from a student's message \
+so an engine can verify it. You are given a position (FEN, side to move) and the message. If the \
+message describes a sequence of moves from THIS position, call extract_line with those moves in \
+SAN, in order, alternating sides, starting with the side to move. Where the student is vague \
+about one of their own moves (\"then I move my king\"), choose the most natural legal move \
+consistent with their words; where they assert an opponent move (\"he must take on f5\"), include \
+it. If a step cannot be pinned to a concrete move, stop the sequence at the last concrete move. \
+If the message describes no move sequence at all, return an empty array. NEVER continue the line \
+beyond what the student described.";
+
+/// Build the extraction request: a forced, strict tool call returning the
+/// SAN move list (possibly empty).
+fn build_extract_request(input: &CoachInput, rebuttal: &str) -> serde_json::Value {
+    let mut text = String::new();
+    text.push_str(&format!("FEN: {}\n", input.fen));
+    text.push_str(&format!("Side to move: {}\n", input.to_move));
+    if let Some(best) = input.sf_best_san.as_deref().or(input.sf_best_uci.as_deref()) {
+        text.push_str(&format!("Engine's best move (context only): {best}\n"));
+    }
+    text.push_str(&format!(
+        "\nTHE STUDENT'S MESSAGE\n{rebuttal}\n\nExtract the described move sequence."
+    ));
+    json!({
+        "model": MODEL,
+        "max_tokens": 512,
+        "system": EXTRACT_SYSTEM,
+        "tools": [{
+            "name": "extract_line",
+            "description": "Report the concrete move sequence the student described, or an empty list.",
+            "strict": true,
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "moves": {
+                        "type": "array",
+                        "description": "The described moves in SAN, in order from the given position; empty if none.",
+                        "items": { "type": "string" }
+                    }
+                },
+                "required": ["moves"]
+            }
+        }],
+        "tool_choice": { "type": "tool", "name": "extract_line" },
+        "messages": [{ "role": "user", "content": text }]
+    })
+}
+
+/// Extract the SAN list from an extract_line response; None on any miss.
+fn parse_extract_response(v: &serde_json::Value) -> Option<Vec<String>> {
+    let blocks = v["content"].as_array()?;
+    let input = blocks
+        .iter()
+        .find(|b| b["type"] == "tool_use" && b["name"] == "extract_line")
+        .map(|b| &b["input"])?;
+    let moves = input["moves"].as_array()?;
+    Some(
+        moves
+            .iter()
+            .filter_map(|m| m.as_str())
+            .map(|m| m.to_string())
+            .collect(),
+    )
+}
+
+/// Extraction + engine verification of the student's described line. Every
+/// step is best-effort: no line, a failed extraction, or a dead engine all
+/// resolve to None and the follow-up proceeds ungrounded (as before).
+async fn extract_and_verify(
+    key: &str,
+    input: &CoachInput,
+    rebuttal: &str,
+    stockfish_path: Option<String>,
+    movetime_ms: Option<u64>,
+) -> Option<LineVerification> {
+    let v = call_api(key, build_extract_request(input, rebuttal)).await.ok()?;
+    let moves = parse_extract_response(&v)?;
+    if moves.is_empty() {
+        return None;
+    }
+    verify::verify_line_impl(&input.fen, &moves, stockfish_path, movetime_ms)
+        .await
+        .ok()
 }
 
 /// Extract the plain-text reply from a followup response body.
@@ -361,64 +545,63 @@ fn parse_followup_response(v: &serde_json::Value) -> Result<String, String> {
 // Tauri command
 // ---------------------------------------------------------------------------
 
+/// POST one Messages API request, returning the parsed JSON body. Shared by
+/// the note, the follow-up, and the line extraction.
+async fn call_api(key: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Anthropic request failed: {e}"))?;
+
+    let status = resp.status();
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Bad response from Anthropic API: {e}"))?;
+    if !status.is_success() {
+        let msg = v["error"]["message"].as_str().unwrap_or("unknown error");
+        return Err(format!("Anthropic API {status}: {msg}"));
+    }
+    Ok(v)
+}
+
 /// Ask Claude to critique the user's written reasoning for one position. Errors
 /// (including "no API key") are returned as strings so the UI can degrade to a
 /// one-line hint without blocking the reveal.
 #[tauri::command]
 pub async fn coach_feedback(input: CoachInput) -> Result<CoachFeedback, String> {
     let key = anthropic_api_key()?;
-    let body = build_request(&input);
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Anthropic request failed: {e}"))?;
-
-    let status = resp.status();
-    let v: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Bad response from Anthropic API: {e}"))?;
-    if !status.is_success() {
-        let msg = v["error"]["message"].as_str().unwrap_or("unknown error");
-        return Err(format!("Anthropic API {status}: {msg}"));
-    }
+    let v = call_api(&key, build_request(&input)).await?;
     parse_response(&v)
 }
 
 /// One follow-up round: the student's rebuttal to the coach's note gets a
 /// single grounded reply. Same degrade-to-hint error contract as the note.
+///
+/// N-PLY verification (2026-07-16): before replying, a line described in the
+/// rebuttal is extracted (one extra model call) and engine-checked, and the
+/// verified line joins the coach's context — so "Ra7, then I move the king,
+/// then he must take f5" gets answered against real evals, not vibes.
+/// `stockfish_path`/`movetime_ms` come from the session; both optional, and
+/// the whole verification is best-effort (a miss degrades to the plain reply).
 #[tauri::command]
-pub async fn coach_followup(input: CoachInput, note: String, rebuttal: String) -> Result<String, String> {
+pub async fn coach_followup(
+    input: CoachInput,
+    note: String,
+    rebuttal: String,
+    stockfish_path: Option<String>,
+    movetime_ms: Option<u64>,
+) -> Result<String, String> {
     let key = anthropic_api_key()?;
-    let body = build_followup_request(&input, &note, &rebuttal);
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Anthropic request failed: {e}"))?;
-
-    let status = resp.status();
-    let v: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Bad response from Anthropic API: {e}"))?;
-    if !status.is_success() {
-        let msg = v["error"]["message"].as_str().unwrap_or("unknown error");
-        return Err(format!("Anthropic API {status}: {msg}"));
-    }
+    let checked = extract_and_verify(&key, &input, &rebuttal, stockfish_path, movetime_ms).await;
+    let body = build_followup_request(&input, &note, &rebuttal, checked.as_ref());
+    let v = call_api(&key, body).await?;
     parse_followup_response(&v)
 }
 
@@ -443,6 +626,9 @@ mod tests {
             user_plan: None,
             user_plan_b: None,
             user_move_uci: Some("c4d5".to_string()),
+            user_move_eval_cp: None,
+            user_move_eval_mate: None,
+            user_move_gap_cp: None,
             revised_eval: None,
             revision_note: None,
             played_san: Some("cxd5".to_string()),
@@ -455,7 +641,7 @@ mod tests {
 
     #[test]
     fn followup_request_carries_note_and_rebuttal_as_plain_text() {
-        let req = build_followup_request(&sample_input(), "You missed Nxe2.", "I saw it but didn't want to lose castling.");
+        let req = build_followup_request(&sample_input(), "You missed Nxe2.", "I saw it but didn't want to lose castling.", None);
         assert_eq!(req["model"], "claude-opus-4-8");
         assert!(req.get("tools").is_none(), "followup is conversational, no tool call");
         let text = req["messages"][0]["content"].as_str().unwrap();
@@ -463,6 +649,130 @@ mod tests {
         assert!(text.contains("You missed Nxe2."));
         assert!(text.contains("lose castling"));
         assert!(text.contains("ENGINE EVIDENCE"), "position context still present");
+        // No checked line → no engine-check section.
+        assert!(!text.contains("ENGINE CHECK OF THE STUDENT'S LINE"));
+    }
+
+    fn checked_line() -> LineVerification {
+        LineVerification {
+            legal: true,
+            illegal_at: None,
+            illegal_move: None,
+            start_cp: Some(35),
+            start_mate: None,
+            plies: vec![
+                crate::verify::VerifiedPly {
+                    san: "Ra7".to_string(),
+                    uci: "a1a7".to_string(),
+                    fen_after: "x".to_string(),
+                    eval_cp: Some(120),
+                    eval_mate: None,
+                    terminal: None,
+                },
+                crate::verify::VerifiedPly {
+                    san: "Kg8".to_string(),
+                    uci: "h8g8".to_string(),
+                    fen_after: "y".to_string(),
+                    eval_cp: Some(110),
+                    eval_mate: None,
+                    terminal: None,
+                },
+            ],
+            end_cp: Some(110),
+            end_mate: None,
+            delta_cp: Some(75),
+            ends_in_mate: false,
+        }
+    }
+
+    /// N-PLY verification: a checked line renders per-ply White-POV evals and
+    /// the net swing into the follow-up prompt.
+    #[test]
+    fn followup_request_carries_the_engine_checked_line() {
+        let v = checked_line();
+        let req = build_followup_request(&sample_input(), "Note.", "Ra7 then he's stuck.", Some(&v));
+        let text = req["messages"][0]["content"].as_str().unwrap();
+        assert!(text.contains("ENGINE CHECK OF THE STUDENT'S LINE"));
+        assert!(text.contains("ply 1: Ra7 → +1.20"));
+        assert!(text.contains("ply 2: Kg8 → +1.10"));
+        assert!(text.contains("Start (before the line): +0.35"));
+        assert!(text.contains("Net swing over the line: +0.75"));
+        // The instruction to answer still closes the prompt.
+        assert!(text.trim_end().ends_with("Answer the student's reply."));
+    }
+
+    /// An illegal line names the exact breakdown move; a mate-ending line says
+    /// so instead of a swing.
+    #[test]
+    fn checked_line_text_renders_breakdown_and_mate() {
+        let mut v = checked_line();
+        v.legal = false;
+        v.illegal_at = Some(2);
+        v.illegal_move = Some("Rxf5".to_string());
+        let text = checked_line_text(&v);
+        assert!(text.contains("LINE BREAKS DOWN: move 3 (\"Rxf5\")"));
+        assert!(!text.contains("Net swing"));
+
+        let mut v = checked_line();
+        v.ends_in_mate = true;
+        v.plies[1].terminal = Some("checkmate".to_string());
+        v.plies[1].eval_cp = None;
+        let text = checked_line_text(&v);
+        assert!(text.contains("ply 2: Kg8 → checkmate"));
+        assert!(text.contains("ends in checkmate"));
+        assert!(!text.contains("Net swing"));
+    }
+
+    /// The extraction request is a forced strict tool call carrying the FEN
+    /// and the student's message; the parser reads the SAN list back out.
+    #[test]
+    fn extract_request_and_response_roundtrip() {
+        let req = build_extract_request(&sample_input(), "Ra7 then I move the king, then he must take f5");
+        assert_eq!(req["tool_choice"]["name"], "extract_line");
+        assert_eq!(req["tools"][0]["strict"], true);
+        let text = req["messages"][0]["content"].as_str().unwrap();
+        assert!(text.contains(&sample_input().fen));
+        assert!(text.contains("he must take f5"));
+
+        let resp = json!({
+            "stop_reason": "tool_use",
+            "content": [{ "type": "tool_use", "name": "extract_line",
+                          "input": { "moves": ["Ra7", "Kg8", "gxf5"] } }]
+        });
+        assert_eq!(
+            parse_extract_response(&resp).unwrap(),
+            vec!["Ra7", "Kg8", "gxf5"]
+        );
+        // No tool block → None; an empty list parses as empty (caller skips).
+        assert!(parse_extract_response(&json!({ "content": [] })).is_none());
+        let empty = json!({
+            "content": [{ "type": "tool_use", "name": "extract_line", "input": { "moves": [] } }]
+        });
+        assert_eq!(parse_extract_response(&empty).unwrap(), Vec::<String>::new());
+    }
+
+    /// 1-PLY verification: the user's move eval + gap render next to their
+    /// move; mate-flavoured evals and the noise floor render sanely.
+    #[test]
+    fn user_move_eval_renders_in_prompt() {
+        let mut input = sample_input();
+        // No eval → just the move, as before.
+        assert!(!user_text(&input).contains("Engine eval of their move"));
+
+        input.user_move_eval_cp = Some(-58);
+        input.user_move_gap_cp = Some(93);
+        let text = user_text(&input);
+        assert!(text.contains("The move they'd play: c4d5"));
+        assert!(text.contains("Engine eval of their move (same depth as the best-move eval): -0.58 pawns (White-POV)"));
+        assert!(text.contains("0.93 pawns worse than the best move"));
+
+        // Within search noise → said as such, no scolding number.
+        input.user_move_gap_cp = Some(4);
+        assert!(user_text(&input).contains("matches the best move within search noise"));
+
+        // A mate read wins over the cp line.
+        input.user_move_eval_mate = Some(-2);
+        assert!(user_text(&input).contains("Engine eval of their move (same depth as the best-move eval): mate in -2"));
     }
 
     #[test]
@@ -511,6 +821,10 @@ mod tests {
         // v5's plan fields are absent on pre-plan wires → None.
         assert!(input.user_plan.is_none());
         assert!(input.user_plan_b.is_none());
+        // Played-move eval (1-PLY verification) absent on old wires → None.
+        assert!(input.user_move_eval_cp.is_none());
+        assert!(input.user_move_eval_mate.is_none());
+        assert!(input.user_move_gap_cp.is_none());
     }
 
     /// Plan elicitation (spec 213): a stated plan (and plan B) renders in the

@@ -61,8 +61,10 @@ import sigurjonssonPeakConfig from "@/data/personas/sigurjonsson-peak.config.jso
 export type ParticipantKind = "uci" | "persona"
 
 /** Per-entry action set (spec 218 decision, "The Participant" surface 1): the
- *  private rival is the only entry with both; everyone else gets Play only. */
-export type ParticipantAction = "play" | "improve"
+ *  private rival is the only entry with both play and improve; everyone else
+ *  gets Play only. "beat" (spec 225) generates the Beat-X training program
+ *  and exists exactly on the entries backed by a pipeline profile. */
+export type ParticipantAction = "play" | "improve" | "beat"
 
 /** Where a participant's move-by-move opening book lives:
  *  - "rival": the original private rival's book via the `rival_book` command
@@ -115,6 +117,15 @@ export interface Participant {
    *  roster card shows measured strength, or says plainly that it doesn't). */
   strengthLabel: string
   actions: ParticipantAction[]
+  /** Sample-size honesty badge (spec 225): the verdict STORED by the profile
+   *  pipeline in <slug>.profile.json — never re-derived here, so every
+   *  surface (roster card, in-game header) renders the same honesty. */
+  verdictBadge?: ProfileBadge
+  /** The stored verdict reasons, for the badge tooltip. */
+  badgeTitle?: string
+  /** The pipeline profile this entry is backed by (spec 225), when one
+   *  exists — the Beat-X generator's lookup key. */
+  profileSlug?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +136,12 @@ export interface Participant {
 // importers keep working.
 import type { LocalRivalPersona, PersonaConfigFile } from "@chessgui/core/roster-types"
 export type { LocalRivalPersona, PersonaConfigFile }
+import type {
+  LocalPlayerProfile,
+  PlayerProfileFile,
+  ProfileBadge,
+} from "@chessgui/core/player-profile-types"
+export type { LocalPlayerProfile, PlayerProfileFile, ProfileBadge }
 
 /** All 12 committed GM persona configs, exported for tests and for the
  *  exhibition/tournament surface to reuse. sigurjonsson-peak is Guðmundur
@@ -179,6 +196,37 @@ export async function loadLocalRivalPersonas(): Promise<LocalRivalPersona[]> {
   try {
     const rivals = await getProviders().engine.rivalPersonas()
     return Array.isArray(rivals) ? rivals : []
+  } catch {
+    return []
+  }
+}
+
+/** True for a profile record the spec 225 pipeline wrote — it carries the
+ *  stored sample verdict. Legacy data/rivals/*.profile.json files (raw
+ *  chess.com player dumps from the hand-built era) lack `sample` and are
+ *  filtered out here, not surfaced with a made-up verdict. */
+export function isPipelineProfile(v: unknown): v is PlayerProfileFile {
+  if (typeof v !== "object" || v === null) return false
+  const p = v as Record<string, unknown>
+  const sample = p.sample as Record<string, unknown> | undefined
+  return (
+    typeof p.slug === "string" &&
+    typeof p.display_name === "string" &&
+    typeof sample === "object" &&
+    sample !== null &&
+    typeof sample.verdict === "string"
+  )
+}
+
+/** The pipeline-built player profiles present on THIS machine (gitignored
+ *  data/rivals/*.profile.json + stats), via the `rival_profiles` command.
+ *  Same degradation contract as loadLocalRivalPersonas: [] everywhere a
+ *  profile can't exist — never an error state (spec 214/225). */
+export async function loadPlayerProfiles(): Promise<LocalPlayerProfile[]> {
+  try {
+    const rows = await getProviders().engine.rivalProfiles()
+    if (!Array.isArray(rows)) return []
+    return rows.filter((r) => isPipelineProfile(r?.profile))
   } catch {
     return []
   }
@@ -302,7 +350,7 @@ function gmPersonaParticipant(cfg: PersonaConfigFile): Participant {
  *  from the local file, so committed code stays generic — spec 214/218 hard
  *  rule). Book entries play move-by-move like the original rival's; strength
  *  is the config's Maia band, honestly labeled unmeasured. */
-function localRivalParticipant(rp: LocalRivalPersona): Participant {
+function localRivalParticipant(rp: LocalRivalPersona, profile?: PlayerProfileFile): Participant {
   const cfg = rp.config
   const gate = gatePersonaLevel(cfg)
   const hasBook = rp.book !== null && rp.book !== undefined
@@ -320,6 +368,49 @@ function localRivalParticipant(rp: LocalRivalPersona): Participant {
       ? `~${gate.level} (Maia policy) playing his real openings — unmeasured`
       : `~${gate.level} (Maia policy) — unmeasured`,
     actions: ["play"],
+    // Spec 225: a pipeline profile behind this config adds the stored
+    // sample-honesty badge (LOW-CONFIDENCE under the ~30-game floor) and
+    // arms the Beat-X generator.
+    ...(profile ? profileAnnotations(profile) : {}),
+  }
+}
+
+/** The spec 225 annotations a pipeline profile adds to a roster entry: the
+ *  stored verdict badge (rendered verbatim — never re-derived) and the
+ *  Beat-X action. */
+function profileAnnotations(
+  profile: PlayerProfileFile,
+): Pick<Participant, "verdictBadge" | "badgeTitle" | "profileSlug"> & {
+  actions: ParticipantAction[]
+} {
+  return {
+    profileSlug: profile.slug,
+    actions: ["play", "beat"],
+    ...(profile.sample.badge
+      ? {
+          verdictBadge: profile.sample.badge,
+          badgeTitle: profile.sample.reasons.join(" · "),
+        }
+      : {}),
+  }
+}
+
+/** A dossier-only profile (spec 225): its artifacts exist (pgn/stats/book)
+ *  but the sample failed the persona gates, so it appears in the roster —
+ *  same artifact-existence gating as everything else — and fields NO bot:
+ *  no personaConfig, no Play action, only the Beat-X generator. */
+function dossierProfileParticipant(p: LocalPlayerProfile): Participant {
+  const s = p.profile.sample
+  const rating = p.profile.rating?.value
+  return {
+    id: `profile-${p.profile.slug}`,
+    displayName: p.profile.display_name,
+    kind: "persona",
+    strengthLabel: `${rating != null ? `~${rating} (corpus Elo) — ` : ""}dossier only, ${s.games} game${s.games === 1 ? "" : "s"} (${s.verified_games} verified) — fields no bot`,
+    actions: ["beat"],
+    verdictBadge: "DOSSIER-ONLY",
+    badgeTitle: s.reasons.join(" · "),
+    profileSlug: p.profile.slug,
   }
 }
 
@@ -366,13 +457,17 @@ function privateRivalParticipant(): Participant {
  * Build the roster. `book` is whatever the caller already has from
  * `loadRivalBook()` (or null if it hasn't loaded / doesn't exist);
  * `localRivals` is whatever `loadLocalRivalPersonas()` returned ([] when
- * absent). Pure, so it's trivially unit-testable without mocking Tauri.
+ * absent); `profiles` is whatever `loadPlayerProfiles()` returned (spec 225
+ * — same artifact-existence gating). Pure, so it's trivially unit-testable
+ * without mocking Tauri.
  */
 export function buildRoster(
   book: RivalBook | null,
   localRivals: LocalRivalPersona[] = [],
+  profiles: LocalPlayerProfile[] = [],
 ): Participant[] {
   const roster: Participant[] = []
+  const profileBySlug = new Map(profiles.map((p) => [p.profile.slug, p]))
   // The self persona leads the roster, gated on its book artifact existing
   // (spec 218 "Own-persona entry": appears only when a self-persona has been
   // built; a config without its book is not a playable self-model yet).
@@ -381,7 +476,15 @@ export function buildRoster(
   if (book) roster.push(privateRivalParticipant())
   for (const rp of localRivals) {
     if (rp.config.kind === SELF_PERSONA_KIND) continue
-    roster.push(localRivalParticipant(rp))
+    roster.push(localRivalParticipant(rp, profileBySlug.get(rp.config.slug)?.profile))
+  }
+  // Pipeline profiles with no persona config loaded (spec 225): dossier-only
+  // cards — visible because their artifacts exist, fielding no bot. The self
+  // profile never doubles as an opponent card.
+  const configSlugs = new Set(localRivals.map((rp) => rp.config.slug))
+  for (const p of profiles) {
+    if (configSlugs.has(p.profile.slug)) continue
+    roster.push(dossierProfileParticipant(p))
   }
   for (const cfg of GM_PERSONA_CONFIGS) roster.push(gmPersonaParticipant(cfg))
   for (const level of MAIA_ROSTER_BANDS) roster.push(maiaBandBot(level))

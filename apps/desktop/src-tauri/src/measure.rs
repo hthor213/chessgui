@@ -51,7 +51,8 @@ pub struct MeasureReport {
 }
 
 /// Repo root: src-tauri → apps/desktop → apps → checkout root.
-fn repo_root() -> std::path::PathBuf {
+/// (pub(crate): player_profile.rs runs its pipeline from the same root.)
+pub(crate) fn repo_root() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
@@ -61,7 +62,7 @@ fn repo_root() -> std::path::PathBuf {
 /// Homebrew python first — the numpy/python-chess install lives there, and a
 /// GUI app's launchd PATH may resolve `python3` to the bare CLT shim — then
 /// whatever PATH offers.
-fn python_path() -> String {
+pub(crate) fn python_path() -> String {
     for p in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"] {
         if std::path::Path::new(p).exists() {
             return p.to_string();
@@ -74,7 +75,9 @@ fn python_path() -> String {
 /// `on_line`, park the child's pid in `slot` (for the cancel command), and on
 /// a zero exit read `metrics_file` back. Killed-by-signal is reported as
 /// `cancelled`, not an error — the frontend says "cancelled", nothing red.
-async fn run_pipeline(
+/// (pub(crate): player_profile.rs reuses this verbatim with its own slot and
+/// result file — one pipeline runner, two script wrappers.)
+pub(crate) async fn run_pipeline(
     program: &str,
     script: &std::path::Path,
     args: &[String],
@@ -85,6 +88,10 @@ async fn run_pipeline(
     let mut cmd = tokio::process::Command::new(program);
     cmd.arg(script)
         .args(args)
+        // Python block-buffers stdout when piped — without this, a script
+        // narrating on stdout (build_player_profile.py) would dump its whole
+        // log at exit instead of streaming it live.
+        .env("PYTHONUNBUFFERED", "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -203,7 +210,13 @@ pub async fn measure_monthly_run(
 /// once the child is reaped.
 #[tauri::command]
 pub async fn measure_monthly_cancel() -> Result<bool, String> {
-    let pid = *RUNNING.lock().map_err(|e| e.to_string())?;
+    cancel_slot(&RUNNING)
+}
+
+/// SIGTERM the process group parked in `slot` (shared with
+/// player_profile.rs's cancel command — same claim/kill semantics).
+pub(crate) fn cancel_slot(slot: &Mutex<Option<u32>>) -> Result<bool, String> {
+    let pid = *slot.lock().map_err(|e| e.to_string())?;
     match pid {
         None => Ok(false),
         // Placeholder claim: pid unknown yet, and `kill -- -0` would signal

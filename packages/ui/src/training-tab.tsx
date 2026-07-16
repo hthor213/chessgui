@@ -42,8 +42,11 @@ import {
   type Gauge,
   type MetricKey,
   type MetricPoint,
+  type Program,
   type TrainingOverlay,
 } from "@/lib/training-program"
+import { buildBeatPlan, beatTargetFor } from "@/lib/beat-program"
+import { gatePersonaLevel, loadLocalRivalPersonas, loadPlayerProfiles } from "@/lib/roster"
 import {
   appendLogLine,
   egConversionPoint,
@@ -109,7 +112,19 @@ type LogByDate = Record<string, Record<string, boolean>>
 
 export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProps) {
   const [view, setView] = useState<"today" | "program">(initialView)
-  const program = ROAD_TO_1900
+  // Beat-X programs (spec 225): derived LIVE from the local profile artifacts
+  // (data/rivals via the rival_profiles command) — one per pipeline-built
+  // profile, next to the bundled generic program. Derived, not stored, so
+  // the picker always matches what exists on disk; [] everywhere profiles
+  // can't exist (browser shells), leaving the bundled program alone.
+  const [beatPrograms, setBeatPrograms] = useState<Program[]>([])
+  const [activeProgramId, setActiveProgramId] = useState<string>(ROAD_TO_1900.id!)
+  // All programs share the start date / check-off log / metrics store —
+  // switching programs re-frames the same calendar, it doesn't reset it.
+  const program = useMemo(
+    () => beatPrograms.find((p) => p.id === activeProgramId) ?? ROAD_TO_1900,
+    [beatPrograms, activeProgramId],
+  )
 
   // Persisted state. Metrics seed to the baseline so gauges render before the
   // client effect runs (and under server-render). start/overlay hydrate on mount.
@@ -159,6 +174,27 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     // Spawn capability, read on the client so the static render stays stable
     // (the browser/web shells keep the terminal-run + import path instead).
     setCanSpawnMeasure(getProviders().engine.hasNativeEngine)
+    // Beat-X programs (spec 225): one per local pipeline profile, generated
+    // from the same artifacts the roster gates on. hasPersona follows the
+    // artifact-existence rule (a config actually loaded), and its level is
+    // the same honesty-gated band the spar roster uses.
+    const savedProgram = storage.get(STORAGE_KEYS.activeProgram)
+    Promise.all([loadPlayerProfiles(), loadLocalRivalPersonas()]).then(([profiles, rivals]) => {
+      const programs = profiles.map((p) => {
+        const rp = rivals.find((r) => r.config.slug === p.profile.slug)
+        return buildBeatPlan(
+          beatTargetFor(p, {
+            hasPersona: !!rp,
+            personaLevel: rp ? gatePersonaLevel(rp.config).level : undefined,
+            book: rp?.book ?? null,
+          }),
+        ).program
+      })
+      setBeatPrograms(programs)
+      if (savedProgram && programs.some((p) => p.id === savedProgram)) {
+        setActiveProgramId(savedProgram)
+      }
+    })
   }, [])
 
   const write = useCallback((key: string, value: unknown) => {
@@ -397,6 +433,27 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
         <SubNavButton id="training-sub-program" active={view === "program"} onClick={() => setView("program")}>
           Program
         </SubNavButton>
+        {beatPrograms.length > 0 && (
+          // Program picker (spec 225): the bundled program plus one Beat-X
+          // program per local profile. Names come from LOCAL artifacts at
+          // runtime — committed code stays generic.
+          <select
+            value={activeProgramId}
+            onChange={(e) => {
+              setActiveProgramId(e.target.value)
+              getProviders().storage.set(STORAGE_KEYS.activeProgram, e.target.value)
+            }}
+            data-testid="training-program-picker"
+            className="ml-3 self-center bg-background border border-input rounded-md px-2 py-1 text-xs text-foreground"
+          >
+            <option value={ROAD_TO_1900.id}>{ROAD_TO_1900.name}</option>
+            {beatPrograms.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="ml-auto text-xs text-muted-foreground self-center">
           {program.name}
           {week != null && (
@@ -425,7 +482,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
           <TrajectoryCard metrics={metrics} overlay={overlay} rivalLabel={rivalLabel} />
 
           {startISO == null ? (
-            <StartCard onStart={startProgram} rivalLabel={rivalLabel} />
+            <StartCard onStart={startProgram} rivalLabel={rivalLabel} programName={program.name} />
           ) : (
             <div className="space-y-3">
               <div className="flex items-baseline justify-between">
@@ -595,7 +652,15 @@ function TodayBlock({
   )
 }
 
-function StartCard({ onStart, rivalLabel }: { onStart: () => void; rivalLabel: string }) {
+function StartCard({
+  onStart,
+  rivalLabel,
+  programName,
+}: {
+  onStart: () => void
+  rivalLabel: string
+  programName: string
+}) {
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-6 text-center space-y-3">
       <h2 className="text-lg font-bold">Start the program</h2>
@@ -604,7 +669,7 @@ function StartCard({ onStart, rivalLabel }: { onStart: () => void; rivalLabel: s
         weekday, with the features that exist wired to launch.
       </p>
       <Button onClick={onStart} data-testid="training-start" size="lg">
-        Start Road to 1900
+        Start {programName}
       </Button>
     </div>
   )

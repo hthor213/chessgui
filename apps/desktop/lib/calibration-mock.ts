@@ -11,6 +11,8 @@ import type {
   CalibrationSession,
   CoachFeedback,
   CoachInput,
+  LineVerification,
+  PlayedMoveEval,
 } from "./calibration"
 
 // A handful of real, legal positions with plausible (fabricated) Stockfish
@@ -208,6 +210,42 @@ export async function mockCoachFollowup(rebuttal: string): Promise<string> {
   await new Promise((r) => setTimeout(r, 150))
   const gist = rebuttal.trim().slice(0, 40)
   return `That's a fair pushback ("${gist}…") — your stated reason is a real practical consideration, and the data I have can't fully settle it. Take it to the board and check the line yourself; that instinct to interrogate the engine is exactly right.`
+}
+
+/** Canned 1-ply move eval for headless/browser runs (no engine): the user's
+ *  move reads a fixed 0.6 pawns behind "best", enough to exercise the reveal
+ *  row and the coach-input plumbing visibly. */
+export async function mockPlayedMoveEval(_fen: string, _moveUci: string): Promise<PlayedMoveEval> {
+  await new Promise((r) => setTimeout(r, 100))
+  return { eval_cp: -35, eval_mate: null, gap_to_best_cp: 60 }
+}
+
+/** Canned line verification for headless/browser runs (no engine): every
+ *  supplied move is taken at face value with a mildly drifting eval, so the
+ *  wiring (per-ply rows, verdict) is drivable without Stockfish. */
+export async function mockVerifyLine(fen: string, moves: string[]): Promise<LineVerification> {
+  await new Promise((r) => setTimeout(r, 100))
+  const plies = moves.map((m, i) => ({
+    san: m,
+    uci: m,
+    fen_after: fen,
+    eval_cp: 20 + i * 15,
+    eval_mate: null,
+    terminal: null,
+  }))
+  const last = plies[plies.length - 1] ?? null
+  return {
+    legal: true,
+    illegal_at: null,
+    illegal_move: null,
+    start_cp: 20,
+    start_mate: null,
+    plies,
+    end_cp: last ? last.eval_cp : null,
+    end_mate: null,
+    delta_cp: last ? last.eval_cp - 20 : null,
+    ends_in_mate: false,
+  }
 }
 
 export async function mockCoachFeedback(input: CoachInput): Promise<CoachFeedback> {

@@ -481,6 +481,11 @@ describe("normalizeAnswer — retroactive upgrade", () => {
     // Rebuttal-dialogue fields (2026-07-14) default to null on old answers.
     expect(up.rebuttal).toBeNull()
     expect(up.coach_reply).toBeNull()
+    // Played-move eval (line verification, 2026-07-16): old answers never had
+    // their move engine-read — explicit nulls, never retrofitted.
+    expect(up.played_move_eval_cp).toBeNull()
+    expect(up.played_move_eval_mate).toBeNull()
+    expect(up.gap_to_best_cp).toBeNull()
     // A current-schema answer is left as-is.
     const cur = ans({ index: 1, think_ms: 5000, time_excluded: false })
     expect(normalizeAnswer(cur).time_excluded).toBe(false)
@@ -536,6 +541,24 @@ describe("coachInputFor — v1 session tolerance", () => {
     expect(input.played_san).toBe("e4")
     expect(input.white_elo).toBe(1900)
     expect(input.to_move).toBe("white")
+  })
+
+  it("carries the played-move eval when graded, explicit nulls otherwise", () => {
+    // Line verification, 1-PLY (2026-07-16): a graded answer's engine read of
+    // the user's own move reaches the coach.
+    const graded = coachInputFor(
+      ans({ move_uci: "d1a4", played_move_eval_cp: 222, played_move_eval_mate: null, gap_to_best_cp: 72 }),
+      pos({}),
+    )
+    expect(graded.user_move_eval_cp).toBe(222)
+    expect(graded.user_move_gap_cp).toBe(72)
+    // Ungraded (pre-feature or engine-less) answers send explicit nulls —
+    // never dropped keys (Rust's #[serde(default)] tolerates both, the wire
+    // contract prefers explicit).
+    const wire = JSON.parse(JSON.stringify(coachInputFor(ans({}), v1Position)))
+    expect(wire.user_move_eval_cp).toBeNull()
+    expect(wire.user_move_eval_mate).toBeNull()
+    expect(wire.user_move_gap_cp).toBeNull()
   })
 
   it("passes the v3 engine line through, and nulls it when absent", () => {

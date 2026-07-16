@@ -32,9 +32,12 @@ import type {
   DeckStat,
   EvalRange,
   LabelerProfile,
+  LineVerification,
   Miss,
   PhaseStat,
+  PlayedMoveEval,
   ProfilePhaseCell,
+  VerifiedPly,
 } from "@chessgui/core/calibration-types"
 export type {
   BandStat,
@@ -49,9 +52,12 @@ export type {
   DeckStat,
   EvalRange,
   LabelerProfile,
+  LineVerification,
   Miss,
   PhaseStat,
+  PlayedMoveEval,
   ProfilePhaseCell,
+  VerifiedPly,
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +176,11 @@ export function normalizeAnswer(a: CalibrationAnswer): CalibrationAnswer {
     coach: a.coach ?? null,
     rebuttal: a.rebuttal ?? null,
     coach_reply: a.coach_reply ?? null,
+    // Line verification, 1-PLY (2026-07-16): older answers never had their
+    // move engine-read; explicit nulls, never retrofitted.
+    played_move_eval_cp: a.played_move_eval_cp ?? null,
+    played_move_eval_mate: a.played_move_eval_mate ?? null,
+    gap_to_best_cp: a.gap_to_best_cp ?? null,
   }
 }
 
@@ -200,6 +211,10 @@ export function coachInputFor(answer: CalibrationAnswer, position: CalibrationPo
     user_plan: answer.plan ?? null,
     user_plan_b: answer.plan_b ?? null,
     user_move_uci: answer.move_uci ?? null,
+    // Line verification, 1-PLY: the engine's read of THEIR move, when graded.
+    user_move_eval_cp: answer.played_move_eval_cp ?? null,
+    user_move_eval_mate: answer.played_move_eval_mate ?? null,
+    user_move_gap_cp: answer.gap_to_best_cp ?? null,
     revised_eval: answer.revised_eval ?? null,
     revision_note: answer.revision_note ?? null,
     played_san: position.played_san ?? null,
@@ -258,8 +273,44 @@ export function coachFeedback(input: CoachInput): Promise<CoachFeedback> {
 /**
  * One follow-up round: send the user's rebuttal to the coach's note and get a
  * single grounded reply. Same degrade-to-hint contract as coachFeedback.
+ * `opts` names the session's engine so a line described in the rebuttal can
+ * be engine-verified before the coach replies (line verification, N-PLY).
  * Outside Tauri a mock returns a canned reply.
  */
-export function coachFollowup(input: CoachInput, note: string, rebuttal: string): Promise<string> {
-  return getProviders().engine.coachFollowup(input, note, rebuttal)
+export function coachFollowup(
+  input: CoachInput,
+  note: string,
+  rebuttal: string,
+  opts: { stockfishPath?: string; movetimeMs?: number } = {},
+): Promise<string> {
+  return getProviders().engine.coachFollowup(input, note, rebuttal, opts)
+}
+
+/**
+ * Line verification, 1-PLY (2026-07-16): the engine's read of the move the
+ * user said they'd play — a searchmoves-restricted search from the same
+ * position at the same budget as the stored best-move eval, so the two
+ * numbers compare directly. Degrades like the coach: callers catch and grade
+ * without it. Outside Tauri a mock returns a canned read.
+ */
+export function evalPlayedMove(
+  fen: string,
+  moveUci: string,
+  opts: { bestCp?: number | null; bestMate?: number | null; stockfishPath?: string; movetimeMs?: number } = {},
+): Promise<PlayedMoveEval> {
+  return getProviders().engine.evalPlayedMove(fen, moveUci, opts)
+}
+
+/**
+ * Line verification, N-PLY (2026-07-16): legality-validate + engine-walk a
+ * SAN/UCI move sequence from `fen`, returning per-ply White-POV evals and a
+ * verdict. An illegal move is a verdict (named in the result), not a
+ * rejection. Outside Tauri a mock walks the line with canned evals.
+ */
+export function verifyLine(
+  fen: string,
+  moves: string[],
+  opts: { stockfishPath?: string; movetimeMs?: number } = {},
+): Promise<LineVerification> {
+  return getProviders().engine.verifyLine(fen, moves, opts)
 }

@@ -201,24 +201,26 @@ fn elo_band_of(white_elo: Option<i64>, black_elo: Option<i64>) -> (usize, &'stat
 // ---------------------------------------------------------------------------
 
 /// Raw Stockfish read for one position, side-to-move POV before the White-POV flip.
-struct RawEval {
-    cp: Option<i64>,
-    mate: Option<i64>,
+/// `pub(crate)` for verify.rs (coach line verification), which rides this driver.
+pub(crate) struct RawEval {
+    pub(crate) cp: Option<i64>,
+    pub(crate) mate: Option<i64>,
     /// |cp(pv1) − cp(pv2)|, POV-invariant; None unless both lines are cp scores.
-    gap_cp: Option<i64>,
-    best_uci: Option<String>,
+    pub(crate) gap_cp: Option<i64>,
+    pub(crate) best_uci: Option<String>,
     /// First up-to-6 plies of PV1, UCI, as reported by the engine.
-    pv_uci: Vec<String>,
+    #[allow(dead_code)]
+    pub(crate) pv_uci: Vec<String>,
 }
 
-struct Engine {
+pub(crate) struct Engine {
     child: Child,
     stdin: ChildStdin,
     lines: Lines<BufReader<tokio::process::ChildStdout>>,
 }
 
 impl Engine {
-    async fn spawn(path: &str) -> Result<Self, String> {
+    pub(crate) async fn spawn(path: &str) -> Result<Self, String> {
         let mut child = Command::new(path)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -269,7 +271,7 @@ impl Engine {
     }
 
     /// Handshake, then request two principal variations.
-    async fn init(&mut self) -> Result<(), String> {
+    pub(crate) async fn init(&mut self) -> Result<(), String> {
         self.send("uci").await?;
         self.read_until(Duration::from_secs(10), |l| l == "uciok").await?;
         self.send("setoption name MultiPV value 2").await?;
@@ -280,13 +282,24 @@ impl Engine {
 
     /// Evaluate `fen` at a fixed movetime, returning the last-seen scores for
     /// pv1/pv2 and the engine's best move. Scores are side-to-move POV.
-    async fn eval(&mut self, fen: &str, movetime_ms: u64) -> Result<RawEval, String> {
+    pub(crate) async fn eval(&mut self, fen: &str, movetime_ms: u64) -> Result<RawEval, String> {
+        let wait = Duration::from_millis(movetime_ms.saturating_add(8000).max(8000));
+        self.eval_with(fen, &format!("go movetime {}", movetime_ms), wait).await
+    }
+
+    /// Like [`eval`] with an arbitrary `go` command (e.g. a searchmoves-
+    /// restricted search for verify.rs) and an explicit wait budget.
+    pub(crate) async fn eval_with(
+        &mut self,
+        fen: &str,
+        go_cmd: &str,
+        wait: Duration,
+    ) -> Result<RawEval, String> {
         self.send(&format!("position fen {}", fen)).await?;
         let mut pv1: (Option<i64>, Option<i64>) = (None, None);
         let mut pv1_moves: Vec<String> = Vec::new();
         let mut pv2_cp: Option<i64> = None;
-        self.send(&format!("go movetime {}", movetime_ms)).await?;
-        let wait = Duration::from_millis(movetime_ms.saturating_add(8000).max(8000));
+        self.send(go_cmd).await?;
         let bestline = self
             .read_until(wait, |line| {
                 if line.starts_with("info ") {
@@ -327,7 +340,7 @@ impl Engine {
         })
     }
 
-    async fn quit(mut self) {
+    pub(crate) async fn quit(mut self) {
         let _ = self.send("quit").await;
         let _ = timeout(Duration::from_millis(500), self.child.wait()).await;
         let _ = self.child.start_kill();
@@ -369,7 +382,7 @@ fn parse_multipv_line(line: &str) -> Option<(u32, Option<i64>, Option<i64>, Vec<
 }
 
 /// Whether it is Black to move in `fen` (2nd FEN field).
-fn black_to_move(fen: &str) -> bool {
+pub(crate) fn black_to_move(fen: &str) -> bool {
     fen.split_whitespace().nth(1) == Some("b")
 }
 

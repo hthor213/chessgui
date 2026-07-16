@@ -18,6 +18,8 @@ import type {
   CalibrationSession,
   CoachFeedback,
   CoachInput,
+  LineVerification,
+  PlayedMoveEval,
 } from "@/lib/calibration"
 import type {
   CbhImportProgress,
@@ -59,6 +61,11 @@ import type {
   SaveTextFileOptions,
   SaveTextFileResult,
 } from "@chessgui/core/platform-types"
+import type {
+  LocalPlayerProfile,
+  ProfileRunReport,
+  ProfileRunRequest,
+} from "@chessgui/core/player-profile-types"
 
 // --- Default engine path (spec 222 Tier 0) --------------------------------
 // The real resolution — bundled sidecar → PATH lookup → macOS Homebrew
@@ -193,6 +200,25 @@ export const tauriProviders: PlatformProviders = {
       return invoke<LocalRivalPersona[]>("rival_personas")
     },
 
+    // Any-player profiles (spec 225, src-tauri/src/player_profile.rs).
+    rivalProfiles(): Promise<LocalPlayerProfile[]> {
+      return invoke<LocalPlayerProfile[]>("rival_profiles")
+    },
+    playerProfileRun(
+      req: ProfileRunRequest,
+      onLine?: (l: MeasureLine) => void,
+    ): Promise<ProfileRunReport> {
+      const channel = new Channel<MeasureLine>()
+      if (onLine) channel.onmessage = onLine
+      return invoke<ProfileRunReport>("player_profile_run", { req, onLine: channel })
+    },
+    playerProfileCancel(): Promise<boolean> {
+      return invoke<boolean>("player_profile_cancel")
+    },
+    saveBeatPlan(slug: string, markdown: string): Promise<string> {
+      return invoke<string>("save_beat_plan", { slug, markdown })
+    },
+
     puzzleCheckMove(fen: string, uci: string, depth: number): Promise<MoveCheck | null> {
       return invoke<MoveCheck>("puzzle_check_move", { fen, uci, depth })
     },
@@ -221,8 +247,45 @@ export const tauriProviders: PlatformProviders = {
     coachFeedback(input: CoachInput): Promise<CoachFeedback> {
       return invoke<CoachFeedback>("coach_feedback", { input })
     },
-    coachFollowup(input: CoachInput, note: string, rebuttal: string): Promise<string> {
-      return invoke<string>("coach_followup", { input, note, rebuttal })
+    coachFollowup(
+      input: CoachInput,
+      note: string,
+      rebuttal: string,
+      opts: { stockfishPath?: string; movetimeMs?: number } = {},
+    ): Promise<string> {
+      return invoke<string>("coach_followup", {
+        input,
+        note,
+        rebuttal,
+        stockfishPath: opts.stockfishPath ?? null,
+        movetimeMs: opts.movetimeMs ?? null,
+      })
+    },
+    evalPlayedMove(
+      fen: string,
+      moveUci: string,
+      opts: { bestCp?: number | null; bestMate?: number | null; stockfishPath?: string; movetimeMs?: number } = {},
+    ): Promise<PlayedMoveEval> {
+      return invoke<PlayedMoveEval>("eval_played_move", {
+        fen,
+        moveUci,
+        bestCp: opts.bestCp ?? null,
+        bestMate: opts.bestMate ?? null,
+        stockfishPath: opts.stockfishPath ?? null,
+        movetimeMs: opts.movetimeMs ?? null,
+      })
+    },
+    verifyLine(
+      fen: string,
+      moves: string[],
+      opts: { stockfishPath?: string; movetimeMs?: number } = {},
+    ): Promise<LineVerification> {
+      return invoke<LineVerification>("verify_line", {
+        fen,
+        moves,
+        stockfishPath: opts.stockfishPath ?? null,
+        movetimeMs: opts.movetimeMs ?? null,
+      })
     },
     recognizeFen(imageBase64: string, mediaType: string, prompt?: string): Promise<string> {
       return invoke<string>("recognize_fen", { imageBase64, mediaType, prompt })

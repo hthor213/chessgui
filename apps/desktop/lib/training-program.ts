@@ -28,6 +28,7 @@ export type ExerciseType =
   | "spar_rival"
   | "endgame_playout"
   | "rake_deck"
+  | "anti_line_drill"
   | "long_game_review"
   | "rest"
   | "other"
@@ -78,6 +79,10 @@ export interface Chapter {
 }
 
 export interface Program {
+  /** Stable identity for the program picker (spec 225 adds generated Beat-X
+   *  programs next to the bundled one). Optional for backward compatibility
+   *  with stored/imported shapes that predate it. */
+  id?: string
   name: string
   goal: string
   chapters: Chapter[]
@@ -290,6 +295,9 @@ export const MILESTONE_MAIA_TARGET = 1500
 export const STORAGE_KEYS = {
   /** ISO date the user started the program; absent = not started. */
   start: "chessgui:training-start",
+  /** Selected program id (spec 225: generated Beat-X programs join the
+   *  bundled one); absent = the bundled ROAD_TO_1900. */
+  activeProgram: "chessgui:training-active-program",
   /** TrainingOverlay JSON (local personalization). */
   overlay: "chessgui:training-overlay",
   /** { [YYYY-MM-DD]: { [blockId]: true } } — per-date check-offs. */
@@ -396,6 +404,7 @@ const CHAPTER_3: Chapter = {
 }
 
 export const ROAD_TO_1900: Program = {
+  id: "road-to-1900",
   name: "Road to 1900",
   goal: "Reach 1900 over the board — the first milestone a match against your rival. The goal outlives the milestone.",
   chapters: [CHAPTER_1, CHAPTER_2, CHAPTER_3],

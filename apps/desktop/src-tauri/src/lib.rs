@@ -10,7 +10,9 @@ pub mod machine;
 pub mod maia;
 pub mod measure;
 pub mod persona;
+pub mod player_profile;
 pub mod puzzles;
+pub mod verify;
 mod uci;
 mod vision;
 pub mod match_runner;
@@ -89,9 +91,12 @@ pub fn run() {
             persona::rival_personas,
             coach::coach_feedback,
             coach::coach_followup,
+            verify::verify_line,
+            verify::eval_played_move,
             active_games::active_games_load,
             active_games::active_games_save,
             measure::measure_monthly_run, measure::measure_monthly_cancel,
+            player_profile::player_profile_run, player_profile::player_profile_cancel, player_profile::rival_profiles, player_profile::save_beat_plan,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

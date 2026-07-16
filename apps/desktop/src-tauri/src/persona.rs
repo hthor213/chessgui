@@ -877,7 +877,11 @@ fn rival_book_path(app: &tauri::AppHandle) -> Option<PathBuf> {
             return Some(pb);
         }
     }
+    // Dev checkout: src-tauri → apps/desktop → apps → repo root (the pre-
+    // monorepo single ".." pointed at apps/desktop/data, which doesn't exist).
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
         .join("..")
         .join("data")
         .join("rivals")
@@ -1115,14 +1119,19 @@ pub async fn persona_move(
 
 /// Locate the local rivals dir (gitignored, never bundled — spec 214): the app
 /// data dir first, then the dev repo's data/rivals. None when neither exists.
-fn rivals_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+/// (pub(crate): player_profile.rs reads profiles/writes plans in the same dir.)
+pub(crate) fn rivals_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(dir) = app.path().app_data_dir() {
         let d = dir.join("rivals");
         if d.is_dir() {
             return Some(d);
         }
     }
+    // Dev checkout: src-tauri → apps/desktop → apps → repo root (the pre-
+    // monorepo single ".." pointed at apps/desktop/data, which doesn't exist).
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
         .join("..")
         .join("data")
         .join("rivals");

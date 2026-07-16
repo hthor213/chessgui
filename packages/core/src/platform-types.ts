@@ -32,6 +32,11 @@ import type { PersonaDecision, PersonaParams } from "./persona-types"
 import type { HumanSweepResult, HumanTreeOptions, HumanTreeResult } from "./human-eval-tree-types"
 import type { RivalBook } from "./rival-book-types"
 import type { LocalRivalPersona } from "./roster-types"
+import type {
+  LocalPlayerProfile,
+  ProfileRunReport,
+  ProfileRunRequest,
+} from "./player-profile-types"
 import type { BenchResult, MachineProfile } from "./machine-profile-types"
 import type {
   CalibrationProgress,
@@ -39,6 +44,8 @@ import type {
   CalibrationSession,
   CoachFeedback,
   CoachInput,
+  LineVerification,
+  PlayedMoveEval,
 } from "./calibration-types"
 import type { ClipboardImage } from "./clipboard-types"
 import type { TbProbe } from "./tablebase"
@@ -148,6 +155,32 @@ export interface EngineProvider {
   rivalBook(): Promise<RivalBook>
   rivalPersonas(): Promise<LocalRivalPersona[]>
 
+  // --- Any-player profiles (spec 225) ---
+  /** Every pipeline-built player profile present locally (gitignored
+   *  data/rivals/*.profile.json + stats) — [] where absent/unsupported;
+   *  absence is a normal state, never an error (spec 214 hard rule). */
+  rivalProfiles(): Promise<LocalPlayerProfile[]>
+  /**
+   * Spawn scripts/persona/build_player_profile.py for `req` and stream its
+   * output lines until it exits (the measureMonthlyRun pattern — a
+   * dev-checkout desktop capability; shells without a native process host
+   * reject and the UI gates on `hasNativeEngine`). Resolves with the final
+   * report; a successful run carries <slug>.profile.json's text — the
+   * verdict record the UI renders.
+   */
+  playerProfileRun(
+    req: ProfileRunRequest,
+    onLine?: (l: MeasureLine) => void,
+  ): Promise<ProfileRunReport>
+  /** Cancel the in-flight profile run; false when nothing is running. */
+  playerProfileCancel(): Promise<boolean>
+  /**
+   * Write a generated Beat-X training plan to data/rivals/<slug>.BEAT.md
+   * (gitignored — the plan names a private individual, spec 214 hard rule).
+   * Resolves the absolute path written. Desktop-only; other shells reject.
+   */
+  saveBeatPlan(slug: string, markdown: string): Promise<string>
+
   // --- Stockfish-backed puzzle check (spec 211; rides the engine, not the DB) ---
   puzzleCheckMove(fen: string, uci: string, depth: number): Promise<MoveCheck | null>
 
@@ -160,7 +193,30 @@ export interface EngineProvider {
   calibrationSaveResults(results: CalibrationResults): Promise<string>
   calibrationLoadResults(): Promise<CalibrationResults[]>
   coachFeedback(input: CoachInput): Promise<CoachFeedback>
-  coachFollowup(input: CoachInput, note: string, rebuttal: string): Promise<string>
+  /** `opts` (line verification, 2026-07-16): the session's engine, so a line
+   *  described in the rebuttal can be engine-checked before the coach replies. */
+  coachFollowup(
+    input: CoachInput,
+    note: string,
+    rebuttal: string,
+    opts?: { stockfishPath?: string; movetimeMs?: number },
+  ): Promise<string>
+  /** Line verification, 1-PLY (2026-07-16): searchmoves-restricted engine
+   *  read of the user's chosen move, same budget as the stored best-move
+   *  eval. `best*` are the stored White-POV best-move scores (for the gap). */
+  evalPlayedMove(
+    fen: string,
+    moveUci: string,
+    opts?: { bestCp?: number | null; bestMate?: number | null; stockfishPath?: string; movetimeMs?: number },
+  ): Promise<PlayedMoveEval>
+  /** Line verification, N-PLY (2026-07-16): legality-validate + engine-walk a
+   *  SAN/UCI move sequence from `fen`; per-ply White-POV evals + a verdict.
+   *  An illegal move is a verdict, not a rejection. */
+  verifyLine(
+    fen: string,
+    moves: string[],
+    opts?: { stockfishPath?: string; movetimeMs?: number },
+  ): Promise<LineVerification>
   recognizeFen(imageBase64: string, mediaType: string, prompt?: string): Promise<string>
 
   // --- Monthly measurement pipeline (spec 215 Tier 2) ---

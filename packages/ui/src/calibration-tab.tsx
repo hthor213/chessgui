@@ -25,6 +25,7 @@ import {
   coachFeedback,
   coachFollowup,
   coachInputFor,
+  evalPlayedMove,
   normalizeAnswer,
   answerRange,
   rangePoint,
@@ -44,6 +45,7 @@ import {
   type EvalRange,
   type LabelerProfile,
   type PhaseStat,
+  type PlayedMoveEval,
 } from "@/lib/calibration"
 import {
   applyLockIn,
@@ -634,6 +636,24 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
     [session, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled],
   )
 
+  // Line verification, 1-PLY (2026-07-16): store the engine's read of the
+  // user's move on its answer when it arrives (async, at grading time).
+  // Additive only, like onCoachResult.
+  const onMoveEval = useCallback(
+    (answerIndex: number, ev: PlayedMoveEval) => {
+      setAnswers((prev) => {
+        const next = prev.map((a) =>
+          a.index === answerIndex
+            ? { ...a, played_move_eval_cp: ev.eval_cp, played_move_eval_mate: ev.eval_mate, gap_to_best_cp: ev.gap_to_best_cp }
+            : a,
+        )
+        if (session) persist(session, next, index + 1, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled)
+        return next
+      })
+    },
+    [session, index, persist, showReveal, showCoach, elicitation, lockInN, profilePrior, plansEnabled],
+  )
+
   // Store the user's rebuttal + the coach's follow-up reply on its answer.
   // Additive only, like onCoachResult — the committed answer never changes.
   const onRebuttal = useCallback(
@@ -829,6 +849,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           reveal={revealed}
           onContinueReveal={onContinueReveal}
           showCoach={showCoach}
+          stockfishPath={session.stockfish_path}
+          onMoveEval={onMoveEval}
           onCoachResult={onCoachResult}
           onRebuttal={onRebuttal}
           onPlayout={startPlayout}
@@ -1072,6 +1094,8 @@ function AnsweringScreen({
   reveal,
   onContinueReveal,
   showCoach,
+  stockfishPath,
+  onMoveEval,
   onCoachResult,
   onRebuttal,
   onPlayout,
@@ -1115,6 +1139,9 @@ function AnsweringScreen({
   reveal: Reveal | null
   onContinueReveal: () => void
   showCoach: boolean
+  /** The session's engine, for the played-move eval + rebuttal line check. */
+  stockfishPath: string
+  onMoveEval: (index: number, ev: PlayedMoveEval) => void
   onCoachResult: (index: number, coach: CoachFeedback) => void
   onRebuttal: (index: number, rebuttal: string, reply: string | null) => void
   /** "Play it out" (spec 211): start a live playout from the revealed position. */
@@ -1209,6 +1236,8 @@ function AnsweringScreen({
               reveal={reveal}
               onContinue={onContinueReveal}
               showCoach={showCoach}
+              stockfishPath={stockfishPath}
+              onMoveEval={onMoveEval}
               onCoachResult={onCoachResult}
               onRebuttal={onRebuttal}
               onPlayout={onPlayout}
@@ -1494,6 +1523,8 @@ function RevealCard({
   reveal,
   onContinue,
   showCoach,
+  stockfishPath,
+  onMoveEval,
   onCoachResult,
   onRebuttal,
   onPlayout,
@@ -1501,6 +1532,9 @@ function RevealCard({
   reveal: Reveal
   onContinue: () => void
   showCoach: boolean
+  /** The session's engine, for the played-move eval + rebuttal line check. */
+  stockfishPath: string
+  onMoveEval: (index: number, ev: PlayedMoveEval) => void
   onCoachResult: (index: number, coach: CoachFeedback) => void
   onRebuttal: (index: number, rebuttal: string, reply: string | null) => void
   /** "Play it out" (spec 211): hand this position to a live playout vs Maia. */
@@ -1522,6 +1556,17 @@ function RevealCard({
   const [coach, setCoach] = useState<CoachFeedback | null>(answer.coach)
   const [coachError, setCoachError] = useState<string | null>(null)
   const [coachLoading, setCoachLoading] = useState(false)
+  // Line verification, 1-PLY: the engine's read of THEIR move — runs for
+  // every graded answer with a move (coach on or off), never blocks Continue.
+  const [moveEval, setMoveEval] = useState<PlayedMoveEval | null>(
+    answer.played_move_eval_cp != null || answer.played_move_eval_mate != null
+      ? {
+          eval_cp: answer.played_move_eval_cp ?? null,
+          eval_mate: answer.played_move_eval_mate ?? null,
+          gap_to_best_cp: answer.gap_to_best_cp ?? null,
+        }
+      : null,
+  )
   // Rebuttal round: the user's reply to the note + the coach's reply to that.
   const [rebuttalText, setRebuttalText] = useState("")
   const [sentRebuttal, setSentRebuttal] = useState<string | null>(answer.rebuttal)
@@ -1535,12 +1580,26 @@ function RevealCard({
       ? coach.plan_grade
       : null
 
+  // The answer with the played-move eval folded in (the `reveal` snapshot
+  // never sees the parent's async update, so fold from local state).
+  const enrichedAnswer = useCallback(
+    (ev: PlayedMoveEval | null): CalibrationAnswer =>
+      ev
+        ? { ...answer, played_move_eval_cp: ev.eval_cp, played_move_eval_mate: ev.eval_mate, gap_to_best_cp: ev.gap_to_best_cp }
+        : answer,
+    [answer],
+  )
+
   const sendRebuttal = useCallback(() => {
     const text = rebuttalText.trim()
     if (!text || !coach) return
     setSentRebuttal(text)
     setReplyLoading(true)
-    coachFollowup(coachInputFor(answer, position), coach.note, text)
+    // N-PLY verification rides the session's engine: a line described in the
+    // rebuttal is extracted + engine-checked backend-side before the reply.
+    coachFollowup(coachInputFor(enrichedAnswer(moveEval), position), coach.note, text, {
+      stockfishPath,
+    })
       .then((reply) => {
         setCoachReply(reply)
         onRebuttal(answer.index, text, reply)
@@ -1551,16 +1610,37 @@ function RevealCard({
         onRebuttal(answer.index, text, null)
       })
       .finally(() => setReplyLoading(false))
-  }, [rebuttalText, coach, answer, position, onRebuttal])
+  }, [rebuttalText, coach, answer, position, onRebuttal, enrichedAnswer, moveEval, stockfishPath])
   useEffect(() => {
+    let live = true
+    // 1-PLY first — the engine's read of their move — so the coach grades the
+    // move with the numbers in hand. Best-effort: a dead engine grades bare.
+    const withMoveEval: Promise<PlayedMoveEval | null> =
+      answer.skipped || !answer.move_uci
+        ? Promise.resolve(null)
+        : answer.played_move_eval_cp != null || answer.played_move_eval_mate != null
+          ? Promise.resolve(moveEval)
+          : evalPlayedMove(position.fen, answer.move_uci, {
+              bestCp: position.sf_cp,
+              bestMate: position.sf_mate,
+              stockfishPath,
+            })
+              .then((ev) => {
+                if (live) {
+                  setMoveEval(ev)
+                  onMoveEval(answer.index, ev)
+                }
+                return ev
+              })
+              .catch(() => null)
     if (!wantCoach || answer.coach) {
       setCoach(answer.coach)
       return
     }
-    let live = true
     setCoachLoading(true)
     setCoachError(null)
-    coachFeedback(coachInputFor(answer, position))
+    withMoveEval
+      .then((ev) => coachFeedback(coachInputFor(enrichedAnswer(ev), position)))
       .then((fb) => {
         if (!live) return
         setCoach(fb)
@@ -1618,6 +1698,23 @@ function RevealCard({
             </span>
           </div>
         )}
+        {moveEval && (moveEval.eval_cp != null || moveEval.eval_mate != null) && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Your move</span>
+            <span className="font-mono tabular-nums" data-testid="calib-your-move-eval">
+              {moveEval.eval_mate != null
+                ? `#${moveEval.eval_mate}`
+                : formatPawns((moveEval.eval_cp ?? 0) / 100)}
+              {moveEval.gap_to_best_cp != null && (
+                <span className="text-muted-foreground">
+                  {moveEval.gap_to_best_cp <= 10
+                    ? " (= best)"
+                    : ` (${(moveEval.gap_to_best_cp / 100).toFixed(1)} off best)`}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
         {position.sf_pv_san && position.sf_pv_san.length >= 2 && (
           <div className="flex items-baseline justify-between gap-3">
             <span className="text-muted-foreground shrink-0">Line</span>
@@ -1666,7 +1763,7 @@ function RevealCard({
                   <Textarea
                     value={rebuttalText}
                     onChange={(e) => setRebuttalText(e.target.value)}
-                    placeholder="Respond to the coach (optional) — e.g. “I saw that move, but…”"
+                    placeholder="Respond to the coach (optional) — describe a line (“Ra7, then he must take f5”) and it gets engine-checked"
                     className="min-h-[60px] text-sm"
                     data-testid="calib-rebuttal-input"
                   />

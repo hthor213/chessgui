@@ -3,6 +3,7 @@ import {
   buildRoster,
   gatePersonaLevel,
   initialsFor,
+  isPipelineProfile,
   GM_PERSONA_CONFIGS,
   MAIA_ROSTER_BANDS,
   PRIVATE_RIVAL_ID,
@@ -10,6 +11,7 @@ import {
   SELF_PERSONA_ID,
   SELF_PERSONA_DISPLAY_NAME,
   resolveParticipantBook,
+  type LocalPlayerProfile,
   type LocalRivalPersona,
   type PersonaConfigFile,
 } from "@/lib/roster";
@@ -177,6 +179,111 @@ describe("buildRoster", () => {
   it("ships zero avatar art — every entry falls back to initials", () => {
     const roster = buildRoster(SAMPLE_BOOK, [LOCAL_RIVAL]);
     for (const p of roster) expect(p.avatar).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec 225: pipeline profiles in the roster (badges + dossier-only gating)
+// ---------------------------------------------------------------------------
+
+/** A pipeline profile the way build_player_profile.py writes it. */
+function pipelineProfile(overrides: Partial<LocalPlayerProfile["profile"]> = {}): LocalPlayerProfile {
+  return {
+    profile: {
+      slug: "testrival",
+      display_name: "Neighbor",
+      sample: {
+        games: 47,
+        verified_games: 47,
+        verdict: "full",
+        badge: null,
+        reasons: [],
+      },
+      rating: { value: 1500, source: "corpus" },
+      ...overrides,
+    },
+    stats: null,
+  };
+}
+
+describe("buildRoster with pipeline profiles (spec 225)", () => {
+  it("badges a config-armed rival with the STORED low-confidence verdict and arms Beat", () => {
+    const profile = pipelineProfile({
+      sample: {
+        games: 12,
+        verified_games: 12,
+        verdict: "low-confidence",
+        badge: "LOW-CONFIDENCE",
+        reasons: ["12 verified games < 30 full-persona floor"],
+      },
+    });
+    const roster = buildRoster(null, [LOCAL_RIVAL], [profile]);
+    const p = roster.find((x) => x.id === "rival-testrival")!;
+    expect(p.verdictBadge).toBe("LOW-CONFIDENCE");
+    expect(p.badgeTitle).toContain("30 full-persona floor");
+    expect(p.profileSlug).toBe("testrival");
+    expect(p.actions).toEqual(["play", "beat"]);
+    // Still a playable persona at its own gated level.
+    expect(p.personaConfig?.level).toBe(1300);
+  });
+
+  it("leaves a full-verdict profile unbadged but Beat-armed", () => {
+    const roster = buildRoster(null, [LOCAL_RIVAL], [pipelineProfile()]);
+    const p = roster.find((x) => x.id === "rival-testrival")!;
+    expect(p.verdictBadge).toBeUndefined();
+    expect(p.actions).toEqual(["play", "beat"]);
+  });
+
+  it("surfaces a dossier-only profile as a card that fields NO bot", () => {
+    const dossier = pipelineProfile({
+      slug: "otbplayer",
+      display_name: "OTB Player",
+      sample: {
+        games: 32,
+        verified_games: 26,
+        verdict: "dossier-only",
+        badge: "DOSSIER-ONLY",
+        reasons: ["corpus pending review"],
+      },
+      rating: { value: 2236, source: "corpus Elo headers" },
+    });
+    const roster = buildRoster(null, [], [dossier]);
+    const p = roster.find((x) => x.id === "profile-otbplayer")!;
+    expect(p).toBeDefined();
+    expect(p.displayName).toBe("OTB Player");
+    expect(p.actions).toEqual(["beat"]); // no Play — it fields no bot
+    expect(p.personaConfig).toBeUndefined();
+    expect(p.verdictBadge).toBe("DOSSIER-ONLY");
+    expect(p.strengthLabel).toContain("fields no bot");
+    expect(p.strengthLabel).toContain("26 verified");
+  });
+
+  it("never doubles a profile that already has a loaded config as a dossier card", () => {
+    const roster = buildRoster(null, [LOCAL_RIVAL], [pipelineProfile()]);
+    expect(roster.find((x) => x.id === "profile-testrival")).toBeUndefined();
+  });
+
+  it("degrades silently with no profiles — the pre-225 roster, byte for byte", () => {
+    expect(buildRoster(SAMPLE_BOOK, [LOCAL_RIVAL], [])).toEqual(
+      buildRoster(SAMPLE_BOOK, [LOCAL_RIVAL]),
+    );
+  });
+});
+
+describe("isPipelineProfile (legacy profile.json filter)", () => {
+  it("accepts a pipeline record with a stored verdict", () => {
+    expect(isPipelineProfile(pipelineProfile().profile)).toBe(true);
+  });
+
+  it("rejects the legacy chess.com player dumps (no sample verdict)", () => {
+    // The pre-225 hand-built era wrote raw chess.com /player responses to
+    // <slug>.profile.json — they must not surface with an invented verdict.
+    expect(
+      isPipelineProfile({ player_id: 1, username: "someone", name: "Some One" }),
+    ).toBe(false);
+    expect(isPipelineProfile(null)).toBe(false);
+    expect(isPipelineProfile({ slug: "x", display_name: "X" })).toBe(false);
+    expect(isPipelineProfile({ slug: "x", display_name: "X", sample: {} })).toBe(false);
   });
 });
 

@@ -88,6 +88,15 @@ export type CalibrationAnswer = {
   plan_b?: string | null
   /** UCI of the move they'd play, or null if they didn't pick one. */
   move_uci: string | null
+  /** Line verification, 1-PLY (2026-07-16): White-POV engine eval of the
+   *  user's move (searchmoves-restricted, same budget as the stored
+   *  best-move eval), attached async at grading time. Null until it arrives,
+   *  when no move was chosen, or if the engine was unavailable. */
+  played_move_eval_cp?: number | null
+  played_move_eval_mate?: number | null
+  /** Mover-POV gap of their move vs the stored best move, centipawns
+   *  (positive = worse than best); null when either score is a mate. */
+  gap_to_best_cp?: number | null
   /** Wall time from position-shown to submit, milliseconds (includes typing). */
   elapsed_ms: number
   /**
@@ -169,6 +178,11 @@ export type CoachInput = {
   user_plan: string | null
   user_plan_b: string | null
   user_move_uci: string | null
+  /** Line verification, 1-PLY: White-POV engine eval of the user's move and
+   *  its mover-POV gap to best, when graded (see CalibrationAnswer). */
+  user_move_eval_cp: number | null
+  user_move_eval_mate: number | null
+  user_move_gap_cp: number | null
   revised_eval: number | null
   revision_note: string | null
   played_san: string | null
@@ -176,6 +190,47 @@ export type CoachInput = {
   white_elo: number | null
   black_elo: number | null
   sf_pv_san: string[] | null
+}
+
+// ---------------------------------------------------------------------------
+// Line verification (2026-07-16) — mirrors Rust verify.rs
+// ---------------------------------------------------------------------------
+
+/** The 1-ply engine read of the user's chosen move. Mirrors Rust
+ *  `PlayedMoveEval`. Evals are White-POV, like everything else. */
+export type PlayedMoveEval = {
+  eval_cp: number | null
+  eval_mate: number | null
+  /** Mover-POV gap to the stored best move, centipawns (positive = worse);
+   *  null when either score is a mate. */
+  gap_to_best_cp: number | null
+}
+
+/** One verified ply of a walked line. Mirrors Rust `VerifiedPly`. */
+export type VerifiedPly = {
+  san: string
+  uci: string
+  fen_after: string
+  /** White-POV eval of the position AFTER this move. */
+  eval_cp: number | null
+  eval_mate: number | null
+  /** "checkmate" | "stalemate" when this move ends the game; null otherwise. */
+  terminal: string | null
+}
+
+/** The verdict on a proposed variation. Mirrors Rust `LineVerification`. An
+ *  illegal move is a verdict (named here), never a rejection. */
+export type LineVerification = {
+  legal: boolean
+  illegal_at: number | null
+  illegal_move: string | null
+  start_cp: number | null
+  start_mate: number | null
+  plies: VerifiedPly[]
+  end_cp: number | null
+  end_mate: number | null
+  delta_cp: number | null
+  ends_in_mate: boolean
 }
 
 /** Per-band accuracy row. */
