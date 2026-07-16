@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog"
+import { pickFile } from "@/lib/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -83,14 +83,10 @@ export function EngineSettingsDialog({
   };
 
   const handleBrowse = async () => {
-    // Native file picker (tauri plugin-dialog). No extension filter — UCI
+    // Native file picker (lib/dialog seam). No extension filter — UCI
     // engine binaries have none on macOS.
-    const picked = await openFileDialog({
-      multiple: false,
-      directory: false,
-      title: "Select UCI engine binary",
-    });
-    if (typeof picked === "string" && picked) setDraftPath(picked);
+    const picked = await pickFile({ title: "Select UCI engine binary" });
+    if (picked) setDraftPath(picked);
   };
 
   const handleSave = () => {

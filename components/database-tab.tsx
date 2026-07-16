@@ -38,6 +38,7 @@ import {
   type Sort,
   type SortColumn,
 } from "@/lib/database"
+import { pickFile } from "@/lib/dialog"
 import {
   aggregateHits,
   moverFromFen,
@@ -108,12 +109,10 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
 
   const openDatabase = useCallback(async () => {
     // Native picker: the backend needs a real filesystem path for the SQLite file.
-    const { open: openFileDialog } = await import("@tauri-apps/plugin-dialog")
-    const picked = await openFileDialog({
-      multiple: false,
+    const picked = await pickFile({
       filters: [{ name: "ChessGUI database", extensions: ["db", "sqlite", "sqlite3"] }],
     })
-    if (typeof picked !== "string") return // cancelled
+    if (!picked) return // cancelled
     setDbPaths((prev) => {
       const next = addDbPath(prev, picked)
       saveDbPaths(next)
@@ -809,12 +808,10 @@ function ImportDialog({
     setError(null)
     // Native picker (not the hidden <input>): the Rust decoder needs a real
     // filesystem path so it can read the sibling .cbg/.cba/… files.
-    const { open: openFileDialog } = await import("@tauri-apps/plugin-dialog")
-    const picked = await openFileDialog({
-      multiple: false,
+    const picked = await pickFile({
       filters: [{ name: "ChessBase database", extensions: ["cbh"] }],
     })
-    if (typeof picked !== "string") return // cancelled
+    if (!picked) return // cancelled
     setBusy(true)
     try {
       const report = await importCbh({ cbhPath: picked, dbPath, onProgress: setCbhProgress })

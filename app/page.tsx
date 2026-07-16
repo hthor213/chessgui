@@ -29,6 +29,7 @@ import { walkPv, type PvStep } from "@/lib/pv-preview"
 import { ecoLabel } from "@/lib/eco"
 import type { LiveGame, ViewerControls } from "@/lib/tournament"
 import { MOVE_DELAY_OPTIONS } from "@/lib/tournament"
+import { hasTournamentRunner } from "@/lib/capabilities"
 import { sansFromUci, numberMoves } from "@/lib/game-replay"
 import type { Key } from "@lichess-org/chessground/types"
 import type { DrawShape } from "@lichess-org/chessground/draw"
@@ -99,6 +100,14 @@ export default function Home() {
   // hidden main board (kept mounted) can't clobber it.
   const [thinkingBoardSize, setThinkingBoardSize] = useState(560)
   const [tournamentRunning, setTournamentRunning] = useState(false)
+  // Desktop-only capability fence (spec 220 step 1): the tournament runner
+  // rides native Tauri commands, so non-desktop shells hide the tab entirely.
+  // Resolved in an effect (not at render) so the static-export prerender and
+  // the Tauri webview hydrate identically.
+  const [tournamentCapable, setTournamentCapable] = useState(false)
+  useEffect(() => {
+    setTournamentCapable(hasTournamentRunner())
+  }, [])
   const [liveGame, setLiveGame] = useState<LiveGame | null>(null)
   // Whether to show the eval bar beside the live tournament board (driven by the
   // Tournament tab's "show evaluation bar" option).
@@ -542,15 +551,17 @@ export default function Home() {
             >
               Analyze
             </button>
-            <button
-              className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
-                view === "tournament" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
-              }`}
-              onClick={() => setView("tournament")}
-              title="Run headless engine-vs-engine tournaments"
-            >
-              Tournament
-            </button>
+            {tournamentCapable && (
+              <button
+                className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
+                  view === "tournament" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+                }`}
+                onClick={() => setView("tournament")}
+                title="Run headless engine-vs-engine tournaments"
+              >
+                Tournament
+              </button>
+            )}
             <button
               className={`px-3 py-1.5 text-base transition-colors rounded-md hover:bg-white/5 ${
                 view === "database" ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
@@ -591,22 +602,25 @@ export default function Home() {
         )}
 
         {/* Tournament view — kept mounted so a running batch survives switching
-            to the board to watch a live game. */}
-        <main
-          className="flex-1 min-h-0"
-          style={view === "tournament" ? undefined : { display: "none" }}
-        >
-          <TournamentTab
-            onRunningChange={setTournamentRunning}
-            onLiveUpdate={setLiveGame}
-            onEvalBarChange={setLiveEvalBar}
-            onViewerControls={setViewerControls}
-            onOpenGame={handleLoadFromDatabase}
-            currentFen={game.fen}
-            bottomColor={game.orientation}
-            presetNonce={tournamentPresetNonce}
-          />
-        </main>
+            to the board to watch a live game. Desktop-only (capability fence,
+            spec 220 step 1): never mounted on shells without the native runner. */}
+        {tournamentCapable && (
+          <main
+            className="flex-1 min-h-0"
+            style={view === "tournament" ? undefined : { display: "none" }}
+          >
+            <TournamentTab
+              onRunningChange={setTournamentRunning}
+              onLiveUpdate={setLiveGame}
+              onEvalBarChange={setLiveEvalBar}
+              onViewerControls={setViewerControls}
+              onOpenGame={handleLoadFromDatabase}
+              currentFen={game.fen}
+              bottomColor={game.orientation}
+              presetNonce={tournamentPresetNonce}
+            />
+          </main>
+        )}
 
         {/* Database view — game list, filters, position search. Mounted only
             when active; it re-fetches on mount, which is cheap. The explorer
@@ -1029,7 +1043,7 @@ export default function Home() {
               >
                 Set up
               </button>
-              {!isPlayMode && (
+              {!isPlayMode && tournamentCapable && (
                 <button
                   data-testid="play-this-out"
                   className="px-3 py-1.5 text-base text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-white/5"
