@@ -72,6 +72,15 @@ export interface ArenaPersonaInfo {
   slug: string
   displayName: string
   bio: string
+  /** Spec 217 Promise 1 ("play against yourself"): true for the logged-in
+   *  player's OWN persona. Server-gated per user — the backend only ever
+   *  returns YOUR private persona, never anyone else's. */
+  isPrivate: boolean
+  /** The backend's honest label for private personas ("own book + Maia
+   *  1400, unmeasured" — build_rival_configs.py format). Null for GM
+   *  personas, whose measured label the client derives from
+   *  lib/persona-manifest.ts instead. */
+  strengthLabel: string | null
 }
 
 export interface ArenaMove {
@@ -277,12 +286,19 @@ function createFetchArenaApiClient(): ArenaApiClient {
     },
 
     async listPersonas() {
-      const res = await request<{ disclosure: string; personas: { slug: string; display_name: string; bio: string }[] }>(
-        "/api/personas",
-      )
+      const res = await request<{
+        disclosure: string
+        personas: { slug: string; display_name: string; bio: string; private?: boolean; strength_label?: string | null }[]
+      }>("/api/personas")
       return {
         disclosure: res.disclosure,
-        personas: res.personas.map((p) => ({ slug: p.slug, displayName: p.display_name, bio: p.bio })),
+        personas: res.personas.map((p) => ({
+          slug: p.slug,
+          displayName: p.display_name,
+          bio: p.bio,
+          isPrivate: p.private ?? false,
+          strengthLabel: p.strength_label ?? null,
+        })),
       }
     },
 

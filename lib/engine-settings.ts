@@ -1,4 +1,5 @@
-// Engine settings persisted to localStorage, alongside the "engine-path" key.
+// Engine settings persisted to localStorage, plus the "engine-path" key
+// holding the user-selected engine binary (spec 011).
 
 export interface EngineSettings {
   /** UCI Hash table size in MB. */
@@ -12,11 +13,40 @@ export interface EngineSettings {
 }
 
 const STORAGE_KEY = "engine-settings";
+const ENGINE_PATH_KEY = "engine-path";
 // Bumped when a default changes in a way existing users should adopt once.
 // v2: best-move arrows now default OFF. A stored blob without this version
 // (or an older one) gets showArrows reset to the new default on load; the
 // value only becomes authoritative again once the user explicitly saves.
 const SETTINGS_VERSION = 2;
+
+/** Fallback engine binary when the user hasn't picked one (spec 011). */
+export const DEFAULT_ENGINE_PATH = "/opt/homebrew/bin/stockfish";
+
+export function loadEnginePath(): string {
+  if (typeof window === "undefined") return DEFAULT_ENGINE_PATH;
+  try {
+    return localStorage.getItem(ENGINE_PATH_KEY) || DEFAULT_ENGINE_PATH;
+  } catch {
+    return DEFAULT_ENGINE_PATH;
+  }
+}
+
+export function saveEnginePath(path: string): void {
+  try {
+    localStorage.setItem(ENGINE_PATH_KEY, path);
+  } catch {
+    // localStorage unavailable — path just won't persist
+  }
+}
+
+export function clearEnginePath(): void {
+  try {
+    localStorage.removeItem(ENGINE_PATH_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 export const HASH_MIN = 16;
 export const HASH_MAX = 8192;

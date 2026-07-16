@@ -10,6 +10,7 @@ import {
   nodeEval,
   evalToUnit,
   formatEval,
+  judgeMove,
 } from "@/lib/annotations";
 
 function line(sans: string[]): GameTree {
@@ -204,5 +205,45 @@ describe("[%eval] parsing and eval display", () => {
     expect(formatEval({ cp: 42, depth: 1 })).toBe("+0.4");
     expect(formatEval({ cp: -130, depth: 1 })).toBe("-1.3");
     expect(formatEval({ mate: -3, depth: 1 })).toBe("#-3");
+  });
+});
+
+describe("judgeMove — blunder detection thresholds (spec 202)", () => {
+  const cp = (v: number) => ({ cp: v, depth: 10 });
+  const mate = (v: number) => ({ mate: v, depth: 10 });
+
+  it("classifies white drops at the spec boundaries", () => {
+    expect(judgeMove(cp(0), cp(-49), true)).toBeNull(); // under 0.5 pawns
+    expect(judgeMove(cp(0), cp(-50), true)).toBe("inaccuracy"); // 0.5 exactly
+    expect(judgeMove(cp(0), cp(-99), true)).toBe("inaccuracy");
+    expect(judgeMove(cp(0), cp(-100), true)).toBe("mistake"); // 1.0 → worse tier
+    expect(judgeMove(cp(0), cp(-300), true)).toBe("mistake"); // 3.0 still mistake
+    expect(judgeMove(cp(0), cp(-301), true)).toBe("blunder"); // >3.0
+  });
+
+  it("orients the drop for the black mover", () => {
+    // white-perspective eval rising after a black move is black's loss
+    expect(judgeMove(cp(0), cp(150), false)).toBe("mistake");
+    expect(judgeMove(cp(-50), cp(300), false)).toBe("blunder");
+    // and a rise after a white move is no drop at all
+    expect(judgeMove(cp(0), cp(150), true)).toBeNull();
+  });
+
+  it("never flags improvements or holds, however large", () => {
+    expect(judgeMove(cp(-400), cp(400), true)).toBeNull();
+    expect(judgeMove(cp(30), cp(30), true)).toBeNull();
+    expect(judgeMove(cp(300), cp(-500), false)).toBeNull();
+  });
+
+  it("treats a thrown-away mate as a blunder", () => {
+    expect(judgeMove(mate(3), cp(0), true)).toBe("blunder");
+    expect(judgeMove(mate(-2), cp(-20), false)).toBe("blunder");
+    expect(judgeMove(mate(2), mate(-2), true)).toBe("blunder");
+  });
+
+  it("does not flag swings that stay decisively won", () => {
+    expect(judgeMove(mate(2), mate(8), true)).toBeNull(); // longer mate, still mate
+    expect(judgeMove(cp(2000), cp(1200), true)).toBeNull(); // both beyond the cap
+    expect(judgeMove(mate(3), cp(1500), true)).toBeNull(); // mate → crushing eval
   });
 });

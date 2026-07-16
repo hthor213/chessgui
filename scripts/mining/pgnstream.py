@@ -91,6 +91,40 @@ def tc_set_from_arg(s):
 
 
 # --------------------------------------------------------------------------- #
+# Clock plumbing ([%clk] tags / TimeControl header)
+# --------------------------------------------------------------------------- #
+def clk_to_seconds(s):
+    """'[%clk H:MM:SS(.t)]' payload str -> seconds float, or None.
+
+    Lichess emits H:MM:SS with tenths on some controls ('0:09:59.4').
+    Consumed by spec 211's engagement filter (mine_cliffs.py)."""
+    try:
+        parts = [float(x) for x in s.split(":")]
+    except ValueError:
+        return None
+    if not 1 <= len(parts) <= 3:
+        return None
+    sec = 0.0
+    for x in parts:
+        sec = sec * 60.0 + x
+    return sec
+
+
+def tc_base_inc(tc):
+    """TimeControl str 'base+inc' -> (base_s, inc_s) ints, else (None, None).
+
+    Correspondence ('-'), daily ('1/86400'), missing and malformed values
+    carry no per-move clock semantics -> (None, None)."""
+    if not tc or tc == "-" or "/" in tc:
+        return None, None
+    base, _, inc = tc.partition("+")
+    try:
+        return int(base), (int(inc) if inc else 0)
+    except ValueError:
+        return None, None
+
+
+# --------------------------------------------------------------------------- #
 # Accept filter
 # --------------------------------------------------------------------------- #
 class Filter:

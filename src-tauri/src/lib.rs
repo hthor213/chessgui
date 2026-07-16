@@ -63,6 +63,7 @@ pub fn run() {
             calibration::calibration_load_results,
             machine::machine_bench,
             machine::machine_profile_get,
+            machine::machine_fingerprint,
             maia::maia_status,
             maia::maia_policy,
             human_search::human_eval_tree,

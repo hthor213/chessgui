@@ -25,6 +25,7 @@
 
 import { GM_PERSONAS, type GmPersonaManifestEntry } from "@/lib/persona-manifest"
 import { initialsFor } from "@/lib/roster"
+import type { ArenaPersonaInfo } from "@/lib/arena-api"
 
 /** Tier-0 playable slugs, in the order spec 217 lists them. */
 export const TIER0_PERSONA_SLUGS: readonly string[] = [
@@ -45,6 +46,9 @@ export interface ArenaRosterEntry {
   /** Tier-0 gate: false renders as "coming soon" in the lobby, never as a
    *  Play button that would silently fail. */
   available: boolean
+  /** Spec 217 Promise 1: true for the logged-in player's OWN persona.
+   *  Server-gated — this card exists only in its owner's lobby. */
+  isPrivate?: boolean
 }
 
 function strengthLabelFor(p: GmPersonaManifestEntry): string {
@@ -72,4 +76,40 @@ export function buildArenaRoster(): ArenaRosterEntry[] {
     return i === -1 ? TIER0_PERSONA_SLUGS.length : i
   }
   return entries.sort((a, b) => rank(a.slug) - rank(b.slug))
+}
+
+/**
+ * Merge the backend's per-user persona list (GET /api/personas) into the
+ * static manifest roster. GM slugs the manifest already knows keep their
+ * measured client-side labels; anything the server adds beyond the manifest
+ * is per-user — the player's own private persona (spec 217 Promise 1) —
+ * and renders as a playable card with the server's honest label. Private
+ * cards lead the lobby (the "play against yourself" hook); any other
+ * server-only persona trails it. Pure — no network — so the fetch-failure
+ * path (empty `apiPersonas`) trivially degrades to the static roster.
+ */
+export function mergeApiPersonas(
+  roster: ArenaRosterEntry[],
+  apiPersonas: ArenaPersonaInfo[],
+): ArenaRosterEntry[] {
+  const known = new Set(roster.map((e) => e.slug))
+  const extras = apiPersonas
+    .filter((p) => !known.has(p.slug))
+    .map(
+      (p): ArenaRosterEntry => ({
+        slug: p.slug,
+        displayName: p.displayName,
+        initials: initialsFor(p.displayName),
+        // Server-only personas carry the server's label (spec 216 hard rule:
+        // never invent a strength the backend didn't state).
+        strengthLabel: p.strengthLabel ?? "unmeasured",
+        available: true,
+        isPrivate: p.isPrivate,
+      }),
+    )
+  return [
+    ...extras.filter((e) => e.isPrivate),
+    ...roster,
+    ...extras.filter((e) => !e.isPrivate),
+  ]
 }

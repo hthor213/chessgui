@@ -116,3 +116,36 @@ export function formatEval(ev: NodeEval): string {
   const pawns = (ev.cp ?? 0) / 100;
   return `${pawns >= 0 ? "+" : ""}${pawns.toFixed(1)}`;
 }
+
+/** Move-quality tiers from the eval swing (spec 202 blunder detection). */
+export type MoveJudgment = "inaccuracy" | "mistake" | "blunder";
+
+// Evals clamp here before comparing, with mate at the full cap: trading mate
+// in 2 for mate in 8 is no drop at all, while throwing a mate away is a
+// maximal one, and swings between already-decisive evals don't re-register.
+const JUDGMENT_CAP_CP = 1000;
+
+function judgmentCp(ev: NodeEval): number {
+  if (ev.mate !== undefined) return ev.mate > 0 ? JUDGMENT_CAP_CP : -JUDGMENT_CAP_CP;
+  return Math.max(-JUDGMENT_CAP_CP, Math.min(JUDGMENT_CAP_CP, ev.cp ?? 0));
+}
+
+/**
+ * Classify a move by how far the mover's eval dropped (spec 202 thresholds):
+ * inaccuracy 0.5–1.0 pawns, mistake 1.0–3.0, blunder >3.0 (the shared 1.0
+ * boundary counts as the worse tier). `before` is the position the move was
+ * played from, `after` the resulting position, both white-perspective;
+ * `moverIsWhite` orients the drop.
+ */
+export function judgeMove(
+  before: NodeEval,
+  after: NodeEval,
+  moverIsWhite: boolean,
+): MoveJudgment | null {
+  const swing = judgmentCp(after) - judgmentCp(before);
+  const drop = moverIsWhite ? -swing : swing;
+  if (drop > 300) return "blunder";
+  if (drop >= 100) return "mistake";
+  if (drop >= 50) return "inaccuracy";
+  return null;
+}

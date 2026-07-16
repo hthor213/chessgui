@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
-import { evalToUnit, formatEval, nodeEval } from "@/lib/annotations";
+import { evalToUnit, formatEval, judgeMove, nodeEval, type MoveJudgment } from "@/lib/annotations";
 import type { GameTree, MoveNode } from "@/lib/game-tree";
 
 interface EvalGraphProps {
@@ -24,11 +24,16 @@ const PLOT_BG = "#12100e";
 const MIDLINE = "rgba(255,255,255,0.18)";
 const CURVE = "#8a8783";
 const CURRENT = "rgba(155,199,0,0.9)"; // matches the move list's current-move accent
+// Judgment-dot inks (status colors, not series colors). The PLOT_BG ring keeps
+// them legible where they land on the light fill region.
+const MISTAKE = "#e69f00";
+const BLUNDER = "#df5353";
 
 interface Point {
   node: MoveNode;
   index: number; // 1-based ply position on the mainline
   unit: number | null; // eval squashed to [-1, 1]; null when unknown
+  judgment: MoveJudgment | null; // null when fine or either side's eval is unknown
 }
 
 /**
@@ -56,7 +61,13 @@ export function EvalGraph({ tree, currentId, onGoToNode, version }: EvalGraphPro
     const mainline = tree.mainlineNodes(); // [0] is the root
     return mainline.slice(1).map((node, i) => {
       const ev = nodeEval(node);
-      return { node, index: i + 1, unit: ev ? evalToUnit(ev) : null };
+      const before = nodeEval(mainline[i]); // parent = position the move was played from
+      return {
+        node,
+        index: i + 1,
+        unit: ev ? evalToUnit(ev) : null,
+        judgment: ev && before ? judgeMove(before, ev, node.ply % 2 === 1) : null,
+      };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree, version]);
@@ -139,6 +150,21 @@ export function EvalGraph({ tree, currentId, onGoToNode, version }: EvalGraphPro
           {curvePath && <path d={curvePath} fill="none" stroke={CURVE} strokeWidth={1} />}
           {/* midline (eval 0) above the fill so it stays readable on both regions */}
           <line x1={0} x2={width} y1={HEIGHT / 2} y2={HEIGHT / 2} stroke={MIDLINE} strokeWidth={1} strokeDasharray="3,3" />
+          {/* Blunder/mistake dots (spec 202); inaccuracies stay tooltip-only
+              to keep the chart calm. */}
+          {points.map((p) =>
+            p.unit !== null && (p.judgment === "blunder" || p.judgment === "mistake") ? (
+              <circle
+                key={p.node.id}
+                cx={xFor(p.index)}
+                cy={yFor(p.unit)}
+                r={3}
+                fill={p.judgment === "blunder" ? BLUNDER : MISTAKE}
+                stroke={PLOT_BG}
+                strokeWidth={1.5}
+              />
+            ) : null,
+          )}
           {currentIndex !== null && (
             <line
               x1={xFor(currentIndex)}
@@ -171,6 +197,7 @@ export function EvalGraph({ tree, currentId, onGoToNode, version }: EvalGraphPro
             }}
           >
             {moveLabel(hover)} {hoverEval ? formatEval(hoverEval) : "—"}
+            {hover.judgment ? ` · ${hover.judgment}` : ""}
           </div>
         )}
       </div>

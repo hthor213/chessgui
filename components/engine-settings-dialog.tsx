@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -13,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
+  DEFAULT_ENGINE_PATH,
   HASH_MAX,
   HASH_MIN,
   MULTI_PV_MAX,
@@ -24,6 +26,10 @@ import {
 interface EngineSettingsDialogProps {
   settings: EngineSettings;
   onSave: (next: EngineSettings) => void;
+  /** Currently selected engine binary (spec 011). */
+  enginePath: string;
+  /** Called on Save when the user picked a different binary. */
+  onEnginePathChange: (path: string) => void;
   /** Element that opens the dialog (e.g. a gear icon button). */
   trigger: React.ReactNode;
 }
@@ -54,16 +60,37 @@ function SettingRow({
   );
 }
 
-export function EngineSettingsDialog({ settings, onSave, trigger }: EngineSettingsDialogProps) {
+export function EngineSettingsDialog({
+  settings,
+  onSave,
+  enginePath,
+  onEnginePathChange,
+  trigger,
+}: EngineSettingsDialogProps) {
   const [open, setOpen] = useState(false);
   // Draft edited in the dialog; committed on Save so half-typed values
   // never restart the engine search.
   const [draft, setDraft] = useState<EngineSettings>(settings);
+  const [draftPath, setDraftPath] = useState<string>(enginePath);
   const cores = maxThreads();
 
   const handleOpenChange = (next: boolean) => {
-    if (next) setDraft(settings); // re-sync draft each time the dialog opens
+    if (next) {
+      setDraft(settings); // re-sync drafts each time the dialog opens
+      setDraftPath(enginePath);
+    }
     setOpen(next);
+  };
+
+  const handleBrowse = async () => {
+    // Native file picker (tauri plugin-dialog). No extension filter — UCI
+    // engine binaries have none on macOS.
+    const picked = await openFileDialog({
+      multiple: false,
+      directory: false,
+      title: "Select UCI engine binary",
+    });
+    if (typeof picked === "string" && picked) setDraftPath(picked);
   };
 
   const handleSave = () => {
@@ -73,6 +100,7 @@ export function EngineSettingsDialog({ settings, onSave, trigger }: EngineSettin
       threads: clamp(draft.threads, 1, cores, settings.threads),
       multiPv: clamp(draft.multiPv, MULTI_PV_MIN, MULTI_PV_MAX, settings.multiPv),
     });
+    if (draftPath !== enginePath) onEnginePathChange(draftPath);
     setOpen(false);
   };
 
@@ -88,6 +116,28 @@ export function EngineSettingsDialog({ settings, onSave, trigger }: EngineSettin
         </DialogHeader>
 
         <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col">
+                <span className="text-sm text-foreground">Engine</span>
+                <span className="text-xs text-muted-foreground">UCI binary to run</span>
+              </div>
+              <div className="flex gap-2">
+                {draftPath !== DEFAULT_ENGINE_PATH && (
+                  <Button variant="ghost" size="sm" onClick={() => setDraftPath(DEFAULT_ENGINE_PATH)}>
+                    Default
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={handleBrowse}>
+                  Browse…
+                </Button>
+              </div>
+            </div>
+            <span className="text-xs font-mono text-muted-foreground truncate" title={draftPath}>
+              {draftPath}
+            </span>
+          </div>
+
           <SettingRow label="Hash" hint={`Memory in MB (${HASH_MIN}–${HASH_MAX})`}>
             <Input
               type="number"

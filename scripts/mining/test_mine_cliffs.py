@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fixture tests for mine_cliffs.py (spec 211 Tier-1 generator).
 
-fixtures/cliffs.pgn holds five hand-built games:
+fixtures/cliffs.pgn holds seven hand-built games:
   cliff001  POSITIVE, White mover — the Elephant Trap (6.Nxd5?? loses a
             piece to 6...Nxd5! 7.Bxd8 Bb4+). Real cliff, engine confirms.
   cliff002  NEGATIVE — calm Najdorf, honest evals, no cliff anywhere.
@@ -12,9 +12,16 @@ fixtures/cliffs.pgn holds five hand-built games:
             (-1.2 -> -4.0); must never become a candidate.
   cliff005  POSITIVE, Black mover — 4...Nxe4?? in the Italian hangs a
             knight to 5.dxe4 (tests the sign convention end to end).
+  cliff006  ENGAGEMENT (termination) — the cliff001 game replayed, but
+            Termination "Time forfeit" with the mover losing: rejected
+            engagement_termination BEFORE any engine call.
+  cliff007  ENGAGEMENT (%clk) — the cliff005 trap played in 0.6s while
+            the mover's other think times run 10-20s: rejected
+            engagement_instant (1.5σ-vs-own-median), no engine call.
 
-Expected end-to-end result: exactly 2 puzzles, 3 candidates, 1 rejected
-as verify_eval. Engine tests use $STOCKFISH, else `stockfish` on PATH,
+Expected end-to-end result: exactly 2 puzzles, 5 candidates, rejects
+{engagement_instant: 1, engagement_termination: 1, verify_eval: 1}.
+Engine tests use $STOCKFISH, else `stockfish` on PATH,
 else the homebrew path; they skip (loudly) if none exists.
 
 Run:  python3 scripts/mining/test_mine_cliffs.py
@@ -32,8 +39,8 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from mine_cliffs import (Verifier, eval_tag_to_cp, find_candidates,
-                         parse_movetext)
+from mine_cliffs import (Verifier, engagement_reject, eval_tag_to_cp,
+                         find_candidates, mover_think_times, parse_movetext)
 from uciengine import SearchLine
 
 FIXTURE = os.path.join(HERE, "fixtures", "cliffs.pgn")
@@ -59,14 +66,15 @@ class TestEvalTags(unittest.TestCase):
 
 class TestParseMovetext(unittest.TestCase):
     def test_lichess_style(self):
-        sans, evals = parse_movetext(
+        sans, evals, clks = parse_movetext(
             "1. e4 { [%eval 0.2] [%clk 0:10:00] } 1... e5?! { [%eval 0.3] } "
             "2. Nf3 $2 Nc6?? { [%eval #1] } 1-0")
         self.assertEqual(sans, ["e4", "e5", "Nf3", "Nc6"])
         self.assertEqual(evals, [20, 30, None, 9999])
+        self.assertEqual(clks, [600.0, None, None, None])
 
     def test_result_stops(self):
-        sans, _ = parse_movetext("1. e4 1/2-1/2 e5")
+        sans, _, _ = parse_movetext("1. e4 1/2-1/2 e5")
         self.assertEqual(sans, ["e4"])
 
     def test_variations_bail(self):
@@ -96,6 +104,90 @@ class TestFindCandidates(unittest.TestCase):
     def test_missing_evals_skipped(self):
         self.assertEqual(list(find_candidates([None, -240, None], 100, 150)),
                          [])
+
+
+def white_clks(thinks, base=600.0, inc=5.0):
+    """clks list for a WHITE mover: remaining clock after each of their
+    even-ply moves, None at the opponent's odd plies."""
+    clks, rem = [], base
+    for t in thinks:
+        rem = rem - t + inc
+        clks.extend([rem, None])
+    return clks
+
+
+class TestEngagement(unittest.TestCase):
+    """Unit coverage for engagement_reject; fixtures cliff006/007 cover the
+    end-to-end path. Mover is White, trap at ply 8 = thinks index 4; the
+    first two mover moves are skipped as book/premove, leaving 8 samples."""
+
+    STEADY = [10, 15, 20, 14, 18, 15, 12, 16, 14, 17]
+
+    def _reject(self, thinks, trap_ply=8, **headers):
+        h = {b"TimeControl": b"600+5", b"Termination": b"Normal",
+             b"Result": b"1-0"}
+        h.update({k.encode(): v.encode() for k, v in headers.items()})
+        return engagement_reject(h, white_clks(thinks), trap_ply)
+
+    def _with_trap(self, trap_t):
+        return self.STEADY[:4] + [trap_t] + self.STEADY[5:]
+
+    def test_think_times_from_clocks(self):
+        clks = white_clks([10, 15, 0.5])  # 0.5 is float-exact
+        self.assertEqual(mover_think_times(clks, 0, 600, 5),
+                         {0: 10.0, 2: 15.0, 4: 0.5})
+
+    def test_negative_think_time_dropped(self):
+        # Lichess clock correction: remaining clock JUMPS UP mid-game.
+        clks = white_clks([10, -30, 15])
+        self.assertEqual(mover_think_times(clks, 0, 600, 5),
+                         {0: 10.0, 4: 15.0})
+
+    def test_steady_game_kept(self):
+        self.assertIsNone(self._reject(self.STEADY))
+
+    def test_instant_rejected(self):
+        self.assertEqual(self._reject(self._with_trap(0.5)),
+                         "engagement_instant")
+
+    def test_clock_gap_rejected(self):
+        self.assertEqual(self._reject(self._with_trap(120)),
+                         "engagement_clock_gap")
+
+    def test_fast_but_not_instant_kept(self):
+        # 2 s is below median - 1.5 sigma here, but above the 1 s
+        # near-instant bar: a quick move, not proof of absence.
+        self.assertIsNone(self._reject(self._with_trap(2)))
+
+    def test_termination_mover_lost_rejected(self):
+        self.assertEqual(
+            self._reject(self.STEADY, Termination="Time forfeit",
+                         Result="0-1"),
+            "engagement_termination")
+
+    def test_termination_mover_won_kept(self):
+        # The OPPONENT flagging says nothing about the mover's engagement.
+        self.assertIsNone(self._reject(self.STEADY,
+                                       Termination="Time forfeit",
+                                       Result="1-0"))
+
+    def test_no_clock_semantics_kept(self):
+        self.assertIsNone(self._reject(self._with_trap(0.5),
+                                       TimeControl="-"))
+
+    def test_missing_trap_clk_kept(self):
+        clks = white_clks(self.STEADY)
+        clks[8] = None
+        self.assertIsNone(engagement_reject(
+            {b"TimeControl": b"600+5", b"Result": b"1-0"}, clks, 8))
+
+    def test_thin_sample_kept(self):
+        # 2 skipped + 4 usable < ENGAGEMENT_MIN_SAMPLE: no signal.
+        self.assertIsNone(self._reject([10, 15, 20, 14, 0.5, 18],
+                                       trap_ply=8))
+
+    def test_zero_sigma_kept(self):
+        self.assertIsNone(self._reject([10] * 10))
 
 
 def _args(**over):
@@ -231,13 +323,18 @@ class TestEndToEnd(unittest.TestCase):
 
     def test_stats_prove_the_negatives(self):
         s = self.stats
-        self.assertEqual(s["games_seen"], 5)
+        self.assertEqual(s["games_seen"], 7)
         # cliff002 (calm) and cliff004 (pre-window) yield no candidates;
-        # cliff003's fabricated tag becomes the third candidate...
-        self.assertEqual(s["candidates"], 3)
-        self.assertEqual(s["games_with_candidates"], 3)
-        # ...and engine re-verification kills it (spec 211:50-51).
-        self.assertEqual(s["rejected"], {"verify_eval": 1})
+        # cliff003's fabricated tag, cliff006's forfeit and cliff007's
+        # instant trap make candidates 3-5...
+        self.assertEqual(s["candidates"], 5)
+        self.assertEqual(s["games_with_candidates"], 5)
+        # ...engine re-verification kills cliff003 (spec 211:50-51), the
+        # engagement filter kills cliff006/007 before any engine call
+        # (spec 211:122-126).
+        self.assertEqual(s["rejected"], {"engagement_instant": 1,
+                                         "engagement_termination": 1,
+                                         "verify_eval": 1})
         self.assertEqual(s["puzzles"], 2)
 
     def test_idempotent_rerun(self):

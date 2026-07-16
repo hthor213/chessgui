@@ -76,10 +76,13 @@ class EngineStall(Exception):
 
 
 class Lc0Search:
-    """One warm lc0 bound to the BT3 net. Thread-safe via an external lock in
-    the caller (Tier 0 serializes persona moves — 1-2 concurrent games)."""
+    """One warm lc0 bound to a net — the BT3 net by default, or a per-persona
+    net (Maia bands for private amateur personas, spec 217 Promise 1).
+    Thread-safe via an external lock in the caller (Tier 0 serializes persona
+    moves — 1-2 concurrent games)."""
 
-    def __init__(self):
+    def __init__(self, net_path: Optional[str] = None):
+        self._net_path = net_path or config.LC0_NET_PATH
         self._p: Optional[subprocess.Popen] = None
         self._q: Optional[queue.Queue] = None
         self.lock = threading.Lock()
@@ -87,7 +90,7 @@ class Lc0Search:
 
     def _spawn(self) -> None:
         self._p = subprocess.Popen(
-            [config.LC0_PATH, f"--weights={config.LC0_NET_PATH}",
+            [config.LC0_PATH, f"--weights={self._net_path}",
              f"--threads={config.LC0_THREADS}"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, bufsize=1,

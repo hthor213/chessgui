@@ -54,6 +54,13 @@ pub struct MachineProfile {
     pub threads: usize,
     /// ISO-8601 UTC timestamp of the measurement.
     pub measured_at: String,
+    /// Fingerprint of the hardware the bench ran on (see
+    /// `hardware_fingerprint`). Empty on profiles that predate fingerprinting;
+    /// `machine_profile_get` stamps those in place. A mismatch against the live
+    /// machine means the nps (and any measured curve) describe different
+    /// silicon, so the frontend auto re-benches (spec 216 Tier 2).
+    #[serde(default)]
+    pub hw_fingerprint: String,
     /// Measured `b(t)` speed→Elo curve, or null while the literature prior is in
     /// effect. Filled by the Tier-1 ladder; opaque here (`serde_json::Value`) so
     /// this Tier-0 code needn't know the fitted shape.
@@ -125,6 +132,22 @@ fn profile_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("machine_profile.json"))
 }
 
+/// The stored profile, or None if the file doesn't exist yet.
+fn read_profile(file: &PathBuf) -> Result<Option<MachineProfile>, String> {
+    match std::fs::read_to_string(file) {
+        Ok(text) => serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|e| format!("parsing {file:?}: {e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("reading {file:?}: {e}")),
+    }
+}
+
+fn write_profile(file: &PathBuf, profile: &MachineProfile) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(profile).map_err(|e| e.to_string())?;
+    std::fs::write(file, json).map_err(|e| format!("writing {file:?}: {e}"))
+}
+
 /// This machine's hostname. Shells out to `hostname` — present on macOS and
 /// Linux, the two places this app runs — rather than pull a crate for one
 /// string; falls back to "unknown" if it isn't available.
@@ -136,6 +159,58 @@ fn hostname() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// One `sysctl -n <key>` value (macOS) — same shell-out idiom as `hostname()`.
+#[cfg(target_os = "macos")]
+fn sysctl(key: &str) -> Option<String> {
+    std::process::Command::new("sysctl")
+        .args(["-n", key])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// CPU model and total physical memory, the two hardware facts (besides core
+/// count) that make bench numbers comparable.
+#[cfg(target_os = "macos")]
+fn cpu_and_memory() -> (String, String) {
+    (
+        sysctl("machdep.cpu.brand_string").unwrap_or_else(|| "unknown-cpu".to_string()),
+        sysctl("hw.memsize").unwrap_or_else(|| "0".to_string()),
+    )
+}
+
+/// Linux (the other place this app runs): `/proc/cpuinfo` "model name" and
+/// `/proc/meminfo` "MemTotal".
+#[cfg(not(target_os = "macos"))]
+fn cpu_and_memory() -> (String, String) {
+    fn field(path: &str, label: &str) -> Option<String> {
+        std::fs::read_to_string(path).ok().and_then(|text| {
+            text.lines()
+                .find(|l| l.starts_with(label))
+                .and_then(|l| l.split_once(':').map(|(_, v)| v.trim().to_string()))
+                .filter(|s| !s.is_empty())
+        })
+    }
+    (
+        field("/proc/cpuinfo", "model name").unwrap_or_else(|| "unknown-cpu".to_string()),
+        field("/proc/meminfo", "MemTotal").unwrap_or_else(|| "0".to_string()),
+    )
+}
+
+/// The live hardware fingerprint: CPU model, logical core count, physical
+/// memory. Hostname is deliberately excluded — it changes with the network,
+/// not the silicon — and the format is opaque to callers, who only ever
+/// compare fingerprints for equality.
+fn hardware_fingerprint() -> String {
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(0);
+    let (cpu, mem) = cpu_and_memory();
+    format!("{cpu} | {cores} cores | {mem}")
 }
 
 /// ISO-8601 UTC timestamp ("2026-07-14T22:13:20Z") for `secs` since the Unix
@@ -184,6 +259,17 @@ pub async fn machine_bench(
         .unwrap_or_else(|| DEFAULT_STOCKFISH.to_string());
 
     let bench = run_bench(&path).await?;
+    let file = profile_path(&app)?;
+
+    // A measured curve survives a re-bench only while it still describes this
+    // hardware: same-fingerprint re-bench keeps MEASURED, a hardware change
+    // resets to PRIOR until the Tier-1 ladder reruns (spec 216 Tier 2).
+    let fingerprint = hardware_fingerprint();
+    let curve = read_profile(&file)
+        .ok()
+        .flatten()
+        .filter(|p| !p.hw_fingerprint.is_empty() && p.hw_fingerprint == fingerprint)
+        .and_then(|p| p.curve);
 
     let profile = MachineProfile {
         hostname: hostname(),
@@ -192,12 +278,11 @@ pub async fn machine_bench(
         nps: bench.nps,
         threads: bench.threads,
         measured_at: now_iso(),
-        curve: None,
+        hw_fingerprint: fingerprint,
+        curve,
     };
 
-    let file = profile_path(&app)?;
-    let json = serde_json::to_string_pretty(&profile).map_err(|e| e.to_string())?;
-    std::fs::write(&file, json).map_err(|e| format!("writing {file:?}: {e}"))?;
+    write_profile(&file, &profile)?;
 
     Ok(bench)
 }
@@ -206,13 +291,25 @@ pub async fn machine_bench(
 #[tauri::command]
 pub fn machine_profile_get(app: tauri::AppHandle) -> Result<Option<MachineProfile>, String> {
     let file = profile_path(&app)?;
-    match std::fs::read_to_string(&file) {
-        Ok(text) => serde_json::from_str(&text)
-            .map(Some)
-            .map_err(|e| format!("parsing {file:?}: {e}")),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("reading {file:?}: {e}")),
+    let mut profile = match read_profile(&file)? {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    // Profiles that predate fingerprinting were measured on this machine, so
+    // stamp the current fingerprint in place instead of forcing a re-bench
+    // that would wipe a measured curve back to PRIOR.
+    if profile.hw_fingerprint.is_empty() {
+        profile.hw_fingerprint = hardware_fingerprint();
+        write_profile(&file, &profile)?;
     }
+    Ok(Some(profile))
+}
+
+/// The live hardware fingerprint, for comparing against the stored profile's
+/// `hw_fingerprint`. Opaque — callers only test equality.
+#[tauri::command]
+pub fn machine_fingerprint() -> String {
+    hardware_fingerprint()
 }
 
 #[cfg(test)]
@@ -254,5 +351,31 @@ Nodes/second    : 1853879
     fn iso_from_known_epoch() {
         assert_eq!(iso_from_secs(1_700_000_000), "2023-11-14T22:13:20Z");
         assert_eq!(iso_from_secs(0), "1970-01-01T00:00:00Z");
+    }
+
+    /// The fingerprint is a stable, non-degenerate fact about this machine —
+    /// two reads agree, and at least the core count resolved.
+    #[test]
+    fn hardware_fingerprint_is_stable() {
+        let fp = hardware_fingerprint();
+        assert_eq!(fp, hardware_fingerprint());
+        assert!(!fp.starts_with("unknown-cpu | 0 cores"), "fingerprint fully degenerate: {fp}");
+    }
+
+    /// A profile written before fingerprinting (no `hw_fingerprint` key) still
+    /// parses — serde default gives the empty string that marks it for stamping.
+    #[test]
+    fn legacy_profile_parses_without_fingerprint() {
+        let legacy = r#"{
+            "hostname": "old-mac",
+            "engine_name": "Stockfish 16.1",
+            "engine_path": "/opt/homebrew/bin/stockfish",
+            "nps": 1853879,
+            "threads": 1,
+            "measured_at": "2026-07-14T22:13:20Z",
+            "curve": null
+        }"#;
+        let profile: MachineProfile = serde_json::from_str(legacy).unwrap();
+        assert_eq!(profile.hw_fingerprint, "");
     }
 }

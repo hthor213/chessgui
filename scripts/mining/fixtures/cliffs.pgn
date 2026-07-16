@@ -72,3 +72,33 @@
 [Termination "Normal"]
 
 1. e4 { [%eval 0.2] [%clk 0:10:00] } 1... e5 { [%eval 0.25] } 2. Nf3 { [%eval 0.3] } 2... Nc6 { [%eval 0.2] } 3. Bc4 { [%eval 0.25] } 3... Nf6 { [%eval 0.2] } 4. d3 { [%eval 0.2] } 4... Nxe4?? { [%eval 4.3] } 5. dxe4 { [%eval 4.2] } 5... d6 { [%eval 4.3] } 6. O-O { [%eval 4.2] } 1-0
+
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/cliff006"]
+[Date "2026.05.03"]
+[White "afk_andy"]
+[Black "beneficiary_bob"]
+[Result "0-1"]
+[UTCDate "2026.05.03"]
+[UTCTime "14:00:00"]
+[WhiteElo "1712"]
+[BlackElo "1745"]
+[TimeControl "600+5"]
+[Termination "Time forfeit"]
+
+1. d4 { [%eval 0.2] } 1... d5 { [%eval 0.3] } 2. c4 { [%eval 0.25] } 2... e6 { [%eval 0.3] } 3. Nc3 { [%eval 0.2] } 3... Nf6 { [%eval 0.3] } 4. Bg5 { [%eval 0.25] } 4... Nbd7 { [%eval 0.35] } 5. cxd5 { [%eval 0.3] } 5... exd5 { [%eval 0.4] } 6. Nxd5?? { [%eval -2.4] } 6... Nxd5 { [%eval -2.3] } 7. Bxd8 { [%eval -2.5] } 7... Bb4+ { [%eval -2.6] } 8. Qd2 { [%eval -2.5] } 8... Bxd2+ { [%eval -2.6] } 9. Kxd2 { [%eval -2.5] } 9... Kxd8 { [%eval -2.4] } 0-1
+
+[Event "Rated Rapid game"]
+[Site "https://lichess.org/cliff007"]
+[Date "2026.05.04"]
+[White "steady_steve"]
+[Black "tabbed_out_tina"]
+[Result "1-0"]
+[UTCDate "2026.05.04"]
+[UTCTime "16:00:00"]
+[WhiteElo "1905"]
+[BlackElo "1861"]
+[TimeControl "600+5"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] [%clk 0:09:55] } 1... e5 { [%eval 0.25] [%clk 0:09:55] } 2. Nf3 { [%eval 0.3] [%clk 0:09:50] } 2... Nc6 { [%eval 0.2] [%clk 0:09:45] } 3. Bc4 { [%eval 0.25] [%clk 0:09:45] } 3... Nf6 { [%eval 0.2] [%clk 0:09:30] } 4. d3 { [%eval 0.2] [%clk 0:09:40] } 4... Nxe4?? { [%eval 4.3] [%clk 0:09:34.4] } 5. dxe4 { [%eval 4.2] [%clk 0:09:35] } 5... d6 { [%eval 4.3] [%clk 0:09:21.4] } 6. O-O { [%eval 4.2] [%clk 0:09:30] } 6... Be7 { [%eval 4.3] [%clk 0:09:11.4] } 7. Nc3 { [%eval 4.2] [%clk 0:09:25] } 7... O-O { [%eval 4.3] [%clk 0:09:04.4] } 8. h3 { [%eval 4.2] [%clk 0:09:20] } 8... a6 { [%eval 4.3] [%clk 0:08:53.4] } 9. a3 { [%eval 4.2] [%clk 0:09:15] } 9... b5 { [%eval 4.3] [%clk 0:08:44.4] } 10. Ba2 { [%eval 4.2] [%clk 0:09:10] } 10... Bb7 { [%eval 4.3] [%clk 0:08:32.4] } 1-0

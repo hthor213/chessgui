@@ -15,6 +15,17 @@ pre-position must not already be lost, and the pre-position must offer
 ≥ 3 reasonable alternative moves (within --safe-window cp of best AND above
 --lost-threshold), else the candidate is dropped.
 
+Before any engine time is spent, each candidate passes the ENGAGEMENT
+filter (specs/211-avoidance-puzzles.md:122-126: "a blunder in a distracted
+game is not a perceptual rake"), the rival-dossier methodology of
+scripts/self_report/self_engage.py adapted to single corpus games:
+timeout/abandon terminations where the mover lost, and the trap move's
+[%clk] think time deviating more than 1.5σ from the mover's OWN median
+move time in that game — near-instant below the band (wasn't looking),
+big clock gap above it (walked away, collapsed on return). Games without
+%clk/TimeControl data carry no signal and are KEPT; the filter only
+removes provably disengaged games. --no-engagement disables it.
+
 Output: one JSONL file per input month (spec 211 names the `puzzles` table
 columns but no interchange format and the app DB has no puzzles table yet,
 so this emits JSONL; scripts/mining/import_puzzles.py loads it into a
@@ -37,12 +48,14 @@ import argparse
 import json
 import os
 import re
+import statistics
 import sys
 import time
 from datetime import datetime, timezone
 
 import pgnstream
-from pgnstream import band_of, iter_games, pgn_lines
+from pgnstream import band_of, clk_to_seconds, iter_games, pgn_lines, \
+    tc_base_inc
 from uciengine import MATE_CP, UciEngine
 
 try:
@@ -72,8 +85,18 @@ ROW_SCHEMA = """Each JSONL row (all evals in centipawns, MOVER's perspective):
 # move numbers, results). Lichess dumps have no variations; '(' aborts a game.
 TOKEN_RE = re.compile(r"\{([^}]*)\}|[()]|\$\d+|[^\s{}()]+")
 EVAL_RE = re.compile(r"\[%eval\s+([#0-9.+-]+)")
+CLK_RE = re.compile(r"\[%clk\s+([0-9:.]+)")
 MOVENUM_RE = re.compile(r"\d+\.*$")
 RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
+
+# Engagement filter (spec 211:122-126) — same rule as the rival dossiers
+# (scripts/self_report/self_engage.py): exclusion at own median ± 1.5σ.
+# The σ multiplier is spec-pinned; the ≤1s "near-instant" bar and the
+# skip-the-first-two-moves convention are self_engage.py's.
+ENGAGEMENT_SIGMA = 1.5
+ENGAGEMENT_INSTANT_S = 1.0
+ENGAGEMENT_MIN_SAMPLE = 5
+ENGAGEMENT_SKIP_MOVES = 2
 
 
 def eval_tag_to_cp(s):
@@ -88,17 +111,24 @@ def eval_tag_to_cp(s):
 
 
 def parse_movetext(text):
-    """Movetext str -> (sans, evals_cp) parallel lists, or None on variations.
+    """Movetext str -> (sans, evals_cp, clks_s) parallel lists, or None
+    on variations.
 
     evals_cp[i] is the white-perspective [%eval] after move i, or None.
+    clks_s[i] is the mover's remaining [%clk] in seconds after move i,
+    or None.
     """
-    sans, evals = [], []
+    sans, evals, clks = [], [], []
     for m in TOKEN_RE.finditer(text):
         tok = m.group(0)
         if tok.startswith("{"):
-            ev = EVAL_RE.search(m.group(1))
-            if ev and sans:
-                evals[-1] = eval_tag_to_cp(ev.group(1))
+            if sans:
+                ev = EVAL_RE.search(m.group(1))
+                if ev:
+                    evals[-1] = eval_tag_to_cp(ev.group(1))
+                ck = CLK_RE.search(m.group(1))
+                if ck:
+                    clks[-1] = clk_to_seconds(ck.group(1))
             continue
         if tok in "()":
             return None  # variations unsupported (never in lichess dumps)
@@ -108,7 +138,8 @@ def parse_movetext(text):
             continue
         sans.append(tok.rstrip("!?"))
         evals.append(None)
-    return sans, evals
+        clks.append(None)
+    return sans, evals, clks
 
 
 def find_candidates(evals, pre_window, cliff):
@@ -135,6 +166,73 @@ def int_header(headers, key):
         return int(v)
     except (TypeError, ValueError):
         return None
+
+
+def mover_think_times(clks, trap_ply, base, inc):
+    """{ply: think seconds} for the trap's mover, from [%clk] tags.
+
+    clks[i] = remaining clock after move i (parse_movetext), the mover is
+    whoever played trap_ply. A move's time is unknowable when its own or
+    the previous same-side clock is missing; negative times (lichess
+    clock corrections) are dropped too."""
+    times = {}
+    prev = float(base)
+    for p in range(trap_ply % 2, len(clks), 2):
+        c = clks[p]
+        if c is not None and prev is not None:
+            spent = prev - c + inc
+            if spent >= 0:
+                times[p] = spent
+        prev = c
+    return times
+
+
+def engagement_reject(headers, clks, trap_ply):
+    """Spec 211 engagement filter: reject-reason str, or None to keep.
+
+    "A blunder in a distracted game is not a perceptual rake"
+    (specs/211-avoidance-puzzles.md:122-126). Signals, per the
+    rival-dossier methodology (scripts/self_report/self_engage.py):
+
+      engagement_termination  timeout/abandon termination AND the mover
+                              is the side that lost (the opponent
+                              flagging says nothing about the mover)
+      engagement_instant      trap think time below own median − 1.5σ
+                              AND near-instant (≤ 1 s): tail of an
+                              instant burst — the mover wasn't looking
+      engagement_clock_gap    trap think time above own median + 1.5σ:
+                              big clock gap, then the collapse — the
+                              mover walked away and moved on return
+
+    median/σ are over the mover's OWN [%clk] think times in this game
+    (first two mover moves skipped as book/premove). Missing %clk or
+    TimeControl data, thin samples (< 5 usable times) and σ = 0 yield
+    NO signal: the candidate is kept."""
+    mover_white = trap_ply % 2 == 0
+    term = (header(headers, "Termination") or "").lower()
+    if "time forfeit" in term or "abandon" in term:
+        if header(headers, "Result") == ("0-1" if mover_white else "1-0"):
+            return "engagement_termination"
+
+    base, inc = tc_base_inc(header(headers, "TimeControl"))
+    if base is None:
+        return None
+    times = mover_think_times(clks, trap_ply, base, inc)
+    trap_t = times.get(trap_ply)
+    if trap_t is None:
+        return None
+    sample = [times[p] for p in sorted(times)][ENGAGEMENT_SKIP_MOVES:]
+    if len(sample) < ENGAGEMENT_MIN_SAMPLE:
+        return None
+    med = statistics.median(sample)
+    sd = statistics.pstdev(sample)
+    if sd == 0:
+        return None
+    if trap_t > med + ENGAGEMENT_SIGMA * sd:
+        return "engagement_clock_gap"
+    if trap_t < med - ENGAGEMENT_SIGMA * sd and trap_t <= ENGAGEMENT_INSTANT_S:
+        return "engagement_instant"
+    return None
 
 
 class Verifier:
@@ -219,7 +317,7 @@ def mine_file(path, engine, args, out_dir):
             if parsed is None:
                 stats["parse_skipped"] += 1
                 continue
-            sans, evals = parsed
+            sans, evals, clks = parsed
             cand_plies = list(find_candidates(evals, args.pre_window,
                                               args.cliff))
             if not cand_plies:
@@ -242,6 +340,13 @@ def mine_file(path, engine, args, out_dir):
 
             for ply, fen, san in cands:
                 stats["candidates"] += 1
+                # Engagement gate first: header + [%clk] math only, saves
+                # the (dominant) engine time on disengaged games.
+                if not args.no_engagement:
+                    why = engagement_reject(headers, clks, ply)
+                    if why:
+                        reject(why)
+                        continue
                 b = chess.Board(fen)
                 trap = b.parse_san(san)
                 b.push(trap)
@@ -303,7 +408,7 @@ def mine_file(path, engine, args, out_dir):
         "params": {k: getattr(args, k) for k in
                    ("depth", "multipv", "pre_window", "cliff", "safe_window",
                     "lost_threshold", "verify_pre_max", "min_alternatives",
-                    "max_per_game", "refutation_plies")},
+                    "max_per_game", "refutation_plies", "no_engagement")},
         "engine": args.engine,
         "generator": GENERATOR,
         "elapsed_seconds": round(time.time() - started, 1),
@@ -379,6 +484,10 @@ def parse_args():
                         "(default 2; 0 = all).")
     p.add_argument("--refutation-plies", type=int, default=10,
                    help="Max plies of refutation PV stored (default 10).")
+    p.add_argument("--no-engagement", action="store_true",
+                   help="Disable the spec 211 engagement filter (%%clk "
+                        "1.5-sigma-vs-own-median move-time rule + "
+                        "timeout/abandon terminations).")
     p.add_argument("--limit", type=int, default=0,
                    help="Stop a month after N verified puzzles (0 = off). "
                         "A limited month gets NO done-marker.")

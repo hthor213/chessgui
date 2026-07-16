@@ -29,14 +29,32 @@ from .engine import Lc0Search
 
 
 class Persona:
-    def __init__(self, slug: str, cfg: dict, book_index: dict):
+    def __init__(self, slug: str, cfg: dict, book_index: dict,
+                 net_path: Optional[str] = None):
         self.slug = slug
         self.display_name = cfg["display_name"]
-        self.bio = cfg["bio"]
+        self.bio = cfg.get("bio", "")   # private-rival configs carry no bio
         self.book = book_index          # epd -> [(uci, weight)] for this persona
         sampling = cfg.get("sampling", {})
         self.top_k = int(sampling.get("top_k", config.TOP_K))
-        self.nodes = config.SEARCH_NODES
+        # net_path None -> the shared BT3 engine. Private amateur personas get
+        # their own net (Maia band) and a smaller out-of-book node budget —
+        # deep search on ANY net would play above the band.
+        self.net_path = net_path
+        self.nodes = config.MAIA_SEARCH_NODES if net_path else config.SEARCH_NODES
+        self.private = bool(cfg.get("private"))
+        self.strength_label = _strength_label(cfg)
+
+
+def _strength_label(cfg: dict) -> Optional[str]:
+    """Honest lobby label (spec 216 hard rule: no unmeasured strength claims).
+    Private-rival configs (build_rival_configs.py) carry strength_label; GM
+    personas get theirs client-side from persona-manifest.ts, so None here."""
+    sl = cfg.get("strength_label")
+    if not sl:
+        return None
+    band = sl.get("maia_band")
+    return f"own book + Maia {band}, unmeasured" if band else sl.get("kind")
 
 
 def _index_book(path: str) -> dict:
@@ -70,6 +88,43 @@ def load_roster() -> Dict[str, Persona]:
         with open(cfg_path) as f:
             cfg = json.load(f)
         roster[slug] = Persona(slug, cfg, _index_book(book_path))
+    return roster
+
+
+def load_private_roster() -> Dict[str, Persona]:
+    """spec 217 Promise 1: owner email -> that player's OWN persona, shown in
+    their lobby and nobody else's. Never raises on missing artifacts — the
+    persona simply appears once {slug}.config.json + its book (+ the Maia net
+    its backend names) land in PRIVATE_PERSONA_DIR (server-private, the
+    data/rivals equivalent; spec 214 hard rule: never committed)."""
+    roster: Dict[str, Persona] = {}
+    for email, slug in config.PRIVATE_PERSONAS.items():
+        cfg_path = os.path.join(config.PRIVATE_PERSONA_DIR,
+                                f"{slug}.config.json")
+        if not os.path.exists(cfg_path):
+            print(f"[persona] private '{slug}': missing {cfg_path}; skipped")
+            continue
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        # book.path is repo-relative in build_rival_configs.py output; only
+        # the basename means anything inside the container mount.
+        rel = cfg.get("book", {}).get("path", f"{slug}.book.json")
+        book_path = os.path.join(config.PRIVATE_PERSONA_DIR,
+                                 os.path.basename(rel))
+        if not os.path.exists(book_path):
+            print(f"[persona] private '{slug}': missing {book_path}; skipped")
+            continue
+        backend = cfg.get("backend", {})
+        net_path = None
+        if backend.get("kind") == "maia":
+            net_path = os.path.join(config.MAIA_NET_DIR, backend["net"])
+            if not os.path.exists(net_path):
+                print(f"[persona] private '{slug}': missing Maia net "
+                      f"{net_path}; skipped")
+                continue
+        p = Persona(slug, cfg, _index_book(book_path), net_path)
+        p.private = True  # gating fact, not a config opinion
+        roster[email] = p
     return roster
 
 

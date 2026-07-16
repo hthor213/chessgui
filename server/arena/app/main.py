@@ -28,17 +28,27 @@ from .engine import EngineStall, Lc0Search
 
 _engine: Optional[Lc0Search] = None
 _roster = {}
+_private_roster = {}   # owner email -> their OWN persona (spec 217 Promise 1)
+_maia_engines = {}     # net_path -> warm Lc0Search, spawned on first use
 _move_lock = threading.Lock()  # Tier 0: persona moves serialized (1-2 games)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _engine, _roster
+    global _engine, _roster, _private_roster
     os.makedirs(os.path.dirname(config.DB_PATH), exist_ok=True)
     db.init(config.DB_PATH)
     for email in config.ALLOWLIST:
         db.ensure_user(email)
     _roster = persona_mod.load_roster()
+    _private_roster = persona_mod.load_private_roster()
+    for email in list(_private_roster):
+        if _private_roster[email].slug in _roster:
+            # A private slug must never shadow a public one — game rows key
+            # personas by slug, and a collision would misroute _persona_of.
+            print(f"[arena] private persona '{_private_roster[email].slug}' "
+                  "shadows a roster slug; dropped")
+            del _private_roster[email]
     with open(config.LC0_NET_PATH, "rb") as f:  # pinned sha (maia.rs MANAGED_NETS)
         got = hashlib.sha256(f.read()).hexdigest()
     if got != config.LC0_NET_SHA256:
@@ -81,8 +91,10 @@ class MoveRequest(BaseModel):
 
 @app.get("/health")
 def health():
+    # Count only — private slugs/owners never leave the server unscoped.
     return {"status": "ok", "engine": _engine is not None,
-            "roster": sorted(_roster)}
+            "roster": sorted(_roster),
+            "private_personas": len(_private_roster)}
 
 
 @app.post("/api/auth/google-login")
@@ -101,11 +113,24 @@ def google_login(req: GoogleLoginRequest):
             "user": db.get_user_by_id(user["id"])}
 
 
+def _user_roster(user: dict) -> dict:
+    """The roster as THIS user sees it (spec 217 Promise 1): the shared
+    Tier-0 personas, plus the logged-in player's own private persona —
+    visible in their lobby and nobody else's."""
+    roster = dict(_roster)
+    own = _private_roster.get(user["email"])
+    if own:
+        roster[own.slug] = own
+    return roster
+
+
 @app.get("/api/personas")
 def personas(user: dict = Depends(current_user)):
     return {"disclosure": config.DISCLOSURE,
             "personas": [{"slug": p.slug, "display_name": p.display_name,
-                          "bio": p.bio} for p in _roster.values()]}
+                          "bio": p.bio, "private": p.private,
+                          "strength_label": p.strength_label}
+                         for p in _user_roster(user).values()]}
 
 
 # --- game helpers ---
@@ -138,11 +163,38 @@ def _finish_if_over(game_id: int, board: chess.Board) -> bool:
     return True
 
 
+def _persona_of(game: dict) -> persona_mod.Persona:
+    """Resolve a game's persona: the shared roster, or — for a private slug —
+    the game owner's own persona. 503 (not 500) if the artifacts vanished
+    between deploys: the game stays active and resumable, same contract as an
+    engine stall."""
+    p = _roster.get(game["persona"])
+    if p:
+        return p
+    owner = db.get_user_by_id(game["user_id"])
+    own = _private_roster.get(owner["email"]) if owner else None
+    if own and own.slug == game["persona"]:
+        return own
+    raise HTTPException(503, f"Persona '{game['persona']}' unavailable")
+
+
+def _engine_for(p: persona_mod.Persona) -> Lc0Search:
+    """BT3 by default; a Maia-backed private persona gets its own warm lc0,
+    spawned on first use (only under _move_lock) so a lobby that never plays
+    the private persona never pays the net load."""
+    if not p.net_path:
+        return _engine
+    eng = _maia_engines.get(p.net_path)
+    if eng is None:
+        eng = _maia_engines[p.net_path] = Lc0Search(p.net_path)
+    return eng
+
+
 def _persona_reply(game: dict, board: chess.Board) -> None:
-    p = _roster[game["persona"]]
+    p = _persona_of(game)
     with _move_lock:
         move, arm, log = persona_mod.select_move(p, board, game["seed"],
-                                                 _engine)
+                                                 _engine_for(p))
     san = board.san(move)
     ply = board.ply()
     board.push(move)
@@ -161,7 +213,9 @@ def _own_active_game(game_id: int, user: dict) -> dict:
 
 @app.post("/api/game")
 def create_game(req: CreateGameRequest, user: dict = Depends(current_user)):
-    if req.persona not in _roster:
+    # Per-user roster: another user's private persona is "unknown" here, not
+    # forbidden — its existence is itself private (spec 217 Promise 1).
+    if req.persona not in _user_roster(user):
         raise HTTPException(400, f"Unknown persona: {req.persona}")
     if req.player_color not in ("white", "black"):
         raise HTTPException(400, "player_color must be 'white' or 'black'")

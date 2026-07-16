@@ -5,15 +5,17 @@ import { Chess } from "chessops/chess";
 import { parseFen } from "chessops/fen";
 import { parseUciInfo, uciMovesToSan, parseEngineUci, type PvLine } from "@/lib/uci-parser";
 import {
+  DEFAULT_ENGINE_PATH,
+  clearEnginePath,
   defaultEngineSettings,
+  loadEnginePath,
   loadEngineSettings,
+  saveEnginePath,
   saveEngineSettings,
   type EngineSettings,
 } from "@/lib/engine-settings";
 import { getOpeningBookMove } from "@/lib/opening-book";
 
-const DEFAULT_ENGINE_PATH = "/opt/homebrew/bin/stockfish";
-const STORAGE_KEY = "engine-path";
 const DEBOUNCE_MS = 50;
 
 // Engine pacing in play mode (spec 216 UI:4 — "Same slider in Play vs engine
@@ -174,10 +176,15 @@ export function useEngine(
   startFenRef.current = startFen;
   moveIndexRef.current = currentMoveIndex;
 
+  // User-selected engine binary (spec 011). SSR-safe default, hydrated from
+  // localStorage after mount (same pattern as engine settings).
+  const [enginePath, setEnginePathState] = useState<string>(DEFAULT_ENGINE_PATH);
+
   useEffect(() => {
     const loaded = loadEngineSettings();
     settingsRef.current = loaded;
     setSettings(loaded);
+    setEnginePathState(loadEnginePath());
   }, []);
 
   const sendCommand = useCallback(async (cmd: string) => {
@@ -302,25 +309,27 @@ export function useEngine(
 
   const startEngine = useCallback(
     async (path?: string, mode: EngineMode = "analysis", playerColor: PlayerColor = "white") => {
-      const enginePath = path || localStorage.getItem(STORAGE_KEY) || DEFAULT_ENGINE_PATH;
+      const requestedPath = path || loadEnginePath();
 
       let result: { name: string; ready: boolean };
       try {
         result = await invoke<{ name: string; ready: boolean }>("start_engine", {
-          path: enginePath,
+          path: requestedPath,
         });
-        localStorage.setItem(STORAGE_KEY, enginePath);
+        saveEnginePath(requestedPath);
+        setEnginePathState(requestedPath);
       } catch (e) {
         // A stale stored path (e.g. an engine binary that has since moved or been
         // deleted) shouldn't permanently wedge the engine. If the failed path was
         // not already the built-in default, clear it and retry with the default.
-        if (enginePath !== DEFAULT_ENGINE_PATH) {
-          console.warn(`Engine path "${enginePath}" failed (${e}); retrying with default.`);
-          localStorage.removeItem(STORAGE_KEY);
+        if (requestedPath !== DEFAULT_ENGINE_PATH) {
+          console.warn(`Engine path "${requestedPath}" failed (${e}); retrying with default.`);
+          clearEnginePath();
           result = await invoke<{ name: string; ready: boolean }>("start_engine", {
             path: DEFAULT_ENGINE_PATH,
           });
-          localStorage.setItem(STORAGE_KEY, DEFAULT_ENGINE_PATH);
+          saveEnginePath(DEFAULT_ENGINE_PATH);
+          setEnginePathState(DEFAULT_ENGINE_PATH);
         } else {
           console.error("Failed to start engine:", e);
           throw e;
@@ -397,6 +406,23 @@ export function useEngine(
       }
     },
     [state.isRunning, startAnalysis, sendCommand, applyEngineOptions],
+  );
+
+  // Persist a newly picked engine binary (spec 011). If an engine is running,
+  // restart on the new binary in the same mode/side; otherwise the path is
+  // simply used on the next start.
+  const updateEnginePath = useCallback(
+    async (path: string) => {
+      if (path === enginePath) return;
+      saveEnginePath(path);
+      setEnginePathState(path);
+      if (!state.isRunning) return;
+
+      await invoke("stop_engine").catch(() => {});
+      isAnalyzingRef.current = false;
+      await startEngine(path, modeRef.current, playerColorRef.current);
+    },
+    [enginePath, state.isRunning, startEngine],
   );
 
   const stopEngine = useCallback(async () => {
@@ -635,6 +661,8 @@ export function useEngine(
     state,
     settings,
     updateSettings,
+    enginePath,
+    updateEnginePath,
     startEngine,
     stopEngine,
     toggleAnalysis,

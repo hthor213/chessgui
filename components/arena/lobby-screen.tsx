@@ -2,18 +2,27 @@
 
 // Persona Arena lobby (spec 217 Tier 0) — roster cards for the 3 playable
 // personas plus greyed "coming soon" cards for the rest of the committed GM
-// roster (lib/arena-roster.ts). Picking a side and clicking Play calls the
+// roster (lib/arena-roster.ts), plus — spec 217 Promise 1 — the logged-in
+// player's OWN private persona when the backend returns one (per-user
+// gating happens server-side; see mergeApiPersonas). Picking a side and
+// clicking Play calls the
 // real backend's create-game endpoint (lib/arena-api.ts, matching
 // server/arena/app/main.py) and hands the new game id to the parent, which
 // switches to the game screen. "Random" is resolved to a concrete color
 // client-side — the real CreateGameRequest requires `player_color` to
 // already be 'white' or 'black' (no server-side random resolution).
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { buildArenaRoster, type ArenaRosterEntry } from "@/lib/arena-roster"
-import { getArenaApi, ArenaApiError, type ArenaColor, type ArenaSideChoice } from "@/lib/arena-api"
+import { buildArenaRoster, mergeApiPersonas, type ArenaRosterEntry } from "@/lib/arena-roster"
+import {
+  getArenaApi,
+  ArenaApiError,
+  type ArenaColor,
+  type ArenaPersonaInfo,
+  type ArenaSideChoice,
+} from "@/lib/arena-api"
 
 function resolveColor(choice: ArenaSideChoice): ArenaColor {
   return choice === "random" ? (Math.random() < 0.5 ? "white" : "black") : choice
@@ -26,7 +35,24 @@ export function LobbyScreen({
   onGameStarted: (gameId: number) => void
   onOpenHistory: () => void
 }) {
-  const roster = buildArenaRoster()
+  // Per-user personas from the backend (spec 217 Promise 1: your OWN private
+  // persona appears in your lobby and nobody else's — the server decides, the
+  // client just merges). A failed fetch degrades to the static GM roster;
+  // starting a game surfaces its own error.
+  const [apiPersonas, setApiPersonas] = useState<ArenaPersonaInfo[]>([])
+  useEffect(() => {
+    let cancelled = false
+    getArenaApi()
+      .listPersonas()
+      .then((res) => {
+        if (!cancelled) setApiPersonas(res.personas)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const roster = useMemo(() => mergeApiPersonas(buildArenaRoster(), apiPersonas), [apiPersonas])
   const [sideBySlug, setSideBySlug] = useState<Record<string, ArenaSideChoice>>({})
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -118,7 +144,17 @@ function RosterCard({
           <AvatarFallback>{entry.initials}</AvatarFallback>
         </Avatar>
         <div className="min-w-0">
-          <div className="text-sm font-medium truncate">{entry.displayName}</div>
+          <div className="text-sm font-medium truncate">
+            {entry.displayName}
+            {entry.isPrivate && (
+              <span
+                className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 align-middle"
+                data-testid={`arena-private-${entry.slug}`}
+              >
+                Only in your lobby
+              </span>
+            )}
+          </div>
           <div className="text-xs text-muted-foreground">{entry.strengthLabel}</div>
         </div>
       </div>

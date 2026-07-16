@@ -21,6 +21,8 @@ interface AnalysisPanelProps {
     state: EngineState;
     settings: EngineSettings;
     updateSettings: (next: EngineSettings) => Promise<void>;
+    enginePath: string;
+    updateEnginePath: (path: string) => Promise<void>;
     startEngine: (path?: string, mode?: EngineMode, playerColor?: PlayerColor) => Promise<void>;
     stopEngine: () => Promise<void>;
     toggleAnalysis: () => void;
@@ -170,6 +172,8 @@ export function AnalysisPanel({ engine, turn, onPreviewPv, previewPv }: Analysis
     <EngineSettingsDialog
       settings={engine.settings}
       onSave={engine.updateSettings}
+      enginePath={engine.enginePath}
+      onEnginePathChange={engine.updateEnginePath}
       trigger={
         <Button variant="ghost" size="icon" className="h-6 w-6" title="Engine settings">
           <Settings className="h-3.5 w-3.5" />

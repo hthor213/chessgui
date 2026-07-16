@@ -1112,6 +1112,7 @@ export function TournamentTab({
           profile={machineProfile.profile}
           benching={machineProfile.benching}
           error={machineProfile.error}
+          hwChanged={machineProfile.hwChanged}
           onBench={() => {
             const enginePath =
               typeof window !== "undefined" ? localStorage.getItem("engine-path") ?? undefined : undefined
@@ -1730,16 +1731,22 @@ export function TournamentTab({
 // Machine-speed profile card (spec 216 Tier 0 checklist: "bench invocation +
 // nps capture + JSON storage" + its UI surface). One bench per machine —
 // stored locally and reused as the pacing floor's basis (once Tier 1 measures
-// a real per-move minimum) and, later, cross-machine equivalence.
+// a real per-move minimum) and, later, cross-machine equivalence. On first
+// start the bench fires automatically (216 Tier 2), so the empty state is
+// normally a moment of "benching…" rather than a call to action; a hardware
+// change likewise auto re-benches, resetting strength labels to PRIOR until
+// the ladder reruns.
 function MachineProfileCard({
   profile,
   benching,
   error,
+  hwChanged,
   onBench,
 }: {
   profile: MachineProfile | null
   benching: boolean
   error: string | null
+  hwChanged: boolean
   onBench: () => void
 }) {
   return (
@@ -1760,7 +1767,16 @@ function MachineProfileCard({
         </div>
       ) : (
         <span className="text-xs text-muted-foreground">
-          Not benched yet — calibrates pace floors and cross-machine equivalence.
+          {benching
+            ? "First-start bench running — calibrating this machine…"
+            : "Not benched yet — calibrates pace floors and cross-machine equivalence."}
+        </span>
+      )}
+      {hwChanged && (
+        <span className="text-xs text-amber-400">
+          Hardware changed since this profile was measured —{" "}
+          {benching ? "re-benching now" : "re-bench to keep strength labels honest"}. A measured
+          curve resets to PRIOR until the ladder reruns.
         </span>
       )}
       {error && <span className="text-xs text-red-400">{error}</span>}

@@ -191,9 +191,28 @@ export function createMockArenaApiClient(): ArenaApiClient {
       await delay(50)
       return {
         disclosure: ARENA_DISCLOSURE_TEXT,
-        personas: buildArenaRoster()
-          .filter((p) => p.available)
-          .map((p) => ({ slug: p.slug, displayName: p.displayName, bio: p.strengthLabel })),
+        personas: [
+          // A mock private persona (spec 217 Promise 1) so the lobby's
+          // merge + "Only in your lobby" badge are drivable headlessly.
+          // The real backend only ever returns the LOGGED-IN user's own
+          // persona; this stands in for that, it names nobody.
+          {
+            slug: "yourself",
+            displayName: "Yourself",
+            bio: "",
+            isPrivate: true,
+            strengthLabel: "own book + Maia 1400, unmeasured",
+          },
+          ...buildArenaRoster()
+            .filter((p) => p.available)
+            .map((p) => ({
+              slug: p.slug,
+              displayName: p.displayName,
+              bio: p.strengthLabel,
+              isPrivate: false,
+              strengthLabel: null,
+            })),
+        ],
       }
     },
 
