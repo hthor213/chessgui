@@ -179,3 +179,9 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
       goal is "don't be -1 by move 10", not prep; pairs with an opening-leak report over
       the user's own imported games (module 9). No repertoire trainer — evidence says that
       hour belongs to tactics/review below ~1900 (docs/research/chessbase-usage-research.md).
+  - *Decks half BUILT (code-verified 2026-07-15)*: mine_cliffs.py `--max-ply`
+    cap; `OPENING_MAX_PLY = 20` as a HARD deck filter end to end (puzzles.rs
+    `puzzles_deck` incl. band top-up, buildDeck fresh/calm-mix/respawns,
+    calmDeck, mock) — cargo + vitest + real-engine `--max-ply 8` run all green.
+    Box stays open because the own-games opening-leak report (module 9 pairing)
+    was deliberately deferred this batch.

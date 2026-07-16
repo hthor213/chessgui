@@ -184,6 +184,14 @@ accurate as a direct consequence — the arena feeds the Florida milestone.
 - **Tier 1**: public-internet exposure (same pattern as the golf app), Karpov + more
   Icelandic GMs, per-opponent W/D/L history for the player, clocks with increment
   (match protocol from spec 215).
+  (Roster portion code-verified 2026-07-15: Karpov, Spassky + 7 Icelandic-canon
+  personas unlocked — `TIER1_PERSONA_SLUGS` in lib/arena-roster.ts, server
+  default `ARENA_ROSTER` expanded to all 12 artifact-verified slugs, missing
+  slugs now skip-with-log instead of failing startup. All 12 pass the
+  persona-manifest honesty gate. Public exposure, W/D/L history, and clocks
+  remain open. Also landed toward Tier 2 flywheel: "I would never do this"
+  per-move feedback — `move_feedback` table, POST /api/game/{id}/feedback,
+  game-screen UI, mock + 4 tests.)
 - **Tier 2**: batch ingest into the rival pipeline (dossier + style-prior retune per
   N new games), opt-in "felt like him" feedback for players who knew the personas,
   spectator/replay links shareable in the family.

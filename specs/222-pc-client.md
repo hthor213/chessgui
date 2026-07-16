@@ -130,14 +130,29 @@ it may claim a strength. Concretely:
 ## Done when
 
 ### Tier 0 — build & boot
-- [ ] Per-platform engine default replaces the `/opt/homebrew` constant (resolution
+- [x] Per-platform engine default replaces the `/opt/homebrew` constant (resolution
       order: sidecar → user path → PATH), behind the spec:220 config seam
+      (code-verified 2026-07-15: `src-tauri/src/engine_path.rs` + unit tests;
+      Rust-side constant removed from machine.rs; frontend seam in
+      lib/platform/tauri.ts stays sync per spec 220)
 - [ ] Stockfish sidecar binaries pinned (sha256) and bundled for windows-x64-avx2 +
       linux-x64-avx2; `tauri.conf.json` externalBin wiring
-- [ ] AVX2-failure dialog → spec:011 engine file picker fallback path
-- [ ] `uci.rs` audited for Windows spawn flags (no console flash) + `\r\n` tolerance
+      (partial, code-verified 2026-07-15: `scripts/fetch-stockfish-sidecar.sh`
+      carries the sha256 pins and `tauri.windows.conf.json` /
+      `tauri.linux.conf.json` wire externalBin — but no Windows/Linux bundle has
+      actually been built yet, so "bundled" is unverified)
+- [x] AVX2-failure dialog → spec:011 engine file picker fallback path
+      (code-verified 2026-07-15: implemented as a plain-language `startError`
+      message in use-engine.ts pointing at Engine settings → Browse…, rendered
+      next to the settings gear — inline message, not a modal dialog)
+- [x] `uci.rs` audited for Windows spawn flags (no console flash) + `\r\n` tolerance
+      (code-verified 2026-07-15: spawns routed through `engine_command()` which
+      sets CREATE_NO_WINDOW on Windows; all reads trim, so `\r\n` is tolerated)
 - [ ] GitHub Actions workflow: tag-triggered matrix build (windows-latest,
       ubuntu-22.04) via tauri-action, artifacts on a GitHub release
+      (written 2026-07-15 as `.github/workflows/pc-build.yml` but NOT pushed:
+      the hthor213 OAuth token lacks the `workflow` scope — run
+      `gh auth refresh -s workflow` then commit/push the file)
 - [ ] Linux artifact (.deb + AppImage) boots in a local VM: board renders, engine
       starts, analysis lines stream, game plays end to end
 - [ ] Windows artifact (.msi/.exe) boots: same smoke script — **USER-BLOCKED: needs
@@ -147,8 +162,11 @@ it may claim a strength. Concretely:
 ### Tier 1 — dad's PC (spec:217 handoff)
 - [ ] First-start auto-bench wired: working engine detected → bench → profile
       stored → labels flip from "no profile" to PRIOR (spec:216 Tier 2)
-- [ ] Install doc: download link + the two SmartScreen clicks, in plain language
+- [x] Install doc: download link + the two SmartScreen clicks, in plain language
       (Icelandic optional), suitable for the assisted first install
+      (code-verified 2026-07-15: `docs/pc-install.md` — release link, the two
+      SmartScreen clicks named verbatim, AVX2 fallback in plain words;
+      English only so far)
 - [ ] Installed and smoke-tested on dad's actual PC; his `machine_profile.json`
       exists with real nps — **USER-BLOCKED: requires the user + dad session**
 - [ ] Confirm arena web login (spec:221) also works from his PC's browser while
