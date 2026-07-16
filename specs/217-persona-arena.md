@@ -71,6 +71,23 @@ Family-scale operations, not scaling engineering:
 
 The arena DB is canonical for arena games; games are deletable on request.
 
+## Machine calibration (spec:216 — required, 2026-07-15 user)
+
+Dad plays on one of two machines, and BOTH need a spec:216 speed profile before
+their strength labels are honest — engine strength is a fact about the machine,
+not the binary:
+
+- **Browser via homeserver (Tier 0 path)**: personas run on the SERVER, so the
+  server needs its own 216 profile. Gate for Tier 0: run the bench (machine
+  profile) on the homeserver; labels display as PRIOR until the compression
+  ladder runs there (Tier-1 item — the ladder is hours of engine time; schedule
+  around mining jobs). The laptop's measured curve does NOT transfer.
+- **His own PC (future native build, spec:000 platform stance)**: first-start
+  calibration — auto-bench on first launch (216 Tier 2), labels PRIOR until then.
+
+Same rule, one sentence: any surface that fields a persona inherits spec:216's
+per-machine calibration requirement before it may claim a strength.
+
 ## Cultural context
 
 The roster is a living museum: docs/research/iceland-chess-culture.md — 1972

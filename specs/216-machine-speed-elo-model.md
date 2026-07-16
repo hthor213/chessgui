@@ -55,7 +55,12 @@ policy personas (Maia/BT3-policy), whose strength is time-invariant.
   `b(t)` persisted into the machine profile, UI flips PRIOR→MEASURED, per-rung CI
   shown in the lab.
 - **Tier 2**: cross-machine equivalence (laptop↔homeserver profiles → "server at 60s
-  ≈ laptop at 22s"), per-engine curves (Reckless vs SF), auto re-bench on hardware
+  ≈ laptop at 22s") — REQUIRED for spec:217, not optional: dad plays via the
+  homeserver (or later his own PC per spec:000), and each play surface needs its own
+  profile before strength labels are honest there (2026-07-15 user; gate recorded in
+  spec:217 "Machine calibration"). First-start auto-bench on any new install; labels
+  display PRIOR (uncalibrated) until the machine has at least a bench profile,
+  MEASURED only after the ladder. Also: per-engine curves (Reckless vs SF), auto re-bench on hardware
   change detection.
 
 ## Non-goals
