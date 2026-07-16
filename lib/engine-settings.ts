@@ -1,6 +1,8 @@
 // Engine settings persisted to localStorage, plus the "engine-path" key
 // holding the user-selected engine binary (spec 011).
 
+import { getProviders } from "@/lib/platform";
+
 export interface EngineSettings {
   /** UCI Hash table size in MB. */
   hash: number;
@@ -20,15 +22,20 @@ const ENGINE_PATH_KEY = "engine-path";
 // value only becomes authoritative again once the user explicitly saves.
 const SETTINGS_VERSION = 2;
 
-/** Fallback engine binary when the user hasn't picked one (spec 011). */
-export const DEFAULT_ENGINE_PATH = "/opt/homebrew/bin/stockfish";
+/** Fallback engine binary when the user hasn't picked one (spec 011). The
+ *  path itself is the shell's knowledge — TauriProviders carries the macOS
+ *  default; engine-less shells report "" (spec 220 step 2 killed the
+ *  /opt/homebrew constant out of shared code). */
+export function defaultEnginePath(): string {
+  return getProviders().engine.defaultEnginePath;
+}
 
 export function loadEnginePath(): string {
-  if (typeof window === "undefined") return DEFAULT_ENGINE_PATH;
+  if (typeof window === "undefined") return defaultEnginePath();
   try {
-    return localStorage.getItem(ENGINE_PATH_KEY) || DEFAULT_ENGINE_PATH;
+    return localStorage.getItem(ENGINE_PATH_KEY) || defaultEnginePath();
   } catch {
-    return DEFAULT_ENGINE_PATH;
+    return defaultEnginePath();
   }
 }
 

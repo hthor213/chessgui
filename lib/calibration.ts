@@ -5,12 +5,12 @@
 // wire shape; command argument names are camelCase (Tauri maps them to the Rust
 // snake_case parameters).
 //
-// Provider seam: inside Tauri these route to `invoke`; outside Tauri (a plain
-// browser under Playwright, or unit tests) sampling routes to an in-memory mock
-// so the whole Learn flow is drivable headless. The mock is dynamically
-// imported so it stays out of the Tauri bundle.
+// Provider seam (spec 220 step 2): these delegate to the registered
+// EngineProvider — Tauri `invoke` on desktop; in a plain browser (Playwright,
+// unit tests) sampling routes to the in-memory mock so the whole Learn flow
+// is drivable headless.
 
-import { invoke, Channel } from "@tauri-apps/api/core"
+import { getProviders } from "@/lib/platform"
 
 // ---------------------------------------------------------------------------
 // Types mirroring the Rust structs
@@ -389,11 +389,6 @@ export const RESULTS_VERSION = 4
 // Provider seam
 // ---------------------------------------------------------------------------
 
-/** True inside the Tauri webview (its IPC globals are injected before load). */
-export function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
-}
-
 /**
  * Bring a stored answer up to the current schema. Answers written before think_ms
  * existed carry no reliable think time and had their elapsed clock polluted by
@@ -469,18 +464,7 @@ export function sampleSession(
   opts: { dbPath?: string; stockfishPath?: string; movetimeMs?: number } = {},
   onProgress?: (p: CalibrationProgress) => void,
 ): Promise<CalibrationSession> {
-  if (!isTauri()) {
-    return import("./calibration-mock").then((m) => m.buildMockSession(n, onProgress))
-  }
-  const channel = new Channel<CalibrationProgress>()
-  if (onProgress) channel.onmessage = onProgress
-  return invoke<CalibrationSession>("calibration_sample", {
-    n,
-    dbPath: opts.dbPath ?? null,
-    stockfishPath: opts.stockfishPath ?? null,
-    movetimeMs: opts.movetimeMs ?? null,
-    onProgress: channel,
-  })
+  return getProviders().engine.calibrationSample(n, opts, onProgress)
 }
 
 /**
@@ -488,8 +472,7 @@ export function sampleSession(
  * written path. Outside Tauri this is a no-op (returns "").
  */
 export function saveResults(results: CalibrationResults): Promise<string> {
-  if (!isTauri()) return Promise.resolve("")
-  return invoke<string>("calibration_save_results", { results })
+  return getProviders().engine.calibrationSaveResults(results)
 }
 
 /**
@@ -499,10 +482,7 @@ export function saveResults(results: CalibrationResults): Promise<string> {
  * reads an optional localStorage seed so the flow stays drivable headless.
  */
 export function loadPriorResults(): Promise<CalibrationResults[]> {
-  if (!isTauri()) {
-    return import("./calibration-mock").then((m) => m.mockPriorResults())
-  }
-  return invoke<CalibrationResults[]>("calibration_load_results")
+  return getProviders().engine.calibrationLoadResults()
 }
 
 /**
@@ -512,10 +492,7 @@ export function loadPriorResults(): Promise<CalibrationResults[]> {
  * returns a canned critique.
  */
 export function coachFeedback(input: CoachInput): Promise<CoachFeedback> {
-  if (!isTauri()) {
-    return import("./calibration-mock").then((m) => m.mockCoachFeedback(input))
-  }
-  return invoke<CoachFeedback>("coach_feedback", { input })
+  return getProviders().engine.coachFeedback(input)
 }
 
 /**
@@ -524,8 +501,5 @@ export function coachFeedback(input: CoachInput): Promise<CoachFeedback> {
  * Outside Tauri a mock returns a canned reply.
  */
 export function coachFollowup(input: CoachInput, note: string, rebuttal: string): Promise<string> {
-  if (!isTauri()) {
-    return import("./calibration-mock").then((m) => m.mockCoachFollowup(rebuttal))
-  }
-  return invoke<string>("coach_followup", { input, note, rebuttal })
+  return getProviders().engine.coachFollowup(input, note, rebuttal)
 }

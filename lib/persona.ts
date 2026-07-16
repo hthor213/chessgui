@@ -8,7 +8,7 @@
 // (step 6) — and returns a per-move decision log. The book phase stays in the
 // frontend (spar-tab.tsx) and never reaches this command.
 
-import { invoke } from "@tauri-apps/api/core";
+import { getProviders } from "@/lib/platform";
 import type { PersonaMove } from "@/lib/maia";
 
 /** Temperature schedule (contract step 3): the base temperature is multiplied
@@ -151,23 +151,16 @@ export const DEFAULT_PERSONA_PARAMS = {
   endgame: { phase_max: 8, depth: 16, top_k: 4 },
 } as const;
 
-function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 /**
  * The rival's out-of-book move for `fen` under `params`, with its decision log.
- * Outside Tauri (Playwright / unit tests) a mock returns a canned legal move
+ * The browser provider (Playwright / unit tests) returns a canned legal move
  * wrapped in a single-candidate decision so the spar flow is drivable headless.
  */
 export async function personaMove(
   fen: string,
   params: PersonaParams,
 ): Promise<PersonaDecision> {
-  if (!isTauri()) {
-    return import("./persona-mock").then((m) => m.mockPersonaMove(fen, params));
-  }
-  return invoke<PersonaDecision>("persona_move", { fen, params });
+  return getProviders().engine.personaMove(fen, params);
 }
 
 /** Narrow a decision back to the bare move the spar loop applies. */

@@ -14,7 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
-  DEFAULT_ENGINE_PATH,
+  defaultEnginePath,
   HASH_MAX,
   HASH_MIN,
   MULTI_PV_MAX,
@@ -119,8 +119,8 @@ export function EngineSettingsDialog({
                 <span className="text-xs text-muted-foreground">UCI binary to run</span>
               </div>
               <div className="flex gap-2">
-                {draftPath !== DEFAULT_ENGINE_PATH && (
-                  <Button variant="ghost" size="sm" onClick={() => setDraftPath(DEFAULT_ENGINE_PATH)}>
+                {draftPath !== defaultEnginePath() && (
+                  <Button variant="ghost" size="sm" onClick={() => setDraftPath(defaultEnginePath())}>
                     Default
                   </Button>
                 )}

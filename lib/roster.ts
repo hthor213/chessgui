@@ -33,7 +33,7 @@
 // private-rival avatar loads from local app data only, never bundled
 // (spec 218 decision 1) — nothing here changes that when it lands.
 
-import { invoke } from "@tauri-apps/api/core"
+import { getProviders } from "@/lib/platform"
 import { MAIA_MAX_NATIVE_BAND } from "@/lib/maia"
 import type { RivalBook } from "@/lib/rival-book"
 
@@ -195,18 +195,13 @@ export async function loadPersonaBook(slug: string): Promise<RivalBook | null> {
   return mod.default as RivalBook
 }
 
-function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
-}
-
 /** The private-rival personas present on THIS machine (gitignored
  *  data/rivals/*.config.json + books), via the `rival_personas` command.
- *  Degrades silently to [] outside Tauri, when the dir is absent, or on any
+ *  Degrades silently to [] off-desktop, when the dir is absent, or on any
  *  error — a missing private persona is never an error state (spec 214). */
 export async function loadLocalRivalPersonas(): Promise<LocalRivalPersona[]> {
-  if (!isTauri()) return []
   try {
-    const rivals = await invoke<LocalRivalPersona[]>("rival_personas")
+    const rivals = await getProviders().engine.rivalPersonas()
     return Array.isArray(rivals) ? rivals : []
   } catch {
     return []

@@ -5,12 +5,12 @@
 // argument names are camelCase because Tauri maps them to the Rust snake_case
 // parameters.
 //
-// Provider seam: in the real desktop app these route to Tauri `invoke`. Outside
-// Tauri (a plain browser — e.g. `pnpm dev` under Playwright, or unit tests) they
-// route to an in-memory mock so the whole Database tab is drivable headless. The
-// mock is loaded via dynamic import, so it stays out of the Tauri bundle.
+// Provider seam (spec 220 step 2): these delegate to the registered
+// DatabaseProvider — Tauri `invoke` on desktop, the in-memory mock in a plain
+// browser (`pnpm dev` under Playwright, or unit tests) so the whole Database
+// tab stays drivable headless.
 
-import { Channel, invoke } from "@tauri-apps/api/core"
+import { getProviders } from "@/lib/platform"
 
 // ---------------------------------------------------------------------------
 // Types mirroring the Rust structs
@@ -162,18 +162,9 @@ export interface DatabaseApi {
 // Provider seam
 // ---------------------------------------------------------------------------
 
-/** True inside the Tauri webview (its IPC globals are injected before load). */
-export function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
-}
-
-let mockApiPromise: Promise<DatabaseApi> | null = null
-function mockApi(): Promise<DatabaseApi> {
-  if (!mockApiPromise) {
-    mockApiPromise = import("./database-mock").then((m) => m.mockDatabase)
-  }
-  return mockApiPromise
-}
+// Re-exported for existing importers (components/database-tab.tsx); the
+// definition lives with the provider registry.
+export { isTauri } from "@/lib/platform"
 
 // ---------------------------------------------------------------------------
 // Command wrappers
@@ -194,25 +185,7 @@ export function importPgn(args: {
   dbPath?: string
   onProgress?: (p: PgnImportProgress) => void
 }): Promise<ImportReport> {
-  if (!isTauri())
-    return mockApi()
-      .then((m) => m.importPgn(args))
-      .then((report) => {
-        args.onProgress?.({
-          processed: report.imported + report.dups_skipped + report.errors,
-          ...report,
-        })
-        return report
-      })
-  const channel = new Channel<PgnImportProgress>()
-  if (args.onProgress) channel.onmessage = args.onProgress
-  return invoke<ImportReport>("db_import_pgn", {
-    source: args.source,
-    text: args.text ?? null,
-    filePath: args.filePath ?? null,
-    dbPath: args.dbPath ?? null,
-    onProgress: channel,
-  })
+  return getProviders().database.importPgn(args)
 }
 
 /**
@@ -228,14 +201,7 @@ export function importCbh(args: {
   dbPath?: string
   onProgress?: (p: CbhImportProgress) => void
 }): Promise<CbhImportReport> {
-  if (!isTauri()) return Promise.reject(new Error("CBH import requires the desktop app"))
-  const channel = new Channel<CbhImportProgress>()
-  if (args.onProgress) channel.onmessage = args.onProgress
-  return invoke<CbhImportReport>("db_import_cbh", {
-    cbhPath: args.cbhPath,
-    dbPath: args.dbPath ?? null,
-    onProgress: channel,
-  })
+  return getProviders().database.importCbh(args)
 }
 
 /** Paginated, filtered header list. Sort defaults to newest-inserted first. */
@@ -246,15 +212,7 @@ export function listGames(
   sort?: Sort,
   dbPath?: string,
 ): Promise<GameHeader[]> {
-  if (!isTauri()) return mockApi().then((m) => m.listGames(filter, limit, offset, sort, dbPath))
-  return invoke<GameHeader[]>("db_list_games", {
-    filter,
-    limit,
-    offset,
-    sortBy: sort?.by ?? null,
-    sortDir: sort?.dir ?? null,
-    dbPath: dbPath ?? null,
-  })
+  return getProviders().database.listGames(filter, limit, offset, sort, dbPath)
 }
 
 /**
@@ -267,28 +225,20 @@ export function searchPosition(
   limit?: number,
   dbPath?: string,
 ): Promise<PositionHit[]> {
-  if (!isTauri()) return mockApi().then((m) => m.searchPosition(fen, limit, dbPath))
-  return invoke<PositionHit[]>("db_search_position", {
-    fen,
-    limit: limit ?? null,
-    dbPath: dbPath ?? null,
-  })
+  return getProviders().database.searchPosition(fen, limit, dbPath)
 }
 
 /** Full PGN (tags + movetext) for one game, ready to load into a GameTree. */
 export function getGame(id: number, dbPath?: string): Promise<string | null> {
-  if (!isTauri()) return mockApi().then((m) => m.getGame(id, dbPath))
-  return invoke<string | null>("db_get_game", { id, dbPath: dbPath ?? null })
+  return getProviders().database.getGame(id, dbPath)
 }
 
 /** Delete games by id (their indexed positions cascade). Returns count removed. */
 export function deleteGames(ids: number[], dbPath?: string): Promise<number> {
-  if (!isTauri()) return mockApi().then((m) => m.deleteGames(ids, dbPath))
-  return invoke<number>("db_delete_games", { ids, dbPath: dbPath ?? null })
+  return getProviders().database.deleteGames(ids, dbPath)
 }
 
 /** Aggregate counts for the database. */
 export function stats(dbPath?: string): Promise<DbStats> {
-  if (!isTauri()) return mockApi().then((m) => m.stats(dbPath))
-  return invoke<DbStats>("db_stats", { dbPath: dbPath ?? null })
+  return getProviders().database.stats(dbPath)
 }

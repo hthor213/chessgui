@@ -20,8 +20,7 @@
 // built. It is a constant here because the generator does not persist it
 // per-row (only safe_threshold travels in the JSONL).
 
-import { invoke } from "@tauri-apps/api/core"
-import { isTauri } from "@/lib/database"
+import { getProviders } from "@/lib/platform"
 import { calmDeck, getCalm, type CalmRow } from "@/lib/calm-positions"
 import { dueRespawns, rakeKey, type PuzzleResultEntry } from "@/lib/puzzle-results"
 
@@ -406,7 +405,8 @@ export async function buildDeck(req: DeckRequest, opts: BuildDeckOptions = {}): 
 }
 
 // ---------------------------------------------------------------------------
-// Provider seam (Tauri commands vs the in-memory mock, like lib/database.ts)
+// Provider seam (spec 220 step 2: deck persistence rides DatabaseProvider,
+// the Stockfish-backed move check rides EngineProvider)
 // ---------------------------------------------------------------------------
 
 /** The surface both the Tauri path and the mock implement. */
@@ -420,51 +420,29 @@ export interface PuzzlesApi {
   checkMove(fen: string, uci: string, depth: number): Promise<MoveCheck | null>
 }
 
-let mockApiPromise: Promise<PuzzlesApi> | null = null
-function mockApi(): Promise<PuzzlesApi> {
-  if (!mockApiPromise) {
-    mockApiPromise = import("./puzzles-mock").then((m) => m.mockPuzzles)
-  }
-  return mockApiPromise
-}
-
 /** Import generator JSONL (`text` from a file picker, or `filePath` in Tauri). */
 export function importPuzzles(args: {
   text?: string
   filePath?: string
   dbPath?: string
 }): Promise<PuzzleImportReport> {
-  if (!isTauri()) return mockApi().then((m) => m.importPuzzles(args))
-  return invoke<PuzzleImportReport>("puzzles_import", {
-    text: args.text ?? null,
-    filePath: args.filePath ?? null,
-    dbPath: args.dbPath ?? null,
-  })
+  return getProviders().database.importPuzzles(args)
 }
 
 /** Draw a deck: random within the band, topped up from all bands when thin. */
 export function puzzleDeck(req: DeckRequest, dbPath?: string): Promise<PuzzleRow[]> {
-  if (!isTauri()) return mockApi().then((m) => m.deck(req, dbPath))
-  return invoke<PuzzleRow[]>("puzzles_deck", {
-    band: req.band,
-    theme: null,
-    limit: req.count,
-    dbPath: dbPath ?? null,
-  })
+  return getProviders().database.puzzleDeck(req, dbPath)
 }
 
 export function getPuzzle(id: number, dbPath?: string): Promise<PuzzleRow | null> {
-  if (!isTauri()) return mockApi().then((m) => m.getPuzzle(id, dbPath))
-  return invoke<PuzzleRow | null>("puzzles_get", { id, dbPath: dbPath ?? null })
+  return getProviders().database.getPuzzle(id, dbPath)
 }
 
 export function puzzleStats(dbPath?: string): Promise<PuzzleStats> {
-  if (!isTauri()) return mockApi().then((m) => m.stats(dbPath))
-  return invoke<PuzzleStats>("puzzles_stats", { dbPath: dbPath ?? null })
+  return getProviders().database.puzzleStats(dbPath)
 }
 
-/** Engine check for a candidate move. Resolves null outside Tauri. */
+/** Engine check for a candidate move. Resolves null on engine-less shells. */
 export function checkMove(fen: string, uci: string, depth: number): Promise<MoveCheck | null> {
-  if (!isTauri()) return mockApi().then((m) => m.checkMove(fen, uci, depth))
-  return invoke<MoveCheck>("puzzle_check_move", { fen, uci, depth })
+  return getProviders().engine.puzzleCheckMove(fen, uci, depth)
 }

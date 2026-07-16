@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getProviders } from "@/lib/platform";
 import { Chess } from "chessops/chess";
 import { parseFen } from "chessops/fen";
 import { parseUciInfo, uciMovesToSan, parseEngineUci, type PvLine } from "@/lib/uci-parser";
 import {
-  DEFAULT_ENGINE_PATH,
+  defaultEnginePath,
   clearEnginePath,
   defaultEngineSettings,
   loadEnginePath,
@@ -178,7 +177,7 @@ export function useEngine(
 
   // User-selected engine binary (spec 011). SSR-safe default, hydrated from
   // localStorage after mount (same pattern as engine settings).
-  const [enginePath, setEnginePathState] = useState<string>(DEFAULT_ENGINE_PATH);
+  const [enginePath, setEnginePathState] = useState<string>(defaultEnginePath);
 
   useEffect(() => {
     const loaded = loadEngineSettings();
@@ -190,7 +189,7 @@ export function useEngine(
   const sendCommand = useCallback(async (cmd: string) => {
     try {
       console.log("[engine] >>", cmd);
-      await invoke("send_command", { command: cmd });
+      await getProviders().engine.sendCommand(cmd);
     } catch (e) {
       console.error("[engine] send failed:", cmd, e);
     }
@@ -310,26 +309,23 @@ export function useEngine(
   const startEngine = useCallback(
     async (path?: string, mode: EngineMode = "analysis", playerColor: PlayerColor = "white") => {
       const requestedPath = path || loadEnginePath();
+      const engine = getProviders().engine;
 
       let result: { name: string; ready: boolean };
       try {
-        result = await invoke<{ name: string; ready: boolean }>("start_engine", {
-          path: requestedPath,
-        });
+        result = await engine.startEngine(requestedPath);
         saveEnginePath(requestedPath);
         setEnginePathState(requestedPath);
       } catch (e) {
         // A stale stored path (e.g. an engine binary that has since moved or been
         // deleted) shouldn't permanently wedge the engine. If the failed path was
-        // not already the built-in default, clear it and retry with the default.
-        if (requestedPath !== DEFAULT_ENGINE_PATH) {
+        // not already the shell's default, clear it and retry with the default.
+        if (requestedPath !== defaultEnginePath()) {
           console.warn(`Engine path "${requestedPath}" failed (${e}); retrying with default.`);
           clearEnginePath();
-          result = await invoke<{ name: string; ready: boolean }>("start_engine", {
-            path: DEFAULT_ENGINE_PATH,
-          });
-          saveEnginePath(DEFAULT_ENGINE_PATH);
-          setEnginePathState(DEFAULT_ENGINE_PATH);
+          result = await engine.startEngine(defaultEnginePath());
+          saveEnginePath(defaultEnginePath());
+          setEnginePathState(defaultEnginePath());
         } else {
           console.error("Failed to start engine:", e);
           throw e;
@@ -418,7 +414,7 @@ export function useEngine(
       setEnginePathState(path);
       if (!state.isRunning) return;
 
-      await invoke("stop_engine").catch(() => {});
+      await getProviders().engine.stopEngine().catch(() => {});
       isAnalyzingRef.current = false;
       await startEngine(path, modeRef.current, playerColorRef.current);
     },
@@ -427,7 +423,7 @@ export function useEngine(
 
   const stopEngine = useCallback(async () => {
     try {
-      await invoke("stop_engine");
+      await getProviders().engine.stopEngine();
     } catch {
       // ignore
     }
@@ -508,9 +504,8 @@ export function useEngine(
   useEffect(() => {
     let cancelled = false;
 
-    listen<string>("engine-output", (event) => {
+    getProviders().engine.onEngineLine((line) => {
       if (cancelled) return;
-      const line = event.payload;
       console.log("[engine] <<", line);
 
       // Handle bestmove in play mode
@@ -653,7 +648,7 @@ export function useEngine(
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      invoke("stop_engine").catch(() => {});
+      getProviders().engine.stopEngine().catch(() => {});
     };
   }, []);
 

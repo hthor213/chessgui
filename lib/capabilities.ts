@@ -1,7 +1,7 @@
 // Platform capability flags (spec 220 step 1). A shell that lacks a
 // capability hides the corresponding UI outright — no stubs, no dead tabs.
 
-import { isTauri } from "@/lib/database"
+import { isTauri } from "@/lib/platform"
 
 /**
  * Headless engine-vs-engine tournaments ride the native match runner

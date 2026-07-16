@@ -8,7 +8,7 @@
 // Experimental (spec's honest label): hyperparameters (top_p, depth, caps)
 // are provisional until the E5 ablations freeze them.
 
-import { invoke } from "@tauri-apps/api/core";
+import { getProviders } from "@/lib/platform";
 
 export interface HumanTreeOptions {
   /** Search depth in plies (backend default 3, clamped 1–6). */
@@ -49,8 +49,9 @@ export function clampTreePawns(pawns: number): number {
 
 /**
  * Invoke args for `human_eval_tree` (exported pure so vitest can pin the
- * Rust command's camelCase parameter names without a Tauri shell). Unset
- * knobs are omitted — the backend owns the defaults.
+ * Rust command's camelCase parameter names without a Tauri shell; the
+ * desktop provider in lib/platform/tauri.ts is the one real consumer).
+ * Unset knobs are omitted — the backend owns the defaults.
  */
 export function treeInvokeArgs(
   fen: string,
@@ -78,5 +79,5 @@ export async function humanEvalTree(
   band: number,
   opts: HumanTreeOptions = {}
 ): Promise<HumanTreeResult> {
-  return invoke<HumanTreeResult>("human_eval_tree", treeInvokeArgs(fen, band, opts));
+  return getProviders().engine.humanEvalTree(fen, band, opts);
 }

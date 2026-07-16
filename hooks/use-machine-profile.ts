@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { getProviders } from "@/lib/platform";
 
 /**
  * The persisted per-machine speed profile (spec 216, Tier 0). Field names mirror
@@ -27,10 +27,6 @@ export interface BenchResult {
   duration_ms: number;
 }
 
-function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 /** The user's configured engine, matching what the rest of the app benches with. */
 function storedEnginePath(): string | undefined {
   if (typeof window === "undefined") return undefined;
@@ -52,8 +48,9 @@ const PROFILE_UPDATED_EVENT = "machine-profile-updated";
  * re-measure it. `runBench()` runs the engine's `bench` (which persists a fresh
  * profile) and then reloads it. On first app start (no profile yet) or when the
  * stored hardware fingerprint no longer matches this machine, a bench runs
- * automatically — `hwChanged` tells the UI why. Outside Tauri the hook is inert
- * (`profile` stays null) so the frontend can render in a plain browser.
+ * automatically — `hwChanged` tells the UI why. On shells without a native
+ * engine the hook is inert (`profile` stays null) so the frontend can render
+ * in a plain browser.
  */
 export function useMachineProfile() {
   const [profile, setProfile] = useState<MachineProfile | null>(null);
@@ -65,9 +62,10 @@ export function useMachineProfile() {
   // Resolves to the loaded profile, null when none exists yet, or undefined on
   // a read error — the startup effect needs "missing" and "unreadable" distinct.
   const refresh = useCallback(async (): Promise<MachineProfile | null | undefined> => {
-    if (!isTauri()) return undefined;
+    const engine = getProviders().engine;
+    if (!engine.hasNativeEngine) return undefined;
     try {
-      const p = await invoke<MachineProfile | null>("machine_profile_get");
+      const p = await engine.machineProfileGet();
       setProfile(p ?? null);
       return p ?? null;
     } catch (e) {
@@ -78,12 +76,13 @@ export function useMachineProfile() {
 
   const runBench = useCallback(
     async (enginePath?: string) => {
-      if (!isTauri() || benchingRef.current) return;
+      const engine = getProviders().engine;
+      if (!engine.hasNativeEngine || benchingRef.current) return;
       benchingRef.current = true;
       setBenching(true);
       setError(null);
       try {
-        await invoke<BenchResult>("machine_bench", { enginePath: enginePath ?? null });
+        await engine.machineBench(enginePath ?? null);
         await refresh(); // machine_bench persisted the profile — reload it
         setHwChanged(false); // fresh profile carries this machine's fingerprint
         window.dispatchEvent(new Event(PROFILE_UPDATED_EVENT));
@@ -100,14 +99,15 @@ export function useMachineProfile() {
   // Startup: load the profile, then auto-bench if this install has none yet
   // (first start) or the profile was measured on different hardware.
   useEffect(() => {
-    if (!isTauri()) return;
+    const engine = getProviders().engine;
+    if (!engine.hasNativeEngine) return;
     let cancelled = false;
     (async () => {
       const p = await refresh();
       let changed = false;
       if (p && p.hw_fingerprint) {
         try {
-          const current = await invoke<string>("machine_fingerprint");
+          const current = await engine.machineFingerprint();
           changed = current !== "" && p.hw_fingerprint !== current;
         } catch {
           // fingerprint unavailable — assume unchanged rather than re-bench blind
@@ -130,7 +130,7 @@ export function useMachineProfile() {
 
   // Follow benches performed by other instances of this hook.
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!getProviders().engine.hasNativeEngine) return;
     const onUpdated = () => {
       refresh();
       setHwChanged(false);

@@ -1,6 +1,7 @@
 "use client"
 
-import { invoke } from "@tauri-apps/api/core";
+import { getProviders } from "@/lib/platform";
+import { blobToBase64 } from "@/lib/platform/clipboard";
 import { parseFen, makeFen } from "chessops/fen";
 import { Chess } from "chessops";
 import {
@@ -15,15 +16,6 @@ import {
 export interface ClipboardImage {
   base64: string;
   mediaType: string;
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve((reader.result as string).split(",")[1]);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
 }
 
 /**
@@ -45,73 +37,27 @@ export async function clipboardEventImage(
 }
 
 /**
- * Read an image from the system clipboard, if there is one.
- * Tries the Tauri clipboard plugin first (native app), then the browser
- * Clipboard API (dev in a plain browser). Returns null when the clipboard
- * holds no image — callers fall back to text-paste behavior.
+ * Read an image from the system clipboard, if there is one. The desktop
+ * provider tries the native clipboard plugin first, then the browser
+ * Clipboard API. Returns null when the clipboard holds no image — callers
+ * fall back to text-paste behavior.
  */
 export async function readClipboardImage(): Promise<ClipboardImage | null> {
-  try {
-    const { readImage } = await import("@tauri-apps/plugin-clipboard-manager");
-    const img = await readImage();
-    const { width, height } = await img.size();
-    const rgba = new Uint8ClampedArray(await img.rgba());
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
-      const dataUrl = canvas.toDataURL("image/png");
-      return { base64: dataUrl.split(",")[1], mediaType: "image/png" };
-    }
-  } catch {
-    // Not running in Tauri, or the clipboard holds no image — try the browser API.
-  }
-
-  try {
-    const items = await navigator.clipboard.read();
-    for (const item of items) {
-      const type = item.types.find((t) => t.startsWith("image/"));
-      if (!type) continue;
-      const blob = await item.getType(type);
-      return { base64: await blobToBase64(blob), mediaType: type };
-    }
-  } catch {
-    // Clipboard API unavailable or permission denied.
-  }
-  return null;
+  return getProviders().dialog.readClipboardImage();
 }
 
 /**
- * Read plain text from the system clipboard, if any. Tries the Tauri clipboard
- * plugin first (native app), then the browser Clipboard API. Returns null when
- * no text is available — callers fall back to an empty import dialog.
+ * Read plain text from the system clipboard, if any (native plugin first on
+ * desktop, browser Clipboard API otherwise). Returns null when no text is
+ * available — callers fall back to an empty import dialog.
  */
 export async function readClipboardText(): Promise<string | null> {
-  try {
-    const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
-    const text = await readText();
-    if (text && text.trim()) return text;
-  } catch {
-    // Not running in Tauri, or the read-text permission isn't granted.
-  }
-  try {
-    const text = await navigator.clipboard.readText();
-    if (text && text.trim()) return text;
-  } catch {
-    // Clipboard API unavailable or permission denied.
-  }
-  return null;
+  return getProviders().dialog.readClipboardText();
 }
 
 async function recognizeOnce(image: ClipboardImage, prompt?: string): Promise<string> {
   try {
-    return await invoke<string>("recognize_fen", {
-      imageBase64: image.base64,
-      mediaType: image.mediaType,
-      prompt,
-    });
+    return await getProviders().engine.recognizeFen(image.base64, image.mediaType, prompt);
   } catch (e) {
     throw new Error(typeof e === "string" ? e : "Position recognition failed");
   }

@@ -6,7 +6,7 @@
 // stop and blends the Stockfish eval toward a no-resource baseline by how much
 // mass band R puts on Stockfish's move.
 
-import { invoke } from "@tauri-apps/api/core";
+import { getProviders } from "@/lib/platform";
 
 /**
  * Slider stops: 200-Elo steps over the bands Maia-1 actually ships (1100–1900).
@@ -45,35 +45,28 @@ export interface PersonaMove {
   san: string;
 }
 
-function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 /**
  * A human-like move for `fen` from the Maia net at `level` (spec 214 "Spar vs
  * rival"): the Rust command reads the `go nodes 1` policy and samples from it at
  * temperature 1 — sampling, not argmax, is what makes it play like a human of
- * that rating. Outside Tauri (Playwright / unit tests) a mock returns a canned
+ * that rating. The browser provider (Playwright / unit tests) returns a canned
  * legal move so the spar flow is drivable headless.
  */
 export async function maiaMove(fen: string, level: number): Promise<PersonaMove> {
-  if (!isTauri()) {
-    return import("./maia-mock").then((m) => m.mockMaiaMove(fen, level));
-  }
-  return invoke<PersonaMove>("maia_move", { fen, level });
+  return getProviders().engine.maiaMove(fen, level);
 }
 
 /** lc0 availability + which band weights are already cached. Never throws. */
 export async function maiaStatus(): Promise<MaiaStatus> {
   try {
-    return await invoke<MaiaStatus>("maia_status");
+    return await getProviders().engine.maiaStatus();
   } catch {
-    // Not in a Tauri shell (web dev), or the command failed: treat as absent.
+    // Command failed (or the shell has no lc0 at all): treat as absent.
     return { lc0_available: false, lc0_path: null, bands: [], cached_bands: [] };
   }
 }
 
 /** Root policy for `fen` at `band`. Rejects with the backend's error string. */
 export async function maiaPolicy(fen: string, band: number): Promise<MaiaPolicy> {
-  return invoke<MaiaPolicy>("maia_policy", { fen, band });
+  return getProviders().engine.maiaPolicy(fen, band);
 }

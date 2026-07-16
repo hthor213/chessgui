@@ -6,12 +6,11 @@
 // from a weighted sample of the book, so the opening resembles the rival's real
 // repertoire; the user plays the OPPOSITE colour (the side to move in the FEN).
 //
-// Provider seam: inside Tauri the book is read from the local (gitignored)
-// data/rivals via the `rival_book` command; outside Tauri a small canned book is
-// used so the flow is drivable headless. The mock is dynamically imported so it
-// stays out of the Tauri bundle.
+// Provider seam: the desktop provider reads the book from the local
+// (gitignored) data/rivals via the `rival_book` command; the browser provider
+// serves a small canned book so the flow is drivable headless.
 
-import { invoke } from "@tauri-apps/api/core";
+import { getProviders } from "@/lib/platform";
 import type { SparColor } from "@/lib/spar";
 import { turnOf } from "@/lib/spar";
 
@@ -33,10 +32,6 @@ export interface RivalBook {
   stats?: Record<string, number>;
 }
 
-function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 /** The user's colour for an entry: the side to move in the FEN, i.e. the
  *  opposite of the colour the rival played. */
 export function userColorForEntry(entry: RivalBookEntry): SparColor {
@@ -46,10 +41,7 @@ export function userColorForEntry(entry: RivalBookEntry): SparColor {
 /** Load the rival book. Rejects with the backend's error string when the book
  *  hasn't been built; the UI surfaces that as a "build the book" hint. */
 export async function loadRivalBook(): Promise<RivalBook> {
-  if (!isTauri()) {
-    return import("./rival-book-mock").then((m) => m.mockRivalBook());
-  }
-  return invoke<RivalBook>("rival_book");
+  return getProviders().engine.rivalBook();
 }
 
 export interface PickOptions {
