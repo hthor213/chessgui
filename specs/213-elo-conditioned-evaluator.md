@@ -301,11 +301,11 @@ optional move, and score them against Stockfish. Files are the research artifact
 ### Phase 3 — Tier 1 human-visible tree
 - [x] Restricted expectimax/minimax search: top-p candidate sets, Stockfish leaf scoring,
       node cap, transposition cache keyed `(fen, R)` (code-verified 2026-07-15: src-tauri/src/human_search.rs implements top-p nucleus, fixed-depth SF leaves, max_nodes cap, TranspositionTable keyed (EPD, band, knobs); TS wrapper lib/human-eval-tree.ts)
-- [ ] Per-node phase conditioning: band chosen by the node's phase via the
+- [x] Per-node phase conditioning: band chosen by the node's phase via the
       `calibration.rs` heuristic (non-pawn weight ≤ 8 = endgame; ply < 16 = opening),
-      switching at boundaries mid-line; scalar slider = linked R⃗
+      switching at boundaries mid-line; scalar slider = linked R⃗ (code-verified 2026-07-16: human_search.rs BandVector + node_band() per interior node, TT key carries band vector, command takes band_opening/middlegame/endgame, 5 new tests)
 - [x] Progressive refinement: tier-0 value shown immediately, tier-1 replaces it (code-verified 2026-07-15: components/human-eval.tsx tier-0 blend keeps rendering while hooks/use-human-eval.ts awaits the tree result)
-- [ ] Background sweep across all slider stops → perception curve chart
+- [x] Background sweep across all slider stops → perception curve chart (code-verified 2026-07-16: human_search.rs sweep_bands + human_eval_sweep command streaming over a Channel with per-node cancellation; perception-curve chart in packages/ui/src/human-eval.tsx, click-a-stop moves the slider)
 - [x] Unit tests on synthetic policies (resource in/out of candidate set flips the eval) (code-verified 2026-07-15: src-tauri/src/human_search.rs test module, blind-vs-sighted top_p 0.70 vs 0.99 flips the eval, plus TT-reuse tests, ~lines 679-780)
 
 ### Phase 4 — Lab integration & validation
