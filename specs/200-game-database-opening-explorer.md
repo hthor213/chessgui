@@ -123,7 +123,7 @@ both note it as desktop-only by design. No section here ever specced its scope �
 recorded per memory `project_chessbase_parity.md` / the overnight mining block.
 
 - [ ] User test against `Testsets/nunn.cbh`: file picker → progress → completion banner
-- [ ] Cancel button on an in-progress CBH import
+- [x] Cancel button on an in-progress CBH import — (code-verified 2026-07-16): `db_cancel_cbh_import` command + Tauri-managed `CbhImportCancel` flag polled at batch boundaries (db.rs; each flushed batch is its own transaction, so cancelled imports keep committed batches and report honest counts + `cancelled: true`); Cancel button wired in database-tab.tsx via the provider seam
 - [ ] `.2cbh` (compressed CBH variant) — no open-source reader exists; watch item, not a
       commitment
 - [ ] Non-zero CBH text-encoding modes beyond the default (requires a legal/licensing call

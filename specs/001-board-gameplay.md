@@ -140,5 +140,5 @@ Data-heavy section using shadcn `ScrollArea` and `Tabs`:
 ## Later / uncaptured requirements (audit 2026-07-16)
 
 - [x] Up/Down keys walk into/out of variations on the analyze board. (000:35) (code-verified 2026-07-16: GameTree.cycleVariation)
-- [ ] Premove and coordinate display on desktop board. (000:35; 223 defers mobile only) — PARTIAL (code-verified 2026-07-16): premove shipped (board.tsx premovable prop + square-state.css); coordinates still hardcoded off (board.tsx `coordinates: false`)
+- [x] Premove and coordinate display on desktop board. (000:35; 223 defers mobile only) — (code-verified 2026-07-16, supersedes same-day PARTIAL): premove shipped (board.tsx premovable prop + square-state.css); coordinates now shipped as wrapper gutter labels driven by a `coordinates` prop (default on) — Chessground's inside-the-board labels stay off by design
 - [ ] One smoke test on piece movement (knight, all legal moves), then close the `project_piece_movement_bugs.md` memory if resolved — bug report is 104 days stale and likely superseded by verified board work, but was never confirmed. (memory project_piece_movement_bugs.md)

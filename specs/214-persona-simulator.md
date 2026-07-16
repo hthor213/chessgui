@@ -224,8 +224,20 @@ the temperature schedule (contract step 3) and the error model (step 5).
       everywhere per the hard rule — the metrics harness gates turning it on,
       and the spar UI doesn't pass book-exit ply yet. Effective temperature +
       phase + bias flag land in the per-move decision log.
-- [ ] Corpus error model: P(mistake | eval, phase, clock, Elo band) from the
-      11M-game evals-on corpus, human-band timing only (contract step 5)
+- [x] Corpus error model: P(mistake | eval, phase, clock, Elo band) from the
+      11M-game evals-on corpus, human-band timing only (contract step 5) —
+      (code-verified 2026-07-16): fitted surface shipped
+      (scripts/persona/fit_error_model.py: hierarchical empirical-Bayes
+      shrinkage global→band→phase→clock→cell + support-weighted 1-2-1 kernel
+      on the eval axis, TOTAL 3×20×7 grid per band, 10 selftests; output
+      data/personas/error_model.fit.json). Runtime mix wired in persona.rs
+      (`sampling.error_model`, decision log carries the arm) with a 1:1
+      Python port + mirrored selftests in scripts/persona/persona_sim.py.
+      OFF by default everywhere per the hard rule — enablement is
+      tuner-gated: tune_persona.py --error-model stage-D arm searches
+      rate_scale on the tune half, judges once on the untouched test half,
+      writes the config only at ≥ +2% absolute match@1; that qualifying
+      tuner run has not happened yet.
 - [x] Endgame arm (2026-07-15): at non-pawn phase weight ≤ 8 the candidate
       source switches to fixed-depth (16) Stockfish MultiPV top-4, humanized
       through the SAME reweight — each SF candidate's prior is its Maia policy
