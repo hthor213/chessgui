@@ -39,6 +39,8 @@ export type PuzzleImportReport = {
 
 export type PuzzleStats = {
   total: number
+  /** Puzzles with trap ply < OPENING_MAX_PLY — the opening-rake pool. */
+  opening: number
   bands: { band: string; count: number }[]
 }
 
@@ -50,8 +52,18 @@ export type MoveCheck = {
   pv: string[]
   depth: number
 }
+/** Opening-rake bar (spec 211 "Opening-rake decks"): a rake counts as an
+ *  opening rake when its trap ply index is < 20 — "don't be -1 by move 10".
+ *  MIRRORS `OPENING_MAX_PLY` in src-tauri/src/puzzles.rs (which uses it for
+ *  the stats `opening` count); a change must land in both. */
+export const OPENING_MAX_PLY = 20
+
 export interface DeckRequest {
   /** Mover Elo band ("1900" … "2500"), or null for all bands. */
   band: string | null
   count: number
+  /** Only puzzles with trap ply < maxPly (opening decks pass
+   *  OPENING_MAX_PLY). Unlike the band this is a HARD filter — thin supply
+   *  is never topped up from later plies. Omit/null = any phase. */
+  maxPly?: number | null
 }

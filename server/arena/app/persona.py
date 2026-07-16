@@ -81,10 +81,17 @@ def _index_book(path: str) -> dict:
 
 
 def load_roster() -> Dict[str, Persona]:
+    """spec 217 Tier 1: only personas whose artifacts are present and loadable
+    unlock — a slug whose config or book is missing from the mount is skipped
+    with a log line (same contract as load_private_roster), never invented."""
     roster: Dict[str, Persona] = {}
-    for slug in config.TIER0_SLUGS:
+    for slug in config.ROSTER_SLUGS:
         cfg_path = os.path.join(config.PERSONA_DIR, f"{slug}.config.json")
         book_path = os.path.join(config.PERSONA_DIR, f"{slug}.book.json")
+        missing = [p for p in (cfg_path, book_path) if not os.path.exists(p)]
+        if missing:
+            print(f"[persona] '{slug}': missing {', '.join(missing)}; skipped")
+            continue
         with open(cfg_path) as f:
             cfg = json.load(f)
         roster[slug] = Persona(slug, cfg, _index_book(book_path))

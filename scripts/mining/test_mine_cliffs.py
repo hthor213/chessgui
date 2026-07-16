@@ -21,6 +21,9 @@ fixtures/cliffs.pgn holds seven hand-built games:
 
 Expected end-to-end result: exactly 2 puzzles, 5 candidates, rejects
 {engagement_instant: 1, engagement_termination: 1, verify_eval: 1}.
+A second capped run (--max-ply 8, the opening-rake variant) keeps only
+cliff005 (trap ply 7); cliff001/cliff006 (trap ply 10) never become
+candidates.
 Engine tests use $STOCKFISH, else `stockfish` on PATH,
 else the homebrew path; they skip (loudly) if none exists.
 
@@ -104,6 +107,16 @@ class TestFindCandidates(unittest.TestCase):
     def test_missing_evals_skipped(self):
         self.assertEqual(list(find_candidates([None, -240, None], 100, 150)),
                          [])
+
+    def test_max_ply_caps_the_scan(self):
+        # Opening-rake variant: trap ply index must be < max_ply.
+        evals = [30, 30, 20, 250]  # cliff at ply 3 (see test_black_cliff)
+        self.assertEqual(list(find_candidates(evals, 100, 150, max_ply=3)),
+                         [])
+        self.assertEqual(list(find_candidates(evals, 100, 150, max_ply=4)),
+                         [3])
+        self.assertEqual(list(find_candidates(evals, 100, 150, max_ply=0)),
+                         [3])  # 0 = no cap
 
 
 def white_clks(thinks, base=600.0, inc=5.0):
@@ -279,11 +292,12 @@ class TestEndToEnd(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     @classmethod
-    def _mine(cls):
+    def _mine(cls, out_dir=None, extra=()):
         return subprocess.run(
             [sys.executable, os.path.join(HERE, "mine_cliffs.py"), FIXTURE,
-             "--engine", STOCKFISH, "--depth", DEPTH, "--out-dir", cls.tmp,
-             "--progress-every", "0"],
+             "--engine", STOCKFISH, "--depth", DEPTH,
+             "--out-dir", out_dir or cls.tmp,
+             "--progress-every", "0", *extra],
             capture_output=True, text=True, check=True)
 
     def test_exactly_the_two_real_cliffs(self):
@@ -336,6 +350,26 @@ class TestEndToEnd(unittest.TestCase):
                                          "engagement_termination": 1,
                                          "verify_eval": 1})
         self.assertEqual(s["puzzles"], 2)
+
+    def test_max_ply_opening_run(self):
+        """--max-ply 8 (opening-rake variant): cliff005's ply-7 trap
+        survives; cliff001/cliff006 (trap ply 10) are capped out before
+        any engine or engagement work; cliff003's fabricated ply-3 tag and
+        cliff007's instant ply-7 trap still reach their filters."""
+        out = os.path.join(self.tmp, "opening")
+        os.makedirs(out, exist_ok=True)
+        self._mine(out_dir=out, extra=("--max-ply", "8"))
+        with open(os.path.join(out, "cliffs.cliffs.jsonl")) as f:
+            rows = [json.loads(ln) for ln in f if ln.strip()]
+        self.assertEqual([r["source_game_id"] for r in rows], ["cliff005"])
+        self.assertTrue(all(r["ply"] < 8 for r in rows))
+        with open(os.path.join(out, "cliffs.cliffs.done.json")) as f:
+            stats = json.load(f)
+        self.assertEqual(stats["params"]["max_ply"], 8)
+        self.assertEqual(stats["candidates"], 3)
+        self.assertEqual(stats["rejected"], {"engagement_instant": 1,
+                                             "verify_eval": 1})
+        self.assertEqual(stats["puzzles"], 1)
 
     def test_idempotent_rerun(self):
         out = os.path.join(self.tmp, "cliffs.cliffs.jsonl")

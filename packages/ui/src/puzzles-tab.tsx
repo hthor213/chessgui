@@ -43,6 +43,7 @@ import {
   gradeCalmMove,
   gradeMove,
   importPuzzles,
+  OPENING_MAX_PLY,
   puzzleStats,
   streak,
   summarize,
@@ -98,6 +99,12 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
   const [stats, setStats] = useState<PuzzleStats | null>(null)
   const [band, setBand] = useState<string | null>(initialDeck?.band ?? null)
   const [count, setCount] = useState(initialDeck?.count ?? DEFAULT_DECK_SIZE)
+  /** Opening-rake deck (spec 211): cap every draw to trap ply < OPENING_MAX_PLY. */
+  const [openingOnly, setOpeningOnly] = useState(initialDeck?.maxPly != null)
+  const deckRequest = useCallback(
+    (): DeckRequest => ({ band, count, maxPly: openingOnly ? OPENING_MAX_PLY : null }),
+    [band, count, openingOnly],
+  )
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [deckError, setDeckError] = useState<string | null>(null)
 
@@ -342,9 +349,11 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
         deckError={deckError}
         records={record.bands}
         dueCount={record.due}
+        openingOnly={openingOnly}
         onBand={setBand}
         onCount={setCount}
-        onStart={() => loadDeck({ band, count })}
+        onOpeningOnly={setOpeningOnly}
+        onStart={() => loadDeck(deckRequest())}
         onImportText={(text) =>
           importPuzzles({ text })
             .then((r) => {
@@ -382,7 +391,7 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
               ` ${sum.unverified} answer${sum.unverified === 1 ? "" : "s"} unverified (no engine here).`}
           </p>
           <div className="flex gap-2 justify-center">
-            <Button onClick={() => loadDeck({ band, count })} data-testid="puzzles-again">
+            <Button onClick={() => loadDeck(deckRequest())} data-testid="puzzles-again">
               Another deck
             </Button>
             <Button variant="outline" onClick={exitSession} data-testid="puzzles-exit">
@@ -525,8 +534,10 @@ function SetupScreen({
   deckError,
   records,
   dueCount,
+  openingOnly,
   onBand,
   onCount,
+  onOpeningOnly,
   onStart,
   onImportText,
   onExit,
@@ -538,8 +549,10 @@ function SetupScreen({
   deckError: string | null
   records: BandRecord[]
   dueCount: number
+  openingOnly: boolean
   onBand: (b: string | null) => void
   onCount: (n: number) => void
+  onOpeningOnly: (v: boolean) => void
   onStart: () => void
   onImportText: (text: string) => void
   onExit?: () => void
@@ -601,6 +614,25 @@ function SetupScreen({
                     testid={`puzzles-band-${b.band}`}
                   />
                 ))}
+              </div>
+              {/* Opening-rake decks (spec 211): early-game cliffs only —
+                  "don't be -1 by move 10". A hard filter, never topped up
+                  from later plies, so the chip carries its own pool count. */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-muted-foreground mr-1">Phase:</span>
+                <BandChip
+                  label="Any"
+                  active={!openingOnly}
+                  onClick={() => onOpeningOnly(false)}
+                  testid="puzzles-phase-any"
+                />
+                <BandChip
+                  label={`Opening — by move ${OPENING_MAX_PLY / 2} (${stats.opening})`}
+                  active={openingOnly}
+                  onClick={() => onOpeningOnly(true)}
+                  testid="puzzles-phase-opening"
+                  disabled={stats.opening === 0}
+                />
               </div>
               <div className="flex items-end gap-3">
                 <label className="space-y-1 text-xs text-muted-foreground">
@@ -702,21 +734,24 @@ function BandChip({
   active,
   onClick,
   testid,
+  disabled,
 }: {
   label: string
   active: boolean
   onClick: () => void
   testid: string
+  disabled?: boolean
 }) {
   return (
     <button
       data-testid={testid}
       onClick={onClick}
+      disabled={disabled}
       className={`px-2 py-1 text-xs rounded-md border transition-colors tabular-nums ${
         active
           ? "border-white/30 bg-white/10 text-foreground"
           : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
-      }`}
+      } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground`}
     >
       {label}
     </button>

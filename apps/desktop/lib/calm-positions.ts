@@ -82,14 +82,19 @@ export function getCalm(id: string): CalmRow | null {
  * from the other bands when thin (same top-up contract as puzzles_deck).
  * `rng` is injectable for deterministic tests; order within each pool is
  * shuffled so a deck never leaks "the calm one is always the same position".
+ * `maxPly` (opening decks, spec 211) is a hard filter, same as puzzles_deck:
+ * only rows with ply < maxPly qualify, never topped up from later plies.
  */
 export function calmDeck(
   band: string | null,
   count: number,
   excludeIds: ReadonlySet<string> = new Set(),
   rng: () => number = Math.random,
+  maxPly: number | null = null,
 ): CalmRow[] {
-  const pool = CALM_POSITIONS.filter((c) => !excludeIds.has(c.id))
+  const pool = CALM_POSITIONS.filter(
+    (c) => !excludeIds.has(c.id) && (maxPly === null || c.ply < maxPly),
+  )
   const inBand = band ? pool.filter((c) => c.band === band) : pool
   const rest = band ? pool.filter((c) => c.band !== band) : []
   return [...shuffle(inBand, rng), ...shuffle(rest, rng)].slice(0, Math.max(count, 0))

@@ -16,6 +16,9 @@
 // data/reference/pack_2024-01_partial.pgn (the same 12-row batch bundled at
 // src-tauri/tests/fixtures/cliffs.jsonl).
 
+// Value import straight from core (not "@/lib/puzzles") — the mock must not
+// pull the provider seam in at runtime.
+import { OPENING_MAX_PLY } from "@chessgui/core/puzzle-types"
 import type {
   DeckRequest,
   MoveCheck,
@@ -126,11 +129,16 @@ export const mockPuzzles: PuzzlesApi = {
   },
 
   async deck(req: DeckRequest): Promise<PuzzleRow[]> {
-    const inBand = req.band ? puzzles.filter((p) => p.band === req.band) : []
-    const picked = req.band ? inBand.slice(0, req.count) : puzzles.slice(0, req.count)
+    // maxPly (opening decks) is a hard filter, like the Rust path: NULL
+    // plies never qualify and the band top-up stays inside the cap.
+    const maxPly = req.maxPly ?? null
+    const pool =
+      maxPly === null ? puzzles : puzzles.filter((p) => p.ply !== null && p.ply < maxPly)
+    const inBand = req.band ? pool.filter((p) => p.band === req.band) : []
+    const picked = req.band ? inBand.slice(0, req.count) : pool.slice(0, req.count)
     if (picked.length < req.count) {
       const ids = new Set(picked.map((p) => p.id))
-      for (const p of puzzles) {
+      for (const p of pool) {
         if (picked.length >= req.count) break
         if (!ids.has(p.id)) picked.push(p)
       }
@@ -149,6 +157,7 @@ export const mockPuzzles: PuzzlesApi = {
     }
     return {
       total: puzzles.length,
+      opening: puzzles.filter((p) => p.ply !== null && p.ply < OPENING_MAX_PLY).length,
       bands: [...byBand.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([band, count]) => ({ band, count })),

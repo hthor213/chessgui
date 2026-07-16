@@ -48,15 +48,50 @@ import { readBrowserClipboardImage, readBrowserClipboardText } from "./clipboard
 import { localStorageKV } from "./storage"
 import type { EngineStartResult, PickFileOptions, PlatformProviders } from "@chessgui/core/platform-types"
 
-/** The desktop default engine binary (spec 011). macOS-only knowledge by
- *  design — spec 222's Windows/Linux builds change THIS constant's slot, not
- *  shared code (spec 220 "Kill the /opt/homebrew constant"). */
-const DESKTOP_DEFAULT_ENGINE_PATH = "/opt/homebrew/bin/stockfish"
+// --- Default engine path (spec 222 Tier 0) --------------------------------
+// The real resolution — bundled sidecar → PATH lookup → macOS Homebrew
+// constant — lives in Rust (src-tauri/src/engine_path.rs), because only the
+// shell knows where the bundler dropped the sidecar. `defaultEnginePath`
+// must stay a sync readonly string (spec 220 EngineProvider), so the getter
+// serves a per-OS static guess until the one-shot invoke resolves the real
+// answer; callers read it at interaction time (start button, settings
+// dialog), long after boot, so the guess is visible for the first paint at
+// most. The user-set path (spec 011 file picker) still overrides this in
+// lib/engine-settings.ts — that ordering is the non-AVX2 escape hatch.
+function staticDefaultEnginePath(): string {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : ""
+  if (ua.includes("Windows")) return "stockfish.exe"
+  if (ua.includes("Linux")) return "stockfish"
+  // macOS keeps its pre-spec-222 Homebrew default until spec 220 unifies
+  // the sidecar story across all three OSes.
+  return "/opt/homebrew/bin/stockfish"
+}
+
+let resolvedDefaultEnginePath: string | null = null
+let defaultEnginePathRequested = false
+function requestDefaultEnginePath(): void {
+  if (defaultEnginePathRequested) return
+  defaultEnginePathRequested = true
+  try {
+    invoke<string>("default_engine_path")
+      .then((path) => {
+        if (path) resolvedDefaultEnginePath = path
+      })
+      .catch(() => {
+        // Pre-222 shell without the command — the static guess stands.
+      })
+  } catch {
+    // Not inside a Tauri webview (tests import this module too).
+  }
+}
 
 export const tauriProviders: PlatformProviders = {
   engine: {
     hasNativeEngine: true,
-    defaultEnginePath: DESKTOP_DEFAULT_ENGINE_PATH,
+    get defaultEnginePath(): string {
+      requestDefaultEnginePath()
+      return resolvedDefaultEnginePath ?? staticDefaultEnginePath()
+    },
 
     // The spec 219 game-context tag rides along so the Rust UCI manager can
     // refuse active-game contexts defensively (uci.rs context_is_locked).
@@ -210,6 +245,7 @@ export const tauriProviders: PlatformProviders = {
       return invoke<PuzzleRow[]>("puzzles_deck", {
         band: req.band,
         theme: null,
+        maxPly: req.maxPly ?? null,
         limit: req.count,
         dbPath: dbPath ?? null,
       })

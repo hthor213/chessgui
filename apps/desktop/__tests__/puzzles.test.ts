@@ -10,11 +10,13 @@ import {
   bandForRating,
   gradeMove,
   LOST_THRESHOLD_CP,
+  OPENING_MAX_PLY,
   summarize,
   type MoveCheck,
   type PuzzleRow,
 } from "@/lib/puzzles"
 import { mockPuzzles } from "@/lib/puzzles-mock"
+import { calmDeck } from "@/lib/calm-positions"
 
 /** Dry-run row #1: black to move, Be6?? loses ~3 pawns to f4!. */
 const PUZZLE: PuzzleRow = {
@@ -176,5 +178,48 @@ describe("puzzles mock (the plain-browser backend)", () => {
 
   it("has no engine: checkMove resolves null (the honest fallback)", async () => {
     await expect(mockPuzzles.checkMove("", "", 16)).resolves.toBeNull()
+  })
+
+  it("opening decks (maxPly) are a hard filter, never topped up from later plies", async () => {
+    // The three seed rows are all midgame (plys 37/60/76); add one opener.
+    const opener = JSON.stringify({
+      fen: "rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
+      trap_uci: "f6e4",
+      refutation_line: ["f3e5"],
+      safe_threshold_cp: 50,
+      engine_verify_depth: 16,
+      created_at: "t",
+      ply: 5,
+      band: "1700",
+    })
+    const rep = await mockPuzzles.importPuzzles({ text: opener })
+    expect(rep.imported).toBe(1)
+
+    const openingDeck = await mockPuzzles.deck({ band: null, count: 10, maxPly: OPENING_MAX_PLY })
+    expect(openingDeck).toHaveLength(1)
+    expect(openingDeck[0].ply).toBe(5)
+    // Band top-up stays inside the cap too (2100 has no openers).
+    const banded = await mockPuzzles.deck({ band: "2100", count: 10, maxPly: OPENING_MAX_PLY })
+    expect(banded.map((p) => p.ply)).toEqual([5])
+    // Without the cap the full pool is back.
+    const all = await mockPuzzles.deck({ band: null, count: 50 })
+    expect(all.length).toBeGreaterThan(1)
+  })
+
+  it("stats count the opening-rake pool", async () => {
+    const stats = await mockPuzzles.stats()
+    expect(stats.opening).toBe(1) // the row imported above; seeds are midgame
+    expect(stats.total).toBeGreaterThan(stats.opening)
+  })
+})
+
+describe("calmDeck — opening cap", () => {
+  it("only serves calm rows below maxPly, without top-up", () => {
+    const rng = () => 0.5
+    const capped = calmDeck(null, 50, new Set(), rng, OPENING_MAX_PLY)
+    expect(capped.length).toBeGreaterThan(0)
+    expect(capped.every((c) => c.ply < OPENING_MAX_PLY)).toBe(true)
+    const uncapped = calmDeck(null, 50, new Set(), rng)
+    expect(uncapped.length).toBeGreaterThan(capped.length)
   })
 })

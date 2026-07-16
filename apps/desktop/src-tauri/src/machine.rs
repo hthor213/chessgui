@@ -15,11 +15,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
-use tokio::process::Command;
 use tokio::time::timeout;
 
-/// Default Stockfish binary (Homebrew, Apple Silicon), matching the rest of the app.
-const DEFAULT_STOCKFISH: &str = "/opt/homebrew/bin/stockfish";
+// Default engine: resolved per-OS by engine_path (sidecar → PATH → macOS
+// Homebrew), spec 222 — the old /opt/homebrew constant lives there now.
 
 /// Upper bound on one bench run. Stockfish's default bench is a few seconds on
 /// modern hardware; 120s leaves generous headroom for a slow box.
@@ -97,7 +96,7 @@ async fn run_bench(path: &str) -> Result<BenchResult, String> {
     let started = Instant::now();
     let output = timeout(
         BENCH_TIMEOUT,
-        Command::new(path)
+        crate::engine_path::engine_command(path)
             .arg("bench")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -256,7 +255,7 @@ pub async fn machine_bench(
 ) -> Result<BenchResult, String> {
     let path = engine_path
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_STOCKFISH.to_string());
+        .unwrap_or_else(crate::engine_path::resolve_default_engine_path);
 
     let bench = run_bench(&path).await?;
     let file = profile_path(&app)?;

@@ -30,7 +30,7 @@ import { Avatar, AvatarFallback } from "@chessgui/ui/ui/avatar"
 import { Button } from "@chessgui/ui/ui/button"
 import { initialsFor } from "@/lib/roster"
 import { dragToUci, turnOf } from "@/lib/spar"
-import { ArenaApiError, getArenaApi, type ArenaGameState } from "@chessgui/core/arena-api"
+import { ArenaApiError, getArenaApi, type ArenaGameState, type ArenaMove } from "@chessgui/core/arena-api"
 import { arenaStatusLabel, pairArenaMoves } from "@/lib/arena-moves"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
@@ -58,6 +58,20 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
   const [slow, setSlow] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
   const slowTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  // "I would never do this" capture (spec 217 Promise 2 — the spec-214
+  // spar realism-feedback pattern, ported): tap a persona move in the list
+  // (or the button, which targets the persona's latest move), optionally say
+  // why, submit. Server-persisted per move — this is the Tier-1 ground-truth
+  // stream, not a game feature. Note is optional here (unlike spar's
+  // negative verdict): the tap itself is the signal.
+  const [feedbackPly, setFeedbackPly] = useState<number | null>(null)
+  const [feedbackNote, setFeedbackNote] = useState("")
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
+  const [feedbackBusy, setFeedbackBusy] = useState(false)
+  const [feedbackConfirm, setFeedbackConfirm] = useState(false)
+  const feedbackConfirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(feedbackConfirmTimer.current), [])
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -129,6 +143,55 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
 
   const moveRows = useMemo(() => pairArenaMoves(game?.moves ?? []), [game?.moves])
 
+  // The persona's latest move — the default feedback target ("this move he
+  // just played"). Null until the persona has moved at all.
+  const lastPersonaPly = useMemo(() => {
+    const moves = game?.moves ?? []
+    for (let i = moves.length - 1; i >= 0; i--) {
+      if (moves[i].mover === "persona") return moves[i].ply
+    }
+    return null
+  }, [game?.moves])
+
+  // Toggle the inline form open on `ply` (tap the same target again to close).
+  const toggleFeedback = useCallback((ply: number) => {
+    setFeedbackConfirm(false)
+    setFeedbackError(null)
+    setFeedbackPly((prev) => {
+      setFeedbackNote("")
+      return prev === ply ? null : ply
+    })
+  }, [])
+
+  const cancelFeedback = useCallback(() => {
+    setFeedbackPly(null)
+    setFeedbackNote("")
+    setFeedbackError(null)
+  }, [])
+
+  const submitFeedback = useCallback(async () => {
+    if (!game || feedbackPly === null) return
+    setFeedbackBusy(true)
+    setFeedbackError(null)
+    try {
+      await getArenaApi().submitMoveFeedback(game.id, feedbackPly, feedbackNote.trim())
+      setFeedbackPly(null)
+      setFeedbackNote("")
+      setFeedbackConfirm(true)
+      clearTimeout(feedbackConfirmTimer.current)
+      feedbackConfirmTimer.current = setTimeout(() => setFeedbackConfirm(false), 2000)
+    } catch (e) {
+      setFeedbackError(e instanceof ArenaApiError ? e.message : "Couldn't record that — try again.")
+    } finally {
+      setFeedbackBusy(false)
+    }
+  }, [game, feedbackPly, feedbackNote])
+
+  const feedbackTarget = useMemo(
+    () => (feedbackPly === null ? null : (game?.moves ?? []).find((m) => m.ply === feedbackPly) ?? null),
+    [feedbackPly, game?.moves],
+  )
+
   if (loadError) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6" data-testid="arena-game-error">
@@ -157,6 +220,28 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
   }
 
   const label = arenaStatusLabel(game)
+
+  // One move-list cell. Persona moves are tappable — tapping one targets it
+  // for "I would never do this" (spec 217 Promise 2); the player's own moves
+  // stay plain text.
+  const moveCell = (m?: ArenaMove) => {
+    if (!m) return <span />
+    if (m.mover !== "persona") return <span>{m.san}</span>
+    return (
+      <button
+        type="button"
+        data-testid={`arena-feedback-move-${m.ply}`}
+        onClick={() => toggleFeedback(m.ply)}
+        className={`text-left rounded px-0.5 -mx-0.5 transition-colors ${
+          feedbackPly === m.ply
+            ? "bg-amber-400/15 text-amber-300"
+            : "hover:bg-white/10"
+        }`}
+      >
+        {m.san}
+      </button>
+    )
+  }
 
   return (
     <div className="flex-1 min-h-0 flex flex-col" data-testid="arena-game">
@@ -225,13 +310,78 @@ export function GameScreen({ gameId, onExit }: { gameId: number; onExit: () => v
                 {moveRows.map((row) => (
                   <li key={row.no} className="contents">
                     <span className="text-muted-foreground text-right">{row.no}.</span>
-                    <span>{row.white?.san ?? ""}</span>
-                    <span>{row.black?.san ?? ""}</span>
+                    {moveCell(row.white)}
+                    {moveCell(row.black)}
                   </li>
                 ))}
               </ol>
             )}
           </div>
+
+          {/* "I would never do this" capture (spec 217 Promise 2) — a quiet
+              research affordance under the move list, same posture as the
+              spar realism-feedback block (spec 214). The button targets the
+              persona's latest move; tapping any persona move in the list
+              above retargets it. */}
+          {lastPersonaPly !== null && (
+            <div className="border-t border-white/10 pt-3 flex flex-col gap-2" data-testid="arena-feedback">
+              <button
+                type="button"
+                data-testid="arena-feedback-never"
+                onClick={() => toggleFeedback(feedbackPly ?? lastPersonaPly)}
+                className={`self-start px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                  feedbackPly !== null
+                    ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                I would never do this
+              </button>
+
+              {feedbackPly !== null && feedbackTarget && (
+                <div className="flex flex-col gap-1.5" data-testid="arena-feedback-form">
+                  <span className="text-[11px] text-muted-foreground">
+                    About {game.persona}&apos;s {Math.floor(feedbackTarget.ply / 2) + 1}
+                    {feedbackTarget.ply % 2 === 0 ? "." : "…"} {feedbackTarget.san} — tap another of
+                    their moves above to change.
+                  </span>
+                  <textarea
+                    data-testid="arena-feedback-note"
+                    className="w-full bg-white/[0.03] border border-white/10 rounded-md px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-white/20"
+                    rows={3}
+                    placeholder="Because… (optional)"
+                    value={feedbackNote}
+                    onChange={(e) => setFeedbackNote(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={cancelFeedback} data-testid="arena-feedback-cancel">
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={submitFeedback}
+                      disabled={feedbackBusy}
+                      data-testid="arena-feedback-submit"
+                    >
+                      Submit
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {feedbackError && (
+                <p className="text-xs text-red-400" data-testid="arena-feedback-error">
+                  {feedbackError}
+                </p>
+              )}
+              {feedbackConfirm && (
+                <span className="text-xs text-emerald-300/80" data-testid="arena-feedback-confirm">
+                  Noted — this tunes the next persona iteration.
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="mt-auto pt-2 flex gap-2">
             <Button variant="outline" size="sm" onClick={resign} disabled={frozen} data-testid="arena-resign">

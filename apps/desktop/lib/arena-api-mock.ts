@@ -142,6 +142,10 @@ function toSummary(g: MockGame): ArenaGameSummary {
 
 export function createMockArenaApiClient(): ArenaApiClient {
   const games = new Map<number, MockGame>()
+  // Spec 217 Promise 2 mock store — in-memory only, mirrors the server's
+  // validation (ply must name a persona move) so the UI's error path is
+  // drivable headlessly too.
+  const feedback: { gameId: number; ply: number; uci: string; san: string; persona: string; note: string }[] = []
   const rosterBySlug = new Map(buildArenaRoster().map((p) => [p.slug, p]))
   let nextId = 1
 
@@ -277,6 +281,15 @@ export function createMockArenaApiClient(): ArenaApiClient {
       g.resultReason = "player resigned"
       g.updatedAt = new Date().toISOString()
       return toGameState(g)
+    },
+
+    async submitMoveFeedback(gameId: number, ply: number, note?: string): Promise<void> {
+      await delay(50)
+      const g = requireGame(gameId)
+      const target = g.moves.find((m) => m.ply === ply)
+      if (!target) throw new ArenaApiError(400, `No move at ply ${ply}`)
+      if (target.mover !== "persona") throw new ArenaApiError(400, "Feedback targets a persona move")
+      feedback.push({ gameId, ply, uci: target.uci, san: target.san, persona: g.persona, note: (note ?? "").trim() })
     },
 
     async deleteGame(gameId: number): Promise<void> {

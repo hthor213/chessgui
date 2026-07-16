@@ -9,6 +9,8 @@ Routes (all /api/* behind JWT except /health and /api/auth/google-login):
   GET  /api/game/{id}                         -> full state (resume)
   POST /api/game/{id}/move {uci}              -> player move + persona reply
   POST /api/game/{id}/resign                  -> resign
+  POST /api/game/{id}/feedback {ply, note?}   -> "I would never do this" on a
+                                                 persona move (217 Promise 2)
   DELETE /api/game/{id}                       -> delete (spec: deletable on request)
 """
 
@@ -87,6 +89,11 @@ class CreateGameRequest(BaseModel):
 
 class MoveRequest(BaseModel):
     uci: str
+
+
+class MoveFeedbackRequest(BaseModel):
+    ply: int
+    note: str = ""  # optional free text ("...because he'd never trade queens here")
 
 
 @app.get("/health")
@@ -289,6 +296,26 @@ def resign(game_id: int, user: dict = Depends(current_user)):
     result = "0-1" if game["player_color"] == "white" else "1-0"
     db.finish_game(game_id, result, "player resigned")
     return _game_state(db.get_game(game_id))
+
+
+@app.post("/api/game/{game_id}/feedback")
+def move_feedback(game_id: int, req: MoveFeedbackRequest,
+                  user: dict = Depends(current_user)):
+    """Spec 217 Promise 2: in-game "I would never do this" on a persona move
+    (the spec-214 realism-feedback capture, ported). Move + persona are read
+    back from the DB rather than trusted from the client, so a feedback row
+    can never disagree with the game record it annotates. Works on active AND
+    finished games — feedback is welcome while reviewing afterwards too."""
+    game = _own_active_game(game_id, user)  # ownership check only (any status)
+    target = next((m for m in db.get_moves(game_id) if m["ply"] == req.ply),
+                  None)
+    if target is None:
+        raise HTTPException(400, f"No move at ply {req.ply}")
+    if target["mover"] != "persona":
+        raise HTTPException(400, "Feedback targets a persona move")
+    fid = db.add_move_feedback(game_id, req.ply, target["uci"], target["san"],
+                               game["persona"], req.note.strip())
+    return {"id": fid, "game_id": game_id, "ply": req.ply}
 
 
 @app.delete("/api/game/{game_id}")

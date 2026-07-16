@@ -23,6 +23,11 @@
 //        "resume" path IS this endpoint, no separate resume call exists)
 //   POST /api/game/{id}/move  {uci}                 -> 200 ArenaGameState | 400 | 401 | 404 | 409 | 503
 //   POST /api/game/{id}/resign                       -> 200 ArenaGameState | 401 | 404 | 409
+//   POST /api/game/{id}/feedback  {ply, note?}       -> 200 {id, game_id, ply} | 400 | 401 | 404
+//        (spec 217 Promise 2: "I would never do this" on a persona move —
+//        the spec-214 realism-feedback capture ported to the arena; the
+//        server reads move + persona back from its own DB, the client only
+//        names the ply. Valid on active AND finished games.)
 //   DELETE /api/game/{id}                            -> 200 {deleted: id} | 401 | 404
 //
 // NOT a server capability in Tier 0 (checked against persona.py's own
@@ -145,6 +150,10 @@ export interface ArenaApiClient {
   listGames(): Promise<ArenaGameSummary[]>
   submitMove(gameId: number, uci: string): Promise<ArenaGameState>
   resign(gameId: number): Promise<ArenaGameState>
+  /** POST /api/game/{id}/feedback — "I would never do this" on a persona
+   *  move (spec 217 Promise 2). `ply` must name a persona move of this game;
+   *  the note is optional free text. */
+  submitMoveFeedback(gameId: number, ply: number, note?: string): Promise<void>
   deleteGame(gameId: number): Promise<void>
 }
 
@@ -326,6 +335,13 @@ function createFetchArenaApiClient(): ArenaApiClient {
         method: "POST",
       })
       return gameStateFromWire(g)
+    },
+
+    async submitMoveFeedback(gameId, ply, note) {
+      await request<{ id: number; game_id: number; ply: number }>(`/api/game/${gameId}/feedback`, {
+        method: "POST",
+        body: JSON.stringify({ ply, note: note ?? "" }),
+      })
     },
 
     async deleteGame(gameId) {

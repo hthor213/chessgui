@@ -57,9 +57,18 @@ MAIA_NET_DIR = os.getenv("ARENA_MAIA_NET_DIR", "/nets")
 # play ABOVE the band. Unmeasured — tune via realism feedback (Promise 2).
 MAIA_SEARCH_NODES = int(os.getenv("ARENA_MAIA_SEARCH_NODES", "16"))
 
-# --- Tier 0 roster (spec 217): Gudmundur peak, Fischer, Kasparov ---
-TIER0_SLUGS = [s.strip() for s in os.getenv(
-    "ARENA_ROSTER", "sigurjonsson-peak,fischer,kasparov").split(",") if s.strip()]
+# --- roster (spec 217): Tier-0 trio + Tier-1 unlock (Karpov, Spassky, the
+# Icelandic canon). Every default slug's artifacts ({slug}.config.json +
+# {slug}.book.json) verified present in data/personas, 2026-07-15; personas
+# whose artifacts are missing at startup are skipped, not invented
+# (persona.load_roster). Env override unchanged: ARENA_ROSTER.
+ROSTER_SLUGS = [s.strip() for s in os.getenv(
+    "ARENA_ROSTER",
+    "sigurjonsson-peak,fischer,kasparov,"          # Tier 0
+    "karpov,spassky,"                              # Tier 1: the other chairs
+    "fridrik-olafsson,margeir-petursson,johann-hjartarson,hannes-stefansson,"
+    "helgi-olafsson,hedinn-steingrimsson,jon-l-arnason",  # Icelandic canon
+).split(",") if s.strip()]
 
 # Transparency disclosure (spec 217, near-verbatim family sticker, 2026-07-15).
 DISCLOSURE = ("note: your son may use your games — study them in order to try "

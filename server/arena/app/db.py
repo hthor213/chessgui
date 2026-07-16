@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS moves (
   created_at TEXT DEFAULT (datetime('now')),
   PRIMARY KEY (game_id, ply)
 );
+CREATE TABLE IF NOT EXISTS move_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  ply INTEGER NOT NULL,
+  uci TEXT NOT NULL,
+  san TEXT NOT NULL,
+  persona TEXT NOT NULL,     -- denormalized: survives even if games change shape
+  note TEXT DEFAULT '',      -- free text, optional ("...because he'd lose the bishop")
+  created_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -126,6 +136,22 @@ def add_move(game_id: int, ply: int, uci: str, san: str, mover: str,
           (game_id, ply, uci, san, mover, arm,
            json.dumps(decision_log) if decision_log else None))
     _exec("UPDATE games SET updated_at=datetime('now') WHERE id=?", (game_id,))
+
+
+def add_move_feedback(game_id: int, ply: int, uci: str, san: str,
+                      persona: str, note: str) -> int:
+    """Spec 217 Promise 2: "I would never do this" capture — the spec-214
+    realism-feedback pattern ported to the arena. Move + persona are
+    denormalized from the moves/games rows at write time so each feedback
+    row is self-contained for the Tier-2 style-prior retune."""
+    return _exec(
+        "INSERT INTO move_feedback (game_id, ply, uci, san, persona, note) "
+        "VALUES (?,?,?,?,?,?)", (game_id, ply, uci, san, persona, note))
+
+
+def list_move_feedback(game_id: int) -> List[Dict[str, Any]]:
+    return _rows("SELECT * FROM move_feedback WHERE game_id=? ORDER BY id",
+                 (game_id,))
 
 
 def finish_game(game_id: int, result: str, reason: str) -> None:

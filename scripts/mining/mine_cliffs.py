@@ -26,6 +26,10 @@ big clock gap above it (walked away, collapsed on return). Games without
 %clk/TimeControl data carry no signal and are KEPT; the filter only
 removes provably disengaged games. --no-engagement disables it.
 
+--max-ply N mines only the game's first N plies — the opening-rake variant
+(spec 211: at sub-1900 the opening goal is "don't be -1 by move 10";
+move 10 = --max-ply 20). Off by default.
+
 Output: one JSONL file per input month (spec 211 names the `puzzles` table
 columns but no interchange format and the app DB has no puzzles table yet,
 so this emits JSONL; scripts/mining/import_puzzles.py loads it into a
@@ -142,11 +146,16 @@ def parse_movetext(text):
     return sans, evals, clks
 
 
-def find_candidates(evals, pre_window, cliff):
+def find_candidates(evals, pre_window, cliff, max_ply=0):
     """Cheap [%eval]-only scan. Yields ply indices where the mover stepped
     off a cliff: |eval_before| <= pre_window and eval_after <= -cliff, both
-    from the mover's perspective. Runs before any board replay."""
-    for i in range(1, len(evals)):
+    from the mover's perspective. Runs before any board replay.
+
+    max_ply > 0 caps the scan to the game's first max_ply plies (trap ply
+    index < max_ply) — the opening-rake variant (spec 211: at sub-1900 the
+    opening goal is "don't be -1 by move 10"; move 10 = --max-ply 20)."""
+    end = min(len(evals), max_ply) if max_ply else len(evals)
+    for i in range(1, end):
         eb_w, ea_w = evals[i - 1], evals[i]
         if eb_w is None or ea_w is None:
             continue
@@ -319,7 +328,7 @@ def mine_file(path, engine, args, out_dir):
                 continue
             sans, evals, clks = parsed
             cand_plies = list(find_candidates(evals, args.pre_window,
-                                              args.cliff))
+                                              args.cliff, args.max_ply))
             if not cand_plies:
                 continue
             stats["games_with_candidates"] += 1
@@ -408,7 +417,8 @@ def mine_file(path, engine, args, out_dir):
         "params": {k: getattr(args, k) for k in
                    ("depth", "multipv", "pre_window", "cliff", "safe_window",
                     "lost_threshold", "verify_pre_max", "min_alternatives",
-                    "max_per_game", "refutation_plies", "no_engagement")},
+                    "max_per_game", "max_ply", "refutation_plies",
+                    "no_engagement")},
         "engine": args.engine,
         "generator": GENERATOR,
         "elapsed_seconds": round(time.time() - started, 1),
@@ -479,6 +489,10 @@ def parse_args():
     p.add_argument("--multipv", type=int, default=4,
                    help="MultiPV for the alternatives search (default 4 = "
                         "3 alternatives + room for the trap in the list).")
+    p.add_argument("--max-ply", type=int, default=0,
+                   help="Opening-rake variant (spec 211): only mine cliffs "
+                        "in the game's first N plies (trap ply index < N; "
+                        "20 = 'by move 10'). 0 = no cap.")
     p.add_argument("--max-per-game", type=int, default=2,
                    help="Max candidates taken per game, earliest first "
                         "(default 2; 0 = all).")

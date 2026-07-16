@@ -3,6 +3,8 @@ import {
   buildArenaRoster,
   mergeApiPersonas,
   TIER0_PERSONA_SLUGS,
+  TIER1_PERSONA_SLUGS,
+  UNLOCKED_PERSONA_SLUGS,
   type ArenaRosterEntry,
 } from "@/lib/arena-roster";
 import type { ArenaPersonaInfo } from "@chessgui/core/arena-api";
@@ -36,6 +38,21 @@ describe("buildArenaRoster", () => {
       ...TIER0_PERSONA_SLUGS,
     ]);
     expect(roster.slice(0, TIER0_PERSONA_SLUGS.length).every((e) => e.available)).toBe(true);
+  });
+
+  it("unlocks the Tier-1 roster (spec 217: Karpov, Spassky, Icelandic canon) after Tier 0", () => {
+    const roster = buildArenaRoster();
+    expect(roster.slice(0, UNLOCKED_PERSONA_SLUGS.length).map((e) => e.slug)).toEqual([
+      ...UNLOCKED_PERSONA_SLUGS,
+    ]);
+    for (const slug of TIER1_PERSONA_SLUGS) {
+      const entry = roster.find((e) => e.slug === slug);
+      // Every Tier-1 slug must be backed by a committed, gate-passing
+      // manifest entry — an unlock without artifacts would be a lie.
+      expect(entry, `missing manifest entry for ${slug}`).toBeDefined();
+      expect(entry!.available).toBe(true);
+      expect(entry!.strengthLabel).toContain("move-match");
+    }
   });
 });
 

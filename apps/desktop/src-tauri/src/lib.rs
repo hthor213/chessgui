@@ -3,6 +3,7 @@ pub mod cbh;
 pub mod calibration;
 pub mod coach;
 pub mod db;
+pub mod engine_path;
 pub mod human_search;
 pub mod machine;
 pub mod maia;
@@ -36,6 +37,7 @@ pub fn run() {
             uci::start_engine,
             uci::send_command,
             uci::stop_engine,
+            engine_path::default_engine_path,
             match_runner::play_game,
             match_runner::play_batch,
             match_runner::cancel_batch,

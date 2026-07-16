@@ -12,6 +12,10 @@ apps/desktop/src-tauri/target/
 # Engine binaries (downloaded, not vendored)
 engines/
 
+# Stockfish sidecar binaries fetched at build time by
+# scripts/fetch-stockfish-sidecar.sh (sha256-pinned, spec 222)
+apps/desktop/src-tauri/binaries/
+
 # Raw opening books (large, downloaded — regenerate via scripts/tag_positions.py)
 data/openings/
 

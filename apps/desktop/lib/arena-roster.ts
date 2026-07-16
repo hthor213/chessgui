@@ -17,11 +17,14 @@
 //   - lib/roster.ts's `initialsFor` for the avatar-monogram fallback (spec
 //     217 Tier 0: "initials avatars v1") — reused, not reimplemented.
 //
-// Tier-0 gating (spec 217 Tiers: "lobby with 3 personas — Gudmundur peak,
-// Fischer, Kasparov"): every other committed GM persona (Karpov, Spassky, the
-// Icelandic canon) appears in the lobby greyed "coming soon" rather than
-// hidden, per this task's explicit instruction — the roster is a living
-// museum (spec 217 Cultural context) even before every entry is playable.
+// Tier gating (spec 217 Tiers): Tier 0 shipped the trio (Gudmundur peak,
+// Fischer, Kasparov); Tier 1 unlocks "Karpov + more Icelandic GMs" — plus
+// Spassky (v1 roster, the strength anchor's chair). Every Tier-1 slug below
+// was artifact-verified (config + book present and loadable in
+// data/personas, 2026-07-15) before being listed; a manifest persona in
+// neither tier still renders greyed "coming soon" rather than hidden — the
+// roster is a living museum (spec 217 Cultural context) even before every
+// entry is playable.
 
 import { GM_PERSONAS, type GmPersonaManifestEntry } from "@/lib/persona-manifest"
 import { initialsFor } from "@/lib/roster"
@@ -32,6 +35,26 @@ export const TIER0_PERSONA_SLUGS: readonly string[] = [
   "sigurjonsson-peak",
   "fischer",
   "kasparov",
+]
+
+/** Tier-1 unlock (spec 217): Karpov, Spassky, then the Icelandic canon in
+ *  the spec's own listing order. Server twin: config.py ROSTER_SLUGS. */
+export const TIER1_PERSONA_SLUGS: readonly string[] = [
+  "karpov",
+  "spassky",
+  "fridrik-olafsson",
+  "margeir-petursson",
+  "johann-hjartarson",
+  "hannes-stefansson",
+  "helgi-olafsson",
+  "hedinn-steingrimsson",
+  "jon-l-arnason",
+]
+
+/** Every unlocked slug, lobby order: Tier 0 first, then Tier 1. */
+export const UNLOCKED_PERSONA_SLUGS: readonly string[] = [
+  ...TIER0_PERSONA_SLUGS,
+  ...TIER1_PERSONA_SLUGS,
 ]
 
 export interface ArenaRosterEntry {
@@ -57,9 +80,9 @@ function strengthLabelFor(p: GmPersonaManifestEntry): string {
 }
 
 /**
- * Build the lobby roster: Tier-0 playable personas first (in the spec's
- * listed order), then every other committed GM persona as "coming soon".
- * Pure — no network/Tauri — so it's trivially unit-testable.
+ * Build the lobby roster: unlocked personas first (Tier 0 then Tier 1, in
+ * the spec's listed order), then any other committed GM persona as "coming
+ * soon". Pure — no network/Tauri — so it's trivially unit-testable.
  */
 export function buildArenaRoster(): ArenaRosterEntry[] {
   const entries = GM_PERSONAS.map(
@@ -68,12 +91,12 @@ export function buildArenaRoster(): ArenaRosterEntry[] {
       displayName: p.displayName,
       initials: initialsFor(p.displayName),
       strengthLabel: strengthLabelFor(p),
-      available: TIER0_PERSONA_SLUGS.includes(p.slug),
+      available: UNLOCKED_PERSONA_SLUGS.includes(p.slug),
     }),
   )
   const rank = (slug: string) => {
-    const i = TIER0_PERSONA_SLUGS.indexOf(slug)
-    return i === -1 ? TIER0_PERSONA_SLUGS.length : i
+    const i = UNLOCKED_PERSONA_SLUGS.indexOf(slug)
+    return i === -1 ? UNLOCKED_PERSONA_SLUGS.length : i
   }
   return entries.sort((a, b) => rank(a.slug) - rank(b.slug))
 }

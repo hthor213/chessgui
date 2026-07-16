@@ -29,13 +29,18 @@ use shakmaty::uci::UciMove;
 use shakmaty::{CastlingMode, Chess, Position};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 use tokio::time::timeout;
 
 use crate::db::{resolve_db_path, Db, DbManager};
 
 /// Default Stockfish binary (Homebrew, Apple Silicon) — same as calibration.
 const DEFAULT_STOCKFISH: &str = "/opt/homebrew/bin/stockfish";
+
+/// Opening-rake bar (spec 211 "Opening-rake decks"): a puzzle counts as an
+/// opening rake when its trap ply index is < 20 — "don't be -1 by move 10".
+/// MIRRORS `OPENING_MAX_PLY` in packages/core/src/puzzle-types.ts (the deck
+/// UI sends the same value as `max_ply`); a change must land in both.
+const OPENING_MAX_PLY: i64 = 20;
 
 /// `puzzles` table DDL — a verbatim mirror of import_puzzles.py's SCHEMA
 /// (column names, types, defaults, unique key, index). Executed by
@@ -128,6 +133,8 @@ pub struct PuzzleBandCount {
 #[derive(Debug, Clone, Serialize)]
 pub struct PuzzleStats {
     pub total: i64,
+    /// Puzzles with trap ply < OPENING_MAX_PLY — the opening-rake pool.
+    pub opening: i64,
     pub bands: Vec<PuzzleBandCount>,
 }
 
@@ -344,11 +351,16 @@ impl Db {
     /// if the band can't fill `limit`, the remainder is topped up from the
     /// whole table (honest fallback — a thin band never silently shrinks the
     /// session). `theme` filters on the themes JSON list (Tier-3; no-op on
-    /// Tier-1 data where themes = []).
+    /// Tier-1 data where themes = []). `max_ply` keeps only puzzles whose
+    /// trap ply is below it (the opening-rake deck, spec 211); unlike the
+    /// band it is a HARD filter — the top-up respects it too, because a
+    /// midgame rake in an opening deck defeats the deck's point. NULL plies
+    /// are excluded when the cap is on (an unknown phase can't qualify).
     pub fn puzzles_deck(
         &self,
         band: Option<&str>,
         theme: Option<&str>,
+        max_ply: Option<i64>,
         limit: i64,
     ) -> rusqlite::Result<Vec<PuzzleRow>> {
         let theme_like = theme.map(|t| format!("%\"{}\"%", t));
@@ -357,9 +369,10 @@ impl Db {
             let mut stmt = self.conn.prepare(
                 "SELECT * FROM puzzles WHERE band = ?1 \
                  AND (?2 IS NULL OR themes LIKE ?2) \
-                 ORDER BY RANDOM() LIMIT ?3",
+                 AND (?3 IS NULL OR ply < ?3) \
+                 ORDER BY RANDOM() LIMIT ?4",
             )?;
-            let got = stmt.query_map(params![b, theme_like, limit], row_to_puzzle)?;
+            let got = stmt.query_map(params![b, theme_like, max_ply, limit], row_to_puzzle)?;
             for r in got {
                 rows.push(r?);
             }
@@ -375,11 +388,12 @@ impl Db {
             // `picked` are numeric ids straight from this query — safe to inline.
             let sql = format!(
                 "SELECT * FROM puzzles WHERE (?1 IS NULL OR themes LIKE ?1) \
-                 AND id NOT IN ({}) ORDER BY RANDOM() LIMIT ?2",
+                 AND (?2 IS NULL OR ply < ?2) \
+                 AND id NOT IN ({}) ORDER BY RANDOM() LIMIT ?3",
                 if ids_csv.is_empty() { "-1".to_string() } else { ids_csv }
             );
             let mut stmt = self.conn.prepare(&sql)?;
-            let got = stmt.query_map(params![theme_like, need], row_to_puzzle)?;
+            let got = stmt.query_map(params![theme_like, max_ply, need], row_to_puzzle)?;
             for r in got {
                 rows.push(r?);
             }
@@ -397,6 +411,11 @@ impl Db {
         let total = self
             .conn
             .query_row("SELECT COUNT(*) FROM puzzles", [], |r| r.get(0))?;
+        let opening = self.conn.query_row(
+            "SELECT COUNT(*) FROM puzzles WHERE ply < ?1",
+            [OPENING_MAX_PLY],
+            |r| r.get(0),
+        )?;
         let mut stmt = self.conn.prepare(
             "SELECT band, COUNT(*) FROM puzzles WHERE band IS NOT NULL \
              GROUP BY band ORDER BY band",
@@ -409,7 +428,11 @@ impl Db {
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(PuzzleStats { total, bands })
+        Ok(PuzzleStats {
+            total,
+            opening,
+            bands,
+        })
     }
 }
 
@@ -510,7 +533,7 @@ async fn check_move_impl(
         .and_then(|u| u.to_move(&pos).ok())
         .ok_or_else(|| format!("illegal move {uci_move} in {fen}"))?;
 
-    let mut child = Command::new(stockfish_path)
+    let mut child = crate::engine_path::engine_command(stockfish_path)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -616,12 +639,13 @@ pub fn puzzles_deck(
     state: tauri::State<'_, DbManager>,
     band: Option<String>,
     theme: Option<String>,
+    max_ply: Option<i64>,
     limit: i64,
     db_path: Option<String>,
 ) -> Result<Vec<PuzzleRow>, String> {
     let path = resolve_db_path(&app, db_path)?;
     state.with(&path, |db| {
-        db.puzzles_deck(band.as_deref(), theme.as_deref(), limit)
+        db.puzzles_deck(band.as_deref(), theme.as_deref(), max_ply, limit)
     })
 }
 
@@ -719,11 +743,11 @@ mod tests {
         let mut db = Db::open_in_memory().unwrap();
         db.import_puzzles_jsonl(CLIFFS).unwrap();
         // 2200 has exactly one puzzle in the fixture.
-        let only = db.puzzles_deck(Some("2200"), None, 1).unwrap();
+        let only = db.puzzles_deck(Some("2200"), None, None, 1).unwrap();
         assert_eq!(only.len(), 1);
         assert_eq!(only[0].band.as_deref(), Some("2200"));
         // Asking for 5 from a band of 1 tops up from other bands, no dups.
-        let deck = db.puzzles_deck(Some("2200"), None, 5).unwrap();
+        let deck = db.puzzles_deck(Some("2200"), None, None, 5).unwrap();
         assert_eq!(deck.len(), 5);
         let mut ids: Vec<i64> = deck.iter().map(|p| p.id).collect();
         ids.sort();
@@ -736,15 +760,36 @@ mod tests {
     fn deck_without_band_and_over_ask() {
         let mut db = Db::open_in_memory().unwrap();
         db.import_puzzles_jsonl(CLIFFS).unwrap();
-        let deck = db.puzzles_deck(None, None, 50).unwrap();
+        let deck = db.puzzles_deck(None, None, None, 50).unwrap();
         assert_eq!(deck.len(), 12, "asking beyond the table returns all rows");
+    }
+
+    #[test]
+    fn opening_deck_is_a_hard_filter() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_puzzles_jsonl(CLIFFS).unwrap();
+        // Exactly one fixture row is an opening rake (ply 14, band 1900).
+        let deck = db
+            .puzzles_deck(None, None, Some(OPENING_MAX_PLY), 50)
+            .unwrap();
+        assert_eq!(deck.len(), 1, "the ply cap never tops up past itself");
+        assert_eq!(deck[0].ply, Some(14));
+        // The band top-up respects the cap too: asking 1900-band openers
+        // for 5 still yields only the one qualifying row.
+        let banded = db
+            .puzzles_deck(Some("1900"), None, Some(OPENING_MAX_PLY), 5)
+            .unwrap();
+        assert_eq!(banded.len(), 1);
+        assert_eq!(banded[0].band.as_deref(), Some("1900"));
+        // And the stats surface the opening pool size for the deck picker.
+        assert_eq!(db.puzzles_stats().unwrap().opening, 1);
     }
 
     #[test]
     fn get_puzzle_roundtrips_fields() {
         let mut db = Db::open_in_memory().unwrap();
         db.import_puzzles_jsonl(CLIFFS).unwrap();
-        let deck = db.puzzles_deck(Some("2200"), None, 1).unwrap();
+        let deck = db.puzzles_deck(Some("2200"), None, None, 1).unwrap();
         let p = db.get_puzzle(deck[0].id).unwrap().unwrap();
         assert_eq!(p.fen, "r1b1kb1r/3n1ppp/p3pn2/1p6/2NPq3/3B1N2/PP3PPP/R1BQ1RK1 b kq - 1 11");
         assert_eq!(p.trap_uci, "e4g4");

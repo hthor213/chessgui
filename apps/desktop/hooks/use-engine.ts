@@ -23,6 +23,21 @@ import { getOpeningBookMove } from "@/lib/opening-book";
 
 const DEBOUNCE_MS = 50;
 
+// Spec 222 AVX2 escape hatch: when the shell-default engine (the bundled
+// Stockfish sidecar on Windows/Linux) fails to spawn or dies during its UCI
+// handshake — classically a pre-2013 CPU the official AVX2 build can't run
+// on — the user gets plain language and a pointer at the spec 011 file
+// picker, not a bare stack trace. Rendered by the analysis panel next to
+// the settings gear that opens that picker.
+function defaultEngineFailedMessage(cause: unknown): string {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return (
+    `The engine could not start (${detail}). ` +
+    "If this is an older PC (pre-2013 CPU without AVX2), the standard Stockfish build cannot run on it. " +
+    "Download a Stockfish build that matches your CPU, then open Engine settings (gear icon) and use Browse… to point at it."
+  );
+}
+
 // Engine pacing in play mode (spec 216 UI:4 — "Same slider in Play vs engine
 // ... engine's is virtual"). Persisted separately from EngineSettings since
 // it governs move timing, not the UCI options applied between searches.
@@ -364,12 +379,17 @@ export function useEngine(
         if (requestedPath !== defaultEnginePath()) {
           console.warn(`Engine path "${requestedPath}" failed (${e}); retrying with default.`);
           clearEnginePath();
-          result = await engine.startEngine(defaultEnginePath(), context);
+          try {
+            result = await engine.startEngine(defaultEnginePath(), context);
+          } catch (retryErr) {
+            console.error("Failed to start engine:", retryErr);
+            throw new Error(defaultEngineFailedMessage(retryErr));
+          }
           saveEnginePath(defaultEnginePath());
           setEnginePathState(defaultEnginePath());
         } else {
           console.error("Failed to start engine:", e);
-          throw e;
+          throw new Error(defaultEngineFailedMessage(e));
         }
       }
 

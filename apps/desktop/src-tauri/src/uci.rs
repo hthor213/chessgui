@@ -2,8 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::mpsc;
+
+use crate::engine_path::engine_command;
 
 /// UCI engine state managed by Tauri
 pub struct EngineState {
@@ -69,7 +71,11 @@ pub async fn start_engine(
     if context_is_locked(context.as_deref()) {
         return Err(ENGINE_LOCKED_ERROR.to_string());
     }
-    let mut child = Command::new(&path)
+    // engine_command sets CREATE_NO_WINDOW on Windows (spec 222 quirks
+    // ledger: no console flash per engine start). Line handling below is
+    // \r\n-tolerant by construction — every read_line result goes through
+    // trim(), which strips the \r a Windows engine build emits.
+    let mut child = engine_command(&path)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -222,6 +228,7 @@ pub async fn send_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::process::Command;
 
     // Spec 219 B: the defensive refusal keys on the active-game tag prefix.
     // The tag values mirror core/active-game.ts engineContextTag.

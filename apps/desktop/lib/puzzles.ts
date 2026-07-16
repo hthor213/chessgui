@@ -38,6 +38,7 @@ import type {
   PuzzleStats,
 } from "@chessgui/core/puzzle-types"
 export type { DeckRequest, MoveCheck, PuzzleImportReport, PuzzleRow, PuzzleStats }
+export { OPENING_MAX_PLY } from "@chessgui/core/puzzle-types"
 
 // ---------------------------------------------------------------------------
 // Grading (pure)
@@ -305,11 +306,19 @@ export interface BuildDeckOptions {
  *      shuffled together so position in the deck never signals the kind
  *      (spec 211's anchor-leak lesson). Short supply on either side tops up
  *      from the other; if both are short the deck is short — honestly.
+ *
+ * `req.maxPly` (opening decks) is a hard filter on every source — fresh
+ * rakes, calm mix AND respawns (a midgame review inside an opening deck
+ * would leak the kind by feel alone); filtered-out respawns stay due and
+ * lead the next uncapped deck instead.
  */
 export async function buildDeck(req: DeckRequest, opts: BuildDeckOptions = {}): Promise<DeckItem[]> {
   const now = opts.now ?? Date.now()
   const rng = opts.rng ?? Math.random
   const entries = opts.entries ?? []
+
+  const maxPly = req.maxPly ?? null
+  const inPhase = (ply: number | null) => maxPly === null || (ply !== null && ply < maxPly)
 
   const respawns: DeckItem[] = []
   const usedRakeKeys = new Set<string>()
@@ -319,13 +328,18 @@ export async function buildDeck(req: DeckRequest, opts: BuildDeckOptions = {}): 
     if (req.band !== null && r.band !== req.band) continue
     if (r.kind === "calm") {
       const calm = getCalm(r.key)
-      if (calm && !usedCalmIds.has(calm.id)) {
+      if (calm && inPhase(calm.ply) && !usedCalmIds.has(calm.id)) {
         respawns.push({ kind: "calm", calm, respawn: true })
         usedCalmIds.add(calm.id)
       }
     } else if (r.puzzleId != null) {
       const row = await getPuzzle(r.puzzleId)
-      if (row && row.fen === r.fen && !usedRakeKeys.has(rakeKey(row.fen, row.trap_uci))) {
+      if (
+        row &&
+        row.fen === r.fen &&
+        inPhase(row.ply) &&
+        !usedRakeKeys.has(rakeKey(row.fen, row.trap_uci))
+      ) {
         respawns.push({ kind: "rake", puzzle: row, respawn: true })
         usedRakeKeys.add(rakeKey(row.fen, row.trap_uci))
       }
@@ -335,18 +349,22 @@ export async function buildDeck(req: DeckRequest, opts: BuildDeckOptions = {}): 
   const fresh = req.count - respawns.length
   // Calm first (bounded supply), remainder to rakes; a thin rake draw hands
   // its unfilled slots back to calm.
-  const calmRows = calmDeck(req.band, calmCountFor(fresh), usedCalmIds, rng)
+  const calmRows = calmDeck(req.band, calmCountFor(fresh), usedCalmIds, rng, maxPly)
   const rakeTarget = fresh - calmRows.length
   let rakeRows: PuzzleRow[] = []
   if (rakeTarget > 0) {
-    const drawn = await puzzleDeck({ band: req.band, count: rakeTarget + usedRakeKeys.size })
+    const drawn = await puzzleDeck({
+      band: req.band,
+      count: rakeTarget + usedRakeKeys.size,
+      maxPly,
+    })
     rakeRows = drawn
       .filter((p) => !usedRakeKeys.has(rakeKey(p.fen, p.trap_uci)))
       .slice(0, rakeTarget)
   }
   if (rakeRows.length < rakeTarget) {
     const exclude = new Set([...usedCalmIds, ...calmRows.map((c) => c.id)])
-    calmRows.push(...calmDeck(req.band, rakeTarget - rakeRows.length, exclude, rng))
+    calmRows.push(...calmDeck(req.band, rakeTarget - rakeRows.length, exclude, rng, maxPly))
   }
 
   const freshItems: DeckItem[] = [

@@ -18,7 +18,7 @@ use shakmaty::uci::UciMove;
 use shakmaty::zobrist::Zobrist64;
 use shakmaty::{CastlingMode, Chess, Color, EnPassantMode, Position};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{Child, ChildStdin};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
@@ -173,7 +173,7 @@ struct EngineHandle {
 impl EngineHandle {
     /// Spawn an engine process and pipe stdin/stdout.
     async fn spawn(path: &str) -> Result<Self, String> {
-        let mut child = Command::new(path)
+        let mut child = crate::engine_path::engine_command(path)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -1999,7 +1999,7 @@ pub fn set_move_delay(delay_ms: u64, control: tauri::State<'_, BatchControl>) {
 #[tauri::command]
 pub async fn engine_id(path: String) -> Result<String, String> {
     use std::process::Stdio;
-    let mut child = Command::new(&path)
+    let mut child = crate::engine_path::engine_command(&path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
