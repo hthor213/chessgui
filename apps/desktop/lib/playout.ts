@@ -109,9 +109,12 @@ export function claimedScore(claim: PlayoutClaim): number {
  * converted — the result met (or beat) what the eval claimed;
  * held      — half a point short of a claimed win (drew a winning position:
  *             didn't convert, didn't lose the thread entirely);
- * dropped   — lost, from any claim (a loss always drops the claim).
+ * dropped   — lost, from any claim (a loss always drops the claim);
+ * abandoned — exited mid-game, no result (spec 215 playout hardening: an
+ *             invisible abandon would let hard games vanish from the record).
+ *             Stored for visibility only — never conversion evidence.
  */
-export type PlayoutVerdict = "converted" | "held" | "dropped"
+export type PlayoutVerdict = "converted" | "held" | "dropped" | "abandoned"
 
 export function playoutVerdict(claim: PlayoutClaim, actualScore: number): PlayoutVerdict {
   if (actualScore >= claimedScore(claim)) return "converted"
@@ -123,6 +126,7 @@ export const VERDICT_LABELS: Record<PlayoutVerdict, string> = {
   converted: "Converted",
   held: "Held",
   dropped: "Dropped",
+  abandoned: "Abandoned",
 }
 
 /** win → 1, draw → ½, loss → 0. */
@@ -149,6 +153,9 @@ export interface PlayoutRequest {
   label?: string
   /** Default Maia band; the user can change it pre-game. */
   defaultLevel?: number
+  /** Stable id of the launch position (deck slot id, calibration
+   *  game_id:ply), when the surface has one — carried onto stored entries. */
+  positionId?: string
 }
 
 export const DEFAULT_PLAYOUT_LEVEL = 1700
@@ -220,6 +227,7 @@ export function pickTrainingPlayout(random: () => number = Math.random): Playout
     source: "training",
     label: pos.name,
     defaultLevel: DEFAULT_PLAYOUT_LEVEL,
+    positionId: pos.id,
   }
 }
 
@@ -241,6 +249,8 @@ export interface PlayoutResultEntry {
   mode: SparResultMode
   /** The start position played out. */
   fen: string
+  /** Stable id of the launch position, when the request carried one. */
+  positionId?: string
   /** The claim tested, White-POV pawns. */
   evalPawns: number
   userSide: SparColor
@@ -249,12 +259,17 @@ export interface PlayoutResultEntry {
   /** Expected score for the user's side under PLAYOUT_CURVE, at record time. */
   expectedScore: number
   claim: PlayoutClaim
-  result: SparResultOutcome
+  /** null on an abandoned playout — there is no result to score. */
+  result: SparResultOutcome | null
   /** The playout screen's own end label, verbatim. */
   resultLabel: string
-  actualScore: number
+  /** null on an abandoned playout. */
+  actualScore: number | null
   verdict: PlayoutVerdict
   plies: number
+  /** Wall-clock ms from game start to the recorded end; only abandons carry
+   *  it today (finished games predate the field). */
+  elapsedMs?: number
   /** Serious playouts count by default; probe never counts and can never be
    *  flipped on (same rule as spar results). */
   countsTowardTraining: boolean
@@ -267,6 +282,11 @@ export interface PlayoutResultEntry {
 
 export const PLAYOUT_STORAGE_KEY = "chessgui:playout-results"
 
+/** Unique entry id (timestamp + entropy) — the reclassification handle. */
+function newEntryId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 /**
  * Build the stored entry for a finished playout. Reuses the spar screens'
  * label→outcome parsing (identical labels: both loops end via sparStatus plus
@@ -276,6 +296,7 @@ export const PLAYOUT_STORAGE_KEY = "chessgui:playout-results"
 export function buildPlayoutResult(input: {
   source: PlayoutSourceKind
   fen: string
+  positionId?: string
   evalPawns: number
   userSide: SparColor
   level: number
@@ -295,12 +316,13 @@ export function buildPlayoutResult(input: {
   const claim = claimFor(expected)
   const actual = outcomeScore(result)
   return {
-    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    id: newEntryId(),
     at: input.at ?? new Date().toISOString(),
     kind: "playout",
     source: input.source,
     mode: input.mode,
     fen: input.fen,
+    positionId: input.positionId,
     evalPawns: input.evalPawns,
     userSide: input.userSide,
     level: input.level,
@@ -313,6 +335,56 @@ export function buildPlayoutResult(input: {
     plies: input.plies,
     countsTowardTraining: input.mode === "serious" ? (input.countsTowardTraining ?? true) : false,
     anomalyFlags: detectAnomalies({ result, resultLabel: input.resultLabel, plies: input.plies }),
+  }
+}
+
+/** The verbatim label an abandon entry carries — a manual exit, not a game
+ *  end, so it deliberately parses to no SparResultOutcome. */
+export const ABANDON_RESULT_LABEL = "Abandoned — exited mid-game"
+
+/**
+ * Build the stored entry for a mid-playout abandon (spec 215 playout
+ * hardening: Exit-without-result must stay visible in the record, not vanish).
+ * No result exists, so result/actualScore are null and countsTowardTraining is
+ * ALWAYS false — an abandon is never conversion evidence and must not touch
+ * eg_conversion either way.
+ */
+export function buildPlayoutAbandon(input: {
+  source: PlayoutSourceKind
+  fen: string
+  positionId?: string
+  evalPawns: number
+  userSide: SparColor
+  level: number
+  mode: SparResultMode
+  /** Plies played (both sides) before the exit. */
+  plies: number
+  /** Wall-clock ms the playout ran before the exit. */
+  elapsedMs: number
+  at?: string
+}): PlayoutResultEntry {
+  const expected = expectedScoreFor(input.evalPawns, input.userSide)
+  return {
+    id: newEntryId(),
+    at: input.at ?? new Date().toISOString(),
+    kind: "playout",
+    source: input.source,
+    mode: input.mode,
+    fen: input.fen,
+    positionId: input.positionId,
+    evalPawns: input.evalPawns,
+    userSide: input.userSide,
+    level: input.level,
+    expectedScore: expected,
+    claim: claimFor(expected),
+    result: null,
+    resultLabel: ABANDON_RESULT_LABEL,
+    actualScore: null,
+    verdict: "abandoned",
+    plies: input.plies,
+    elapsedMs: input.elapsedMs,
+    countsTowardTraining: false,
+    anomalyFlags: [],
   }
 }
 
@@ -329,8 +401,9 @@ export function removePlayoutResult(entries: PlayoutResultEntry[], id: string): 
 
 /**
  * Reclassify one playout's counts-toward-training intent. Probe playouts can
- * never be flipped to counting (spec 215: "probe never counts") — the call is
- * a no-op for them. Mirrors lib/spar-results' setCountsToward.
+ * never be flipped to counting (spec 215: "probe never counts"), and neither
+ * can abandons (no result — nothing to count) — the call is a no-op for both.
+ * Mirrors lib/spar-results' setCountsToward.
  */
 export function setPlayoutCountsToward(
   entries: PlayoutResultEntry[],
@@ -340,7 +413,7 @@ export function setPlayoutCountsToward(
 ): PlayoutResultEntry[] {
   return entries.map((e) => {
     if (e.id !== id) return e
-    if (e.mode === "probe" && counts) return e
+    if ((e.mode === "probe" || e.verdict === "abandoned") && counts) return e
     if (e.countsTowardTraining === counts) return e
     return { ...e, countsTowardTraining: counts, reclassifiedAt: at }
   })
@@ -375,7 +448,8 @@ export interface EgConversion {
  * playouts (level positions) are excluded — holding a draw is a different
  * skill than the conversion this metric measures, and the monthly pipeline's
  * eg_conversion counts won positions only. Probe / unticked games never count;
- * flagged games count and are reported.
+ * abandons never count regardless of flags (no result — not conversion
+ * evidence in either direction); flagged games count and are reported.
  */
 export function egConversion(
   entries: PlayoutResultEntry[],
@@ -388,6 +462,7 @@ export function egConversion(
   let dropped = 0
   let flagged = 0
   for (const e of entries) {
+    if (e.verdict === "abandoned") continue // structural: no result to aggregate
     if (e.mode !== "serious" || !e.countsTowardTraining) continue
     if (e.claim !== "win") continue
     const t = Date.parse(e.at)
@@ -419,7 +494,11 @@ export function normalizePlayoutResult(
       mode === "serious" ? (e.countsTowardTraining ?? true) : false,
     anomalyFlags:
       e.anomalyFlags ??
-      detectAnomalies({ result: e.result, resultLabel: e.resultLabel, plies: e.plies }),
+      // e.result is null only on abandons, which always carry flags already —
+      // but stay honest for hand-edited stores: no result, no anomaly proxies.
+      (e.result == null
+        ? []
+        : detectAnomalies({ result: e.result, resultLabel: e.resultLabel, plies: e.plies })),
   }
 }
 

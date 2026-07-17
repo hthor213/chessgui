@@ -757,6 +757,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       source: "calibration",
       label: p.deck,
       defaultLevel: levelForEloBand(p.elo_band),
+      // A calibration position's stable handle is its sampler coordinates.
+      positionId: `${p.game_id}:${p.ply}`,
     })
   }, [revealed])
 
