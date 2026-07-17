@@ -91,10 +91,11 @@ describe("buildRoster", () => {
     expect(roster.find((x) => x.id === "sigurjonsson-peak")).toBeDefined();
   });
 
-  it("HONESTY GATE: BT3-backed GM personas are approximations at the top Maia band, never full strength", () => {
+  it("HONESTY GATE: BT3-backed GM personas keep the approximate top-band CLAIM while carrying the resolved backend", () => {
     const roster = buildRoster(null);
     for (const cfg of GM_PERSONA_CONFIGS) {
-      // Every committed GM config is BT3-backed and not runnable in v1.
+      // Every committed GM config is BT3-backed and not runnable as a plain
+      // Maia band.
       expect(cfg.runnable_in_engine_v1).toBe(false);
       const p = roster.find((x) => x.id === cfg.slug)!;
       expect(p.personaConfig?.approximate).toBe(true);
@@ -102,8 +103,10 @@ describe("buildRoster", () => {
       expect(p.strengthLabel).toMatch(/his openings/i);
       expect(p.strengthLabel).toMatch(/approximation/i);
       expect(p.strengthLabel).toMatch(/Tournament/);
-      // No wire field smuggles a strong-net backend into persona_move.
-      expect("weights" in (p.personaConfig ?? {})).toBe(false);
+      // The gate-resolved backend selector: persona_move drives the BT3 net
+      // when it's present and falls back to the gated Maia band otherwise
+      // (spec 218 follow-up) — the claim above stays gated either way.
+      expect(p.personaConfig?.weights, cfg.slug).toBe("bt3");
     }
   });
 
@@ -143,6 +146,8 @@ describe("buildRoster", () => {
     expect(p!.displayName).toBe("Neighbor");
     expect(p!.personaConfig?.level).toBe(1300);
     expect(p!.personaConfig?.approximate).toBeUndefined();
+    // Maia-band backend — no managed-net selector to resolve.
+    expect("weights" in (p!.personaConfig ?? {})).toBe(false);
     expect(p!.personaConfig?.book).toBe("local");
     expect(p!.strengthLabel).toMatch(/unmeasured/i);
     expect(p!.actions).toEqual(["play"]);
@@ -191,6 +196,7 @@ describe("buildRoster", () => {
       expect(bot!.displayName).toBe(`Bot ${level}`);
       expect(bot!.personaConfig?.level).toBe(level);
       expect(bot!.personaConfig?.approximate).toBeUndefined();
+      expect("weights" in (bot!.personaConfig ?? {})).toBe(false);
       expect(bot!.actions).toEqual(["play"]);
     }
     expect(MAIA_ROSTER_BANDS.length).toBe(9);
@@ -331,6 +337,31 @@ describe("gatePersonaLevel (the honesty gate, spec 216/214 hard rule)", () => {
 
   it("gates a non-Maia backend even when the config claims runnable", () => {
     const cfg = rivalConfig({ backend: { kind: "lc0-policy" }, sampling: { level: 1900 } });
+    expect(gatePersonaLevel(cfg)).toEqual({ level: MAIA_MAX_NATIVE_BAND, approximate: true });
+  });
+
+  it("resolves a BT3-backed config to the weights selector while keeping the claim gated (spec 218 follow-up)", () => {
+    const cfg = rivalConfig({
+      runnable_in_engine_v1: false,
+      backend: { kind: "lc0-policy", net: { file: "BT3-768x15x24h-swa-2790000.pb.gz" } },
+      sampling: { level: 2790 },
+    });
+    // Level stays clamped (it is the Maia FALLBACK band) and approximate
+    // stays true — persona_move only best-efforts the net; the decision
+    // log's policy_backend reports what actually served.
+    expect(gatePersonaLevel(cfg)).toEqual({
+      level: MAIA_MAX_NATIVE_BAND,
+      approximate: true,
+      weights: "bt3",
+    });
+  });
+
+  it("resolves NO weights for an unknown managed net — a gated-down persona keeps Maia", () => {
+    const cfg = rivalConfig({
+      runnable_in_engine_v1: false,
+      backend: { kind: "lc0-policy", net: { file: "some-other-net.pb.gz" } },
+      sampling: { level: 1900 },
+    });
     expect(gatePersonaLevel(cfg)).toEqual({ level: MAIA_MAX_NATIVE_BAND, approximate: true });
   });
 });

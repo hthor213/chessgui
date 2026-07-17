@@ -7,7 +7,9 @@
 //     mirrors lib/tournament-roster.ts's exact precedent (see that file's
 //     header): lib/roster.ts's honesty gate clamps every GM persona down to
 //     an approximate Maia-band label because ITS engine (Play vs Bot's
-//     `persona_move`) cannot drive the BT3 managed net. The arena's backend
+//     `persona_move`) only best-efforts the BT3 managed net — it falls back
+//     to the Maia band when the net is absent (spec 218 follow-up), so that
+//     surface may not promise BT3 strength. The arena's backend
 //     (spec 217 architecture: "move API wrapping lc0 (Maia nets + BT3)")
 //     genuinely does run BT3 for these personas — same capability as the
 //     Tournament/Exhibition surface — so the honest label here is the

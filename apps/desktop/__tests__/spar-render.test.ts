@@ -9,7 +9,8 @@ vi.mock("next/dynamic", () => ({
   default: () => () => null,
 }));
 
-import { SparTab } from "@chessgui/ui/spar-tab";
+import { SparTab, samplingParamsFor } from "@chessgui/ui/spar-tab";
+import { buildRoster, GM_PERSONA_CONFIGS } from "@/lib/roster";
 
 describe("SparTab entry point renders", () => {
   it("renders the roster (Play vs Bot) as the initial screen", () => {
@@ -41,5 +42,24 @@ describe("SparTab entry point renders", () => {
     // The private rival's card is NOT present in this unloaded-book render.
     expect(html).not.toContain('data-testid="roster-card-rival"');
     expect(html).not.toContain("Spar vs Dad");
+  });
+});
+
+describe("samplingParamsFor — persona_move wire params (spec 218 follow-up)", () => {
+  it("includes `weights` exactly when the config has a bt3 backend", () => {
+    const roster = buildRoster(null);
+    // Every committed GM persona is BT3-backed: the roster's honesty gate
+    // resolves the managed net, so the persona_move params carry the
+    // `weights` selector (with the gated Maia band as its fallback level).
+    for (const cfg of GM_PERSONA_CONFIGS) {
+      const p = roster.find((x) => x.id === cfg.slug)!;
+      expect(samplingParamsFor(p.personaConfig).weights, cfg.slug).toBe("bt3");
+    }
+    // Maia band bots have no managed-net backend — no weights key at all,
+    // so persona_move serves the plain Maia band.
+    const bot = roster.find((x) => x.id === "maia-1500")!;
+    expect("weights" in samplingParamsFor(bot.personaConfig)).toBe(false);
+    // No persona config — no weights either.
+    expect("weights" in samplingParamsFor(undefined)).toBe(false);
   });
 });

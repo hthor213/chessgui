@@ -8,9 +8,11 @@
 // in the entry's opening book (the picked rival's real lines, or a GM's
 // committed book — legitimately his own recorded moves) the reply comes from
 // that book; out of book the reply comes from the `persona_move` command
-// (persona engine v1, spec 214 contract steps 3+4+8+9) — seeded sampling from the
-// Maia human policy with a Stockfish verification reweight, never noise-weakening
-// an engine to fake it (spec 214 hard rule). Each out-of-book move's decision log
+// (spec 214 contract steps 3+4+8+9) — seeded sampling from the human policy
+// (the entry's Maia band, or its gate-resolved managed net with a Maia
+// fallback — spec 218 follow-up) with a Stockfish verification reweight, never
+// noise-weakening an engine to fake it (spec 214 hard rule). Each out-of-book
+// move's decision log
 // is stored locally (private data). Honest labels throughout: "a ~1700 playing
 // dad's openings", "Kasparov — his openings, ~1900 policy approximation" — never
 // "this IS the player". This screen runs its own game loop, independent of the
@@ -31,6 +33,7 @@ import {
   personaMove,
   DEFAULT_PERSONA_PARAMS,
   type PersonaDecision,
+  type PersonaParams,
 } from "@/lib/persona"
 import {
   buildRoster,
@@ -203,10 +206,24 @@ function newGameSeed(): number {
 
 /** A participant's per-persona sampling overrides (from its config file, via
  *  the roster), mapped from the camelCase roster fields to persona_move's
- *  snake_case params. Spread over DEFAULT_PERSONA_PARAMS; absent = defaults. */
-function samplingParamsFor(pc: PersonaConfig | undefined) {
+ *  snake_case params. Spread over DEFAULT_PERSONA_PARAMS; absent = defaults.
+ *  Exported for the unit test asserting `weights` flows exactly when the
+ *  roster's honesty gate resolved a config's managed-net backend. */
+export function samplingParamsFor(
+  pc: PersonaConfig | undefined,
+): Partial<
+  Pick<
+    PersonaParams,
+    "weights" | "temperature" | "alpha" | "lambda" | "top_k" | "top_p" | "verify_depth" | "error_model"
+  >
+> {
   if (!pc) return {}
   return {
+    // Managed-net policy backend (spec 218 follow-up): persona_move honors
+    // `weights` with a clean fallback to `level`'s Maia band when the net is
+    // absent. Present ONLY when the roster's honesty gate resolved the
+    // config's backend (gatePersonaLevel) — a gated-down persona keeps Maia.
+    ...(pc.weights !== undefined ? { weights: pc.weights } : {}),
     ...(pc.temperature !== undefined ? { temperature: pc.temperature } : {}),
     ...(pc.alpha !== undefined ? { alpha: pc.alpha } : {}),
     ...(pc.lambda !== undefined ? { lambda: pc.lambda } : {}),
@@ -648,7 +665,8 @@ export function SparTab() {
     personaMove(fen, {
       ...DEFAULT_PERSONA_PARAMS,
       // Per-persona sampling overrides from the entry's config file (level
-      // itself passed the roster's honesty gate — always a real Maia band).
+      // itself passed the roster's honesty gate — always a real Maia band,
+      // serving as the fallback when the overrides carry a `weights` net).
       ...samplingParamsFor(participant?.personaConfig),
       level: effectiveLevel,
       seed: gameSeed,
