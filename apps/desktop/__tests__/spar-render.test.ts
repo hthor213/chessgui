@@ -10,7 +10,7 @@ vi.mock("next/dynamic", () => ({
 }));
 
 import { SparTab, samplingParamsFor } from "@chessgui/ui/spar-tab";
-import { buildRoster, GM_PERSONA_CONFIGS } from "@/lib/roster";
+import { buildRoster, GM_PERSONA_CONFIGS, applyPersonaStrength } from "@/lib/roster";
 
 describe("SparTab entry point renders", () => {
   it("renders the roster (Play vs Bot) as the initial screen", () => {
@@ -23,16 +23,29 @@ describe("SparTab entry point renders", () => {
     expect(html).toContain("Play vs Bot");
     expect(html).toContain('data-testid="roster-grid"');
 
-    // GM personas: honest approximation labels (spec 216/214 hard rule — no
-    // unmeasured realism claims; the honesty gate in lib/roster clamps their
-    // BT3 configs to the top Maia band), Play only (no Improve profile).
+    // GM personas: Play only (no Improve profile), and — spec 218 Decision
+    // 2026-07-17 — an explicit strength selector defaulting to Full strength
+    // (BT3), not a silent cap. The stale "available in Tournament" copy is gone.
     expect(html).toContain('data-testid="roster-card-fischer"');
     expect(html).toContain('data-testid="roster-play-fischer"');
     expect(html).not.toContain('data-testid="roster-improve-fischer"');
     expect(html).toContain('data-testid="roster-card-kasparov"');
     expect(html).toContain('data-testid="roster-card-sigurjonsson-peak"');
-    expect(html).toContain("approximation");
-    expect(html).toContain("full-strength persona available in Tournament");
+    expect(html).not.toContain("full-strength persona available in Tournament");
+
+    // The strength selector renders on each GM card, defaulting to Full
+    // strength: the card label names the BT3 policy and the first-use download
+    // note shows (no TS-side net presence check — static copy per the decision).
+    expect(html).toContain('data-testid="roster-strength-fischer"');
+    expect(html).toContain("Full strength");
+    expect(html).toContain("~1100 approximation"); // the low band option
+    expect(html).toContain('data-testid="roster-label-kasparov"');
+    expect(html).toContain("full-strength policy (BT3)");
+    expect(html).toContain('data-testid="roster-strength-note-fischer"');
+    expect(html).toContain("Downloads a ~190MB net on first use");
+
+    // Maia band bots carry no selector — they aren't BT3-backed.
+    expect(html).not.toContain('data-testid="roster-strength-maia-1500"');
 
     // Maia strength bands as generic bots, full 1100-1900 set.
     expect(html).toContain('data-testid="roster-card-maia-1100"');
@@ -61,5 +74,16 @@ describe("samplingParamsFor — persona_move wire params (spec 218 follow-up)", 
     expect("weights" in samplingParamsFor(bot.personaConfig)).toBe(false);
     // No persona config — no weights either.
     expect("weights" in samplingParamsFor(undefined)).toBe(false);
+  });
+
+  it("carries weights on Full strength and drops it on a band pick (spec 218 2026-07-17)", () => {
+    const kasparov = buildRoster(null).find((x) => x.id === "kasparov")!;
+    // Full strength → weights:"bt3" + top native fallback band.
+    const full = samplingParamsFor(applyPersonaStrength(kasparov, "full").personaConfig);
+    expect(full.weights).toBe("bt3");
+    // Band pick → NO weights, and the level rides through as the picked band.
+    const band = applyPersonaStrength(kasparov, 1500);
+    expect("weights" in samplingParamsFor(band.personaConfig)).toBe(false);
+    expect(band.personaConfig?.level).toBe(1500);
   });
 });

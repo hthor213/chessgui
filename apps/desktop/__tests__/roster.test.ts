@@ -11,10 +11,20 @@ import {
   SELF_PERSONA_ID,
   SELF_PERSONA_DISPLAY_NAME,
   resolveParticipantBook,
+  applyPersonaStrength,
+  hasStrengthSelector,
+  personaStrengthLabel,
+  personaStrengthStorageKey,
+  loadPersonaStrength,
+  savePersonaStrength,
+  PERSONA_STRENGTH_BANDS,
+  DEFAULT_PERSONA_STRENGTH,
   type LocalPlayerProfile,
   type LocalRivalPersona,
   type PersonaConfigFile,
+  type Participant,
 } from "@/lib/roster";
+import type { StorageProvider } from "@chessgui/core/platform-types";
 import type { RivalBook } from "@/lib/rival-book";
 import { MAIA_MAX_NATIVE_BAND } from "@/lib/maia";
 
@@ -100,9 +110,11 @@ describe("buildRoster", () => {
       const p = roster.find((x) => x.id === cfg.slug)!;
       expect(p.personaConfig?.approximate).toBe(true);
       expect(p.personaConfig?.level).toBe(MAIA_MAX_NATIVE_BAND);
+      // Default card = Full strength (spec 218 2026-07-17): the honest label
+      // names the BT3 policy, no stale "available in Tournament" cap.
       expect(p.strengthLabel).toMatch(/his openings/i);
-      expect(p.strengthLabel).toMatch(/approximation/i);
-      expect(p.strengthLabel).toMatch(/Tournament/);
+      expect(p.strengthLabel).toMatch(/full-strength policy \(BT3\)/);
+      expect(p.strengthLabel).not.toMatch(/Tournament/);
       // The gate-resolved backend selector: persona_move drives the BT3 net
       // when it's present and falls back to the gated Maia band otherwise
       // (spec 218 follow-up) — the claim above stays gated either way.
@@ -399,6 +411,121 @@ describe("resolveParticipantBook", () => {
     await expect(
       resolveParticipantBook({ level: 1300, book: "local", bookSlug: "nope" }, deps),
     ).resolves.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec 218 Decision 2026-07-17: explicit GM persona strength (no silent cap)
+// ---------------------------------------------------------------------------
+
+/** A BT3-backed GM participant straight from the roster (fischer, config-
+ *  driven) — its personaConfig resolves the managed net. */
+function gmParticipant(slug = "fischer"): Participant {
+  return buildRoster(null).find((p) => p.id === slug)!;
+}
+
+/** An in-memory StorageProvider for the persistence round-trip. */
+function fakeStorage(): StorageProvider & { map: Map<string, string> } {
+  const map = new Map<string, string>();
+  return {
+    map,
+    get: (k) => (map.has(k) ? map.get(k)! : null),
+    set: (k, v) => void map.set(k, v),
+    remove: (k) => void map.delete(k),
+  };
+}
+
+describe("hasStrengthSelector (spec 218 2026-07-17)", () => {
+  it("is true for BT3-backed GM personas, false for Maia-band bots and rivals", () => {
+    const roster = buildRoster(SAMPLE_BOOK, [LOCAL_RIVAL]);
+    expect(hasStrengthSelector(roster.find((p) => p.id === "fischer")!)).toBe(true);
+    expect(hasStrengthSelector(roster.find((p) => p.id === "maia-1500")!)).toBe(false);
+    expect(hasStrengthSelector(roster.find((p) => p.id === "rival-testrival")!)).toBe(false);
+    expect(hasStrengthSelector(roster.find((p) => p.id === PRIVATE_RIVAL_ID)!)).toBe(false);
+  });
+
+  it("offers Full plus the five approximation bands, defaulting to Full", () => {
+    expect(DEFAULT_PERSONA_STRENGTH).toBe("full");
+    expect([...PERSONA_STRENGTH_BANDS]).toEqual([1900, 1700, 1500, 1300, 1100]);
+  });
+});
+
+describe("personaStrengthLabel (spec 218 2026-07-17)", () => {
+  it("names the BT3 policy for Full and the approximation for a band", () => {
+    expect(personaStrengthLabel("Kasparov", "full")).toBe(
+      "Kasparov — his openings, full-strength policy (BT3)",
+    );
+    expect(personaStrengthLabel("Kasparov", 1500)).toBe(
+      "Kasparov — his openings, ~1500 approximation",
+    );
+  });
+
+  it("gives the GM card the Full-strength label by default (no stale Tournament copy)", () => {
+    const p = gmParticipant("kasparov");
+    expect(p.strengthLabel).toBe(`${p.displayName} — his openings, full-strength policy (BT3)`);
+    expect(p.strengthLabel).not.toMatch(/Tournament/);
+  });
+});
+
+describe("applyPersonaStrength (spec 218 2026-07-17)", () => {
+  it("Full strength keeps weights:bt3 and the top native fallback band", () => {
+    const p = applyPersonaStrength(gmParticipant(), "full");
+    expect(p.personaConfig?.weights).toBe("bt3");
+    expect(p.personaConfig?.level).toBe(MAIA_MAX_NATIVE_BAND);
+    // The player's own book still plays.
+    expect(p.personaConfig?.book).toBe("persona");
+    expect(p.personaConfig?.bookSlug).toBe("fischer");
+    expect(p.strengthLabel).toMatch(/full-strength policy \(BT3\)/);
+  });
+
+  it("a band pick drops weights (pure Maia) and plays at the picked band", () => {
+    const p = applyPersonaStrength(gmParticipant(), 1500);
+    expect("weights" in (p.personaConfig ?? {})).toBe(false);
+    expect(p.personaConfig?.level).toBe(1500);
+    // Book preserved — his openings play at every strength.
+    expect(p.personaConfig?.book).toBe("persona");
+    expect(p.strengthLabel).toBe(`${p.displayName} — his openings, ~1500 approximation`);
+  });
+
+  it("every offered band round-trips to a valid native level and drops weights", () => {
+    for (const band of PERSONA_STRENGTH_BANDS) {
+      const p = applyPersonaStrength(gmParticipant(), band);
+      expect(p.personaConfig?.level).toBe(band);
+      expect(p.personaConfig?.level).toBeLessThanOrEqual(MAIA_MAX_NATIVE_BAND);
+      expect("weights" in (p.personaConfig ?? {})).toBe(false);
+    }
+  });
+
+  it("passes non-selectable participants (Maia bands, rivals) through untouched", () => {
+    const roster = buildRoster(SAMPLE_BOOK, [LOCAL_RIVAL]);
+    const bot = roster.find((p) => p.id === "maia-1500")!;
+    expect(applyPersonaStrength(bot, 1100)).toBe(bot);
+    const rival = roster.find((p) => p.id === "rival-testrival")!;
+    expect(applyPersonaStrength(rival, "full")).toBe(rival);
+  });
+});
+
+describe("persona strength persistence (spec 218 2026-07-17)", () => {
+  it("keys per persona under chessgui:persona-strength:<id>", () => {
+    expect(personaStrengthStorageKey("fischer")).toBe("chessgui:persona-strength:fischer");
+  });
+
+  it("round-trips Full and a band, defaulting to Full when absent or corrupt", () => {
+    const storage = fakeStorage();
+    // Absent → Full.
+    expect(loadPersonaStrength(storage, "fischer")).toBe("full");
+    // Band round-trip.
+    savePersonaStrength(storage, "fischer", 1300);
+    expect(storage.map.get("chessgui:persona-strength:fischer")).toBe("1300");
+    expect(loadPersonaStrength(storage, "fischer")).toBe(1300);
+    // Full round-trip.
+    savePersonaStrength(storage, "fischer", "full");
+    expect(loadPersonaStrength(storage, "fischer")).toBe("full");
+    // Corrupt / out-of-set → Full.
+    storage.set("chessgui:persona-strength:fischer", "9999");
+    expect(loadPersonaStrength(storage, "fischer")).toBe("full");
+    storage.set("chessgui:persona-strength:fischer", "garbage");
+    expect(loadPersonaStrength(storage, "fischer")).toBe("full");
   });
 });
 

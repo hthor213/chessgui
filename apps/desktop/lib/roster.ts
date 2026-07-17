@@ -43,6 +43,7 @@ import { getProviders } from "@/lib/platform"
 import { BT3_NET_FILE, BT3_WEIGHTS_NAME, MAIA_MAX_NATIVE_BAND } from "@/lib/maia"
 import type { RivalBook } from "@/lib/rival-book"
 import type { ErrorModel } from "@chessgui/core/persona-types"
+import type { StorageProvider } from "@chessgui/core/platform-types"
 
 // The committed GM persona configs (spec 214 Tier 2 extraction pipeline).
 // Static imports — these are small public JSON files; the multi-MB *.book.json
@@ -352,6 +353,107 @@ export function initialsFor(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
+// ---------------------------------------------------------------------------
+// Explicit GM persona strength (spec 218 Decision 2026-07-17: "GM persona
+// strength is explicit, never a silent cap")
+// ---------------------------------------------------------------------------
+
+/** A GM persona's chosen play strength: "full" = the BT3 managed net (his
+ *  real full-strength policy) with the top native band as its runtime
+ *  fallback; a number = a pure Maia approximation band. Defaults to "full" —
+ *  no silent cap. */
+export type PersonaStrength = "full" | number
+
+/** The Maia approximation bands a BT3-backed GM persona offers alongside Full
+ *  strength (spec 218 Decision 2026-07-17), high→low. */
+export const PERSONA_STRENGTH_BANDS = [1900, 1700, 1500, 1300, 1100] as const
+
+/** Default GM persona strength: Full strength (BT3), never a silent Maia cap. */
+export const DEFAULT_PERSONA_STRENGTH: PersonaStrength = "full"
+
+/** Static first-use honesty copy for the Full-strength option (spec 218
+ *  Decision 2026-07-17): the BT3 net is fetched on demand. There is no
+ *  TS-side presence check for the managed net (its resolution — local
+ *  registration → verified cache → download — lives in src-tauri/src/maia.rs),
+ *  so per the decision this is surfaced as static copy rather than a
+ *  conditional badge. */
+export const BT3_DOWNLOAD_NOTE = "Downloads a ~190MB net on first use"
+
+/** True when a participant offers the explicit strength selector: its config
+ *  resolves the BT3 managed net (spec 218 — the GM personas, never the plain
+ *  Maia-band rivals, whose `weights` is absent). */
+export function hasStrengthSelector(p: Participant): boolean {
+  return p.personaConfig?.weights === BT3_WEIGHTS_NAME
+}
+
+/** Honest strength label per selection (spec 218 Decision 2026-07-17): Full
+ *  strength names the BT3 policy; a band names the approximation. The book is
+ *  the player's own in both cases, hence "his openings". */
+export function personaStrengthLabel(displayName: string, strength: PersonaStrength): string {
+  return strength === "full"
+    ? `${displayName} — his openings, full-strength policy (BT3)`
+    : `${displayName} — his openings, ~${strength} approximation`
+}
+
+/**
+ * Resolve a chosen strength into the effective participant a game is played
+ * against (spec 218 Decision 2026-07-17). For a BT3-backed GM persona:
+ *
+ * - **Full strength** keeps the `weights:"bt3"` selector and the top native
+ *   band as its Maia fallback (`level` = MAIA_MAX_NATIVE_BAND) — persona_move
+ *   drives the real net when present and degrades to that band otherwise, the
+ *   decision log's `policy_backend` reporting which actually served.
+ * - **A band** drops the `weights` selector (pure Maia) and plays at the
+ *   picked band. The offered bands are all within the native 1100–1900 set,
+ *   so they pass the honesty gate unchanged; `approximate` stays true.
+ *
+ * The book (`book`/`bookSlug`) and every other config field are preserved, so
+ * the persona's own openings play in both cases. Non-selectable participants
+ * (Maia-band rivals, engines) pass through untouched.
+ */
+export function applyPersonaStrength(p: Participant, strength: PersonaStrength): Participant {
+  if (!hasStrengthSelector(p) || !p.personaConfig) return p
+  const label = personaStrengthLabel(p.displayName, strength)
+  if (strength === "full") {
+    return {
+      ...p,
+      personaConfig: { ...p.personaConfig, level: MAIA_MAX_NATIVE_BAND, weights: BT3_WEIGHTS_NAME },
+      strengthLabel: label,
+    }
+  }
+  // Band pick: pure Maia at the picked band — drop the managed-net selector.
+  const { weights: _dropped, ...rest } = p.personaConfig
+  return {
+    ...p,
+    personaConfig: { ...rest, level: strength },
+    strengthLabel: label,
+  }
+}
+
+/** localStorage key for a persona's persisted strength choice (spec 218
+ *  Decision 2026-07-17: "Selection persists per persona"). */
+export function personaStrengthStorageKey(id: string): string {
+  return `chessgui:persona-strength:${id}`
+}
+
+/** Read a persona's persisted strength choice, defaulting to Full strength
+ *  (an absent, corrupt, or out-of-set value all mean the default). */
+export function loadPersonaStrength(storage: StorageProvider, id: string): PersonaStrength {
+  const raw = storage.get(personaStrengthStorageKey(id))
+  if (raw === "full") return "full"
+  const n = raw != null ? Number(raw) : NaN
+  return (PERSONA_STRENGTH_BANDS as readonly number[]).includes(n) ? n : DEFAULT_PERSONA_STRENGTH
+}
+
+/** Persist a persona's strength choice. */
+export function savePersonaStrength(
+  storage: StorageProvider,
+  id: string,
+  strength: PersonaStrength,
+): void {
+  storage.set(personaStrengthStorageKey(id), strength === "full" ? "full" : String(strength))
+}
+
 function maiaBandBot(level: number): Participant {
   return {
     id: `maia-${level}`,
@@ -364,12 +466,14 @@ function maiaBandBot(level: number): Participant {
 }
 
 /** A committed GM persona (spec 218 decision 3: best fidelity currently
- *  available in THIS surface, always with an honest strength label). All 12
- *  are BT3-backed (`runnable_in_engine_v1: false`): the gate resolves their
- *  backend to the `weights` selector — persona_move drives the BT3 net when
- *  it's present, falling back to the top native Maia band otherwise — while
- *  the CLAIM stays an approximation: real opening book, gated top-band label
- *  pointing at the Tournament surface for the measured full-strength entry. */
+ *  available, always with an honest strength label). All 12 are BT3-backed
+ *  (`runnable_in_engine_v1: false`): the gate resolves their backend to the
+ *  `weights` selector, so the Play vs Bot card offers an explicit strength
+ *  selector (spec 218 Decision 2026-07-17) — Full strength (BT3) or a Maia
+ *  approximation band, no silent cap. The participant here is the DEFAULT
+ *  (Full strength); applyPersonaStrength re-resolves it to the player's
+ *  chosen strength on pick. The CLAIM stays honest either way: real opening
+ *  book, policy labeled BT3 or approximation, never "IS the player". */
 function gmPersonaParticipant(cfg: PersonaConfigFile): Participant {
   const gate = gatePersonaLevel(cfg)
   return {
@@ -384,9 +488,12 @@ function gmPersonaParticipant(cfg: PersonaConfigFile): Participant {
       bookSlug: cfg.slug,
       ...samplingOverrides(cfg),
     },
-    strengthLabel: gate.approximate
-      ? `${cfg.display_name} — his openings, ~${gate.level} policy approximation; full-strength persona available in Tournament`
-      : `${cfg.display_name} — his openings, ~${gate.level} (Maia policy)`,
+    strengthLabel:
+      gate.weights === BT3_WEIGHTS_NAME
+        ? personaStrengthLabel(cfg.display_name, "full")
+        : gate.approximate
+          ? `${cfg.display_name} — his openings, ~${gate.level} approximation`
+          : `${cfg.display_name} — his openings, ~${gate.level} (Maia policy)`,
     actions: ["play"],
   }
 }

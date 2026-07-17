@@ -13,10 +13,13 @@
 // fallback — spec 218 follow-up) with a Stockfish verification reweight, never
 // noise-weakening an engine to fake it (spec 214 hard rule). Each out-of-book
 // move's decision log
-// is stored locally (private data). Honest labels throughout: "a ~1700 playing
-// dad's openings", "Kasparov — his openings, ~1900 policy approximation" — never
-// "this IS the player". This screen runs its own game loop, independent of the
-// main analysis board, exactly like the calibration screen.
+// is stored locally (private data). GM persona cards carry an explicit
+// strength selector (spec 218 Decision 2026-07-17): Full strength (the BT3
+// managed net) or a Maia approximation band, never a silent cap. Honest labels
+// throughout: "a ~1700 playing dad's openings", "Kasparov — his openings,
+// full-strength policy (BT3)" / "~1500 approximation" — never "this IS the
+// player". This screen runs its own game loop, independent of the main
+// analysis board, exactly like the calibration screen.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
@@ -42,10 +45,19 @@ import {
   loadLocalRivalPersonas,
   loadPlayerProfiles,
   resolveParticipantBook,
+  applyPersonaStrength,
+  hasStrengthSelector,
+  loadPersonaStrength,
+  savePersonaStrength,
+  personaStrengthLabel,
+  PERSONA_STRENGTH_BANDS,
+  DEFAULT_PERSONA_STRENGTH,
+  BT3_DOWNLOAD_NOTE,
   type LocalPlayerProfile,
   type LocalRivalPersona,
   type Participant,
   type PersonaConfig,
+  type PersonaStrength,
 } from "@/lib/roster"
 import { buildBeatPlan, beatTargetFor, traineeFromMetrics } from "@/lib/beat-program"
 import {
@@ -205,6 +217,12 @@ function appendDecisionLog(entry: PersonaDecisionLogEntry): void {
   }
 }
 
+/** Human label for a decision log's `policy_backend` band string
+ *  ("maia-1900" → "Maia-1900"), for the honest fallback note (spec 218). */
+function formatBackendBand(backend: string): string {
+  return backend.replace(/^maia-/i, "Maia-")
+}
+
 /** A per-game seed for the persona engine's seeded sampling (contract step 8).
  *  Kept below 2^53 so it survives the JSON number round-trip to Rust intact. */
 function newGameSeed(): number {
@@ -294,6 +312,15 @@ export function SparTab() {
   // checklist item) — null only while phase === "roster". Fixed for the
   // duration of a game, same as everything below it.
   const [participant, setParticipant] = useState<Participant | null>(null)
+  // Per-persona strength choice for the BT3-backed GM cards (spec 218 Decision
+  // 2026-07-17: explicit strength, never a silent cap). Keyed by participant
+  // id, defaulting to Full strength; hydrated from storage by the effect below
+  // and persisted on change.
+  const [strengthByPersona, setStrengthByPersona] = useState<Record<string, PersonaStrength>>({})
+  // Honest fallback note (spec 218 Decision 2026-07-17): set when a Full-
+  // strength game's decision log reveals the Maia fallback served instead of
+  // BT3 (net not yet present). Null the rest of the time; reset each new game.
+  const [fallbackBackend, setFallbackBackend] = useState<string | null>(null)
   const [side, setSide] = useState<SideChoice>("either")
   // Opponent strength; set on the config screen, fixed for the duration of a
   // game. Only meaningful (and only shown) for participants with a dial-able
@@ -323,6 +350,25 @@ export function SparTab() {
     () => buildRoster(book, localRivals, profiles),
     [book, localRivals, profiles],
   )
+  // Hydrate the persisted strength choice for every BT3-backed GM card
+  // (spec 218 Decision 2026-07-17). Absent everywhere off-storage → Full.
+  useEffect(() => {
+    const storage = getProviders().storage
+    const next: Record<string, PersonaStrength> = {}
+    for (const p of roster) {
+      if (hasStrengthSelector(p)) next[p.id] = loadPersonaStrength(storage, p.id)
+    }
+    setStrengthByPersona(next)
+  }, [roster])
+  // Persist + record a card's strength choice (spec 218 Decision 2026-07-17).
+  const setPersonaStrength = useCallback((id: string, strength: PersonaStrength) => {
+    setStrengthByPersona((prev) => ({ ...prev, [id]: strength }))
+    try {
+      savePersonaStrength(getProviders().storage, id, strength)
+    } catch {
+      // storage unavailable — the choice just isn't persisted this session.
+    }
+  }, [])
   // Any book-carrying entry (the private rivals AND the GM personas, whose
   // committed books are legitimately theirs) plays its book move-by-move;
   // only the ORIGINAL private rival keeps the dial-able level (everyone else
@@ -541,6 +587,7 @@ export function SparTab() {
     setManualEnd(null)
     setLastDrawOfferPly(null)
     setDrawDeclinedNote(false)
+    setFallbackBackend(null)
     goLive()
     setGameSeed(newGameSeed())
 
@@ -676,6 +723,16 @@ export function SparTab() {
       .then((decision) => {
         // Discard if the board moved on (take-back / new game) while we waited.
         if (!live || pendingFenRef.current !== fen) return
+        // Full-strength honesty (spec 218 Decision 2026-07-17): if we asked for
+        // the BT3 net (weights present) but the decision log reports a Maia
+        // backend served, the net wasn't present — surface which fallback ran.
+        if (
+          participant?.personaConfig?.weights &&
+          decision.policy_backend &&
+          !decision.policy_backend.startsWith("bt3")
+        ) {
+          setFallbackBackend(decision.policy_backend)
+        }
         const ply = applyUci(fen, decision.uci)
         if (!ply) {
           setMoveError(`Opponent returned an illegal move (${decision.uci}).`)
@@ -932,7 +989,11 @@ export function SparTab() {
       <RosterScreen
         roster={roster}
         onPick={(p, action) => {
-          setParticipant(p)
+          // Resolve the card's chosen strength into the effective participant
+          // (spec 218 Decision 2026-07-17): Full strength keeps weights:"bt3",
+          // a band drops it for pure Maia. Non-GM cards pass through unchanged.
+          const strength = strengthByPersona[p.id] ?? DEFAULT_PERSONA_STRENGTH
+          setParticipant(applyPersonaStrength(p, strength))
           setSparMode(action === "improve" ? "probe" : "serious")
           setLevel(DEFAULT_LEVEL)
           setBookStartMode(DEFAULT_BOOK_START_MODE)
@@ -944,6 +1005,8 @@ export function SparTab() {
         onAddProfile={() => setPhase("addProfile")}
         onBeat={generateBeatPlan}
         beatMsg={beatMsg}
+        strengthByPersona={strengthByPersona}
+        onStrengthChange={setPersonaStrength}
       />
     )
   }
@@ -1005,6 +1068,17 @@ export function SparTab() {
               ? `a ~${effectiveLevel} playing ${opponentLabel.toLowerCase()}'s openings`
               : participant?.strengthLabel}
           </span>
+          {fallbackBackend && (
+            // Spec 218 Decision 2026-07-17: Full strength was chosen but the
+            // BT3 net wasn't present, so a Maia band served this game — say so.
+            <span
+              className="text-[11px] text-amber-300/90"
+              data-testid="spar-fallback-note"
+              title="The full-strength BT3 net wasn't present, so a Maia band served this game (it downloads on first use)."
+            >
+              served by {formatBackendBand(fallbackBackend)} fallback this game
+            </span>
+          )}
           {sparMode === "probe" && (
             <span
               className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-violet-400/10 text-violet-300 border border-violet-400/30"
@@ -1505,6 +1579,8 @@ function RosterScreen({
   onAddProfile,
   onBeat,
   beatMsg,
+  strengthByPersona,
+  onStrengthChange,
 }: {
   roster: Participant[]
   onPick: (p: Participant, action: "play" | "improve") => void
@@ -1514,6 +1590,13 @@ function RosterScreen({
    *  entry (the only entries carrying the "beat" action). */
   onBeat: (p: Participant) => void
   beatMsg: string | null
+  /** Spec 218 Decision 2026-07-17: per-persona chosen strength for the BT3
+   *  GM cards (absent = Full strength). No mid-game strength change is
+   *  possible — the roster screen is unreachable during a live game (a pick
+   *  freezes the participant and re-initializes the game), so the selector
+   *  can only be touched before a game starts. */
+  strengthByPersona: Record<string, PersonaStrength>
+  onStrengthChange: (id: string, strength: PersonaStrength) => void
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-auto p-6" data-testid="spar-roster">
@@ -1541,7 +1624,15 @@ function RosterScreen({
           <p className="text-sm text-muted-foreground">Loading roster…</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="roster-grid">
-            {roster.map((p) => (
+            {roster.map((p) => {
+              // Spec 218 Decision 2026-07-17: BT3-backed GM cards get an
+              // explicit strength selector; the card label tracks the choice.
+              const selectable = hasStrengthSelector(p)
+              const strength = strengthByPersona[p.id] ?? DEFAULT_PERSONA_STRENGTH
+              const cardLabel = selectable
+                ? personaStrengthLabel(p.displayName, strength)
+                : p.strengthLabel
+              return (
               <div
                 key={p.id}
                 className="rounded-lg border border-white/10 bg-white/[0.03] p-4 flex flex-col gap-3"
@@ -1557,9 +1648,44 @@ function RosterScreen({
                       <span className="text-sm font-medium truncate">{p.displayName}</span>
                       {p.verdictBadge && <VerdictBadge participant={p} />}
                     </div>
-                    <div className="text-xs text-muted-foreground">{p.strengthLabel}</div>
+                    <div className="text-xs text-muted-foreground" data-testid={`roster-label-${p.id}`}>
+                      {cardLabel}
+                    </div>
                   </div>
                 </div>
+                {selectable && (
+                  <div className="flex flex-col gap-1">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="shrink-0">Strength</span>
+                      <select
+                        className="flex-1 min-w-0 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-foreground disabled:opacity-50"
+                        value={strength === "full" ? "full" : String(strength)}
+                        onChange={(e) =>
+                          onStrengthChange(
+                            p.id,
+                            e.target.value === "full" ? "full" : Number(e.target.value),
+                          )
+                        }
+                        data-testid={`roster-strength-${p.id}`}
+                      >
+                        <option value="full">Full strength</option>
+                        {PERSONA_STRENGTH_BANDS.map((b) => (
+                          <option key={b} value={String(b)}>
+                            ~{b} approximation
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {strength === "full" && (
+                      <span
+                        className="text-[10px] text-muted-foreground/80"
+                        data-testid={`roster-strength-note-${p.id}`}
+                      >
+                        {BT3_DOWNLOAD_NOTE}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2 mt-auto">
                   {p.actions.includes("play") && (
                     <Button size="sm" onClick={() => onPick(p, "play")} data-testid={`roster-play-${p.id}`}>
@@ -1589,7 +1715,8 @@ function RosterScreen({
                   )}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
