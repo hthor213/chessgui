@@ -539,15 +539,17 @@ async fn write_line(stdin: &mut ChildStdin, cmd: &str) -> Result<(), String> {
 
 #[derive(Default)]
 struct Pool {
-    procs: HashMap<u32, Arc<MaiaProcess>>,
+    /// Keyed by backend label ("maia-<band>" or a managed-net name, e.g.
+    /// "bt3") so a managed net and a Maia band never share a process.
+    procs: HashMap<String, Arc<MaiaProcess>>,
     /// LRU order, most-recently-used last.
-    order: Vec<u32>,
+    order: Vec<String>,
 }
 
 impl Pool {
-    fn touch(&mut self, band: u32) {
-        self.order.retain(|b| *b != band);
-        self.order.push(band);
+    fn touch(&mut self, key: &str) {
+        self.order.retain(|k| k != key);
+        self.order.push(key.to_string());
     }
 }
 
@@ -569,18 +571,19 @@ impl MaiaState {
 
     async fn get_or_spawn(
         &self,
+        key: &str,
         band: u32,
         lc0: &Path,
         weights: &Path,
     ) -> Result<Arc<MaiaProcess>, String> {
         let mut pool = self.pool.lock().await;
-        if let Some(p) = pool.procs.get(&band).cloned() {
-            pool.touch(band);
+        if let Some(p) = pool.procs.get(key).cloned() {
+            pool.touch(key);
             return Ok(p);
         }
         let proc = Arc::new(MaiaProcess::spawn(lc0, weights, band).await?);
-        pool.procs.insert(band, proc.clone());
-        pool.touch(band);
+        pool.procs.insert(key.to_string(), proc.clone());
+        pool.touch(key);
         // Evict least-recently-used beyond the cap. Dropping the Arc kills the
         // process (kill_on_drop) once any in-flight query releases its clone.
         while pool.order.len() > POOL_CAP {
@@ -616,26 +619,134 @@ fn nets_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// The Maia-band arm of the policy-backend selector: validated band, ensured
+/// weights, canonical "maia-<band>" backend label. `expected` + `fetch` are
+/// threaded in (same pattern as [`ensure_weights_with`]) so tests never hit
+/// the network; production passes the pinned checksum + real HTTP fetch.
+async fn resolve_maia_band_with<F, Fut>(
+    band: u32,
+    dir: &Path,
+    expected: Option<&str>,
+    fetch: F,
+) -> Result<(PathBuf, String), String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<u8>, String>>,
+{
+    if !is_valid_band(band) {
+        return Err(format!(
+            "no Maia-1 net for band {band} (available: 1100–1900)"
+        ));
+    }
+    let path = ensure_weights_with(band, dir, expected, fetch).await?;
+    Ok((path, format!("maia-{band}")))
+}
+
+/// Policy-backend selector core (spec 218), STRICT: a named managed net from
+/// `nets` when `weights_name` is set, else the Maia band. An unknown or
+/// unresolvable managed net is an error — the match runner wants that (a batch
+/// silently played on a substitute net would poison its results). `nets` and
+/// the Maia checksum/fetch are parameterized so tests drive it hermetically.
+/// Returns the weights path plus the backend label that resolved.
+async fn resolve_weights_core<F, Fut>(
+    nets: &[ManagedNet],
+    band: u32,
+    weights_name: Option<&str>,
+    nets_dir: &Path,
+    maia_dir: &Path,
+    maia_checksum: Option<&str>,
+    fetch: F,
+) -> Result<(PathBuf, String), String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<u8>, String>>,
+{
+    match weights_name {
+        Some(name) => {
+            let net = nets
+                .iter()
+                .find(|n| n.name.eq_ignore_ascii_case(name))
+                .ok_or_else(|| format!("unknown managed net '{name}'"))?;
+            let path = ensure_managed_net(net, nets_dir).await?;
+            Ok((path, net.name.to_string()))
+        }
+        None => resolve_maia_band_with(band, maia_dir, maia_checksum, fetch).await,
+    }
+}
+
+/// Policy-backend selector core, PLAY-PATH: same selection as
+/// [`resolve_weights_core`], but a managed net that cannot serve (unknown
+/// name, absent registration/cache, failed download) DEGRADES to the Maia
+/// band instead of erroring — Play vs Bot must keep serving moves. The
+/// returned backend label records what actually resolved, so the persona
+/// decision log stays honest about the substitution.
+async fn resolve_weights_or_maia_core<F, Fut>(
+    nets: &[ManagedNet],
+    band: u32,
+    weights_name: Option<&str>,
+    nets_dir: &Path,
+    maia_dir: &Path,
+    maia_checksum: Option<&str>,
+    fetch: F,
+) -> Result<(PathBuf, String), String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<u8>, String>>,
+{
+    if let Some(name) = weights_name {
+        if let Some(net) = nets.iter().find(|n| n.name.eq_ignore_ascii_case(name)) {
+            if let Ok(path) = ensure_managed_net(net, nets_dir).await {
+                return Ok((path, net.name.to_string()));
+            }
+        }
+        // Unknown or unresolvable managed net: fall through to the Maia band.
+    }
+    resolve_maia_band_with(band, maia_dir, maia_checksum, fetch).await
+}
+
 /// Resolve the weights file for a persona's policy backend: a named managed net
 /// (e.g. "bt3") when `weights_name` is set, else the Maia band net for `band`.
 /// Ensures the file is present (download/registration) and checksum-valid.
+/// THE single strict selector — the match runner's `resolve_one` goes through
+/// here, and `persona_move`'s [`resolve_persona_weights_or_maia`] wraps the
+/// same core, so the two surfaces can never pick different files for the same
+/// config. Returns the path plus the backend label ("bt3" / "maia-<band>").
 pub async fn resolve_persona_weights(
     app: &tauri::AppHandle,
     band: u32,
     weights_name: Option<&str>,
-) -> Result<PathBuf, String> {
-    match weights_name {
-        Some(name) => {
-            let net =
-                managed_net(name).ok_or_else(|| format!("unknown managed net '{name}'"))?;
-            let dir = nets_dir(app)?;
-            ensure_managed_net(net, &dir).await
-        }
-        None => {
-            let dir = maia_dir(app)?;
-            ensure_weights(band, &dir).await
-        }
-    }
+) -> Result<(PathBuf, String), String> {
+    resolve_weights_core(
+        MANAGED_NETS,
+        band,
+        weights_name,
+        &nets_dir(app)?,
+        &maia_dir(app)?,
+        checksum_for(band),
+        http_download,
+    )
+    .await
+}
+
+/// [`resolve_persona_weights`] with the play-path fallback (spec 218): a
+/// managed net that cannot serve degrades to the Maia band for `band` rather
+/// than erroring. Used by the spar/play `persona_move` command; the strict
+/// surfaces (match runner) must NOT use this.
+pub async fn resolve_persona_weights_or_maia(
+    app: &tauri::AppHandle,
+    band: u32,
+    weights_name: Option<&str>,
+) -> Result<(PathBuf, String), String> {
+    resolve_weights_or_maia_core(
+        MANAGED_NETS,
+        band,
+        weights_name,
+        &nets_dir(app)?,
+        &maia_dir(app)?,
+        checksum_for(band),
+        http_download,
+    )
+    .await
 }
 
 /// Report lc0 availability and which band weights are already cached. The UI
@@ -669,15 +780,25 @@ pub async fn query_policy(
     fen: &str,
     band: u32,
 ) -> Result<MaiaPolicy, String> {
-    if !is_valid_band(band) {
-        return Err(format!(
-            "no Maia-1 net for band {band} (available: 1100–1900)"
-        ));
-    }
+    // Fail fast on a missing lc0 BEFORE any weight download can start.
+    resolve_lc0().ok_or("lc0 not found — install it with: brew install lc0")?;
+    let (weights, backend) = resolve_persona_weights(app, band, None).await?;
+    query_policy_with_weights(state, fen, band, &weights, &backend).await
+}
+
+/// Root policy served from a pooled lc0 process bound to an already-resolved
+/// weights file (spec 218). `backend` keys the pool ("maia-<band>" or a
+/// managed-net name like "bt3"), so a managed net and a Maia band at the same
+/// `band` label never share a process. `band` only labels the returned policy.
+pub async fn query_policy_with_weights(
+    state: &MaiaState,
+    fen: &str,
+    band: u32,
+    weights: &Path,
+    backend: &str,
+) -> Result<MaiaPolicy, String> {
     let lc0 = resolve_lc0().ok_or("lc0 not found — install it with: brew install lc0")?;
-    let dir = maia_dir(app)?;
-    let weights = ensure_weights(band, &dir).await?;
-    let proc = state.get_or_spawn(band, &lc0, &weights).await?;
+    let proc = state.get_or_spawn(backend, band, &lc0, weights).await?;
     proc.query(fen).await
 }
 
@@ -850,6 +971,135 @@ mod tests {
         assert!(not_gz.is_err(), "non-gzip should error");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Fixture "net" bytes (gzip magic + payload) plus their own SHA-256 hex
+    /// digest, so backend-selector tests pass `verify_download` with no real
+    /// asset and no network.
+    fn fixture_net(payload: &[u8]) -> (Vec<u8>, String) {
+        let mut bytes = vec![0x1f, 0x8b];
+        bytes.extend_from_slice(payload);
+        let digest = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(&bytes);
+            hex::encode(h.finalize())
+        };
+        (bytes, digest)
+    }
+
+    // Spec 218 policy-backend selector, play path: a persona config naming the
+    // bt3 managed net while the net is absent (no registration, no cache, no
+    // download URL) must degrade to the config's Maia band — with the backend
+    // label recording the substitution — instead of erroring the move. The
+    // match runner's strict selector must keep erroring for the same config.
+    #[tokio::test]
+    async fn persona_backend_bt3_missing_net_falls_back_to_maia_band() {
+        // Registration-only twin of the real BT3 entry (url "" = never touches
+        // the network) whose env var is unset: resolves exactly like an absent
+        // BT3 on a fresh machine with no connectivity.
+        const NETS: &[ManagedNet] = &[ManagedNet {
+            name: "bt3",
+            filename: "bt3-test.pb.gz",
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+            url: "",
+            local_env: "CHESSGUI_TEST_BT3_FALLBACK_UNSET",
+        }];
+        std::env::remove_var("CHESSGUI_TEST_BT3_FALLBACK_UNSET");
+
+        let base =
+            std::env::temp_dir().join(format!("persona-backend-fb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let nets_dir = base.join("nets");
+        let maia_dir = base.join("maia");
+
+        // Hermetic Maia arm: the injected fetch serves a fixture whose own
+        // digest is the pinned checksum.
+        let (bytes, digest) = fixture_net(b"maia fallback fixture");
+        let (path, backend) = resolve_weights_or_maia_core(
+            NETS,
+            1500,
+            Some("bt3"),
+            &nets_dir,
+            &maia_dir,
+            Some(&digest),
+            |_url: String| async move { Ok(bytes) },
+        )
+        .await
+        .expect("a missing managed net must fall back to the Maia band, not error");
+        assert_eq!(backend, "maia-1500", "the log label must record what served");
+        assert_eq!(path, maia_dir.join(weights_filename(1500)));
+
+        // Same config through the STRICT selector (the match runner's): no
+        // silent substitution mid-batch — it must error instead.
+        let strict = resolve_weights_core(
+            NETS,
+            1500,
+            Some("bt3"),
+            &nets_dir,
+            &maia_dir,
+            Some(&digest),
+            |_url: String| async move { Err::<Vec<u8>, String>("no network".to_string()) },
+        )
+        .await;
+        assert!(strict.is_err(), "the strict selector must not fall back");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // Spec 218 parity: for the same persona config (level + weights), the
+    // persona_move play-path selector and the match runner's strict selector
+    // resolve the SAME net file and backend label — one core, two wrappers.
+    #[tokio::test]
+    async fn persona_move_selector_resolves_same_net_path_as_match_runner() {
+        let (bytes, digest) = fixture_net(b"bt3 parity fixture");
+        let base =
+            std::env::temp_dir().join(format!("persona-backend-parity-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let nets_dir = base.join("nets");
+        let maia_dir = base.join("maia");
+        std::fs::create_dir_all(&base).unwrap();
+
+        // Register the fixture as a local copy — the same resolution arm the
+        // real BT3 takes when PERSONA_BT3_PATH points at a downloaded net.
+        let local = base.join("bt3-local.pb.gz");
+        std::fs::write(&local, &bytes).unwrap();
+        std::env::set_var("CHESSGUI_TEST_BT3_PARITY", &local);
+        let net: &'static ManagedNet = Box::leak(Box::new(ManagedNet {
+            name: "bt3",
+            filename: "bt3-parity-test.pb.gz",
+            sha256: Box::leak(digest.into_boxed_str()),
+            url: "",
+            local_env: "CHESSGUI_TEST_BT3_PARITY",
+        }));
+        let nets = std::slice::from_ref(net);
+
+        // Capture-free, so Copy: usable for both selector calls. A managed hit
+        // must never reach the Maia fetch.
+        let no_fetch = |_url: String| async move {
+            Err::<Vec<u8>, String>("managed hit must not fetch Maia weights".to_string())
+        };
+        let strict =
+            resolve_weights_core(nets, 1500, Some("BT3"), &nets_dir, &maia_dir, None, no_fetch)
+                .await
+                .expect("match runner selector resolves the registered net");
+        let play = resolve_weights_or_maia_core(
+            nets,
+            1500,
+            Some("BT3"),
+            &nets_dir,
+            &maia_dir,
+            None,
+            no_fetch,
+        )
+        .await
+        .expect("persona_move selector resolves the registered net");
+        assert_eq!(strict, play, "same config -> same net path + same label");
+        assert_eq!(play.0, local);
+        assert_eq!(play.1, "bt3", "label is the canonical registry name");
+
+        std::env::remove_var("CHESSGUI_TEST_BT3_PARITY");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     // Real lc0 + real weights. Skips gracefully (prints and returns) when lc0 is

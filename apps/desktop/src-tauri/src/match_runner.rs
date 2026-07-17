@@ -546,6 +546,9 @@ pub struct PersonaRuntime {
     pub lc0_path: PathBuf,
     /// Weights file (a Maia band net or a managed strong net, e.g. BT3).
     pub weights_path: PathBuf,
+    /// Backend label the resolver reported for `weights_path` ("maia-<band>"
+    /// or a managed-net name like "bt3"); recorded in the decision log.
+    pub policy_backend: String,
     /// Stockfish for the verification reweight; `None` = pure tempered policy.
     pub stockfish_path: Option<PathBuf>,
     /// Label for the returned policies / decision log (Maia band or GM ceiling).
@@ -577,6 +580,7 @@ pub struct PersonaRuntime {
 /// per move through the spec 214 selection contract.
 struct PersonaPlayer {
     proc: MaiaProcess,
+    policy_backend: String,
     stockfish: Option<PathBuf>,
     alpha: f64,
     lambda: f64,
@@ -596,6 +600,7 @@ impl PersonaPlayer {
         let proc = MaiaProcess::spawn(&rt.lc0_path, &rt.weights_path, rt.band).await?;
         Ok(Self {
             proc,
+            policy_backend: rt.policy_backend.clone(),
             stockfish: rt.stockfish_path.clone(),
             alpha: rt.alpha,
             lambda: rt.lambda,
@@ -635,6 +640,7 @@ impl PersonaPlayer {
             style_bias: self.style_bias.clone(),
             endgame: self.endgame.clone(),
             error_model: self.error_model.clone(),
+            policy_backend: Some(self.policy_backend.clone()),
         };
         let decision = persona::select_move_from_policy(
             fen,
@@ -1910,7 +1916,7 @@ async fn resolve_participants(
 ) -> Result<(), String> {
     let lc0 = crate::maia::resolve_lc0();
     let stockfish = persona::resolve_stockfish();
-    let mut weight_cache: HashMap<String, PathBuf> = HashMap::new();
+    let mut weight_cache: HashMap<String, (PathBuf, String)> = HashMap::new();
 
     for spec in specs.iter_mut() {
         let game_id = spec.id;
@@ -1943,7 +1949,7 @@ async fn resolve_one(
     game_id: usize,
     lc0: &Option<PathBuf>,
     stockfish: &Option<PathBuf>,
-    weight_cache: &mut HashMap<String, PathBuf>,
+    weight_cache: &mut HashMap<String, (PathBuf, String)>,
 ) -> Result<ResolvedSide, String> {
     match p.kind {
         ParticipantKind::Uci => {
@@ -1961,7 +1967,7 @@ async fn resolve_one(
                 "lc0 not found — install it with: brew install lc0 (required for persona participants)",
             )?;
             let key = format!("{}|{}", cfg.level, cfg.weights.as_deref().unwrap_or(""));
-            let weights_path = match weight_cache.get(&key) {
+            let (weights_path, policy_backend) = match weight_cache.get(&key) {
                 Some(w) => w.clone(),
                 None => {
                     let w = crate::maia::resolve_persona_weights(app, cfg.level, cfg.weights.as_deref())
@@ -1976,6 +1982,7 @@ async fn resolve_one(
             Ok(ResolvedSide::Persona(PersonaRuntime {
                 lc0_path,
                 weights_path,
+                policy_backend,
                 stockfish_path: stockfish.clone(),
                 band: cfg.level,
                 alpha: cfg.alpha,
@@ -3115,6 +3122,7 @@ mod tests {
         let rt = PersonaRuntime {
             lc0_path: lc0,
             weights_path: weights,
+            policy_backend: "maia-1500".to_string(),
             stockfish_path: Some(PathBuf::from(&sf)),
             band: 1500,
             alpha: 1.0,

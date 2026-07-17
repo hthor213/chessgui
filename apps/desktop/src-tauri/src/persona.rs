@@ -178,8 +178,16 @@ pub(crate) const MATE_CP: i64 = 100_000;
 /// the JSON number round-trip from TypeScript without precision loss.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PersonaParams {
-    /// Maia rating band (the policy backend weights).
+    /// Maia rating band (the default policy backend weights, and the Maia
+    /// fallback band when `weights` names a net that isn't available).
     pub level: u32,
+    /// Named managed net overriding the Maia band policy backend (e.g. "bt3"
+    /// for BT3-backed GM personas, spec 218) — the same selector the match
+    /// runner's `PersonaConfig.weights` drives. None = the Maia band. The TS
+    /// honesty gate (roster.ts `gatePersonaLevel`) still owns what a persona
+    /// may CLAIM; this only lets a gated config's backend actually serve.
+    #[serde(default)]
+    pub weights: Option<String>,
     pub temperature: f64,
     /// Policy-prior exponent in the reweight (contract step 4).
     pub alpha: f64,
@@ -258,6 +266,11 @@ pub struct PersonaDecision {
     pub reason: String,
     /// Maia band the policy came from.
     pub band: u32,
+    /// The policy backend that ACTUALLY served this move: "maia-<band>" or a
+    /// managed-net name ("bt3"). Records the honest arm even when a configured
+    /// managed net was absent and the move degraded to the Maia band
+    /// (spec 218).
+    pub policy_backend: String,
     /// The per-move seed derived from (seed, ply); logged for reproducibility.
     pub derived_seed: u64,
     /// Detected game phase: "opening" | "middlegame" | "endgame".
@@ -690,6 +703,17 @@ pub(crate) struct SelectContext {
     pub endgame: Option<EndgameArm>,
     /// Corpus error model (contract step 5); None = OFF, the gated default.
     pub error_model: Option<ErrorModel>,
+    /// The policy backend that served the caller's `policy` (spec 218), for
+    /// the decision log; None = derive "maia-<band>" from the policy itself.
+    pub policy_backend: Option<String>,
+}
+
+/// The decision log's `policy_backend`: the caller-reported backend when set,
+/// else "maia-<band>" from the policy's own label (v1 callers).
+fn backend_label(ctx: &SelectContext, policy: &MaiaPolicy) -> String {
+    ctx.policy_backend
+        .clone()
+        .unwrap_or_else(|| format!("maia-{}", policy.band))
 }
 
 // ---------------------------------------------------------------------------
@@ -1205,6 +1229,7 @@ pub(crate) async fn select_move_from_policy(
                         san,
                         reason: reason.to_string(),
                         band: policy.band,
+                        policy_backend: backend_label(ctx, policy),
                         derived_seed,
                         phase: phase.label().to_string(),
                         temperature: eff_temp,
@@ -1296,6 +1321,7 @@ pub(crate) async fn select_move_from_policy(
         san,
         reason: reason.to_string(),
         band: policy.band,
+        policy_backend: backend_label(ctx, policy),
         derived_seed,
         phase: phase.label().to_string(),
         temperature: eff_temp,
@@ -1321,7 +1347,20 @@ pub async fn persona_move(
     params: PersonaParams,
 ) -> Result<PersonaDecision, String> {
     let derived = derive_seed(params.seed, params.ply);
-    let policy = maia::query_policy(&app, state.inner(), &fen, params.level).await?;
+    // Policy backend (spec 218): honor the config's managed-net selector
+    // (`weights`, e.g. "bt3") when present, resolved through the SAME selector
+    // as the match runner's resolve_one — the two surfaces can never pick
+    // different nets for the same config. Fail fast on a missing lc0 before
+    // any weight download; a managed net that can't serve degrades to the
+    // Maia band (play must keep serving moves), and the decision log records
+    // the backend that actually served.
+    maia::resolve_lc0().ok_or("lc0 not found — install it with: brew install lc0")?;
+    let (weights, backend) =
+        maia::resolve_persona_weights_or_maia(&app, params.level, params.weights.as_deref())
+            .await?;
+    let policy =
+        maia::query_policy_with_weights(state.inner(), &fen, params.level, &weights, &backend)
+            .await?;
     let stockfish = resolve_stockfish();
     let ctx = SelectContext {
         ply: params.ply,
@@ -1331,6 +1370,7 @@ pub async fn persona_move(
         style_bias: params.style_bias.clone(),
         endgame: params.endgame.clone(),
         error_model: params.error_model.clone(),
+        policy_backend: Some(backend),
     };
     select_move_from_policy(
         &fen,
@@ -1959,6 +1999,31 @@ mod tests {
         .unwrap();
         assert_eq!(d2.temperature, 0.5);
         assert_eq!(d2.phase, "opening");
+    }
+
+    #[tokio::test]
+    async fn decision_log_records_the_serving_policy_backend() {
+        let policy = fake_policy(vec![mv("e2e4", 0.6), mv("d2d4", 0.4)]);
+        // v1 callers (no backend reported): derived from the policy's band.
+        let d = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, None,
+            &SelectContext::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(d.policy_backend, "maia-1700");
+        // A caller that served the policy from a managed net records it
+        // (spec 218: the log names what ACTUALLY served, not what was asked).
+        let ctx = SelectContext {
+            policy_backend: Some("bt3".to_string()),
+            ..Default::default()
+        };
+        let d2 = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, None, &ctx,
+        )
+        .await
+        .unwrap();
+        assert_eq!(d2.policy_backend, "bt3");
     }
 
     #[tokio::test]
