@@ -8,6 +8,7 @@
   "exports": {
     "./tailwind-preset": "./src/tailwind-preset.ts",
     "./utils": "./src/utils.ts",
+    "./use-ply-review": "./src/use-ply-review.ts",
     "./*.css": "./src/*.css",
     "./*": "./src/*.tsx"
   },

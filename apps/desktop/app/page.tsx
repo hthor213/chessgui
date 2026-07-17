@@ -29,6 +29,7 @@ import { PositionEditorDialog } from "@chessgui/ui/position-editor-dialog"
 import { ActiveGameNotice } from "@chessgui/ui/active-game-notice"
 import { ActiveGamesPanel } from "@chessgui/ui/active-games-panel"
 import { ErrorBoundary } from "@chessgui/ui/error-boundary"
+import { usePlyReview } from "@chessgui/ui/use-ply-review"
 import { CapturedPieces } from "@chessgui/ui/captured-pieces"
 import { computeMaterial } from "@chessgui/core/material"
 import { TournamentTab } from "@chessgui/ui/tournament-tab"
@@ -1753,43 +1754,17 @@ function LiveGameView({
   showEvalBar?: boolean
   controls?: ViewerControls | null
 }) {
-  // null = follow the live tip; a number = reviewing that frame index.
-  const [viewIdx, setViewIdx] = useState<number | null>(null)
-  const gameId = live?.gameId
-  useEffect(() => {
-    setViewIdx(null) // snap to the tip whenever the featured game changes
-  }, [gameId])
-
   const frames = live?.frames ?? []
   const tipIdx = frames.length - 1
-  const following = viewIdx === null
-  const idx = following ? tipIdx : Math.min(viewIdx, tipIdx)
-
-  const back = useCallback(() => {
-    setViewIdx((v) => {
-      const cur = v === null ? tipIdx : Math.min(v, tipIdx)
-      return Math.max(0, cur - 1)
-    })
-  }, [tipIdx])
-  const forward = useCallback(() => {
-    setViewIdx((v) => {
-      const cur = v === null ? tipIdx : Math.min(v, tipIdx)
-      const next = cur + 1
-      return next >= tipIdx ? null : next // reaching the tip resumes following
-    })
-  }, [tipIdx])
-
-  // Arrow keys step through the current game while the viewer is on screen.
+  // Shared ply-review model (spec 218, use-ply-review): cursor null = follow
+  // the live tip; forward onto the tip resumes following. Arrow keys are
+  // bound by the hook while the viewer is on screen, skipping editable
+  // elements.
+  const { index: idx, following, atTip, back, forward, toTip } = usePlyReview({ tip: tipIdx })
+  const gameId = live?.gameId
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
-      if (e.key === "ArrowLeft") { e.preventDefault(); back() }
-      else if (e.key === "ArrowRight") { e.preventDefault(); forward() }
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [back, forward])
+    toTip() // snap to the tip whenever the featured game changes
+  }, [gameId, toTip])
 
   if (!live) {
     return (
@@ -1807,7 +1782,6 @@ function LiveGameView({
   const bMs = frame?.blackTimeMs ?? live.blackTimeMs
   const ev = frame ? frame.eval : live.eval
   const ply = frame?.ply ?? live.ply
-  const atTip = following || idx >= tipIdx
   const moveNo = Math.floor((ply + 1) / 2)
 
   // The neutral evaluator's score is already White-POV (turn="white").
@@ -1882,7 +1856,7 @@ function LiveGameView({
         ) : (
           <button
             className="text-primary hover:underline"
-            onClick={() => setViewIdx(null)}
+            onClick={toTip}
             title="Jump back to the live position"
           >
             reviewing — go live
@@ -1905,7 +1879,7 @@ function LiveGameView({
             onClick={() => {
               const wasPaused = controls.paused
               controls.onTogglePause()
-              if (wasPaused) setViewIdx(null) // resuming snaps back to the tip
+              if (wasPaused) toTip() // resuming snaps back to the tip
             }}
           />
           <ViewerBtn
@@ -1914,7 +1888,7 @@ function LiveGameView({
             disabled={!controls.waitingForNext}
             onClick={() => {
               controls.onStartNext()
-              setViewIdx(null)
+              toTip()
             }}
           />
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">

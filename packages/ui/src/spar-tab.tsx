@@ -25,6 +25,7 @@ import { parseFen } from "chessops/fen"
 import { chessgroundDests } from "chessops/compat"
 import { Button } from "@chessgui/ui/ui/button"
 import { Switch } from "@chessgui/ui/ui/switch"
+import { usePlyReview } from "@chessgui/ui/use-ply-review"
 import { getProviders } from "@/lib/platform"
 import { Avatar, AvatarFallback, AvatarImage } from "@chessgui/ui/ui/avatar"
 import {
@@ -330,12 +331,22 @@ export function SparTab() {
   const pendingFenRef = useRef<string | null>(null)
 
   // Back/forward review (spec 218 ship-now polish, user request — "wait, what
-  // did you do"): review-only, NEVER mutates the live game. null = live (board
-  // shows `fen`); -1 = the start position; i = the position after plies[i].
-  // Board interaction and the live rival-turn effect key off `fen`/`userToMove`
-  // only, so a review cursor can never itself trigger a rival move.
-  const [reviewCursor, setReviewCursor] = useState<number | null>(null)
-  const reviewing = reviewCursor !== null
+  // did you do"): review-only, NEVER mutates the live game. Shared model
+  // (use-ply-review): cursor null = live (board shows `fen`); -1 = the start
+  // position; i = the position after plies[i]. Board interaction and the live
+  // rival-turn effect key off `fen`/`userToMove` only, so a review cursor can
+  // never itself trigger a rival move. The hook binds the arrow keys and
+  // never intercepts typing in an editable element (the realism-feedback
+  // textarea lives on this same screen).
+  const {
+    cursor: reviewCursor,
+    following: reviewFollowing,
+    back: reviewBack,
+    forward: reviewForward,
+    toTip: goLive,
+    seek: seekReview,
+  } = usePlyReview({ tip: plies.length - 1, min: -1 })
+  const reviewing = !reviewFollowing
   const derivedFen =
     reviewCursor === null ? fen : reviewCursor === -1 ? startFen : plies[reviewCursor]?.fen ?? fen
 
@@ -346,46 +357,9 @@ export function SparTab() {
   useEffect(() => {
     if (plies.length !== priorPliesLengthRef.current) {
       priorPliesLengthRef.current = plies.length
-      setReviewCursor(null)
+      goLive()
     }
-  }, [plies.length])
-
-  // Step the review cursor by one ply in either direction. Live (null) is
-  // treated as sitting at the last ply for stepping purposes; stepping past
-  // the last ply snaps back to live rather than going out of range.
-  const stepReview = useCallback(
-    (delta: number) => {
-      if (plies.length === 0) return
-      const currentIndex = reviewCursor === null ? plies.length - 1 : reviewCursor
-      const next = currentIndex + delta
-      if (next >= plies.length - 1) setReviewCursor(null)
-      else if (next < -1) setReviewCursor(-1)
-      else setReviewCursor(next)
-    },
-    [plies.length, reviewCursor],
-  )
-  const goLive = useCallback(() => setReviewCursor(null), [])
-
-  // Arrow-key review stepping. Guarded like the main board's key handler
-  // (app/page.tsx): never intercept typing in an editable element (the
-  // realism-feedback textarea lives on this same screen).
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) {
-        return
-      }
-      if (e.key === "ArrowLeft") {
-        e.preventDefault()
-        stepReview(-1)
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault()
-        stepReview(1)
-      }
-    }
-    document.addEventListener("keydown", handleKeyDown)
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [stepReview])
+  }, [plies.length, goLive])
 
   const rivalColor: SparColor = userColor === "white" ? "black" : "white"
   // A manual end (resign / draw agreed) overrides the position-derived status;
@@ -481,7 +455,7 @@ export function SparTab() {
     setManualEnd(null)
     setLastDrawOfferPly(null)
     setDrawDeclinedNote(false)
-    setReviewCursor(null)
+    goLive()
     setGameSeed(newGameSeed())
 
     // Non-book roster entries (every bot but the private rival, spec 218
@@ -907,7 +881,7 @@ export function SparTab() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => stepReview(-1)}
+              onClick={reviewBack}
               disabled={plies.length === 0}
               title="Step back one ply (←)"
               data-testid="spar-review-back"
@@ -917,7 +891,7 @@ export function SparTab() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => stepReview(1)}
+              onClick={reviewForward}
               disabled={plies.length === 0}
               title="Step forward one ply (→)"
               data-testid="spar-review-forward"
@@ -986,7 +960,7 @@ export function SparTab() {
             startFen={startFen}
             rivalLabel={opponentLabel}
             reviewCursor={reviewCursor}
-            onSelectPly={setReviewCursor}
+            onSelectPly={seekReview}
           />
 
           {moveError && (
