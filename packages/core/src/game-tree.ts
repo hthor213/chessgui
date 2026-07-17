@@ -102,10 +102,6 @@ export interface SerializedTree {
   // serialized game so EVERY load path re-applies the engine lockout.
   // Optional so pre-219 saves load unchanged (absent = not an active game).
   activeGame?: ActiveGameMeta | null;
-  // Chess960 (spec 011/013): set when the game is Fischer Random — drives
-  // the engine's UCI_Chess960 flag and 960-aware castling handling.
-  // Optional so every stored tree loads unchanged (absent = standard chess).
-  variant?: "chess960";
 }
 
 // Backwards-compatible alias: page.tsx snapshots the game as an opaque blob.
@@ -150,10 +146,6 @@ export class GameTree {
   // engine lockout key. Serialized with the tree; cleared only by the
   // archive step (or explicit deletion behind the fair-play confirmation).
   activeGame: ActiveGameMeta | null = null;
-  // Chess960 (spec 011/013): "chess960" flags a Fischer Random game (absent
-  // = standard). Rides serialization so engine wiring can assert
-  // UCI_Chess960 on every load path.
-  variant?: "chess960";
   private seq: number;
 
   private constructor(
@@ -592,13 +584,10 @@ export class GameTree {
       headers: this.headers,
       seq: this.seq,
     };
-    // Written only when set, so standard-game saves keep their prior shape.
+    // Written only when set, so standard-game saves keep their prior shape
+    // byte-identically (same stance as the pre-219 activeGame field).
     if (this.variant) out.variant = this.variant;
-    // Written only when set, so non-flagged saves keep their pre-219 shape.
     if (this.activeGame) out.activeGame = this.activeGame;
-    // Same stance for the variant (spec 011): standard games keep their
-    // pre-960 serialized shape byte-identically.
-    if (this.variant) out.variant = this.variant;
     return out;
   }
 
