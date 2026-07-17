@@ -162,6 +162,15 @@ Promise 4 applies: dad tells his friend, same as dad was told.
 - [ ] Dad actually uses the dad-vs-Arnþór program
 
 ### Later / uncaptured requirements (audit 2026-07-16)
+- [x] Training profiles (shipped 2026-07-17, mechanism decision): a
+      localStorage profiles registry (`chessgui:training-profiles`) with a
+      who's-training picker; EVERY personal key — overlay, metrics,
+      check-off log, start date, active program, measurement username, and
+      the spar/playout result stores — resolves through
+      `profileScopedKey`/`activeProfileKey` (training-program.ts). The
+      default profile keeps the bare pre-profiles keys, so existing data
+      migrated with zero copying. Surfaces outside the Training tab resolve
+      the active profile from storage at call time.
 - [ ] Rival-filtered opening explorer: explorer scoped to a rival's games —
       their book, where their line depth ends, their weakest lines.
       (BACKLOG "Rival mode")

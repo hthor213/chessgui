@@ -251,6 +251,18 @@ cached/refreshed at most every 12–24 hours (single-source, announcement page).
   machine-readable endpoint list — was not retrievable this session; pull it if
   full API surface is ever needed.
 
+## Decisions (2026-07-17)
+
+- **Terminology**: the user-facing name everywhere is **"fair-play game"**
+  (user-picked over "ongoing game"/"live game"/"active game" after the
+  feature answered to three names at once). Code identifiers stay
+  `ActiveGame*`.
+- **Delete vs Archive**: deleting a flagged game DISCARDS it — if it backs
+  the game on the board, the board is cleared; deletion never lifts the
+  lockout in place (the old behavior silently unlocked the engine on the
+  still-loaded position). Archive — which saves the finished game to the
+  database — is the only path that unlocks analysis on the board copy.
+
 ## Non-goals
 
 - Making moves ON chess.com from this app (no write API exists; out of scope and

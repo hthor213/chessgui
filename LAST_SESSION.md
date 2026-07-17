@@ -1,5 +1,77 @@
 # Last Session
 
+**Date:** 2026-07-17 (overnight marathon: /start ~22:00 → checkpoint ~05:00; diagnose → /loop + workflows)
+**Focus:** User-reported hangs diagnosed and fixed; then "/loop all remaining specs" — four
+parallel implementation batches (20 items) + a session-wide adversarial review (11 verified
+fixes). ~25 commits on main, app rebuilt+installed 6×. PUSH BLOCKED: gh token lacks
+`workflow` scope (pc-build.yml) — user must run `gh auth refresh -s workflow`, then push.
+
+## What changed
+- **Two freeze bugs, one root** (200): launch hang = v4 material backfill (956k games, one
+  transaction) inside Db::open behind the DbManager mutex → removed from open path, batched
+  + resumable; out-of-process tools/material-backfill ran the million games in ~6 min (user's
+  homeserver plan descoped: measured 23k games/s made it a laptop job). Continue-later hang =
+  Database-tab mount: search_position ORDER-BY sorted ~1M start-position rows (10.4s→0.01s)
+  + stats() COUNT over 38M rows (8.4s→db_counts cache). Post-mortem + read-pool/FTS5/lock-
+  alarm ideas in BACKLOG.md.
+- **Fair-play games** (219): terminology unified (user pick); delete now clears the board —
+  never silently unlocks the engine on a still-loaded ongoing game. Decisions recorded in 219.
+- **Calibration** (213): past reports reopenable (results-*.json → same ResultsScreen);
+  Phase-B stat segregation (pooled vs selection-clean, RESULTS_VERSION 7); blind/reveal
+  prior split; win-prob readout; raw-error tooltip.
+- **Training profiles** (225): who's-training picker; ALL personal keys per-profile
+  (overlay/metrics/log/start/program/measure-user + spar/playout stores); mechanism recorded
+  in 225. Rival label is free text — "Arnthor" was just a typed value; dad's account
+  (thorsenior2) has a pipeline profile so a Beat-X program generates for him.
+- **Puzzles** (211): 38,894 mined cliffs imported (two 20k monthly batches from homeserver;
+  mining continues for 2026-01+); depth-differential difficulty prototype
+  (visible_from_depth column + scripts/mining/depth_differential.py, honesty-gated).
+- **Personas** (214/218): snapshots (content-hash ids on every decision/game record); BT3
+  managed net serves in Play vs Bot (honesty gate untouched, decision log records serving
+  backend); spar increment clocks (5+3/10+5/15+10, flag=loss, freeze-on-end) + book-exit
+  style-bias wiring; per-process net verification (was 190MB SHA per move).
+- **Tournament** (210/212/213): React #310 crash on Start fixed (hook below early return in
+  LiveGameView); opt-in Eval_R pass → "visible from ~R" badges; eval presets; shared
+  use-ply-review hook (2 call sites ported).
+- **Database** (200): cross-DB merge (batched, dedup, per-slice mutex release); player-
+  filtered explorer + opening-leaks view (bounded, EXPLAIN-verified); CBA arrows/highlights
+  decoded on CBH import.
+- **Web/mobile** (221/223): responsive pass (stacked layout, accordions, touch targets, no
+  horizontal scroll at 375px) — NOT visually verified on a device yet.
+- **Docs/CI** (222): pc-build.yml committed (push blocked, see above); pc-install.is.md
+  (Icelandic, for dad).
+- **Specs**: evidence tick-sweep across 11 specs; cognitive-gate proposal evaluated into 214
+  (adopt 3 / reject 2); 225 gap notes. 214 checklist evaluation section is authoritative.
+- **Review**: 4-dimension adversarial workflow over the 93-file session diff → 11 verified
+  integration bugs fixed (merge mutex hold + stale db_counts, leaf-slot miss, snapshot-id vs
+  served backend, reopened-report bias flag, phantom spar flag, profile-scoping leaks ×3,
+  slug collisions, stale leak report).
+
+## Constraints/decisions
+- Long jobs: batch-committed + resumable, heavy compute → homeserver at 15% CPU (memory
+  feedback-long-jobs). Fair-play lockout is one-way on delete. Honesty gates untouched:
+  depth→Elo mapping and BT3 strength labels await measured calibration.
+
+## Next session start
+1. USER DECISIONS (19 queued; full list in the session's inventory workflow output): the big
+   four — (a) avatar caricature source photos + likeness approval (gates the requested
+   avatars, spec 218); (b) mining-methodology sign-off (scripts/mining/README.md) — unlocks
+   full 11M-corpus run, Tier-2/3 difficulty, personalized decks; (c) the ~30-min guided
+   walkthrough of code-done-but-uneyeballed features (list in specs/900 "Pending user
+   walkthrough" + tick-sweep notes); (d) web DB story (server-backed vs sql.js/OPFS).
+2. `gh auth refresh -s workflow` then `git push origin main` (25 unpushed commits).
+3. User verifies in the running app: tournament Start (crash fix), Play vs Bot scroll,
+   fair-play delete/board-clear, Fair-play games list, calibration Past reports, training
+   profile picker ("Add person…" → dad), avoidance puzzles now populated (Elo after 15
+   attempts), spar clocks.
+4. Large items deliberately left for fresh context: TournamentRunner/EngineProvider refactor
+   (220), anti_line_drill (215), coach-suggested program adjustments (215), ResultsExplorer
+   port onto use-ply-review, native mobile triage (223).
+5. Homeserver: puzzle mining months 2026-01+ still running (tmux mine211) — pull + import
+   when done (data/puzzles/, import_puzzles.py).
+
+---
+
 **Date:** 2026-07-15 (full-day marathon: /start ~09:30 → checkpoint ~17:30; agent-team waves)
 **Focus:** "Finish building all specs, build all personas." Platform stance decided; spec 218
 born from dad-sim feedback + GPT mentor review triaged; persona engine built end-to-end;
