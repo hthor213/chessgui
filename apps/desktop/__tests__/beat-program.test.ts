@@ -5,7 +5,10 @@ import {
   bookExitMove,
   buildBeatPlan,
   maiaBandForRating,
+  ratingGapClause,
   readPhaseProfile,
+  traineeFromMetrics,
+  RATING_GAP_MIN,
   type BeatTarget,
 } from "@/lib/beat-program"
 import type {
@@ -204,11 +207,61 @@ describe("buildBeatPlan — the spec 215 Program", () => {
 describe("beatTargetFor", () => {
   it("threads the profile row and persona facts through", () => {
     const row: LocalPlayerProfile = { profile: PROFILE, stats: STATS }
-    const t = beatTargetFor(row, { hasPersona: true, personaLevel: 1400, book: BOOK })
+    const t = beatTargetFor(row, {
+      hasPersona: true,
+      personaLevel: 1400,
+      book: BOOK,
+      trainee: { rating: 1200, source: "maia_rapid 2026-07" },
+    })
     expect(t.profile).toBe(PROFILE)
     expect(t.stats).toBe(STATS)
     expect(t.hasPersona).toBe(true)
     expect(t.personaLevel).toBe(1400)
     expect(t.book).toBe(BOOK)
+    expect(t.trainee).toEqual({ rating: 1200, source: "maia_rapid 2026-07" })
+  })
+})
+
+describe("rating-gap honest framing (spec 225: 'beat' means score against, not outrate)", () => {
+  const TRAINEE = { rating: 1200, source: "maia_rapid 2026-07" }
+
+  it("states the gap, rounded to 10, when both ratings are measured", () => {
+    const clause = ratingGapClause(2236, TRAINEE)! // gap 1036 -> ~1040
+    expect(clause).toContain("~1040 above your last measured level")
+    expect(clause).toContain("1200, maia_rapid 2026-07")
+    expect(clause).toContain("score against him, not outrate him")
+  })
+
+  it("says nothing when data doesn't allow the claim", () => {
+    expect(ratingGapClause(null, TRAINEE)).toBeNull() // no target rating
+    expect(ratingGapClause(2236, null)).toBeNull() // no measured trainee level
+    // Below the noise floor — including a trainee ABOVE the target.
+    expect(ratingGapClause(1200 + RATING_GAP_MIN - 60, TRAINEE)).toBeNull()
+    expect(ratingGapClause(1000, TRAINEE)).toBeNull()
+  })
+
+  it("puts the clause in the program goal and the plan doc, never promising parity", () => {
+    const plan = buildBeatPlan({ ...DOSSIER_TARGET, trainee: TRAINEE })
+    expect(plan.program.goal).toContain("~1040 above your last measured level")
+    expect(plan.markdown).toContain("**The gap, honestly**")
+    expect(plan.markdown).toContain("~1040 above your last measured level (1200, maia_rapid 2026-07)")
+  })
+
+  it("leaves the goal unchanged without a trainee measurement", () => {
+    const plan = buildBeatPlan(DOSSIER_TARGET)
+    expect(plan.program.goal).not.toContain("above your last measured level")
+    expect(plan.markdown).not.toContain("The gap, honestly")
+  })
+
+  it("traineeFromMetrics picks the NEWEST maia_rapid point", () => {
+    expect(
+      traineeFromMetrics([
+        { at: "2026-06", metric: "maia_rapid", value: 1150 },
+        { at: "2026-07", metric: "eg_conversion", value: 0.43 },
+        { at: "2026-07", metric: "maia_rapid", value: 1200 },
+      ]),
+    ).toEqual({ rating: 1200, source: "maia_rapid 2026-07" })
+    expect(traineeFromMetrics([{ at: "2026-07", metric: "eg_conversion", value: 0.43 }])).toBeNull()
+    expect(traineeFromMetrics(null)).toBeNull()
   })
 })

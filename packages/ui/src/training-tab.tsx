@@ -49,7 +49,7 @@ import {
   profileScopedKey,
   type TrainingProfilesState,
 } from "@/lib/training-program"
-import { buildBeatPlan, beatTargetFor } from "@/lib/beat-program"
+import { buildBeatPlan, beatTargetFor, traineeFromMetrics } from "@/lib/beat-program"
 import { gatePersonaLevel, loadLocalRivalPersonas, loadPlayerProfiles } from "@/lib/roster"
 import {
   appendLogLine,
@@ -228,6 +228,9 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     // artifact-existence rule (a config actually loaded), and its level is
     // the same honesty-gated band the spar roster uses.
     const savedProgram = storage.get(skey(STORAGE_KEYS.activeProgram))
+    // Rating-gap honesty (spec 225): the trainee's last MEASURED maia_rapid
+    // frames each program's goal — "beat" never quietly promises parity.
+    const trainee = traineeFromMetrics(metricsVal)
     let cancelled = false
     Promise.all([loadPlayerProfiles(), loadLocalRivalPersonas()]).then(([profiles, rivals]) => {
       if (cancelled) return
@@ -238,6 +241,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
             hasPersona: !!rp,
             personaLevel: rp ? gatePersonaLevel(rp.config).level : undefined,
             book: rp?.book ?? null,
+            trainee,
           }),
         ).program
       })

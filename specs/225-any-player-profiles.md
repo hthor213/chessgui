@@ -167,7 +167,20 @@ Promise 4 applies: dad tells his friend, same as dad was told.
       (BACKLOG "Rival mode")
 - [ ] Own-games import by username (hjaltth et al.): fetch the user's own
       archives and review them under the engine-LAST discipline. (000:114;
-      900 Medium)
+      900 Medium) — Precise gap (2026-07-17 audit, boxed instead of shipped
+      because no honest SMALL affordance exists yet): (a) the app has no
+      local "this is me" identity record — own usernames are private data
+      (app data / gitignored config, never committed), so the database tab
+      cannot tell an own game from any other, and an engine-LAST prompt on
+      EVERY game open would misapply the discipline; (b) the discipline
+      itself needs an engine-gating affordance — engine lines stay hidden
+      on game open until the reviewer commits a note/eval (spec 213 Phase
+      0's note→rebuttal capture is the natural home); (c) the seam is
+      DatabaseTab.openGame → onLoadGame(pgn) → page.tsx
+      handleLoadFromDatabase — the one place a "yours → review
+      engine-LAST" branch can attach. Smallest real slice once (a) exists:
+      flag own games at load and start the analysis panel collapsed behind
+      a "commit your take first" prompt.
 - [x] Lichess export-API fetcher (only the PGN-fixture import path is boxed
       today; the lichess export API itself is not). (225:36-38)
       (verified 2026-07-17: scripts/fetch_lichess.py — single streaming
@@ -180,10 +193,21 @@ Promise 4 applies: dad tells his friend, same as dad was told.
 - [ ] Rescue the rival-dossier scripts into the repo proper — analyze.py,
       openings.py, engine_h2h.py, engagement.py → `scripts/` (self_report
       was already rescued this way; these weren't). The spec:217 flywheel
-      depends on rerunnable dossiers. (RIVALS_REPORT Appendix)
-- [ ] Beat-X honest framing: surface that Arnþór (~2085) is ~500 points
+      depends on rerunnable dossiers. (RIVALS_REPORT Appendix) — Partial
+      2026-07-17: scripts/persona/refresh_profile.py reruns the pipeline
+      (stats + book + verdict) for any pipeline profile whose corpus PGN is
+      newer, replaying the stored honesty flags; the four report scripts
+      remain unrescued.
+- [x] Beat-X honest framing: surface that Arnþór (~2085) is ~500 points
       above dad — "beat" means "score against", not "outrate". (memory
-      project_rivals.md)
+      project_rivals.md) — Done generically 2026-07-17: buildBeatPlan takes
+      the trainee's last MEASURED maia_rapid and, when the target sits
+      ≥100 above it, the Program.goal and the plan doc state the gap
+      ("target is ~N above your last measured level — score against, not
+      outrate"); no measurement → no claim.
 - [ ] Profiles/programs for the other three rivals — GEIRJON1234,
       painterdenny, gunnargunn — target: beat by next Iceland visit. (memory
-      project_rivals.md)
+      project_rivals.md) — Partial 2026-07-17: generate_beat_plan.mjs now
+      synthesizes an honest BeatTarget from legacy artifacts (book corpus +
+      identities.json, verdict marked as derived, not stored) and their
+      BEAT.md docs are generated; full pipeline profiles still pending.
