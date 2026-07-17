@@ -7,13 +7,48 @@
 import { Chess } from "chessops/chess";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan, parseSan } from "chessops/san";
-import { isNormal } from "chessops";
-import type { NormalMove } from "chessops";
+import { FILE_NAMES, isNormal, SquareSet, squareFile } from "chessops";
+import type { NormalMove, Setup } from "chessops";
 import { makeEngineUci, parseEngineUci } from "./uci-parser";
+import { castlingFieldHasFileLetters } from "./fen";
 import type { ActiveGameMeta } from "./active-game";
 
 export const INITIAL_FEN =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+/** Game variant (shared variant contract): absent = standard chess. */
+export type GameVariant = "chess960";
+
+// Shredder-FEN castling field (rook file letters, e.g. "DAda") from the raw
+// castling-rights squares. chessops' makeFen writes X-FEN — K/Q whenever the
+// rights rook is the outermost one — which erases WHICH rook holds the right
+// on a 960 board; file letters are lossless and are what shakmaty and
+// UCI_Chess960 engines expect. Same emit order as chessops (white then black,
+// higher file first).
+function shredderCastlingFen(setup: Setup): string {
+  let out = "";
+  for (const color of ["white", "black"] as const) {
+    const backrank = SquareSet.backrank(color);
+    for (const rook of setup.castlingRights.intersect(backrank).reversed()) {
+      const file = FILE_NAMES[squareFile(rook)];
+      out += color === "white" ? file.toUpperCase() : file;
+    }
+  }
+  return out || "-";
+}
+
+/**
+ * FEN for a setup. Standard games use chessops' makeFen unchanged (byte-for-
+ * byte what every existing tree stores); chess960 games rewrite the castling
+ * field to Shredder file letters so a mid-game 960 FEN round-trips.
+ */
+export function makeVariantFen(setup: Setup, variant?: GameVariant): string {
+  const fen = makeFen(setup);
+  if (variant !== "chess960") return fen;
+  const parts = fen.split(" ");
+  parts[2] = shredderCastlingFen(setup);
+  return parts.join(" ");
+}
 
 export interface ArrowAnnotation {
   orig: string;
@@ -60,6 +95,9 @@ export interface SerializedTree {
   startFen: string;
   headers: Record<string, string>;
   seq: number;
+  // Shared variant contract: absent = standard (every pre-existing save),
+  // "chess960" = Fischer Random — node FENs then carry Shredder castling.
+  variant?: GameVariant;
   // Spec 219: active-game (OTB compliance) flag + metadata. Lives on the
   // serialized game so EVERY load path re-applies the engine lockout.
   // Optional so pre-219 saves load unchanged (absent = not an active game).
@@ -102,16 +140,27 @@ export class GameTree {
   currentId: string;
   startFen: string;
   headers: Record<string, string>;
+  /** Absent = standard chess; "chess960" switches FEN emit to Shredder castling. */
+  variant?: GameVariant;
   // Spec 219: non-null flags this as an ACTIVE chess.com daily game — the
   // engine lockout key. Serialized with the tree; cleared only by the
   // archive step (or explicit deletion behind the fair-play confirmation).
   activeGame: ActiveGameMeta | null = null;
   private seq: number;
 
-  private constructor(startFen: string, headers: Record<string, string>, seq = 0) {
+  private constructor(
+    startFen: string,
+    headers: Record<string, string>,
+    seq = 0,
+    variant?: GameVariant,
+  ) {
+    // A start FEN whose castling field already uses file letters is a 960
+    // position even when the caller didn't say so (e.g. a pasted Shredder
+    // FEN) — auto-detect so its castling rights survive normalization.
+    this.variant = variant ?? (castlingFieldHasFileLetters(startFen) ? "chess960" : undefined);
     // Normalize the start FEN through chessops so it matches positions we
     // compute after moves (castling rights, en-passant square, etc.).
-    const normFen = makeFen(chessFromFen(startFen).toSetup());
+    const normFen = makeVariantFen(chessFromFen(startFen).toSetup(), this.variant);
     this.seq = seq;
     const rootId = this.nextId();
     const root: MoveNode = {
@@ -134,8 +183,12 @@ export class GameTree {
     this.headers = headers;
   }
 
-  static create(startFen: string = INITIAL_FEN, headers: Record<string, string> = {}): GameTree {
-    return new GameTree(startFen, headers);
+  static create(
+    startFen: string = INITIAL_FEN,
+    headers: Record<string, string> = {},
+    variant?: GameVariant,
+  ): GameTree {
+    return new GameTree(startFen, headers, 0, variant);
   }
 
   /** Build a tree from a flat SAN list (mainline only) — the legacy shape. */
@@ -376,7 +429,7 @@ export class GameTree {
     }
 
     chess.play(move);
-    const fen = makeFen(chess.toSetup());
+    const fen = makeVariantFen(chess.toSetup(), this.variant);
     const child = this.appendChild(parent, move, san, uci, fen);
     this.currentId = child.id;
     return child.id;
@@ -529,13 +582,17 @@ export class GameTree {
       headers: this.headers,
       seq: this.seq,
     };
+    // Written only when set, so standard-game saves keep their prior shape.
+    if (this.variant) out.variant = this.variant;
     // Written only when set, so non-flagged saves keep their pre-219 shape.
     if (this.activeGame) out.activeGame = this.activeGame;
     return out;
   }
 
   static fromJSON(data: SerializedTree): GameTree {
-    const tree = GameTree.create(data.startFen, data.headers);
+    // create() re-detects chess960 from the startFen when `variant` is absent
+    // (saves written before the field existed still carry Shredder castling).
+    const tree = GameTree.create(data.startFen, data.headers, data.variant);
     tree.nodes = new Map(Object.entries(data.nodes));
     // Saves from before an annotation field existed simply lack the key —
     // normalize so the rest of the code never sees undefined arrays. `eval`

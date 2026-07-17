@@ -76,6 +76,10 @@ export type GameHeader = {
   result: string
   ply_count: number
   source: string
+  /** "" for standard chess, "chess960" for Fischer Random (shared variant
+   *  contract) — lets the game list badge 960 games. Optional so rows from a
+   *  pre-variant backend still typecheck. */
+  variant?: string
   /** User tags on this game, sorted ("favorite" is the star). */
   tags: string[]
 }

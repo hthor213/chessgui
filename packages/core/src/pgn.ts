@@ -18,15 +18,17 @@ import {
   type CommentShapeColor,
   type Evaluation,
 } from "chessops/pgn";
-import { makeFen } from "chessops/fen";
 import { parseSquare, makeSquare } from "chessops";
 import {
   GameTree,
   INITIAL_FEN,
+  makeVariantFen,
   type ArrowAnnotation,
+  type GameVariant,
   type MoveNode,
   type NodeEval,
 } from "./game-tree";
+import { castlingFieldHasFileLetters } from "./fen";
 
 const SHAPE_COLORS: ReadonlySet<string> = new Set(["green", "red", "yellow", "blue"]);
 
@@ -49,6 +51,17 @@ function nodeToEval(ev: NodeEval): Evaluation {
 }
 
 // ---- Import -------------------------------------------------------------
+
+// Chess960 detection (shared variant contract): a [Variant] header naming the
+// variant under any of its aliases, or — headers being unreliable in the wild
+// — a [FEN] whose castling field uses Shredder file letters.
+const CHESS960_NAMES = /^(chess\s*960|fischer\s*random|fischerandom)$/i;
+
+function detectVariant(headers: Record<string, string>): GameVariant | undefined {
+  if (headers["Variant"] && CHESS960_NAMES.test(headers["Variant"].trim())) return "chess960";
+  if (headers["FEN"] && castlingFieldHasFileLetters(headers["FEN"])) return "chess960";
+  return undefined;
+}
 
 // Fold every comment string on a chessops node (both the before-move
 // `startingComments` and after-move `comments`) into our per-node fields.
@@ -102,10 +115,14 @@ function buildTreeFromGame(game: Game<PgnNodeData>): GameTree {
   const headers: Record<string, string> = {};
   for (const [k, v] of game.headers) headers[k] = v;
 
+  // For 960 games the start FEN must keep its file-letter castling rights —
+  // plain makeFen rewrites e.g. "DAda" to "KQkq", and replaying from THAT
+  // as standard chess is the bug that dropped every ply of a 960 import.
+  const variant = detectVariant(headers);
   const posR = startingPosition(game.headers);
-  const startFen = posR.isOk ? makeFen(posR.unwrap().toSetup()) : INITIAL_FEN;
+  const startFen = posR.isOk ? makeVariantFen(posR.unwrap().toSetup(), variant) : INITIAL_FEN;
 
-  const tree = GameTree.create(startFen, headers);
+  const tree = GameTree.create(startFen, headers, variant);
 
   // Game-level comment (before the first move) lives on the root node.
   if (game.comments && game.comments.length) {
@@ -177,10 +194,16 @@ export function treeToPgn(tree: GameTree): string {
   for (const [k, v] of Object.entries(tree.headers)) headers.set(k, v);
 
   // A non-standard start needs [FEN]/[SetUp]; if the tree came from such a
-  // PGN the headers already carry them, so only add when missing.
+  // PGN the headers already carry them, so only add when missing. For 960
+  // trees startFen keeps its Shredder castling letters, so the emitted FEN
+  // is the true start position.
   if (tree.startFen !== INITIAL_FEN && !headers.has("FEN")) {
     headers.set("FEN", tree.startFen);
     headers.set("SetUp", "1");
+  }
+  // A 960 game without its variant header would re-import as standard chess.
+  if (tree.variant === "chess960" && !headers.has("Variant")) {
+    headers.set("Variant", "Chess960");
   }
 
   const root = new Node<PgnNodeData>();
