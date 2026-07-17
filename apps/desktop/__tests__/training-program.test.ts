@@ -217,3 +217,27 @@ describe("milestone math", () => {
     expect(gapToTarget(null)).toBeNull()
   })
 })
+
+describe("training profiles (spec 225 scoping)", () => {
+  it("default profile keeps the original bare keys — pre-profile data migrates for free", async () => {
+    const { profileScopedKey, DEFAULT_PROFILE_ID, STORAGE_KEYS } = await import("@/lib/training-program")
+    expect(profileScopedKey(STORAGE_KEYS.overlay, DEFAULT_PROFILE_ID)).toBe(STORAGE_KEYS.overlay)
+    expect(profileScopedKey(STORAGE_KEYS.metrics, "dad")).toBe(`${STORAGE_KEYS.metrics}:dad`)
+  })
+
+  it("derives stable ids from display names, including non-ascii", async () => {
+    const { profileIdFromName } = await import("@/lib/training-program")
+    expect(profileIdFromName("Dad")).toBe("dad")
+    expect(profileIdFromName("Dad")).toBe(profileIdFromName("  dad "))
+    expect(profileIdFromName("Þórarinn Hjaltason")).not.toBe("")
+    expect(profileIdFromName("!!!")).toBe("person")
+  })
+
+  it("starts with one default profile, active", async () => {
+    const { defaultProfilesState, DEFAULT_PROFILE_ID } = await import("@/lib/training-program")
+    const s = defaultProfilesState()
+    expect(s.profiles).toHaveLength(1)
+    expect(s.activeId).toBe(DEFAULT_PROFILE_ID)
+    expect(s.profiles[0].id).toBe(DEFAULT_PROFILE_ID)
+  })
+})

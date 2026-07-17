@@ -304,7 +304,55 @@ export const STORAGE_KEYS = {
   log: "chessgui:training-log",
   /** MetricPoint[] — append-only dated measurements. */
   metrics: "chessgui:training-metrics",
+  /** TrainingProfilesState JSON — who trains on this machine (spec 225). */
+  profiles: "chessgui:training-profiles",
 } as const
+
+// ---------------------------------------------------------------------------
+// Training profiles (spec 225): more than one person trains on this machine
+// (e.g. the user targeting dad, dad targeting his own rival), so everything
+// personal — goal overlay, metrics, check-offs, start date, measurement
+// username — is scoped per profile instead of a single shared slot.
+// ---------------------------------------------------------------------------
+
+export interface TrainingProfile {
+  id: string
+  /** Display name, user-entered at runtime — never bundled (privacy rule). */
+  name: string
+}
+
+export interface TrainingProfilesState {
+  profiles: TrainingProfile[]
+  activeId: string
+}
+
+export const DEFAULT_PROFILE_ID = "default"
+
+/** The pre-profiles world: one person, whose data lives under the original
+ *  unsuffixed keys. Every existing installation migrates by definition. */
+export function defaultProfilesState(): TrainingProfilesState {
+  return {
+    profiles: [{ id: DEFAULT_PROFILE_ID, name: "Me" }],
+    activeId: DEFAULT_PROFILE_ID,
+  }
+}
+
+/** Per-profile storage key. The default profile keeps the original bare key,
+ *  so data written before profiles existed belongs to it with no migration. */
+export function profileScopedKey(base: string, profileId: string): string {
+  return profileId === DEFAULT_PROFILE_ID ? base : `${base}:${profileId}`
+}
+
+/** Stable id from a display name ("Dad (Þórarinn)" → "dad-orarinn"). */
+export function profileIdFromName(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return slug || "person"
+}
 
 // ---------------------------------------------------------------------------
 // The bundled program — "Road to 1900" (generic, rival-agnostic)

@@ -44,6 +44,10 @@ import {
   type MetricPoint,
   type Program,
   type TrainingOverlay,
+  defaultProfilesState,
+  profileIdFromName,
+  profileScopedKey,
+  type TrainingProfilesState,
 } from "@/lib/training-program"
 import { buildBeatPlan, beatTargetFor } from "@/lib/beat-program"
 import { gatePersonaLevel, loadLocalRivalPersonas, loadPlayerProfiles } from "@/lib/roster"
@@ -126,6 +130,32 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     [beatPrograms, activeProgramId],
   )
 
+  // Who is training (spec 225): several people share this machine (the user
+  // targeting dad, dad targeting his own rival), so every personal key below
+  // is scoped to the active profile. The default profile owns the data
+  // written before profiles existed — zero migration.
+  const [profilesState, setProfilesState] = useState<TrainingProfilesState>(defaultProfilesState)
+  const pid = profilesState.activeId
+  const skey = useCallback((base: string) => profileScopedKey(base, pid), [pid])
+  const persistProfiles = useCallback((next: TrainingProfilesState) => {
+    setProfilesState(next)
+    getProviders().storage.set(STORAGE_KEYS.profiles, JSON.stringify(next))
+  }, [])
+  const [addingPerson, setAddingPerson] = useState(false)
+  const [newPersonName, setNewPersonName] = useState("")
+  const addPerson = useCallback(() => {
+    const name = newPersonName.trim()
+    if (!name) return
+    const id = profileIdFromName(name)
+    const exists = profilesState.profiles.some((p) => p.id === id)
+    persistProfiles({
+      profiles: exists ? profilesState.profiles : [...profilesState.profiles, { id, name }],
+      activeId: id,
+    })
+    setAddingPerson(false)
+    setNewPersonName("")
+  }, [newPersonName, profilesState, persistProfiles])
+
   // Persisted state. Metrics seed to the baseline so gauges render before the
   // client effect runs (and under server-render). start/overlay hydrate on mount.
   const [startISO, setStartISO] = useState<string | null>(null)
@@ -150,27 +180,46 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   const [measureStage, setMeasureStage] = useState<string | null>(null)
   const [measureLog, setMeasureLog] = useState<string[]>([])
 
-  // Hydrate from storage once, on the client.
+  // Load the profiles registry once, on the client.
+  useEffect(() => {
+    try {
+      const raw = getProviders().storage.get(STORAGE_KEYS.profiles)
+      if (raw) setProfilesState(JSON.parse(raw) as TrainingProfilesState)
+    } catch {
+      /* malformed storage — stay on the default profile */
+    }
+  }, [])
+
+  // (Re-)hydrate the active profile's state — on mount and on every profile
+  // switch. Values RESET to defaults when the profile has no data yet, so a
+  // switch never leaks the previous person's overlay/metrics/log.
   useEffect(() => {
     const storage = getProviders().storage
+    let startVal: string | null = null
+    let overlayVal: TrainingOverlay | null = null
+    let logVal: LogByDate = {}
+    let metricsVal: MetricPoint[] = DEFAULT_METRICS
     try {
-      const s = storage.get(STORAGE_KEYS.start)
-      if (s) setStartISO(s)
-      const ov = storage.get(STORAGE_KEYS.overlay)
-      if (ov) setOverlay(JSON.parse(ov) as TrainingOverlay)
-      const lg = storage.get(STORAGE_KEYS.log)
-      if (lg) setLog(JSON.parse(lg) as LogByDate)
-      const mx = storage.get(STORAGE_KEYS.metrics)
+      startVal = storage.get(skey(STORAGE_KEYS.start))
+      const ov = storage.get(skey(STORAGE_KEYS.overlay))
+      if (ov) overlayVal = JSON.parse(ov) as TrainingOverlay
+      const lg = storage.get(skey(STORAGE_KEYS.log))
+      if (lg) logVal = JSON.parse(lg) as LogByDate
+      const mx = storage.get(skey(STORAGE_KEYS.metrics))
       if (mx) {
         const parsed = JSON.parse(mx) as MetricPoint[]
-        if (Array.isArray(parsed) && parsed.length > 0) setMetrics(parsed)
+        if (Array.isArray(parsed) && parsed.length > 0) metricsVal = parsed
       }
     } catch {
-      /* malformed storage — fall back to defaults already in state */
+      /* malformed storage — fall back to the defaults above */
     }
+    setStartISO(startVal)
+    setOverlay(overlayVal)
+    setLog(logVal)
+    setMetrics(metricsVal)
     setSparResults(loadSparResults())
     setPlayoutResults(loadPlayoutResults())
-    setMeasureUser(storage.get(MEASURE_USER_KEY) ?? "")
+    setMeasureUser(storage.get(skey(MEASURE_USER_KEY)) ?? "")
     // Spawn capability, read on the client so the static render stays stable
     // (the browser/web shells keep the terminal-run + import path instead).
     setCanSpawnMeasure(getProviders().engine.hasNativeEngine)
@@ -178,8 +227,10 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     // from the same artifacts the roster gates on. hasPersona follows the
     // artifact-existence rule (a config actually loaded), and its level is
     // the same honesty-gated band the spar roster uses.
-    const savedProgram = storage.get(STORAGE_KEYS.activeProgram)
+    const savedProgram = storage.get(skey(STORAGE_KEYS.activeProgram))
+    let cancelled = false
     Promise.all([loadPlayerProfiles(), loadLocalRivalPersonas()]).then(([profiles, rivals]) => {
+      if (cancelled) return
       const programs = profiles.map((p) => {
         const rp = rivals.find((r) => r.config.slug === p.profile.slug)
         return buildBeatPlan(
@@ -191,11 +242,16 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
         ).program
       })
       setBeatPrograms(programs)
-      if (savedProgram && programs.some((p) => p.id === savedProgram)) {
-        setActiveProgramId(savedProgram)
-      }
+      setActiveProgramId(
+        savedProgram && programs.some((p) => p.id === savedProgram)
+          ? savedProgram
+          : ROAD_TO_1900.id!,
+      )
     })
-  }, [])
+    return () => {
+      cancelled = true
+    }
+  }, [pid, skey])
 
   const write = useCallback((key: string, value: unknown) => {
     // Storage unavailable — state still lives in memory.
@@ -205,15 +261,15 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   const startProgram = useCallback(() => {
     const iso = localISODate()
     setStartISO(iso)
-    getProviders().storage.set(STORAGE_KEYS.start, iso)
-  }, [])
+    getProviders().storage.set(skey(STORAGE_KEYS.start), iso)
+  }, [skey])
 
   const saveOverlay = useCallback(
     (ov: TrainingOverlay) => {
       setOverlay(ov)
-      write(STORAGE_KEYS.overlay, ov)
+      write(skey(STORAGE_KEYS.overlay), ov)
     },
-    [write],
+    [write, skey],
   )
 
   const todayISO = localISODate(new Date(now))
@@ -232,22 +288,22 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
         const forDate = { ...(prev[todayISO] ?? {}) }
         forDate[blockId] = !forDate[blockId]
         const next = { ...prev, [todayISO]: forDate }
-        write(STORAGE_KEYS.log, next)
+        write(skey(STORAGE_KEYS.log), next)
         return next
       })
     },
-    [todayISO, write],
+    [todayISO, write, skey],
   )
 
   const addMetric = useCallback(
     (point: MetricPoint) => {
       setMetrics((prev) => {
         const next = appendMetric(prev, point)
-        write(STORAGE_KEYS.metrics, next)
+        write(skey(STORAGE_KEYS.metrics), next)
         return next
       })
     },
-    [write],
+    [write, skey],
   )
 
   // Merge points keyed by (at, metric) — refreshes and file imports are
@@ -257,10 +313,10 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     (points: MetricPoint[]) => {
       const res = mergeMetricPoints(metrics, points)
       setMetrics(res.merged)
-      write(STORAGE_KEYS.metrics, res.merged)
+      write(skey(STORAGE_KEYS.metrics), res.merged)
       return res
     },
-    [metrics, write],
+    [metrics, write, skey],
   )
 
   // In-app refresh: recompute this month's spar score from the stored games.
@@ -325,7 +381,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
       setMeasureStage("Starting pipeline…")
       setMeasureLog([])
       setMeasureMsg(null)
-      getProviders().storage.set(MEASURE_USER_KEY, user)
+      getProviders().storage.set(skey(MEASURE_USER_KEY), user)
       getProviders()
         .engine.measureMonthlyRun({ user, skipFetch: opts.skipFetch, skipMaia: opts.skipMaia }, (l) => {
           setMeasureLog((prev) => appendLogLine(prev, l.line))
@@ -345,7 +401,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
           setMeasureStage(null)
         })
     },
-    [measureUser, measureRunning, importMeasurementText],
+    [measureUser, measureRunning, importMeasurementText, skey],
   )
 
   // Cancel kills the pipeline's whole process group (orchestrator + the
@@ -433,6 +489,52 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
         <SubNavButton id="training-sub-program" active={view === "program"} onClick={() => setView("program")}>
           Program
         </SubNavButton>
+        {/* Who's training (spec 225): every personal key is scoped to this
+            profile, so the user's and dad's goals/metrics never collide. */}
+        <select
+          value={pid}
+          onChange={(e) => {
+            if (e.target.value === "__add__") {
+              setAddingPerson(true)
+              return
+            }
+            persistProfiles({ ...profilesState, activeId: e.target.value })
+          }}
+          data-testid="training-profile-picker"
+          className="ml-3 self-center bg-background border border-input rounded-md px-2 py-1 text-xs text-foreground"
+        >
+          {profilesState.profiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+          <option value="__add__">Add person…</option>
+        </select>
+        {addingPerson && (
+          <span className="ml-2 flex items-center gap-1 self-center">
+            <Input
+              value={newPersonName}
+              onChange={(e) => setNewPersonName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") addPerson()
+                if (e.key === "Escape") setAddingPerson(false)
+              }}
+              placeholder="Name"
+              className="h-6 w-28 text-xs"
+              data-testid="training-profile-new-name"
+              autoFocus
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              onClick={addPerson}
+              data-testid="training-profile-add"
+            >
+              Add
+            </Button>
+          </span>
+        )}
         {beatPrograms.length > 0 && (
           // Program picker (spec 225): the bundled program plus one Beat-X
           // program per local profile. Names come from LOCAL artifacts at
@@ -441,7 +543,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
             value={activeProgramId}
             onChange={(e) => {
               setActiveProgramId(e.target.value)
-              getProviders().storage.set(STORAGE_KEYS.activeProgram, e.target.value)
+              getProviders().storage.set(skey(STORAGE_KEYS.activeProgram), e.target.value)
             }}
             data-testid="training-program-picker"
             className="ml-3 self-center bg-background border border-input rounded-md px-2 py-1 text-xs text-foreground"
