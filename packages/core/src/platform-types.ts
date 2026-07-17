@@ -258,6 +258,17 @@ export interface DatabaseProvider {
   /** Cancel the in-flight CBH import at its next batch boundary; committed
    *  batches are kept and the import resolves with `cancelled: true`. */
   cancelCbhImport(): Promise<void>
+  /** Merge another ChessGUI .db file into the target database (spec 200
+   *  "merge databases"): games copy with their positions/material/tags,
+   *  exact duplicates skip on the dup hash. Desktop-only like CBH import —
+   *  the backend ATTACHes the source by filesystem path; other shells
+   *  reject. Progress reuses the PGN-import shape (running counts per
+   *  committed batch, no total). */
+  mergeDatabase(args: {
+    sourcePath: string
+    dbPath?: string
+    onProgress?: (p: PgnImportProgress) => void
+  }): Promise<ImportReport>
   listGames(
     filter: GameFilter,
     limit: number,

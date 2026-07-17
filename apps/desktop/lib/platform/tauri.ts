@@ -334,6 +334,15 @@ export const tauriProviders: PlatformProviders = {
     cancelCbhImport(): Promise<void> {
       return invoke("db_cancel_cbh_import")
     },
+    mergeDatabase(args): Promise<ImportReport> {
+      const channel = new Channel<PgnImportProgress>()
+      if (args.onProgress) channel.onmessage = args.onProgress
+      return invoke<ImportReport>("db_merge_from", {
+        sourcePath: args.sourcePath,
+        dbPath: args.dbPath ?? null,
+        onProgress: channel,
+      })
+    },
     listGames(
       filter: GameFilter,
       limit: number,

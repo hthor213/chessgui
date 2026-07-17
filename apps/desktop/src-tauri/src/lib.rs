@@ -62,6 +62,7 @@ pub fn run() {
             db::db_import_pgn,
             db::db_import_cbh,
             db::db_cancel_cbh_import,
+            db::db_merge_from,
             db::db_list_games,
             db::db_search_position,
             db::db_get_game,
