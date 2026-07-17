@@ -2,8 +2,9 @@
 //!
 //! Parses the classic multi-file set — `.cbh` (46-byte game header records),
 //! `.cbg` (variable-length encoded move data with variations), `.cbp`/`.cbt`
-//! (player/tournament name indices) and, best-effort, `.cba` (text comments and
-//! evaluation symbols) — and converts each game to a PGN string that is fed
+//! (player/tournament name indices) and, best-effort, `.cba` (text comments,
+//! evaluation symbols and graphical squares/arrows) — and converts each game
+//! to a PGN string that is fed
 //! through the existing `Db::import_pgn*` machinery, so dedup and position
 //! indexing come for free.
 //!
@@ -32,7 +33,10 @@
 //!
 //! Supported: standard chess games in CBG encoding mode 0 (virtually all games
 //! in real databases), including games from setup positions and with nested
-//! variations; text comments and symbol NAGs from `.cba`. Skipped-and-counted
+//! variations; text comments, symbol NAGs and graphical square/arrow
+//! annotations from `.cba` (the latter emitted as PGN `[%csl]`/`[%cal]`
+//! comment tags, which the frontend importer maps onto board shapes).
+//! Skipped-and-counted
 //! rather than failed: guiding texts, games marked deleted, Chess960 and other
 //! encoding modes. Games whose move data fails to decode are counted as errors;
 //! a decode failure *inside a variation* drops only that variation.
@@ -319,8 +323,18 @@ impl CbhDb {
         }
         pgn.push('\n');
 
-        if let Some(pre) = anns.get(&0).and_then(|a| a.text_joined()) {
-            pgn.push_str(&format!("{{{pre}}} "));
+        if let Some(a0) = anns.get(&0) {
+            // Key 0 = pre-game: text plus any start-position shapes.
+            let mut pre = a0.text_joined().unwrap_or_default();
+            if let Some(g) = a0.graphics_tag() {
+                if !pre.is_empty() {
+                    pre.push(' ');
+                }
+                pre.push_str(&g);
+            }
+            if !pre.is_empty() {
+                pgn.push_str(&format!("{{{pre}}} "));
+            }
         }
         let mut ser = Serializer {
             tree: &tree,
@@ -1034,6 +1048,10 @@ struct Ann {
     before: Vec<String>,
     after: Vec<String>,
     nags: Vec<u8>,
+    /// Colored square highlights, raw `(color, square)` bytes (type 0x04).
+    gfx_squares: Vec<(u8, u8)>,
+    /// Colored arrows, raw `(color, from, to)` bytes (type 0x05).
+    gfx_arrows: Vec<(u8, u8, u8)>,
 }
 
 impl Ann {
@@ -1049,6 +1067,58 @@ impl Ann {
         } else {
             Some(all.join(" "))
         }
+    }
+
+    /// Render graphical squares/arrows as PGN `[%csl]`/`[%cal]` comment tags —
+    /// the target format the frontend PGN importer already maps onto game-tree
+    /// node arrows (packages/core/src/pgn.ts), so imported shapes render like
+    /// user-drawn ones. `[%csl]` precedes `[%cal]`, mirroring the chessops
+    /// `makeComment` order the importer canonicalizes to.
+    fn graphics_tag(&self) -> Option<String> {
+        let csl: Vec<String> = self
+            .gfx_squares
+            .iter()
+            .filter_map(|&(c, sq)| Some(format!("{}{}", gfx_color(c)?, gfx_square(sq)?)))
+            .collect();
+        let cal: Vec<String> = self
+            .gfx_arrows
+            .iter()
+            .filter_map(|&(c, from, to)| {
+                Some(format!("{}{}{}", gfx_color(c)?, gfx_square(from)?, gfx_square(to)?))
+            })
+            .collect();
+        let mut out = String::new();
+        if !csl.is_empty() {
+            out.push_str(&format!("[%csl {}]", csl.join(",")));
+        }
+        if !cal.is_empty() {
+            out.push_str(&format!("[%cal {}]", cal.join(",")));
+        }
+        (!out.is_empty()).then_some(out)
+    }
+}
+
+/// 1-based graphical-annotation square (1=a1, 2=a2, 9=b1, ..., 64=h8 — the
+/// same file-major order as move encoding, per the morphy cbh-format docs
+/// cited in the module header) to algebraic; None if out of range.
+fn gfx_square(b: u8) -> Option<String> {
+    let i = b.checked_sub(1)?;
+    if i >= 64 {
+        return None;
+    }
+    Some(format!("{}{}", (b'a' + i / 8) as char, (b'1' + i % 8) as char))
+}
+
+/// Graphical-annotation color byte to a `[%csl]`/`[%cal]` brush letter
+/// (morphy docs: 2=green, 3=yellow, 4=red). Unknown non-zero values stay
+/// visible on the default green brush — the same fallback the frontend
+/// applies to unrecognized brushes; 0 means "no shape".
+fn gfx_color(c: u8) -> Option<char> {
+    match c {
+        0 => None,
+        3 => Some('Y'),
+        4 => Some('R'),
+        _ => Some('G'),
     }
 }
 
@@ -1186,7 +1256,15 @@ fn decode_moves(
                             child,
                             nags: ann.map(|a| a.nags.clone()).unwrap_or_default(),
                             comment_before: ann.and_then(|a| join_texts(&a.before)),
-                            comment_after: ann.and_then(|a| join_texts(&a.after)),
+                            // Graphical shapes ride in the after-comment as
+                            // [%csl]/[%cal] tags next to any text.
+                            comment_after: ann.and_then(|a| {
+                                match (join_texts(&a.after), a.graphics_tag()) {
+                                    (Some(t), Some(g)) => Some(format!("{t} {g}")),
+                                    (Some(t), None) => Some(t),
+                                    (None, g) => g,
+                                }
+                            }),
                         });
                         node = child;
                         ply += 1;
@@ -1565,7 +1643,25 @@ fn parse_annotations(cba: &[u8], ofs: usize, game_id: u32) -> Option<HashMap<u32
                     }
                 }
             }
-            _ => {} // graphical squares/arrows, clocks, ... out of MVP scope
+            0x04 => {
+                // Graphical squares: 2-byte entries (color, square), squares
+                // 1-based file-major (1=a1, 2=a2, 9=b1). Layout per the morphy
+                // cbh-format docs (annotations.md; see module header). A
+                // trailing partial entry is ignored (best effort).
+                let e = map.entry(key).or_default();
+                for entry in item[6..].chunks_exact(2) {
+                    e.gfx_squares.push((entry[0], entry[1]));
+                }
+            }
+            0x05 => {
+                // Graphical arrows: 3-byte entries (color, from, to), same
+                // color/square conventions as 0x04.
+                let e = map.entry(key).or_default();
+                for entry in item[6..].chunks_exact(3) {
+                    e.gfx_arrows.push((entry[0], entry[1], entry[2]));
+                }
+            }
+            _ => {} // clocks, training, multimedia, ... out of MVP scope
         }
         p += len;
     }
@@ -1645,6 +1741,56 @@ mod tests {
         assert_eq!(decode_eco(500 << 7), "E99");
         assert_eq!(decode_eco(198 << 7), "B97");
         assert_eq!(decode_eco(0), "");
+    }
+
+    // -- graphical annotations (.cba types 0x04/0x05) -------------------------
+
+    /// Raw stream byte that decodes to canonical code `canon` at counter
+    /// `count` (TRANSLATE is a permutation, so the inverse is unique).
+    fn obfuscate(canon: u8, count: u8) -> u8 {
+        let idx = TRANSLATE.iter().position(|&v| v == canon).unwrap() as u8;
+        idx.wrapping_add(count)
+    }
+
+    #[test]
+    fn graphical_squares_and_arrows_land_on_the_annotated_ply() {
+        // Hand-built .cba block for game 1: annotation key 2 (the second move
+        // in stream order) carries a squares record (green c4, red e5) and an
+        // arrows record (green e2->e4). Square bytes are 1-based file-major:
+        // c4 = 2*8+3+1 = 20, e5 = 37, e2 = 34, e4 = 36.
+        let mut cba = vec![0u8, 0, 1]; // game id (BE u24)
+        cba.extend_from_slice(&[0; 7]); // header bytes 3..10 (unused here)
+        cba.extend_from_slice(&33u32.to_be_bytes()); // total block length
+        // squares item: pos=2, kind=0x04, len=10, entries (2,c4) (4,e5)
+        cba.extend_from_slice(&[0, 0, 2, 0x04, 0, 10, 2, 20, 4, 37]);
+        // arrows item: pos=2, kind=0x05, len=9, entry (2,e2,e4)
+        cba.extend_from_slice(&[0, 0, 2, 0x05, 0, 9, 2, 34, 36]);
+        assert_eq!(cba.len(), 33);
+
+        let anns = parse_annotations(&cba, 0, 1).expect("annotation block parses");
+
+        // Move stream: 1. a3 a6, then end-of-game. TRANSLATE[0x2D] is
+        // Pawn(0,0,1) (see the piece-map test above); black pawn deltas are
+        // mirrored by the decoder, so the same op plays ...a6.
+        let pawn_a_fwd = TRANSLATE[0x2D];
+        let moves = [
+            obfuscate(pawn_a_fwd, 0),
+            obfuscate(pawn_a_fwd, 1),
+            obfuscate(CODE_END_VAR, 2),
+        ];
+        let tree = decode_moves(&moves, Chess::default(), CbState::initial(), &anns)
+            .expect("move stream decodes");
+
+        let first = &tree.nodes[0].edges[0];
+        assert_eq!(first.san, "a3");
+        assert_eq!(first.comment_after, None, "shapes must not leak onto ply 0");
+        let second = &tree.nodes[first.child].edges[0];
+        assert_eq!(second.san, "a6");
+        assert_eq!(second.ply, 1);
+        assert_eq!(
+            second.comment_after.as_deref(),
+            Some("[%csl Gc4,Re5][%cal Ge2e4]")
+        );
     }
 
     // -- fixture-backed golden tests -----------------------------------------
