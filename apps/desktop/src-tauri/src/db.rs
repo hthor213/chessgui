@@ -138,6 +138,24 @@ pub struct PositionHit {
     pub next_san: Option<String>,
 }
 
+/// One finished game of a player, reduced to what the opening-leak view
+/// aggregates (spec 211): the colour they held, the ECO code, and the result.
+/// The GUI port of scripts/mining/leak_report.py keys its report on
+/// (ECO × the user's colour); the database stores no per-move evals, so the
+/// port ranks by results instead of cp bled — the aggregation itself lives in
+/// packages/core/src/opening-leaks.ts where it is testable pure logic.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlayerGameRow {
+    pub game_id: i64,
+    /// "white" or "black" — the colour `player` held in this game.
+    pub color: String,
+    pub eco: String,
+    pub result: String,
+    pub date: String,
+    pub opponent: String,
+    pub opponent_elo: Option<i64>,
+}
+
 /// Aggregate counts for the whole database.
 #[derive(Debug, Clone, Serialize)]
 pub struct DbStats {
@@ -1054,43 +1072,88 @@ impl Db {
              FROM positions p JOIN games g ON g.id = p.game_id \
              WHERE p.zobrist = ?1 ORDER BY p.game_id LIMIT ?2",
         )?;
-        let raw = stmt.query_map(params![zobrist, limit], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, Option<i64>>(4)?,
-                r.get::<_, Option<i64>>(5)?,
-                r.get::<_, String>(6)?,
-                r.get::<_, String>(7)?,
-                r.get::<_, Vec<u8>>(8)?,
-            ))
-        })?;
+        collect_position_hits(&mut stmt, params![zobrist, limit], &target_epd)
+    }
 
-        let mut hits = Vec::new();
-        for row in raw {
-            let (game_id, ply, white, black, white_elo, black_elo, result, date, moves) = row?;
-            // Replay the mainline to the matched ply to (a) verify the EPD against
-            // a collision and (b) read off the next move as UCI + SAN.
-            let (verified, next_uci, next_san) = verify_and_next(&moves, ply as usize, &target_epd);
-            if !verified {
-                continue;
-            }
-            hits.push(PositionHit {
-                game_id,
-                white,
-                black,
-                white_elo,
-                black_elo,
-                result,
-                date,
-                ply,
-                next_uci,
-                next_san,
-            });
+    /// Explorer stats over ONE player's games (spec 225 rival filter, spec 211
+    /// own-games view): like `search_position`, but only games where `player`
+    /// held either colour count. The name is an exact match — callers feed it
+    /// from `list_players`, whose values come straight off the games table.
+    /// Bounded: candidates are the player's `game_limit` most recent games
+    /// (see `player_candidates_sql`), and the positions join is pinned to
+    /// idx_positions_game so each candidate probes at most its own indexed
+    /// plies — the query can never scan the 956k-game / 38M-position tables.
+    pub fn search_position_for_player(
+        &self,
+        fen: &str,
+        player: &str,
+        game_limit: i64,
+    ) -> rusqlite::Result<Vec<PositionHit>> {
+        let pos = match Fen::from_ascii(fen.trim().as_bytes())
+            .ok()
+            .and_then(|f| f.into_position::<Chess>(CastlingMode::Standard).ok())
+        {
+            Some(p) => p,
+            None => return Ok(Vec::new()),
+        };
+        let zobrist = pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0 as i64;
+        let target_epd = epd(&pos);
+
+        let mut stmt = self.conn.prepare(&player_position_search_sql())?;
+        collect_position_hits(&mut stmt, params![zobrist, player, game_limit], &target_epd)
+    }
+
+    /// Distinct player names starting with `prefix`, for the explorer's
+    /// player datalist. Each colour branch is an early-terminating DISTINCT
+    /// scan of its covering index (idx_games_white/black) over the prefix
+    /// range, capped at `limit` before the merge. An empty prefix returns
+    /// nothing — the list fills in as the user types; it is never a roster
+    /// dump of every name in a 956k-game table.
+    pub fn list_players(&self, prefix: &str, limit: i64) -> rusqlite::Result<Vec<String>> {
+        let prefix = prefix.trim();
+        if prefix.is_empty() {
+            return Ok(Vec::new());
         }
-        Ok(hits)
+        // Upper bound of the prefix range: only strings that literally start
+        // with prefix + U+10FFFF sort past it, and no player is named that.
+        let upper = format!("{prefix}\u{10FFFF}");
+        let mut stmt = self.conn.prepare(
+            "SELECT name FROM ( \
+               SELECT name FROM (SELECT DISTINCT white AS name FROM games \
+                 WHERE white >= ?1 AND white < ?2 ORDER BY white LIMIT ?3) \
+               UNION \
+               SELECT name FROM (SELECT DISTINCT black AS name FROM games \
+                 WHERE black >= ?1 AND black < ?2 ORDER BY black LIMIT ?3)) \
+             ORDER BY name LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![prefix, upper, limit], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    /// The player's most recent finished games as light opening-leak rows
+    /// (spec 211), newest first. Candidates are bounded exactly like the
+    /// player-filtered position search; unfinished games ("*") are dropped
+    /// after candidate selection — mirroring leak_report.py, which never
+    /// analyzes an unfinished game — so the returned count may be below
+    /// `game_limit`.
+    pub fn player_openings(
+        &self,
+        player: &str,
+        game_limit: i64,
+    ) -> rusqlite::Result<Vec<PlayerGameRow>> {
+        let mut stmt = self.conn.prepare(&player_openings_sql())?;
+        let rows = stmt.query_map(params![player, game_limit], |r| {
+            Ok(PlayerGameRow {
+                game_id: r.get(0)?,
+                color: r.get(1)?,
+                eco: r.get(2)?,
+                result: r.get(3)?,
+                date: r.get(4)?,
+                opponent: r.get(5)?,
+                opponent_elo: r.get(6)?,
+            })
+        })?;
+        rows.collect()
     }
 
     /// Delete games by id (positions cascade). Returns the number removed.
@@ -1600,6 +1663,109 @@ impl DbManager {
     }
 }
 
+/// Default candidate-game cap for the player-filtered explorer queries. 2000
+/// recent games is a full personal archive's worth while keeping the worst
+/// case (2000 games × the ply-capped position index) far from a table scan.
+pub const PLAYER_GAME_LIMIT: i64 = 2000;
+
+/// Candidate subquery for the player-filtered queries: the player's `?l` most
+/// recent games by id, either colour. Each branch is an early-terminating
+/// reverse scan of idx_games_white / idx_games_black (name equality, ids read
+/// off the index tail), so candidate selection costs O(limit) rows no matter
+/// how many games the table holds — verified by the query-plan test below.
+fn player_candidates_sql(player_param: u32, limit_param: u32) -> String {
+    format!(
+        "SELECT id FROM (SELECT id FROM games WHERE white = ?{p} ORDER BY id DESC LIMIT ?{l}) \
+         UNION \
+         SELECT id FROM (SELECT id FROM games WHERE black = ?{p} ORDER BY id DESC LIMIT ?{l}) \
+         ORDER BY id DESC LIMIT ?{l}",
+        p = player_param,
+        l = limit_param
+    )
+}
+
+/// Player-filtered position search: ?1 zobrist, ?2 player, ?3 game limit.
+/// INDEXED BY pins the positions join to the per-game index — the zobrist
+/// index would probe every game reaching the position (all 956k for the
+/// start position) once per candidate.
+fn player_position_search_sql() -> String {
+    format!(
+        "SELECT p.game_id, p.ply, g.white, g.black, g.white_elo, g.black_elo, \
+         g.result, g.date, g.moves \
+         FROM ({cand}) cand \
+         JOIN positions p INDEXED BY idx_positions_game \
+              ON p.game_id = cand.id AND p.zobrist = ?1 \
+         JOIN games g ON g.id = cand.id \
+         ORDER BY p.game_id",
+        cand = player_candidates_sql(2, 3)
+    )
+}
+
+/// Opening-leak rows: ?1 player, ?2 game limit. Finished games only; the
+/// result filter runs after candidate selection so the bound stays on the
+/// indexed candidate scan.
+fn player_openings_sql() -> String {
+    format!(
+        "SELECT g.id, \
+           CASE WHEN g.white = ?1 THEN 'white' ELSE 'black' END, \
+           g.eco, g.result, g.date, \
+           CASE WHEN g.white = ?1 THEN g.black ELSE g.white END, \
+           CASE WHEN g.white = ?1 THEN g.black_elo ELSE g.white_elo END \
+         FROM ({cand}) cand JOIN games g ON g.id = cand.id \
+         WHERE g.result IN ('1-0', '0-1', '1/2-1/2') \
+         ORDER BY g.id DESC",
+        cand = player_candidates_sql(1, 2)
+    )
+}
+
+/// Run a position-search statement (any param shape, fixed column shape:
+/// game_id, ply, white, black, white_elo, black_elo, result, date, moves) and
+/// map its rows to verified `PositionHit`s — shared by the whole-database and
+/// player-filtered searches.
+fn collect_position_hits<P: rusqlite::Params>(
+    stmt: &mut rusqlite::Statement<'_>,
+    params: P,
+    target_epd: &str,
+) -> rusqlite::Result<Vec<PositionHit>> {
+    let raw = stmt.query_map(params, |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, Option<i64>>(4)?,
+            r.get::<_, Option<i64>>(5)?,
+            r.get::<_, String>(6)?,
+            r.get::<_, String>(7)?,
+            r.get::<_, Vec<u8>>(8)?,
+        ))
+    })?;
+
+    let mut hits = Vec::new();
+    for row in raw {
+        let (game_id, ply, white, black, white_elo, black_elo, result, date, moves) = row?;
+        // Replay the mainline to the matched ply to (a) verify the EPD against
+        // a collision and (b) read off the next move as UCI + SAN.
+        let (verified, next_uci, next_san) = verify_and_next(&moves, ply as usize, target_epd);
+        if !verified {
+            continue;
+        }
+        hits.push(PositionHit {
+            game_id,
+            white,
+            black,
+            white_elo,
+            black_elo,
+            result,
+            date,
+            ply,
+            next_uci,
+            next_san,
+        });
+    }
+    Ok(hits)
+}
+
 pub(crate) fn resolve_db_path(
     app: &tauri::AppHandle,
     db_path: Option<String>,
@@ -1853,6 +2019,54 @@ pub fn db_search_position(
 ) -> Result<Vec<PositionHit>, String> {
     let path = resolve_db_path(&app, db_path)?;
     state.with(&path, |db| db.search_position(&fen, limit.unwrap_or(200)))
+}
+
+/// Player-filtered explorer search (spec 225): explorer stats over only the
+/// named player's games. `game_limit` caps the candidate games (most recent
+/// first, default `PLAYER_GAME_LIMIT`).
+#[tauri::command]
+pub fn db_search_position_for_player(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbManager>,
+    fen: String,
+    player: String,
+    game_limit: Option<i64>,
+    db_path: Option<String>,
+) -> Result<Vec<PositionHit>, String> {
+    let path = resolve_db_path(&app, db_path)?;
+    state.with(&path, |db| {
+        db.search_position_for_player(&fen, &player, game_limit.unwrap_or(PLAYER_GAME_LIMIT))
+    })
+}
+
+/// Distinct player names with the given prefix (feeds the explorer's player
+/// datalist). Empty prefix returns nothing.
+#[tauri::command]
+pub fn db_list_players(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbManager>,
+    prefix: String,
+    limit: Option<i64>,
+    db_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    let path = resolve_db_path(&app, db_path)?;
+    state.with(&path, |db| db.list_players(&prefix, limit.unwrap_or(20)))
+}
+
+/// Light per-game rows for the opening-leak view (spec 211): the player's
+/// most recent finished games, aggregated client-side by (ECO × colour).
+#[tauri::command]
+pub fn db_player_openings(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DbManager>,
+    player: String,
+    game_limit: Option<i64>,
+    db_path: Option<String>,
+) -> Result<Vec<PlayerGameRow>, String> {
+    let path = resolve_db_path(&app, db_path)?;
+    state.with(&path, |db| {
+        db.player_openings(&player, game_limit.unwrap_or(PLAYER_GAME_LIMIT))
+    })
 }
 
 #[tauri::command]
@@ -2276,6 +2490,130 @@ mod tests {
         let fen = Fen::from_position(&pos, EnPassantMode::Legal).to_string();
         let hits = db.search_position(&fen, 100).unwrap();
         assert_eq!(hits.len(), 2, "both move orders transpose into the position");
+    }
+
+    /// Three games all reaching the position after 1.d4 Nf6 2.c4 e6 3.Nc3 —
+    /// two involve Alice (one per colour), one doesn't.
+    const PLAYER_PGN: &str = "\
+[White \"Alice\"]\n[Black \"Bob\"]\n[Result \"1-0\"]\n\n1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 1-0\n\n\
+[White \"Carol\"]\n[Black \"Alice\"]\n[Result \"0-1\"]\n\n1. c4 Nf6 2. Nc3 e6 3. d4 d5 0-1\n\n\
+[White \"Carol\"]\n[Black \"Dan\"]\n[Result \"1/2-1/2\"]\n\n1. d4 Nf6 2. c4 e6 3. Nc3 d5 1/2-1/2\n";
+
+    fn player_pgn_target_fen() -> String {
+        let mut pos = Chess::default();
+        for uci in ["d2d4", "g8f6", "c2c4", "e7e6", "b1c3"] {
+            let m = UciMove::from_ascii(uci.as_bytes()).unwrap().to_move(&pos).unwrap();
+            pos.play_unchecked(m);
+        }
+        Fen::from_position(&pos, EnPassantMode::Legal).to_string()
+    }
+
+    // Player-filtered explorer (spec 225): only the named player's games feed
+    // the stats, the candidate cap keeps the newest games, and the next-move
+    // readout survives the filter.
+    #[test]
+    fn player_filtered_search_counts_only_their_games() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(PLAYER_PGN, "t").unwrap();
+        let fen = player_pgn_target_fen();
+
+        assert_eq!(db.search_position(&fen, 100).unwrap().len(), 3);
+        let hits = db.search_position_for_player(&fen, "Alice", PLAYER_GAME_LIMIT).unwrap();
+        assert_eq!(hits.len(), 2, "only Alice's games count");
+        assert!(hits.iter().all(|h| h.white == "Alice" || h.black == "Alice"));
+        assert!(hits.iter().all(|h| h.next_uci.is_some()), "next move reported");
+
+        // game_limit keeps the MOST RECENT games (id DESC): with a cap of 1,
+        // only Alice's later game (as Black vs Carol) remains.
+        let one = db.search_position_for_player(&fen, "Alice", 1).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].black, "Alice");
+
+        assert!(
+            db.search_position_for_player(&fen, "Nobody", PLAYER_GAME_LIMIT).unwrap().is_empty(),
+            "unknown player: empty, not an error"
+        );
+        assert!(
+            db.search_position_for_player("not a fen", "Alice", PLAYER_GAME_LIMIT)
+                .unwrap()
+                .is_empty(),
+            "bad FEN: empty, like search_position"
+        );
+    }
+
+    // Opening-leak rows (spec 211): colour and opponent resolve per game,
+    // unfinished games are dropped (leak_report.py never analyzes one), and
+    // rows come newest first.
+    #[test]
+    fn player_openings_resolve_colour_and_skip_unfinished() {
+        let mut db = Db::open_in_memory().unwrap();
+        let pgn = format!(
+            "{PLAYER_PGN}\n\
+             [White \"Alice\"]\n[Black \"Eve\"]\n[Result \"*\"]\n\n1. e4 e5 *\n"
+        );
+        db.import_pgn_str(&pgn, "t").unwrap();
+
+        let rows = db.player_openings("Alice", PLAYER_GAME_LIMIT).unwrap();
+        assert_eq!(rows.len(), 2, "the unfinished game is skipped");
+        // Newest first: the Carol game (Alice as Black) was imported second.
+        assert_eq!(rows[0].color, "black");
+        assert_eq!(rows[0].opponent, "Carol");
+        assert_eq!(rows[0].result, "0-1");
+        assert_eq!(rows[1].color, "white");
+        assert_eq!(rows[1].opponent, "Bob");
+        assert_eq!(rows[1].result, "1-0");
+
+        // The cap applies to candidates (recency), before the finished filter.
+        let capped = db.player_openings("Alice", 1).unwrap();
+        assert!(capped.is_empty(), "newest candidate is the unfinished game");
+    }
+
+    // Datalist source: distinct names by prefix from both colours; empty
+    // prefix yields nothing (never a full-roster dump).
+    #[test]
+    fn list_players_matches_prefix_across_colours() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(PLAYER_PGN, "t").unwrap();
+        assert_eq!(db.list_players("Alice", 10).unwrap(), vec!["Alice"]);
+        assert_eq!(db.list_players("Da", 10).unwrap(), vec!["Dan"]);
+        assert_eq!(
+            db.list_players("C", 10).unwrap(),
+            vec!["Carol"],
+            "deduped across white/black"
+        );
+        assert!(db.list_players("", 10).unwrap().is_empty());
+        assert!(db.list_players("Zz", 10).unwrap().is_empty());
+    }
+
+    // UX responsiveness rule: the player-filtered queries must run off the
+    // name indexes and the per-game positions index. A plan that scans games
+    // (956k rows) or positions (38M rows) is a regression even if results
+    // stay correct.
+    #[test]
+    fn player_filtered_queries_use_indexes() {
+        let db = Db::open_in_memory().unwrap();
+        let plan_for = |sql: &str, n_params: usize| -> String {
+            let mut stmt = db.conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+            // EQP ignores values; bind placeholders so rusqlite will run it.
+            let dummies: Vec<Box<dyn rusqlite::types::ToSql>> =
+                (0..n_params).map(|_| Box::new(1i64) as Box<dyn rusqlite::types::ToSql>).collect();
+            let rows = stmt
+                .query_map(params_from_iter(dummies.iter()), |r| r.get::<_, String>(3))
+                .unwrap();
+            rows.collect::<Result<Vec<_>, _>>().unwrap().join("\n")
+        };
+
+        let pos_plan = plan_for(&player_position_search_sql(), 3);
+        assert!(pos_plan.contains("idx_games_white"), "white candidates off index:\n{pos_plan}");
+        assert!(pos_plan.contains("idx_games_black"), "black candidates off index:\n{pos_plan}");
+        assert!(pos_plan.contains("idx_positions_game"), "positions join pinned:\n{pos_plan}");
+        assert!(!pos_plan.contains("SCAN games"), "no games table scan:\n{pos_plan}");
+        assert!(!pos_plan.contains("SCAN positions"), "no positions table scan:\n{pos_plan}");
+
+        let open_plan = plan_for(&player_openings_sql(), 2);
+        assert!(open_plan.contains("idx_games_white"), "white candidates off index:\n{open_plan}");
+        assert!(open_plan.contains("idx_games_black"), "black candidates off index:\n{open_plan}");
+        assert!(!open_plan.contains("SCAN games"), "no games table scan:\n{open_plan}");
     }
 
     /// Shorthand: a filter with only `material` set.

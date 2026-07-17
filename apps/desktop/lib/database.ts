@@ -26,6 +26,7 @@ import type {
   GameHeader,
   ImportReport,
   PgnImportProgress,
+  PlayerGameRow,
   PositionHit,
   SaveReport,
   Sort,
@@ -39,6 +40,7 @@ export type {
   GameHeader,
   ImportReport,
   PgnImportProgress,
+  PlayerGameRow,
   PositionHit,
   SaveReport,
   Sort,
@@ -61,6 +63,14 @@ export interface DatabaseApi {
     dbPath?: string,
   ): Promise<GameHeader[]>
   searchPosition(fen: string, limit?: number, dbPath?: string): Promise<PositionHit[]>
+  searchPositionForPlayer(
+    fen: string,
+    player: string,
+    gameLimit?: number,
+    dbPath?: string,
+  ): Promise<PositionHit[]>
+  listPlayers(prefix: string, limit?: number, dbPath?: string): Promise<string[]>
+  playerOpenings(player: string, gameLimit?: number, dbPath?: string): Promise<PlayerGameRow[]>
   getGame(id: number, dbPath?: string): Promise<string | null>
   saveGame(args: { pgn: string; source?: string; dbPath?: string }): Promise<SaveReport>
   deleteGames(ids: number[], dbPath?: string): Promise<number>
@@ -148,6 +158,44 @@ export function searchPosition(
   dbPath?: string,
 ): Promise<PositionHit[]> {
   return getProviders().database.searchPosition(fen, limit, dbPath)
+}
+
+/**
+ * Explorer stats over ONE player's games (spec 225 rival filter / spec 211
+ * own-games view): like {@link searchPosition}, but only games where `player`
+ * held either colour count. Exact-name match — feed it names from
+ * {@link listPlayers}. `gameLimit` caps the candidate games (most recent
+ * first, default 2000 on the backend) so the query stays bounded.
+ */
+export function searchPositionForPlayer(
+  fen: string,
+  player: string,
+  gameLimit?: number,
+  dbPath?: string,
+): Promise<PositionHit[]> {
+  return getProviders().database.searchPositionForPlayer(fen, player, gameLimit, dbPath)
+}
+
+/**
+ * Distinct player names starting with `prefix`, sorted — feeds the explorer's
+ * player datalist. An empty prefix resolves to an empty list (the datalist
+ * fills in as the user types; it is never a full-roster dump).
+ */
+export function listPlayers(prefix: string, limit?: number, dbPath?: string): Promise<string[]> {
+  return getProviders().database.listPlayers(prefix, limit, dbPath)
+}
+
+/**
+ * The player's most recent finished games as light opening-leak rows
+ * (spec 211), newest first. Aggregate them with
+ * `aggregateOpeningLeaks` from @chessgui/core/opening-leaks.
+ */
+export function playerOpenings(
+  player: string,
+  gameLimit?: number,
+  dbPath?: string,
+): Promise<PlayerGameRow[]> {
+  return getProviders().database.playerOpenings(player, gameLimit, dbPath)
 }
 
 /** Full PGN (tags + movetext) for one game, ready to load into a GameTree. */
