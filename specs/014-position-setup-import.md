@@ -44,6 +44,23 @@ because `loadGame` hardcodes `INITIAL_FEN`.
 - [x] "Open file…" loads a `.pgn` file (HTML file input; works in Tauri webview) (verified in code 2026-07-15, `pgn-import-dialog.tsx:190-204` button + hidden `<input type="file" accept=".pgn,.txt">`)
 - [x] Multi-game picker retained; Cmd+V shortcut retained (verified in code 2026-07-15, multi-game picker `pgn-import-dialog.tsx:144-175`, Cmd+V `app/page.tsx:358-369`)
 
+## Chess960 quick setup (user decision, 2026-07-17)
+
+Setting up a 960 start by hand is tedious (user hit it starting a real
+fair-play daily game). The editor gets:
+- A **"Chess960 starting position" checkbox**: when checked, the user only
+  places WHITE's eight back-rank pieces on rank 1; pawns (ranks 2/7) and
+  Black's mirrored back rank auto-generate live, White to move, castling
+  rights derived from the rook files (Shredder letters), tree variant set
+  to chess960. Placement validation: exactly K+Q+2R+2B+2N, bishops on
+  opposite colors, king between the rooks — the dialog says WHICH rule is
+  violated, and auto-fill only completes when valid.
+- A **"Random 960" button** beside the checkbox (natural companion; one of
+  the 960 legal placements, uniformly).
+- The **editor board sizes up** — it was far smaller than the playing
+  board, hard to see; size it to the dialog's practical max (~similar
+  square size to the main board on desktop, keeping the md-down shrink).
+
 ## Non-goals (v1)
 - En passant / move-counter editing in the setup dialog
 - Editing positions mid-game (edit always starts a fresh game)
