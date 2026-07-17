@@ -22,6 +22,7 @@ import type {
   GameFilter,
   GameHeader,
   ImportReport,
+  PlayerGameRow,
   PositionHit,
   SaveReport,
   Sort,
@@ -206,6 +207,26 @@ export const browserProviders: PlatformProviders = {
     searchPosition(fen: string, limit?: number, dbPath?: string): Promise<PositionHit[]> {
       return import("@/lib/database-mock").then((m) =>
         m.mockDatabase.searchPosition(fen, limit, dbPath),
+      )
+    },
+    searchPositionForPlayer(
+      fen: string,
+      player: string,
+      gameLimit?: number,
+      dbPath?: string,
+    ): Promise<PositionHit[]> {
+      return import("@/lib/database-mock").then((m) =>
+        m.mockDatabase.searchPositionForPlayer(fen, player, gameLimit, dbPath),
+      )
+    },
+    listPlayers(prefix: string, limit?: number, dbPath?: string): Promise<string[]> {
+      return import("@/lib/database-mock").then((m) =>
+        m.mockDatabase.listPlayers(prefix, limit, dbPath),
+      )
+    },
+    playerOpenings(player: string, gameLimit?: number, dbPath?: string): Promise<PlayerGameRow[]> {
+      return import("@/lib/database-mock").then((m) =>
+        m.mockDatabase.playerOpenings(player, gameLimit, dbPath),
       )
     },
     getGame(id: number, dbPath?: string): Promise<string | null> {

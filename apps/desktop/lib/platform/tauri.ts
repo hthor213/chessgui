@@ -29,6 +29,7 @@ import type {
   GameHeader,
   ImportReport,
   PgnImportProgress,
+  PlayerGameRow,
   PositionHit,
   SaveReport,
   Sort,
@@ -363,6 +364,33 @@ export const tauriProviders: PlatformProviders = {
       return invoke<PositionHit[]>("db_search_position", {
         fen,
         limit: limit ?? null,
+        dbPath: dbPath ?? null,
+      })
+    },
+    searchPositionForPlayer(
+      fen: string,
+      player: string,
+      gameLimit?: number,
+      dbPath?: string,
+    ): Promise<PositionHit[]> {
+      return invoke<PositionHit[]>("db_search_position_for_player", {
+        fen,
+        player,
+        gameLimit: gameLimit ?? null,
+        dbPath: dbPath ?? null,
+      })
+    },
+    listPlayers(prefix: string, limit?: number, dbPath?: string): Promise<string[]> {
+      return invoke<string[]>("db_list_players", {
+        prefix,
+        limit: limit ?? null,
+        dbPath: dbPath ?? null,
+      })
+    },
+    playerOpenings(player: string, gameLimit?: number, dbPath?: string): Promise<PlayerGameRow[]> {
+      return invoke<PlayerGameRow[]>("db_player_openings", {
+        player,
+        gameLimit: gameLimit ?? null,
         dbPath: dbPath ?? null,
       })
     },

@@ -16,6 +16,7 @@ import type {
   GameHeader,
   ImportReport,
   PgnImportProgress,
+  PlayerGameRow,
   PositionHit,
   SaveReport,
   Sort,
@@ -277,6 +278,20 @@ export interface DatabaseProvider {
     dbPath?: string,
   ): Promise<GameHeader[]>
   searchPosition(fen: string, limit?: number, dbPath?: string): Promise<PositionHit[]>
+  /** Explorer stats over only `player`'s games (spec 225 rival filter).
+   *  Exact-name match; `gameLimit` caps candidates, most recent first. */
+  searchPositionForPlayer(
+    fen: string,
+    player: string,
+    gameLimit?: number,
+    dbPath?: string,
+  ): Promise<PositionHit[]>
+  /** Distinct player names with the given prefix (explorer datalist).
+   *  Empty prefix resolves to nothing. */
+  listPlayers(prefix: string, limit?: number, dbPath?: string): Promise<string[]>
+  /** The player's most recent finished games as light opening-leak rows
+   *  (spec 211) — aggregate with @chessgui/core/opening-leaks. */
+  playerOpenings(player: string, gameLimit?: number, dbPath?: string): Promise<PlayerGameRow[]>
   getGame(id: number, dbPath?: string): Promise<string | null>
   /** Upsert one game's PGN (spec 202): annotations update the existing row
    *  when the mainline + result already exist, insert otherwise. */

@@ -142,6 +142,21 @@ export type PositionHit = {
   next_san: string | null
 }
 
+/**
+ * One finished game of a player, reduced to what the opening-leak view
+ * aggregates (spec 211): the colour they held, the ECO code, and the result.
+ * Mirrors Rust `PlayerGameRow`; the aggregation lives in ./opening-leaks.ts.
+ */
+export type PlayerGameRow = {
+  game_id: number
+  color: "white" | "black"
+  eco: string
+  result: string
+  date: string
+  opponent: string
+  opponent_elo: number | null
+}
+
 /** Aggregate database counts. Mirrors Rust `DbStats`. */
 export type DbStats = {
   games: number

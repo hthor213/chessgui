@@ -21,6 +21,7 @@ import type {
   GameFilter,
   GameHeader,
   ImportReport,
+  PlayerGameRow,
   PositionHit,
   SaveReport,
   Sort,
@@ -260,6 +261,72 @@ class MockDb implements DatabaseApi {
       if (hits.length >= limit) break
     }
     return hits
+  }
+
+  /** The player's most recent `gameLimit` games by id (exact-name match on
+   *  either colour) — the mock twin of the backend's bounded candidate scan. */
+  private playerCandidates(player: string, gameLimit: number): MockGame[] {
+    const p = player.trim()
+    if (!p) return []
+    return this.games
+      .filter((g) => g.header.white === p || g.header.black === p)
+      .sort((a, b) => b.id - a.id)
+      .slice(0, gameLimit)
+  }
+
+  async searchPositionForPlayer(
+    fen: string,
+    player: string,
+    gameLimit = 2000,
+  ): Promise<PositionHit[]> {
+    const target = epd(fen.trim())
+    const hits: PositionHit[] = []
+    for (const g of this.playerCandidates(player, gameLimit)) {
+      const p = g.positions.find((pos) => pos.epd === target)
+      if (!p) continue
+      hits.push({
+        game_id: g.id,
+        white: g.header.white,
+        black: g.header.black,
+        white_elo: g.header.white_elo,
+        black_elo: g.header.black_elo,
+        result: g.header.result,
+        date: g.header.date,
+        ply: p.ply,
+        next_uci: p.nextUci,
+        next_san: p.nextSan,
+      })
+    }
+    return hits
+  }
+
+  async listPlayers(prefix: string, limit = 20): Promise<string[]> {
+    const p = prefix.trim()
+    if (!p) return []
+    const names = new Set<string>()
+    for (const g of this.games)
+      for (const n of [g.header.white, g.header.black]) if (n.startsWith(p)) names.add(n)
+    return [...names].sort().slice(0, limit)
+  }
+
+  async playerOpenings(player: string, gameLimit = 2000): Promise<PlayerGameRow[]> {
+    const finished = new Set(["1-0", "0-1", "1/2-1/2"])
+    // Recency cap first, THEN the finished filter — same order as the backend,
+    // so unfinished games eat into the candidate budget, never widen it.
+    return this.playerCandidates(player, gameLimit)
+      .filter((g) => finished.has(g.header.result))
+      .map((g) => {
+        const color = g.header.white === player.trim() ? ("white" as const) : ("black" as const)
+        return {
+          game_id: g.id,
+          color,
+          eco: g.header.eco,
+          result: g.header.result,
+          date: g.header.date,
+          opponent: color === "white" ? g.header.black : g.header.white,
+          opponent_elo: color === "white" ? g.header.black_elo : g.header.white_elo,
+        }
+      })
   }
 
   async getGame(id: number): Promise<string | null> {
