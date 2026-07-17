@@ -1060,7 +1060,11 @@ export default function Home() {
                 Training
               </button>
             </div>
-            <div className="flex-1 min-h-0">
+            {/* MUST be a flex column: the sub-tabs size themselves with
+                flex-1/min-h-0 + overflow-auto (e.g. SparTab's roster), which
+                only constrains height under a flex parent — without it their
+                content clips at the shell with no scrollbar. */}
+            <div className="flex-1 min-h-0 flex flex-col">
               {learnSub === "calibrate" ? (
                 <CalibrationTab onLoadPosition={handleLoadCalibrationPosition} />
               ) : learnSub === "spar" ? (
