@@ -22,6 +22,23 @@ and open items — lives in the numbered specs and in `specs/900-backlog.md`
   tracked in spec:210's "Later / uncaptured requirements" section — see
   `specs/210-engine-tournament.md`. Do not duplicate them here.
 
+## Database scalability (post-mortem, 2026-07-17)
+Two app-freeze bugs in two days shared one architecture smell: every DB
+command funnels through DbManager's single mutex-guarded connection, so any
+one slow query freezes the whole UI (launch hang: v4 material backfill inside
+Db::open; continue-later hang: search_position ORDER-BY sort of ~1M rows +
+stats() COUNT over 38M rows). Both hot paths are fixed, but the blast-radius
+problem remains latent:
+- **Read-connection pool**: WAL already supports concurrent readers; giving
+  read-only commands (list/search/stats/explorer) their own connections would
+  bound any future slow query to its own tab instead of the whole app.
+- **Text search is the next latent freeze**: list_games player/text filters
+  use `LIKE '%…%'` full scans (db.rs comment admits it; needs FTS5 + sync
+  triggers at 956k games).
+- **Guardrail idea**: debug-assert/log any Tauri command that holds the
+  DbManager lock >250ms, so the next unbounded query surfaces in dev instead
+  of in a user hang.
+
 ## Error observability / Rival mode / other parked ideas
 Retired from this file 2026-07-16 — both were exact duplicates of items
 already tracked in `specs/900-backlog.md`'s "Requirements audit 2026-07-16 —
