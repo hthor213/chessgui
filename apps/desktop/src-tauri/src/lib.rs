@@ -94,6 +94,7 @@ pub fn run() {
             human_search::human_eval_tree,
             human_search::human_eval_sweep,
             human_search::human_eval_sweep_cancel,
+            human_search::visible_from_sweep,
             persona::maia_move,
             persona::persona_move,
             persona::rival_book,

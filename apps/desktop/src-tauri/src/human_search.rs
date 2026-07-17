@@ -551,6 +551,113 @@ pub async fn sweep_bands(
 }
 
 // ---------------------------------------------------------------------------
+// "Visible from ~R" — spec 213 Phase 4 (tournament error report)
+// ---------------------------------------------------------------------------
+
+/// True swings below this (cp) are noise, not a mistake a band could "see" —
+/// no visible-from verdict is computed for them.
+pub const VISIBLE_MIN_SWING_CP: i64 = 60;
+
+/// Whether Eval_R at one band registers the mistake: the band's eval has
+/// moved from the pre-mistake belief toward the true post-mistake eval in the
+/// right direction AND covered at least half the swing. Half is deliberately
+/// coarse — Eval_R's restricted tree is an estimate, and the badge is labeled
+/// experimental — but it separates "still believes the old eval" from "sees
+/// the refutation" without tuning a threshold per position.
+pub fn band_sees(point_cp: i64, before_cp: i64, after_cp: i64) -> bool {
+    let swing = after_cp - before_cp;
+    let moved = point_cp - before_cp;
+    moved.signum() == swing.signum() && 2 * moved.abs() >= swing.abs()
+}
+
+/// Lowest band whose Eval_R registers the mistake, from (band, cp_white)
+/// sweep points over the AFTER-mistake position. `before_cp` is the neutral
+/// eval before the mistake, `after_cp` the true eval after it (both
+/// White-POV cp). None = no band sees it (refutation deeper than every
+/// swept nucleus) or the swing is too small to judge.
+pub fn visible_from(points: &[(u32, i64)], before_cp: i64, after_cp: i64) -> Option<u32> {
+    if (after_cp - before_cp).abs() < VISIBLE_MIN_SWING_CP {
+        return None;
+    }
+    points
+        .iter()
+        .filter(|&&(_, cp)| band_sees(cp, before_cp, after_cp))
+        .map(|&(band, _)| band)
+        .min()
+}
+
+/// One mistake's visible-from verdict plus the Eval_R points that produced it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct VisibleFromResult {
+    /// Lowest band that sees the swing; None = not visible at any swept band
+    /// (or cancelled before one was found — check `cancelled`).
+    pub visible_from: Option<u32>,
+    /// Points actually computed, ascending band order. The scan stops at the
+    /// first band that sees the swing, so higher bands may be absent.
+    pub points: Vec<HumanSearchResult>,
+    pub cancelled: bool,
+}
+
+/// Eval_R scan over `bands` (sorted ascending internally) on the
+/// after-mistake position, stopping at the first band that sees the swing —
+/// "visible from" is a lower bound, so higher bands need not be searched.
+/// A too-small swing returns immediately without touching the engine.
+pub async fn visible_from_scan(
+    base: &HumanSearchConfig,
+    bands: &[u32],
+    policy: &dyn PolicySource,
+    leaf: &mut dyn LeafEvaluator,
+    tt: &mut TranspositionTable,
+    fen: &str,
+    before_cp: i64,
+    after_cp: i64,
+    cancel: &(dyn Fn() -> bool + Send + Sync),
+) -> Result<VisibleFromResult, String> {
+    if (after_cp - before_cp).abs() < VISIBLE_MIN_SWING_CP {
+        return Ok(VisibleFromResult {
+            visible_from: None,
+            points: Vec::new(),
+            cancelled: false,
+        });
+    }
+    let mut sorted: Vec<u32> = bands.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+
+    let mut points: Vec<HumanSearchResult> = Vec::new();
+    for &band in &sorted {
+        let cfg = HumanSearchConfig {
+            bands: BandVector::linked(band),
+            ..base.clone()
+        };
+        match search_root_cancellable(&cfg, policy, leaf, tt, fen, cancel).await {
+            Ok(r) => {
+                let sees = band_sees(r.cp_white, before_cp, after_cp);
+                points.push(r);
+                if sees {
+                    break;
+                }
+            }
+            Err(e) if e == CANCELLED => {
+                let pairs: Vec<(u32, i64)> = points.iter().map(|p| (p.band, p.cp_white)).collect();
+                return Ok(VisibleFromResult {
+                    visible_from: visible_from(&pairs, before_cp, after_cp),
+                    points,
+                    cancelled: true,
+                });
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    let pairs: Vec<(u32, i64)> = points.iter().map(|p| (p.band, p.cp_white)).collect();
+    Ok(VisibleFromResult {
+        visible_from: visible_from(&pairs, before_cp, after_cp),
+        points,
+        cancelled: false,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Production leaf evaluator — one warm single-threaded Stockfish
 // ---------------------------------------------------------------------------
 
@@ -818,6 +925,72 @@ pub async fn human_eval_sweep_cancel(
 ) -> Result<(), String> {
     tree_state.sweep_gen.fetch_add(1, Ordering::SeqCst);
     Ok(())
+}
+
+/// "Visible from ~R" for one tournament mistake (spec 213 Phase 4): Eval_R
+/// scan over `bands` on the AFTER-mistake position, returning the lowest band
+/// whose restricted tree registers the swing from `before_cp` to `after_cp`
+/// (White-POV cp; the frontend collapses mates to a bounded pawn-equivalent).
+///
+/// Deliberately the OPPOSITE priority of `human_eval_sweep`: this background
+/// pass does NOT claim a new sweep generation — it records the current one
+/// and yields (returns `cancelled: true`) as soon as any live slider sweep or
+/// explicit cancel bumps it. Sharing the session TT mutex serializes it
+/// behind live searches, and its Stockfish is a private single-threaded
+/// process, so it never competes with the tournament's playing engines.
+#[tauri::command]
+pub async fn visible_from_sweep(
+    app: tauri::AppHandle,
+    maia_state: State<'_, MaiaState>,
+    tree_state: State<'_, HumanTreeState>,
+    fen: String,
+    before_cp: i64,
+    after_cp: i64,
+    bands: Vec<u32>,
+    depth: Option<u32>,
+    top_p: Option<f64>,
+    max_candidates: Option<usize>,
+    max_nodes: Option<usize>,
+    leaf_depth: Option<u32>,
+) -> Result<VisibleFromResult, String> {
+    if bands.is_empty() {
+        return Err("visible-from scan needs at least one band".to_string());
+    }
+    for &b in &bands {
+        if !maia::is_valid_band(b) {
+            return Err(format!("no Maia-1 net for band {b} (available: 1100–1900)"));
+        }
+    }
+    let base = HumanSearchConfig {
+        bands: BandVector::linked(bands[0]), // overwritten per band by the scan
+        top_p: top_p.unwrap_or(DEFAULT_TOP_P).clamp(0.05, 1.0),
+        max_candidates: max_candidates.unwrap_or(DEFAULT_MAX_CANDIDATES).clamp(1, 8),
+        depth: depth.unwrap_or(DEFAULT_DEPTH).clamp(1, 6),
+        max_nodes: max_nodes.unwrap_or(DEFAULT_MAX_NODES).clamp(1, 5_000),
+        leaf_depth: leaf_depth.unwrap_or(DEFAULT_LEAF_DEPTH).clamp(1, 20),
+    };
+
+    // Record — don't bump — the generation: live sweeps preempt this pass.
+    let my_gen = tree_state.sweep_gen.load(Ordering::SeqCst);
+
+    let sf = resolve_stockfish()
+        .ok_or("stockfish not found — install it with: brew install stockfish")?;
+    let mut leaf = SfLeaf::spawn(&sf, base.leaf_depth).await?;
+    let policy = MaiaPolicySource {
+        app: &app,
+        state: maia_state.inner(),
+    };
+
+    let mut tt = tree_state.tt.lock().await;
+    if tt.len() > TT_CAP {
+        tt.clear();
+    }
+    let gen = &tree_state.sweep_gen;
+    let cancel = move || gen.load(Ordering::SeqCst) != my_gen;
+    visible_from_scan(
+        &base, &bands, &policy, &mut leaf, &mut tt, &fen, before_cp, after_cp, &cancel,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1487,6 +1660,146 @@ mod tests {
             t.await.unwrap();
         }
         assert_eq!(peak.load(Ordering::SeqCst), 1, "holders never overlap");
+    }
+
+    // -- "Visible from ~R" (spec 213 Phase 4: tournament error report) ----------
+
+    #[test]
+    fn visible_from_picks_the_lowest_band_covering_half_the_swing() {
+        // Mistake: White-POV +120 before, −300 after (swing −420). Bands 1100
+        // and 1300 still believe the old eval; 1500 has crossed the midpoint
+        // (moved −270 of −420); 1900 all but agrees with the truth.
+        let points = [(1100, 100), (1300, 80), (1500, -150), (1900, -290)];
+        assert_eq!(visible_from(&points, 120, -300), Some(1500));
+        // Point order must not matter — "lowest band", not "first point".
+        let shuffled = [(1900, -290), (1500, -150), (1300, 80), (1100, 100)];
+        assert_eq!(visible_from(&shuffled, 120, -300), Some(1500));
+    }
+
+    #[test]
+    fn visible_from_is_none_when_no_band_sees_it_or_the_swing_is_noise() {
+        // Every band still sits near the pre-mistake eval → not visible.
+        let blind = [(1100, 110), (1500, 130), (1900, 90)];
+        assert_eq!(visible_from(&blind, 120, -300), None);
+        // Movement in the WRONG direction never counts as seeing.
+        let wrong_way = [(1900, 400)];
+        assert_eq!(visible_from(&wrong_way, 120, -300), None);
+        // Swing below the noise floor → no verdict even on a perfect match.
+        let tiny = [(1100, -20)];
+        assert_eq!(visible_from(&tiny, 20, -20), None);
+        // No points → no verdict.
+        assert_eq!(visible_from(&[], 120, -300), None);
+    }
+
+    #[test]
+    fn band_sees_requires_direction_and_half_coverage() {
+        // Swing +200 (Black's mistake): +100 is exactly half — visible.
+        assert!(band_sees(100, 0, 200));
+        assert!(!band_sees(99, 0, 200), "just under half stays blind");
+        assert!(!band_sees(-150, 0, 200), "wrong direction stays blind");
+        assert!(!band_sees(0, 0, 200), "no movement stays blind");
+    }
+
+    #[tokio::test]
+    async fn scan_stops_at_the_first_band_that_sees_the_swing() {
+        // After-mistake position = after_e4 from the perception fixture: the
+        // refutation (b8a6, −300) is outside the 1100 nucleus, inside 1500's
+        // and 1900's. Pre-mistake belief +50, truth −300.
+        let root = STARTPOS;
+        let after_e4 = after(root, &["e2e4"]);
+        let mut policy = TablePolicy::new();
+        policy.set_for_band(&after_e4, 1100, vec![mv("e7e5", 0.90), mv("b8a6", 0.09)]);
+        policy.set_for_band(&after_e4, 1500, vec![mv("e7e5", 0.55), mv("b8a6", 0.44)]);
+        policy.set_for_band(&after_e4, 1900, vec![mv("e7e5", 0.55), mv("b8a6", 0.44)]);
+        let mut leaf = TableLeaf::new();
+        leaf.set(&after(root, &["e2e4", "e7e5"]), 50);
+        leaf.set(&after(root, &["e2e4", "b8a6"]), -300);
+
+        let mut tt = TranspositionTable::new();
+        let r = visible_from_scan(
+            &cfg(1100, 0.80, 1),
+            // Descending on purpose: the scan must sort ascending itself.
+            &[1900, 1500, 1100],
+            &policy,
+            &mut leaf,
+            &mut tt,
+            &after_e4,
+            50,
+            -300,
+            &|| false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.visible_from, Some(1500));
+        assert!(!r.cancelled);
+        assert_eq!(r.points.len(), 2, "1900 never searched — 1500 already saw it");
+        assert_eq!(r.points[0].band, 1100);
+        assert_eq!(r.points[0].cp_white, 50, "1100 still believes the old eval");
+        assert_eq!(r.points[1].band, 1500);
+        assert_eq!(r.points[1].cp_white, -300);
+    }
+
+    #[tokio::test]
+    async fn scan_skips_the_engine_entirely_on_a_noise_swing() {
+        let policy = TablePolicy::new();
+        let mut leaf = TableLeaf::new();
+        let mut tt = TranspositionTable::new();
+        let r = visible_from_scan(
+            &cfg(1100, 0.80, 1),
+            &[1100, 1900],
+            &policy,
+            &mut leaf,
+            &mut tt,
+            STARTPOS,
+            10,
+            -10, // |swing| 20 < VISIBLE_MIN_SWING_CP
+            &|| false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.visible_from, None);
+        assert!(r.points.is_empty());
+        assert_eq!(leaf.calls, 0, "no engine work for a non-mistake");
+    }
+
+    #[tokio::test]
+    async fn cancelled_scan_returns_partial_points_with_the_flag() {
+        let root = STARTPOS;
+        let after_e4 = after(root, &["e2e4"]);
+        let mut policy = TablePolicy::new();
+        // 1100 stays blind (only e7e5 in the nucleus), so the scan wants to
+        // continue to 1900 — the cancel flag, armed by 1100's search reaching
+        // its leaf, must stop it between the bands with a partial result.
+        policy.set_for_band(&after_e4, 1100, vec![mv("e7e5", 0.90), mv("b8a6", 0.09)]);
+        policy.set_for_band(&after_e4, 1900, vec![mv("e7e5", 0.55), mv("b8a6", 0.44)]);
+        let mut leaf = TableLeaf::new();
+        leaf.set(&after(root, &["e2e4", "e7e5"]), 50);
+        leaf.set(&after(root, &["e2e4", "b8a6"]), -300);
+
+        // Depth-1 band-1100 search visits root + 1 leaf = 2 nodes; the probe
+        // fires once per node, so cancelling from the 3rd probe on lets the
+        // first band finish and kills the second before its first node.
+        let probes = std::sync::atomic::AtomicUsize::new(0);
+        let cancel = move || probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 2;
+
+        let mut tt = TranspositionTable::new();
+        let r = visible_from_scan(
+            &cfg(1100, 0.80, 1),
+            &[1100, 1900],
+            &policy,
+            &mut leaf,
+            &mut tt,
+            &after_e4,
+            50,
+            -300,
+            &cancel,
+        )
+        .await
+        .unwrap();
+        assert!(r.cancelled);
+        assert_eq!(r.points.len(), 1, "only the 1100 point completed");
+        assert_eq!(r.points[0].band, 1100);
+        assert_eq!(r.visible_from, None, "1100 alone doesn't see it");
     }
 
     // -- Real engines (gated; skips cleanly when lc0/stockfish are absent) ------
