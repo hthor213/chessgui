@@ -190,6 +190,14 @@ export type GameOutcome = {
    * sending `[]`, so this is optional here too.
    */
   persona_logs?: PersonaLogEntry[]
+  /**
+   * Persona snapshot ids (spec 214 "Persona snapshots") each side played
+   * under; absent for a UCI side. The same content hash the per-move decision
+   * logs carry, lifted to the game record so a match/exhibition result joins
+   * to the exact persona version without digging into logs.
+   */
+  white_persona_snapshot?: string
+  black_persona_snapshot?: string
 }
 
 /** Progress event emitted as each game completes. Mirrors Rust `BatchProgress`. */

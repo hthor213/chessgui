@@ -277,6 +277,13 @@ pub struct PersonaDecision {
     /// (realism-debugging record); None when the model is off, no eval
     /// evidence exists, or the cell is uncovered.
     pub mistake_rate: Option<f64>,
+    /// Persona snapshot id (spec 214 "Persona snapshots") this move was
+    /// sampled under — the content hash of the immutable bundle (config +
+    /// book reference + weights id + sampling params). Stamped by the entry
+    /// points (`persona_move`, the match runner's persona arm), not by the
+    /// selection core; empty only when no entry point stamped it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub snapshot_id: String,
     pub candidates: Vec<PersonaCandidate>,
 }
 
@@ -303,6 +310,120 @@ pub(crate) fn derive_seed(seed: u64, ply: u32) -> u64 {
 fn uniform_from_seed(derived: u64) -> f64 {
     let z = splitmix64(derived.wrapping_add(0x9E37_79B9_7F4A_7C15));
     ((z >> 11) as f64) / ((1u64 << 53) as f64)
+}
+
+// ---------------------------------------------------------------------------
+// Persona snapshots (spec 214 "Persona snapshots")
+// ---------------------------------------------------------------------------
+//
+// A persona plays under an immutable versioned bundle: config + book build +
+// weights reference + sampling parameters. The version IS a content hash —
+// sha256 over the canonicalized bundle — so any change to any part (a config
+// edit, a rebuilt book, a different net, one sampling knob) yields a new id
+// automatically. No registry, no version counter to bump or forget: two
+// records carry the same snapshot id if and only if they played under the
+// same bundle. Reproducibility rule: same seed + same snapshot = same game.
+
+/// Canonical JSON: object keys sorted recursively, compact separators — the
+/// same logical value always serializes to the same bytes, independent of
+/// insertion order or serde_json's map feature flags.
+pub fn canonical_json(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Object(map) => {
+            let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            let inner: Vec<String> = keys
+                .iter()
+                .map(|k| {
+                    format!(
+                        "{}:{}",
+                        serde_json::Value::String((*k).to_string()),
+                        canonical_json(&map[*k])
+                    )
+                })
+                .collect();
+            format!("{{{}}}", inner.join(","))
+        }
+        serde_json::Value::Array(items) => {
+            let inner: Vec<String> = items.iter().map(canonical_json).collect();
+            format!("[{}]", inner.join(","))
+        }
+        // Scalars already have exactly one serde_json rendering.
+        other => other.to_string(),
+    }
+}
+
+/// Lowercase hex sha256 of raw bytes (book files, arbitrary blobs).
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(bytes);
+    format!("{:x}", h.finalize())
+}
+
+/// The sampling half of a snapshot: every knob that governs move selection,
+/// normalized to one JSON shape shared by the spar `persona_move` command and
+/// the match runner's persona arm — so the same effective knobs hash to the
+/// same id on both surfaces. Per-game/per-move STATE (seed, ply, clock,
+/// plies-since-book-exit) is deliberately excluded: a snapshot identifies the
+/// persona, not the game.
+#[allow(clippy::too_many_arguments)]
+pub fn sampling_bundle(
+    level: u32,
+    temperature: f64,
+    alpha: f64,
+    lambda: f64,
+    top_k: Option<usize>,
+    top_p: Option<f64>,
+    verify_depth: Option<u32>,
+    schedule: Option<&TemperatureSchedule>,
+    style_bias: Option<&StyleBias>,
+    endgame: Option<&EndgameArm>,
+    error_model: Option<&ErrorModel>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "level": level,
+        "temperature": temperature,
+        "alpha": alpha,
+        "lambda": lambda,
+        "top_k": top_k,
+        "top_p": top_p,
+        "verify_depth": verify_depth,
+        "schedule": schedule,
+        "style_bias": style_bias,
+        "endgame": endgame,
+        "error_model": error_model,
+    })
+}
+
+/// The snapshot id: sha256 over the canonicalized, domain-separated bundle.
+///
+/// - `config`: the persona's config JSON where one exists on disk
+///   (data/rivals, data/personas); `Null` at wire call sites where the
+///   sampling bundle IS the whole config.
+/// - `book_sha256`: content hash of the book build file; `None` = bookless.
+/// - `weights_id`: the policy-backend reference — a Maia band ("maia-1500")
+///   or a named managed net whose config pins its own sha256 (e.g. "bt3").
+/// - `sampling`: the sampling parameters (see [`sampling_bundle`]).
+pub fn snapshot_id(
+    config: &serde_json::Value,
+    book_sha256: Option<&str>,
+    weights_id: &str,
+    sampling: &serde_json::Value,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    // Version tag: if the hashing scheme itself ever changes, old and new ids
+    // must not collide.
+    h.update(b"chessgui.persona-snapshot.v1\n");
+    h.update(canonical_json(config).as_bytes());
+    h.update(b"\n");
+    h.update(book_sha256.unwrap_or("no-book").as_bytes());
+    h.update(b"\n");
+    h.update(weights_id.as_bytes());
+    h.update(b"\n");
+    h.update(canonical_json(sampling).as_bytes());
+    format!("{:x}", h.finalize())
 }
 
 // ---------------------------------------------------------------------------
@@ -1211,6 +1332,8 @@ pub(crate) async fn select_move_from_policy(
                         style_bias_applied: bias_applied,
                         error_model_applied: em_applied,
                         mistake_rate: em_rate,
+                        // Stamped by the entry point, which owns the bundle.
+                        snapshot_id: String::new(),
                         candidates,
                     });
                 }
@@ -1302,6 +1425,8 @@ pub(crate) async fn select_move_from_policy(
         style_bias_applied: bias_applied,
         error_model_applied: em_applied,
         mistake_rate: em_rate,
+        // Stamped by the entry point, which owns the bundle.
+        snapshot_id: String::new(),
         candidates,
     })
 }
@@ -1332,7 +1457,7 @@ pub async fn persona_move(
         endgame: params.endgame.clone(),
         error_model: params.error_model.clone(),
     };
-    select_move_from_policy(
+    let mut decision = select_move_from_policy(
         &fen,
         &policy,
         params.alpha,
@@ -1345,7 +1470,32 @@ pub async fn persona_move(
         stockfish.as_deref(),
         &ctx,
     )
-    .await
+    .await?;
+    // Persona snapshot (spec 214): stamp the content hash of the effective
+    // bundle this move was sampled under. At this surface the sampling params
+    // ARE the whole config (the frontend roster owns the file-level config),
+    // the weights reference is the Maia band, and the book phase never
+    // reaches this command (bookless here by contract).
+    let bundle = sampling_bundle(
+        params.level,
+        params.temperature,
+        params.alpha,
+        params.lambda,
+        params.top_k,
+        params.top_p,
+        params.verify_depth,
+        params.schedule.as_ref(),
+        params.style_bias.as_ref(),
+        params.endgame.as_ref(),
+        params.error_model.as_ref(),
+    );
+    decision.snapshot_id = snapshot_id(
+        &serde_json::Value::Null,
+        None,
+        &format!("maia-{}", params.level),
+        &bundle,
+    );
+    Ok(decision)
 }
 
 /// Locate the local rivals dir (gitignored, never bundled — spec 214): the app
@@ -1372,9 +1522,10 @@ pub(crate) fn rivals_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
-/// Every locally-present private-rival persona, as `{ config, book|null }`
-/// pairs — one per data/rivals/<slug>.config.json, with the matching
-/// <slug>.book.json when it exists. Returns `[]` (not an error) when the dir
+/// Every locally-present private-rival persona, as `{ config, book|null,
+/// snapshotId }` records — one per data/rivals/<slug>.config.json, with the
+/// matching <slug>.book.json when it exists, plus the spec 214 persona
+/// snapshot id of the loaded bundle. Returns `[]` (not an error) when the dir
 /// or configs are absent: private personas stay local and their absence is a
 /// normal state, never an error (spec 214/218 hard rule). Unparseable files
 /// are skipped for the same reason.
@@ -1405,17 +1556,40 @@ pub fn rival_personas(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, S
             continue;
         };
         // The book lives next to its config as <slug>.book.json; the slug is
-        // used as a bare file stem only (no separators), never a path.
-        let book = config
+        // used as a bare file stem only (no separators), never a path. The raw
+        // text is kept alongside the parsed value: the snapshot id hashes the
+        // book FILE bytes, so a rebuilt book is a new snapshot even when the
+        // config is untouched.
+        let book_text = config
             .get("slug")
             .and_then(|s| s.as_str())
             .filter(|slug| !slug.contains('/') && !slug.contains('\\'))
-            .and_then(|slug| {
-                let text = std::fs::read_to_string(dir.join(format!("{slug}.book.json"))).ok()?;
-                serde_json::from_str::<serde_json::Value>(&text).ok()
-            })
+            .and_then(|slug| std::fs::read_to_string(dir.join(format!("{slug}.book.json"))).ok());
+        let book = book_text
+            .as_deref()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
             .unwrap_or(serde_json::Value::Null);
-        out.push(serde_json::json!({ "config": config, "book": book }));
+        // Persona snapshot id (spec 214 "Persona snapshots"), computed here —
+        // where the persona's files load — so every surface downstream records
+        // the same immutable version: config JSON + book file hash + weights
+        // reference (a pinned net or the Maia band) + sampling params. Content
+        // hash = version: any file/knob change yields a new id automatically.
+        let book_sha = book_text.as_deref().map(|t| sha256_hex(t.as_bytes()));
+        let weights_id = config
+            .pointer("/backend/net/sha256")
+            .or_else(|| config.pointer("/backend/net/file"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                let level = config
+                    .pointer("/sampling/level")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                format!("maia-{level}")
+            });
+        let sampling = config.get("sampling").cloned().unwrap_or(serde_json::Value::Null);
+        let id = snapshot_id(&config, book_sha.as_deref(), &weights_id, &sampling);
+        out.push(serde_json::json!({ "config": config, "book": book, "snapshotId": id }));
     }
     Ok(out)
 }
@@ -2107,5 +2281,107 @@ mod tests {
             assert!((-500..=500).contains(v), "startpos eval out of band: {v}");
         }
         eprintln!("real_stockfish: e4={} d4={} a3={}", values[0], values[1], values[2]);
+    }
+
+    // -------------------------------------------------------------------
+    // Persona snapshots (spec 214 "Persona snapshots")
+    // -------------------------------------------------------------------
+
+    /// A representative on-disk persona config for the snapshot tests.
+    fn snapshot_config() -> serde_json::Value {
+        serde_json::json!({
+            "slug": "test-persona",
+            "kind": "public-figure",
+            "backend": { "kind": "maia", "level": 1700 },
+            "sampling": { "level": 1700, "temperature": 0.5, "alpha": 1.0, "lambda": 0.75 }
+        })
+    }
+
+    #[test]
+    fn snapshot_id_same_config_same_id() {
+        let cfg = snapshot_config();
+        let a = snapshot_id(&cfg, Some("bookhash"), "maia-1700", &cfg["sampling"]);
+        let b = snapshot_id(&cfg, Some("bookhash"), "maia-1700", &cfg["sampling"]);
+        assert_eq!(a, b, "the hash is a pure function of the bundle");
+        assert_eq!(a.len(), 64, "full sha256 hex");
+    }
+
+    #[test]
+    fn snapshot_id_is_key_order_independent() {
+        // The same logical config with object keys in a different order must
+        // hash identically — canonicalization sorts keys recursively.
+        let a: serde_json::Value = serde_json::from_str(
+            r#"{"slug":"x","sampling":{"level":1500,"temperature":0.5}}"#,
+        )
+        .unwrap();
+        let b: serde_json::Value = serde_json::from_str(
+            r#"{"sampling":{"temperature":0.5,"level":1500},"slug":"x"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot_id(&a, None, "maia-1500", &a["sampling"]),
+            snapshot_id(&b, None, "maia-1500", &b["sampling"]),
+        );
+    }
+
+    #[test]
+    fn snapshot_id_changes_when_any_bundle_part_changes() {
+        let cfg = snapshot_config();
+        let base = snapshot_id(&cfg, Some("bookhash"), "maia-1700", &cfg["sampling"]);
+
+        // One sampling-parameter change → a new snapshot, automatically.
+        let mut tweaked = cfg.clone();
+        tweaked["sampling"]["temperature"] = serde_json::json!(0.55);
+        assert_ne!(
+            base,
+            snapshot_id(&tweaked, Some("bookhash"), "maia-1700", &tweaked["sampling"]),
+            "a sampling change must produce a new id"
+        );
+
+        // A rebuilt book (new file bytes) → a new snapshot.
+        assert_ne!(
+            base,
+            snapshot_id(&cfg, Some("otherbookhash"), "maia-1700", &cfg["sampling"]),
+            "a book change must produce a new id"
+        );
+        // Bookless is distinct from any hashed book.
+        assert_ne!(base, snapshot_id(&cfg, None, "maia-1700", &cfg["sampling"]));
+
+        // A different policy backend → a new snapshot.
+        assert_ne!(
+            base,
+            snapshot_id(&cfg, Some("bookhash"), "maia-1800", &cfg["sampling"]),
+            "a weights change must produce a new id"
+        );
+    }
+
+    #[test]
+    fn sampling_bundle_hashes_stably_across_surfaces() {
+        // The spar command and the match runner build the bundle from
+        // different structs; identical effective knobs must agree on the id.
+        let schedule = TemperatureSchedule::default();
+        let endgame = EndgameArm::default();
+        let a = sampling_bundle(
+            1500, 0.5, 1.0, 0.75, Some(4), None, Some(12),
+            Some(&schedule), None, Some(&endgame), None,
+        );
+        let b = sampling_bundle(
+            1500, 0.5, 1.0, 0.75, Some(4), None, Some(12),
+            Some(&schedule), None, Some(&endgame), None,
+        );
+        let null = serde_json::Value::Null;
+        assert_eq!(
+            snapshot_id(&null, None, "maia-1500", &a),
+            snapshot_id(&null, None, "maia-1500", &b),
+        );
+        // One knob differs → different id.
+        let c = sampling_bundle(
+            1500, 0.5, 1.0, 0.75, Some(4), None, Some(10),
+            Some(&schedule), None, Some(&endgame), None,
+        );
+        assert_ne!(
+            snapshot_id(&null, None, "maia-1500", &a),
+            snapshot_id(&null, None, "maia-1500", &c),
+        );
     }
 }

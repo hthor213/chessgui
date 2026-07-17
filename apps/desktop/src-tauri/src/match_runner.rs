@@ -571,6 +571,11 @@ pub struct PersonaRuntime {
     /// Corpus error model (contract step 5). None = OFF — only a config the
     /// tuner enabled (held-out +2% bar, spec 214) ever carries one.
     pub error_model: Option<persona::ErrorModel>,
+    /// Persona snapshot id (spec 214 "Persona snapshots"): content hash of the
+    /// immutable bundle this persona plays under, computed at resolve time.
+    /// Stamped on every per-move decision and recorded on the game outcome so
+    /// a result can always be joined to the exact persona version.
+    pub snapshot_id: String,
 }
 
 /// A persona player: a warm lc0 process bound to the persona's net, driven once
@@ -589,6 +594,8 @@ struct PersonaPlayer {
     style_bias: Option<persona::StyleBias>,
     endgame: Option<persona::EndgameArm>,
     error_model: Option<persona::ErrorModel>,
+    /// Spec 214 snapshot id, stamped onto every decision this player makes.
+    snapshot_id: String,
 }
 
 impl PersonaPlayer {
@@ -608,6 +615,7 @@ impl PersonaPlayer {
             style_bias: rt.style_bias.clone(),
             endgame: rt.endgame.clone(),
             error_model: rt.error_model.clone(),
+            snapshot_id: rt.snapshot_id.clone(),
         })
     }
 
@@ -636,7 +644,7 @@ impl PersonaPlayer {
             endgame: self.endgame.clone(),
             error_model: self.error_model.clone(),
         };
-        let decision = persona::select_move_from_policy(
+        let mut decision = persona::select_move_from_policy(
             fen,
             &policy,
             self.alpha,
@@ -650,6 +658,8 @@ impl PersonaPlayer {
             &ctx,
         )
         .await?;
+        // Spec 214: every recorded decision names the snapshot it played under.
+        decision.snapshot_id = self.snapshot_id.clone();
         let elapsed = t0.elapsed().as_millis() as i64;
         Ok((decision.uci.clone(), elapsed, decision))
     }
@@ -1538,6 +1548,15 @@ pub struct GameOutcome {
     /// existing consumers are unaffected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub persona_logs: Vec<PersonaLogEntry>,
+    /// Persona snapshot ids (spec 214 "Persona snapshots") each side played
+    /// under; `None` for a UCI side. The same content hash the per-move
+    /// decision logs carry, lifted to the game record so a match/exhibition
+    /// result joins to the exact persona version without digging into logs.
+    /// Additive: omitted from the JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub white_persona_snapshot: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub black_persona_snapshot: Option<String>,
 }
 
 /// Progress event emitted as each game in a batch completes.
@@ -1837,6 +1856,10 @@ pub async fn run_batch_core_evaluated(
                 evals,
                 aborted,
                 persona_logs,
+                // Spec 214: record the snapshot version each persona side
+                // played under, at the game-record level.
+                white_persona_snapshot: spec.white_runtime.as_ref().map(|r| r.snapshot_id.clone()),
+                black_persona_snapshot: spec.black_runtime.as_ref().map(|r| r.snapshot_id.clone()),
             };
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1973,6 +1996,38 @@ async fn resolve_one(
             // Per-game seed (contract step 8): mix the persona base seed with the
             // game id so each game in the batch is distinct yet reproducible.
             let seed = persona::derive_seed(cfg.seed.unwrap_or(0), game_id as u32);
+            // Schedule + endgame arm default ON (untuned defaults, same as
+            // the spar loop's DEFAULT_PERSONA_PARAMS); style bias only when
+            // explicitly configured (spec 214 hard rule).
+            let schedule = Some(cfg.schedule.clone().unwrap_or_default());
+            // Error model only when explicitly configured — the tuner
+            // gates it (spec 214); there is no default-ON variant.
+            let endgame = Some(cfg.endgame.clone().unwrap_or_default());
+            // Persona snapshot (spec 214 "Persona snapshots"): the content
+            // hash of the EFFECTIVE bundle — post-defaulting, so the id names
+            // what actually governs play. The weights reference is the named
+            // managed net (its config pins the file's sha256) or the Maia
+            // band; the runner plays bookless today, hence no book hash. Any
+            // knob change yields a new id automatically — no registry.
+            let weights_id = cfg
+                .weights
+                .clone()
+                .unwrap_or_else(|| format!("maia-{}", cfg.level));
+            let bundle = persona::sampling_bundle(
+                cfg.level,
+                cfg.temperature,
+                cfg.alpha,
+                cfg.lambda,
+                cfg.top_k,
+                cfg.top_p,
+                cfg.verify_depth,
+                schedule.as_ref(),
+                cfg.style_bias.as_ref(),
+                endgame.as_ref(),
+                cfg.error_model.as_ref(),
+            );
+            let snapshot_id =
+                persona::snapshot_id(&serde_json::Value::Null, None, &weights_id, &bundle);
             Ok(ResolvedSide::Persona(PersonaRuntime {
                 lc0_path,
                 weights_path,
@@ -1985,15 +2040,11 @@ async fn resolve_one(
                 top_p: cfg.top_p,
                 verify_depth: cfg.verify_depth,
                 seed,
-                // Schedule + endgame arm default ON (untuned defaults, same as
-                // the spar loop's DEFAULT_PERSONA_PARAMS); style bias only when
-                // explicitly configured (spec 214 hard rule).
-                schedule: Some(cfg.schedule.clone().unwrap_or_default()),
+                schedule,
                 style_bias: cfg.style_bias.clone(),
-                endgame: Some(cfg.endgame.clone().unwrap_or_default()),
-                // Error model only when explicitly configured — the tuner
-                // gates it (spec 214); there is no default-ON variant.
+                endgame,
                 error_model: cfg.error_model.clone(),
+                snapshot_id,
             }))
         }
     }
@@ -2736,7 +2787,7 @@ mod tests {
     }
 
     fn outcome(id: usize, result: Result<GameResult, String>, aborted: bool) -> GameOutcome {
-        GameOutcome { id, flipped: false, result, evals: Vec::new(), aborted, persona_logs: Vec::new() }
+        GameOutcome { id, flipped: false, result, evals: Vec::new(), aborted, persona_logs: Vec::new(), white_persona_snapshot: None, black_persona_snapshot: None }
     }
 
     fn win(res: &str) -> Result<GameResult, String> {
@@ -3128,6 +3179,7 @@ mod tests {
             style_bias: None,
             endgame: Some(persona::EndgameArm::default()),
             error_model: None,
+            snapshot_id: "snapshot-under-test".into(),
         };
 
         let cancel = AtomicBool::new(false);
@@ -3166,6 +3218,10 @@ mod tests {
             entry.decision.reason
         );
         assert!(!entry.decision.candidates.is_empty(), "candidates are logged");
+        assert_eq!(
+            entry.decision.snapshot_id, "snapshot-under-test",
+            "the runtime's spec 214 snapshot id is stamped on every decision"
+        );
     }
 
     // -----------------------------------------------------------------------

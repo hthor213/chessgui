@@ -3513,6 +3513,10 @@ function PersonaDecisionRow({
           </table>
           <div className="text-[10px] text-muted-foreground pt-1">
             derived seed {d.derived_seed}
+            {/* Spec 214 persona snapshot: the immutable bundle version this
+                move played under (content hash — shortened; same prefix =
+                same persona version). Same seed + same snapshot = same game. */}
+            {d.snapshot_id ? ` · snapshot ${d.snapshot_id.slice(0, 12)}` : ""}
           </div>
         </div>
       )}

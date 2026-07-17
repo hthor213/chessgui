@@ -102,6 +102,14 @@ export interface PersonaConfig {
   /** Corpus error model (spec 214 step 5), from a config whose tuner run
    *  passed the held-out +2% bar; absent = OFF (the default everywhere). */
   errorModel?: ErrorModel
+  /** Persona snapshot id (spec 214 "Persona snapshots") of the loaded bundle,
+   *  computed Rust-side where the persona's files load (`rival_personas`):
+   *  config JSON + book file hash + weights reference + sampling params,
+   *  content-hashed — so a config edit or book rebuild is a new id with no
+   *  registry. Present only for local-file-backed personas; the spar decision
+   *  log records it per game (frontend-imported GM/band entries fall back to
+   *  the engine-side id on each decision). */
+  snapshotId?: string
 }
 
 export interface Participant {
@@ -369,6 +377,8 @@ function localRivalParticipant(rp: LocalRivalPersona, profile?: PlayerProfileFil
       ...(gate.approximate ? { approximate: true } : {}),
       ...(hasBook ? { book: "local" as const, bookSlug: cfg.slug } : {}),
       ...samplingOverrides(cfg),
+      // Spec 214 snapshot id, Rust-computed when this persona's files loaded.
+      ...(rp.snapshotId ? { snapshotId: rp.snapshotId } : {}),
     },
     strengthLabel: hasBook
       ? `~${gate.level} (Maia policy) playing his real openings — unmeasured`
@@ -440,6 +450,8 @@ function selfParticipant(rp: LocalRivalPersona): Participant {
       book: "local",
       bookSlug: rp.config.slug,
       ...samplingOverrides(rp.config),
+      // Spec 214 snapshot id, Rust-computed when this persona's files loaded.
+      ...(rp.snapshotId ? { snapshotId: rp.snapshotId } : {}),
     },
     strengthLabel: `~${gate.level} (Maia policy) playing your real openings — Maia-estimated self-model`,
     actions: ["play"],
