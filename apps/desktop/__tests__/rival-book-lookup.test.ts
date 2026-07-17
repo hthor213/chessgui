@@ -3,10 +3,12 @@ import {
   buildRivalMoveMap,
   lookupRivalReply,
   normalizeFenKey,
+  pliesSinceBookExit,
   replySanToUci,
   START_FEN,
 } from "@/lib/rival-book-lookup";
 import type { RivalBookEntry } from "@/lib/rival-book";
+import { applyUci, type SparPly } from "@/lib/spar";
 
 // A small hand-built book exercising both rival colours and shared prefixes.
 // rival = White: his very first move is ply 1 (before-position = the game
@@ -91,6 +93,76 @@ describe("lookupRivalReply — deterministic weighted sampling", () => {
     // At the start node, e4 (weight 22) then d4 (weight 15), total 37.
     expect(lookupRivalReply(map, START_FEN, () => 0.0)!.san).toBe("e4"); // target 0
     expect(lookupRivalReply(map, START_FEN, () => 0.9)!.san).toBe("d4"); // target 33.3
+  });
+});
+
+describe("pliesSinceBookExit — book-exit ply for the persona engine", () => {
+  // Play a SAN line from the start position into the spar loop's ply shape.
+  function playLine(...sans: string[]): SparPly[] {
+    const out: SparPly[] = [];
+    let fen = START_FEN;
+    for (const san of sans) {
+      const uci = replySanToUci(fen, san);
+      const ply = uci ? applyUci(fen, uci) : null;
+      if (!ply) throw new Error(`illegal test line at ${san}`);
+      out.push(ply);
+      fen = ply.fen;
+    }
+    return out;
+  }
+
+  const whiteMap = buildRivalMoveMap(RIVAL_WHITE, "white");
+  const blackMap = buildRivalMoveMap(RIVAL_BLACK, "black");
+
+  it("returns 0 before any ply (a White rival's own first move is the exit-or-book point)", () => {
+    expect(pliesSinceBookExit(whiteMap, "white", START_FEN, [])).toBe(0);
+  });
+
+  it("returns 0 while every played ply is still in book (exit is happening now)", () => {
+    // 1.e4 (his recorded reply) c5 (lands on the "1.e4 c5" node — 2.Nf3/2.Nc3
+    // are recorded there). The move being computed for this call is the first
+    // to leave book, so the style-bias window opens fully.
+    expect(pliesSinceBookExit(whiteMap, "white", START_FEN, playLine("e4", "c5"))).toBe(0);
+  });
+
+  it("returns 0 when the user's novelty was the last ply played", () => {
+    // 2...d6 leaves his recorded games (no node after it): the exit ply is the
+    // final one, so the rival's first out-of-book reply still sees 0.
+    expect(
+      pliesSinceBookExit(whiteMap, "white", START_FEN, playLine("e4", "c5", "Nf3", "d6")),
+    ).toBe(0);
+  });
+
+  it("counts plies played after the exit ply", () => {
+    // Exit at index 3 (2...d6), then 3.d4 cxd4 played — two plies since.
+    expect(
+      pliesSinceBookExit(
+        whiteMap,
+        "white",
+        START_FEN,
+        playLine("e4", "c5", "Nf3", "d6", "d4", "cxd4"),
+      ),
+    ).toBe(2);
+  });
+
+  it("treats the rival's own deviation from a book node as the exit ply", () => {
+    // At the start node his book has e4/d4 only; 1.a3 deviates (index 0), then
+    // 1...e5 is one ply since.
+    expect(pliesSinceBookExit(whiteMap, "white", START_FEN, playLine("a3", "e5"))).toBe(1);
+  });
+
+  it("handles a Black rival (user plies checked by resulting-position node)", () => {
+    // 1.e4 c5 both in his book; 2.Nf3 has no node after it -> exit at index 2;
+    // 2...Nc6 3.d4 are the two plies since.
+    expect(pliesSinceBookExit(blackMap, "black", START_FEN, playLine("e4", "c5"))).toBe(0);
+    expect(
+      pliesSinceBookExit(
+        blackMap,
+        "black",
+        START_FEN,
+        playLine("e4", "c5", "Nf3", "Nc6", "d4"),
+      ),
+    ).toBe(2);
   });
 });
 
