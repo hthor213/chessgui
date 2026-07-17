@@ -1263,12 +1263,20 @@ export default function Home() {
             scrollable column, board first; every lg: guard below exists to
             keep desktop (≥1024px) byte-for-byte identical to the old
             layout. */}
+        {/* Desktop row is pinned to the viewport (grid-rows-[minmax(0,1fr)]):
+            the notebook column is taller than a screen now, and without the
+            pin the implicit row stretches EVERY column to the tallest one —
+            the board slot then exceeds the viewport and its vertical
+            centering shoves the board below the fold (user-hit 2026-07-17).
+            Side columns scroll internally instead; their widths breathe with
+            the window between a min and max (clamp), per user request. */}
         <main
-          className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr_320px] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible overflow-x-hidden lg:overflow-x-visible"
+          className="flex-1 grid grid-cols-1 lg:grid-cols-[clamp(240px,22vw,320px)_minmax(0,1fr)_clamp(280px,26vw,384px)] lg:grid-rows-[minmax(0,1fr)] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible overflow-x-hidden lg:overflow-x-visible"
           style={view !== "board" || liveViewing ? { display: "none" } : undefined}
         >
-          {/* Left column: Player Panel */}
-          <div className="flex flex-col gap-6 order-2 lg:order-none">
+          {/* Left column: Player Panel. min-h-0 + internal scroll on lg so
+              the tall notebook never stretches the pinned grid row. */}
+          <div className="flex flex-col gap-6 order-2 lg:order-none lg:min-h-0 lg:overflow-y-auto">
             {/* Accordion header, stacked mode only. The section wrapper is
                 lg:contents, so at lg+ the cards are direct flex children of
                 the column — byte-identical to the pre-mobile layout. */}
@@ -1684,8 +1692,9 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right column: Game Analytics */}
-          <div className="flex flex-col gap-6 min-h-0 overflow-hidden order-3 lg:order-none">
+          {/* Right column: Game Analytics. Scrolls internally on lg like the
+              notebook, so the engine room never stretches the pinned row. */}
+          <div className="flex flex-col gap-6 min-h-0 overflow-hidden order-3 lg:order-none lg:overflow-y-auto">
             {/* Accordion header, stacked mode only (see left column). */}
             <button
               type="button"
