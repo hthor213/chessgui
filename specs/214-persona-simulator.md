@@ -260,6 +260,10 @@ the temperature schedule (contract step 3) and the error model (step 5).
 - [ ] Rerun tune_persona.py (wave-6 died; tuning_kasparov.json partial);
       replace untuned defaults (temp 0.5, α 1.0, λ 0.75, schedule
       multipliers). (LAST_SESSION wip note + Known-issues 4)
+      (checked 2026-07-17: could not verify from git — the rerun's
+      data/personas/tuning_*.json outputs and the HARNESS_RESULTS.md update
+      exist only UNTRACKED in the main working tree; tick once they're
+      committed and the configs carry the tuned values)
 - [ ] Opponent-archetype conditioning (+light personal bias); 2-4-move
       plan-coherence memory; gated on acceptance bar. (214:129-138)
 - [ ] Immutable versioned snapshots; matches record version; seed+snapshot

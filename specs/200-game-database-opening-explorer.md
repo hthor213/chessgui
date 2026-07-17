@@ -110,9 +110,13 @@ breakdown). A dedicated live explorer panel is a later slice.
 - [x] Material signature search (e.g. R+P vs R endgames) (000:63) (code-verified 2026-07-16: db.rs schema v4 game_material + material-signature.ts, colour-agnostic)
 - [x] Tag/favorite games in the game list (000:64) (code-verified 2026-07-16: db.rs schema v3 game_tags + add/remove/list commands)
 - [ ] Merge databases with dedup beyond import-time hash (000:66)
-- [ ] Explorer surfaces transpositions explicitly (UI claim + test) — Zobrist hashing
-      already makes transposition detection inherent to the position-search index, but
-      no UI surfaces it as a named claim and no test asserts it (000:73)
+- [x] Explorer surfaces transpositions explicitly (UI claim + test) — Zobrist hashing
+      already makes transposition detection inherent to the position-search index
+      (000:73) (verified 2026-07-17: explorer + database panels render the named
+      claim — opening-explorer-panel.tsx:131-135 `explorer-transposition-note`,
+      database-tab `db-transposition-note`; asserted by
+      apps/desktop/__tests__/opening-explorer-panel.test.ts (green); data layer
+      covered by `transposition_matches_distinct_move_orders`, db.rs:2355)
 
 ### CBH Importer (shipped in code, undocumented here — audit 2026-07-16)
 

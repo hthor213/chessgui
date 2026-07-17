@@ -76,3 +76,19 @@ names its eventual home decision.
       200-band gap user decision; supersede/archive/status flips from the
       audit are partially done as of 2026-07-16 — 001-project-setup archived,
       011-stockfish-uci + 012 superseded, 010 closed into 016).
+
+## Pending user walkthrough (2026-07-17)
+
+Cross-spec tick-sweep leftovers: the code half of each item verified green,
+but the claim itself is user-visible (or needs the user's own auth/eyes), so
+per feedback_testing.md the box stays open until the user confirms.
+
+- **220:248** — `pnpm tauri dev` and `scripts/install-app.sh --debug` green on
+  the workspace layout. pnpm-workspace.yaml is in place (partial note on the
+  item); the two live runs need the user's machine + eyes on the running app.
+- **222 pc-build workflow push + first tag build** — the workflow IS committed
+  on main (968bcb7; tag-triggered tauri-action matrix verified in-file), but
+  the hthor213 gh token still lacks the `workflow` scope (checked 2026-07-17
+  via `gh auth status`), so pushing `.github/workflows/pc-build.yml` will be
+  rejected until the user runs `gh auth refresh -s workflow` (interactive).
+  After the push, tag a `v*` build and confirm release artifacts appear.

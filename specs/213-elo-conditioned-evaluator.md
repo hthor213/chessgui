@@ -375,13 +375,28 @@ optional move, and score them against Stockfish. Files are the research artifact
 - [ ] Spec review with user after tier-1 + E1 results
 
 ### Later / uncaptured requirements (audit 2026-07-16)
-- [ ] On every training/calibration answer, eval the played move (searchmoves/
+- [x] On every training/calibration answer, eval the played move (searchmoves/
       eval-after-move, same depth); store playedMoveEvalCp + gapToBestCp; feed coach
       context. (plan 2026-07-16 user directive)
-- [ ] Free-text variation → SAN → chessops legality → per-ply SF walk → verdict
+      (verified 2026-07-17: verify.rs `eval_played_move` (searchmoves-restricted,
+      same movetime as the stored best-move eval); stored as
+      played_move_eval_cp/mate + gap_to_best_cp (calibration-types.ts:92-96,
+      calibration.ts:189-190, calibration-tab.tsx:695,1697); fed to the coach as
+      user_move_eval_cp/mate (calibration.ts:223-224 → coach.rs:122-124,244-248);
+      calibration.test.ts green)
+- [x] Free-text variation → SAN → chessops legality → per-ply SF walk → verdict
       grounding coach prose. (plan 2026-07-16)
-- [ ] Note → rebuttal → reply dialogue on every coached miss. (TRAINING_PLAN:35-40;
+      (verified 2026-07-17: verify.rs `verify_line` — SAN/UCI legality walk
+      (shakmaty on the Rust side, the desktop's legality authority; same contract)
+      + fixed-budget per-ply SF evals + verdict, MAX_PLIES 16; coach.rs:436-521
+      extracts the move sequence from the student's free text and verifies it
+      BEFORE the follow-up opines)
+- [x] Note → rebuttal → reply dialogue on every coached miss. (TRAINING_PLAN:35-40;
       000 module 9 prose)
+      (verified 2026-07-17: coach.rs:409-425 build_followup (prior context + note +
+      student rebuttal), calibration.ts:282-294 `coachFollowup`, per-answer
+      rebuttal/coach_reply persisted (calibration.ts:185-186,
+      calibration-tab.tsx:705-710); calibration.test.ts:561-562 green)
 - [ ] Surface raw error in RevealCard title/tooltip, replace two-bucket match. (BACKLOG
       Error observability)
 - [ ] Sanitizer in parse_response if leak recurs (seen once). (BACKLOG)

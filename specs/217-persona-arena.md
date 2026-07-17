@@ -216,17 +216,37 @@ accurate as a direct consequence — the arena feeds the Florida milestone.
       it) (LAST_SESSION Next-3; 217:181-184)
 - [ ] Assisted first arena session with dad. (user-blocked: needs the user
       and dad together) (LAST_SESSION Next-3; 217:181-184)
-- [ ] Promise 3: persona-vs-persona spectate/replay in the arena (Fischer
-      vs Kasparov). (217:65-67)
+- [x] Promise 3: persona-vs-persona spectate/replay in the arena (Fischer
+      vs Kasparov). (217:65-67) (verified 2026-07-17: exhibition endpoints
+      server/arena/app/main.py:689-742 (create/list/get/stop; server plays both
+      sides, one-at-a-time slot + node cap per the resource policy, every move
+      persisted so spectate is an honest poll); arena UI
+      exhibitions-screen.tsx + exhibition-screen.tsx;
+      arena-exhibition.test.ts green; a recorded Fischer–Kasparov game ships at
+      data/personas/exhibition_fischer_kasparov.pgn)
 - [ ] Promise 6: flywheel batch-ingest job — dossier update → style-prior
       retune per N new games, gated on move-match. (217:76-79,171-177)
-- [ ] Tier-1 remainder: per-opponent W/D/L history for the player.
-      (217:186-196)
-- [ ] Tier-1 remainder: clocks with increment (match protocol per
-      spec:215). (217:186-196)
-- [ ] Arena games deletable on request. (217:127)
-- [ ] Opt-in "felt like him" family feedback for players who knew the
-      personas (v2). (217:166-168,198)
+- [x] Tier-1 remainder: per-opponent W/D/L history for the player.
+      (217:186-196) (verified 2026-07-17: GET /api/stats aggregated in SQL,
+      finished games only, scoped to the user (main.py:403-408, db.wdl_by_persona);
+      shown alongside the games list in history-screen.tsx:36-50;
+      arena-wdl.test.ts green)
+- [x] Tier-1 remainder: clocks with increment (match protocol per
+      spec:215). (217:186-196) (verified 2026-07-17: clock_initial_s/
+      clock_increment_s schema + additive migration, remaining time derived from
+      turn_started_at so clocks survive restart (db.py:36-45,128-133,184-200);
+      flag-fall adjudicated on read (`_flag_if_overdue`, main.py); clock UI in
+      arena game-screen.tsx; arena-clock.test.ts green)
+- [x] Arena games deletable on request. (217:127) (verified 2026-07-17:
+      DELETE /api/game/{id} with ownership check (main.py:573-577,
+      db.delete_game); delete action in history-screen.tsx:60-70,149-152;
+      covered by arena-wdl.test.ts "drops a deleted game from the record")
+- [x] Opt-in "felt like him" family feedback for players who knew the
+      personas (v2). (217:166-168,198) (verified 2026-07-17: POST
+      /api/game/{id}/realism — finished games only, felt_like/did_not_feel_like,
+      resubmit updates the row (main.py:507-524, db.set_game_feedback); one-tap
+      prompt on the game-over panel in game-screen.tsx; arena-realism.test.ts
+      green)
 
 ## Non-goals
 

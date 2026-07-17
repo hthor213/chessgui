@@ -150,9 +150,13 @@ it may claim a strength. Concretely:
       sets CREATE_NO_WINDOW on Windows; all reads trim, so `\r\n` is tolerated)
 - [ ] GitHub Actions workflow: tag-triggered matrix build (windows-latest,
       ubuntu-22.04) via tauri-action, artifacts on a GitHub release
-      (written 2026-07-15 as `.github/workflows/pc-build.yml` but NOT pushed:
-      the hthor213 OAuth token lacks the `workflow` scope — run
-      `gh auth refresh -s workflow` then commit/push the file)
+      (updated 2026-07-17: `.github/workflows/pc-build.yml` is now COMMITTED on
+      main (968bcb7) — tag-push `v*` release builds + workflow_dispatch artifact
+      runs, windows-latest/ubuntu-22.04 matrix, sha256-pinned sidecar fetch —
+      but still NOT on origin: `gh auth status` shows the hthor213 token still
+      lacks the `workflow` scope, so the push will be rejected until the user
+      runs `gh auth refresh -s workflow`; no tag build has ever run. Listed in
+      900-backlog "Pending user walkthrough (2026-07-17)")
 - [ ] Linux artifact (.deb + AppImage) boots in a local VM: board renders, engine
       starts, analysis lines stream, game plays end to end
 - [ ] Windows artifact (.msi/.exe) boots: same smoke script — **USER-BLOCKED: needs
@@ -160,8 +164,14 @@ it may claim a strength. Concretely:
       assistance, or a one-time VM)**
 
 ### Tier 1 — dad's PC (spec:217 handoff)
-- [ ] First-start auto-bench wired: working engine detected → bench → profile
+- [x] First-start auto-bench wired: working engine detected → bench → profile
       stored → labels flip from "no profile" to PRIOR (spec:216 Tier 2)
+      (verified 2026-07-17: use-machine-profile.ts:126-152 — on startup a
+      definite "no profile" (or a hardware-fingerprint mismatch) triggers
+      machineBench with the stored engine path, persists the profile and
+      reloads it; PRIOR/MEASURED labeling comes from core/time-elo.ts; the
+      on-screen label flip itself rides spec:216's "Visual PRIOR→MEASURED
+      confirm (user eyeball)" item)
 - [x] Install doc: download link + the two SmartScreen clicks, in plain language
       (Icelandic optional), suitable for the assisted first install
       (code-verified 2026-07-15: `docs/pc-install.md` — release link, the two
@@ -186,7 +196,9 @@ it may claim a strength. Concretely:
       install. (222:166-169)
 - [ ] `gh auth refresh -s workflow` before pushing `.github/workflows/pc-build.yml`
       (user-blocked: needs the user's gh auth). (plan iter8)
-- [ ] Fix `docs/pc-install.md`'s "few-second speed test... no action needed"
-      line — it describes first-start auto-bench as already shipped, but
-      the Tier-1 "First-start auto-bench wired" box above is still open;
-      the doc overstates what's built. (plan iter8)
+- [x] Fix `docs/pc-install.md`'s "few-second speed test... no action needed"
+      line — it described first-start auto-bench as already shipped while the
+      Tier-1 box was still open. (plan iter8) (resolved 2026-07-17 without a
+      doc edit: the Tier-1 "First-start auto-bench wired" box above is now
+      code-verified (use-machine-profile.ts:126-152), so the doc's line
+      matches what's built)

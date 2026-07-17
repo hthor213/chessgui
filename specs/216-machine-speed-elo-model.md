@@ -89,16 +89,27 @@ policy personas (Maia/BT3-policy), whose strength is time-invariant.
 
 ### Tier 2 — REQUIRED for spec:217 (audit 2026-07-16: had zero boxes despite the
 "REQUIRED for 217" gate note in the Tiers section above)
-- [ ] Cross-machine Elo equivalence ("server at 60s ≈ laptop at 22s").
-      (216:58-64)
+- [x] Cross-machine Elo equivalence ("server at 60s ≈ laptop at 22s").
+      (216:58-64) (verified 2026-07-17: equal-nodes mapping `equivalentSeconds` +
+      human-readable `equivalenceLine` in core/time-elo.ts:155-196; guarded when
+      either side lacks a bench; time-elo.test.ts:114 "cross-machine, equal
+      nodes" green)
 - [ ] Per-engine curves (Reckless vs SF), not one curve for both. (216:58-64)
-- [ ] Auto re-bench on hardware-change detection. (216:58-64)
+- [x] Auto re-bench on hardware-change detection. (216:58-64)
+      (verified 2026-07-17: profiles carry a hardware fingerprint (CPU model +
+      cores + memory, machine.rs:78-82,232-236; same-fingerprint re-bench keeps
+      MEASURED, a change drops it :279-280, Rust unit tests :562+); on startup the
+      frontend compares the stored fingerprint to the live one and re-benches on
+      mismatch (use-machine-profile.ts:126-152))
 - [ ] Homeserver bench + compression ladder run through to a MEASURED profile
       → arena strength labels flip from PRIOR to MEASURED. (217:129-141;
       plan 0a)
 - [ ] Visual PRIOR→MEASURED confirm (user eyeball) on a real profile.
       (216:79,84-88)
 - [ ] Replace the 0.05s machine-min placeholder with the ladder-measured
-      floor. (216:79,84-88)
+      floor. (216:79,84-88) (partial 2026-07-17: plumbing shipped — fit_curve.py
+      emits `machine_min_seconds` and time-elo.ts:276-283 prefers it over the
+      0.05s fallback — but no committed ladder artifact carries a measured value
+      yet; blocked on the slow-rungs item below)
 - [ ] Finish the slow rungs (b(t) fit currently refining on fast rungs only).
       (216:79,84-88)

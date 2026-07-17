@@ -217,9 +217,13 @@ strength (spec:216 curve) — no unmeasured realism claims.
       (218:63-68,158-162)
 - [ ] User picks source photos and approves likenesses. (user-blocked: needs
       the user to supply/approve photos) (218:63-68,158-162)
-- [ ] Wire the numbered-SAN move list into the shared `LiveGameView`
+- [x] Wire the numbered-SAN move list into the shared `LiveGameView`
       (app/page.tsx), not just the exhibition viewer. (218:199-206 "open
-      follow-up")
+      follow-up") (verified 2026-07-17: app/page.tsx:1812-1826 builds moveRows
+      via the exhibition viewer's exact path — core/game-replay.ts `sansFromUci`
+      + `numberMoves` (:88), one SAN-numbering implementation for both surfaces;
+      game-replay.test.ts green; on-screen look stays with the user-eyeball
+      items below)
 - [ ] Extract back/forward review into a shared component now that the
       exhibition viewer has gained its own SAN move list (the stated trigger
       condition, "small fork ... extracted when the exhibition viewer gains

@@ -119,11 +119,16 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
 - [x] Tier-1 generator: eval-cliff scanner over the games DB (scripts/mining/mine_cliffs.py, Python) (code-verified 2026-07-15)
 - [x] Engine re-verification pass (local Stockfish, fixed depth, threshold config) (code-verified 2026-07-15)
 - [x] Attractiveness filters (played-by-human, ≥3 alternatives, natural-move heuristics) (code-verified 2026-07-15)
-- [ ] Engagement filter (2026-07-14, from rival-analysis methodology): a blunder in a
+- [x] Engagement filter (2026-07-14, from rival-analysis methodology): a blunder in a
       distracted game is not a perceptual rake. Use %clk signals (near-instant move
       bursts, big clock gap then collapse, timeout/abandon terminations) to exclude
       disengaged games from cliff mining — same 1.5σ-vs-own-median approach as the
       rival dossiers.
+      (verified 2026-07-17: scripts/mining/mine_cliffs.py — [%clk] parsing
+      (CLK_RE :92, parse_movetext :118-146), mover_think_times :180-190, exclusion
+      at own median ± 1.5σ per self_engage.py convention (:97-99), plus
+      timeout/abandon-where-mover-lost termination filter (:21-27); games without
+      %clk data are KEPT; `--no-engagement` disables)
 - [x] `puzzles` table + import/dedup
   - *BUILT 2026-07-15*: schema v2 in the app DB (src-tauri/src/puzzles.rs holds the
     DDL, db.rs runs the migration) — a VERBATIM mirror of
@@ -215,10 +220,14 @@ predates the build_reference_pack.py fix 202d5e3 — git pull there before using
       (kept games are the earliest in the chronological dump, not a random sample);
       move to reservoir sampling if it matters for the Tier-2 miss-rate statistics or
       spec:213 validation (scripts/mining/README.md "Decisions to confirm" #3)
-- [ ] `mine_cliffs.py` budget rule, restated here so it isn't spec-silent: never run a
+- [x] `mine_cliffs.py` budget rule, restated here so it isn't spec-silent: never run a
       month open-ended — engine-bound at ~1.2s/candidate depth 16, and a full month has
       candidates in the ~10⁶ range; always bound with `--limit`, `--threads`, or a
       shallower depth (scripts/mining/README.md Tier-1 section)
+      (verified 2026-07-17: the rule is documented at scripts/mining/README.md:95
+      ("budget with `--limit`, `--threads`, or depth — never run a month
+      open-ended") and now restated above — the item's own ask; the flags exist in
+      mine_cliffs.py's argparse)
 - [ ] Verify CQL (Chess Query Language) redistribution license before bundling its
       motif detection for Tier-3 feature tagging (mistake-mining-prior-art.md concl. 5)
 - [ ] Priority experiment #1: replicate Guid–Bratko complexity-vs-error on our own

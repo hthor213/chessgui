@@ -209,8 +209,18 @@ codebase area; the spec text lives in 218.
       same-ms collision bump, corrupt-file skip, traversal guard); TS shape
       round-trip incl. Infinity-SE→null JSON mapping. In-Tauri save/load click
       still pending a live-app check, same as the runner itself.)
-- [ ] Deeper UHO integration: filter by ECO code, opening family, or custom FEN lists
-- [ ] Concurrency settings exposed in UI (max parallel games, engine thread count per game)
+- [x] Deeper UHO integration: filter by ECO code, opening family, or custom FEN lists
+      (verified 2026-07-17: tournament-tab.tsx ecoFilter state + live match readout
+      (:460,:734-743) filters the pool at run start (:841-844) via
+      `matchesEcoQuery` (core/eco.ts:184 — ECO-code prefix OR opening-name match;
+      eco.test.ts "spec 210 Phase 6" green); custom FEN lists via the
+      customPositions file picker feeding the same pool (:447,:689-698))
+- [x] Concurrency settings exposed in UI (max parallel games, engine thread count per game)
+      (verified 2026-07-17: tournament-tab.tsx concurrency input :1828 and
+      "Threads per engine" input :1836-1851 (`tournament-threads` testid);
+      Rust side applies Threads via setoption per PlayerSpec
+      (match_runner.rs:714-739) and bounds parallel games
+      (default_concurrency, match_runner.rs:1586-1626))
 - [x] Gauntlet scheduling alongside round-robin (000:88; 900:17) (code-verified 2026-07-16: buildGauntletSpecs + Format picker in tournament-tab)
 - [x] Export all games as one PGN file (bulk export of an entire tournament run,
       distinct from the existing per-game "Open in Analyze" PGN handoff) (000:93) (code-verified 2026-07-16: gamesToPgn multi-game export)

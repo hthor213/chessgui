@@ -155,15 +155,32 @@ features hide):
 
 ## Done when
 
-- [ ] `apps/web` shell exists in the workspace (spec:220), builds a static
+- [x] `apps/web` shell exists in the workspace (spec:220), builds a static
       export with `basePath: '/chess'`, no `@tauri-apps/*` in its dependency
-      graph
+      graph (verified 2026-07-17: apps/web/next.config.mjs:23 `basePath:
+      '/chess'`; zero tauri entries in apps/web/package.json and the postbuild
+      gate `scripts/check-no-tauri.mjs` fails the build if any Tauri specifier
+      or IPC global reaches the manifest OR the shipped bundle; a build has
+      demonstrably succeeded — the export is live at /chess, see the
+      deploy-verified reachability tick below)
 - [ ] WASM `EngineProvider` adapter: analysis panel streams MultiPV info lines
       in a plain browser, desktop hook logic unchanged
-- [ ] COOP/COEP headers served; SharedArrayBuffer available (or single-thread
+- [x] COOP/COEP headers served; SharedArrayBuffer available (or single-thread
       fallback consciously accepted and recorded here)
-- [ ] `server/web/` compose stack: multi-stage build, `chessgui-web` on
+      (verified 2026-07-17: live header check — `curl -I
+      https://www.spliffdonk.com/chess/` returns
+      `cross-origin-opener-policy: same-origin` +
+      `cross-origin-embedder-policy: require-corp` (nginx.conf:12-13, repeated
+      in the location block :29-30 because location-level add_header REPLACES
+      the inherited set); the single-thread fallback for header-less contexts
+      is recorded at apps/web/lib/wasm-engine.ts:19)
+- [x] `server/web/` compose stack: multi-stage build, `chessgui-web` on
       127.0.0.1:8018, mem_limit set, healthcheck green
+      (verified 2026-07-17: server/web/docker-compose.yml — build-stage
+      Dockerfile with nginx-only runtime, `127.0.0.1:8018:80`, mem_limit 256m +
+      cpus 0.5, wget healthcheck pinned to 127.0.0.1 (busybox localhost
+      resolves ::1); the running container answered HTTP 200 through
+      Caddy→nginx on the live check above)
 - [ ] Caddy routes live: `/chess` redirect, `/chess/api/*` → arena 8017 (strip
       `/chess`), `/chess/*` → 8018; ordering verified (api wins)
 - [ ] Arena reachable through `/chess/api` with the existing Google-auth

@@ -128,16 +128,31 @@ Promise 4 applies: dad tells his friend, same as dad was told.
 ## Done When
 
 **Agent-verifiable:**
-- [ ] Pipeline builds a full profile end-to-end from a PGN fixture (fixture in →
+- [x] Pipeline builds a full profile end-to-end from a PGN fixture (fixture in →
       pgn/stats/book/config artifacts out, sample verdict recorded)
-- [ ] Sample-size gates enforced by the pipeline: <30 → LOW-CONFIDENCE flag in the
+      (verified 2026-07-17: `python3 scripts/persona/build_player_profile.py
+      --self-test` run green — synthetic fixture PGN in, book/config/profile
+      artifacts out, verdict + preservation PASS checks printed)
+- [x] Sample-size gates enforced by the pipeline: <30 → LOW-CONFIDENCE flag in the
       config, <10 → no config emitted, verdict says why
+      (verified 2026-07-17: FULL_PERSONA_FLOOR=30 / PERSONA_MIN_GAMES=10
+      (build_player_profile.py:68-74), LOW-CONFIDENCE note written into the
+      config :475,:494; gates exercised by the self-test's Gate 1/2 fixtures
+      (:706,:734) — same green run as above)
 - [ ] Arnþór dossier (stats + book) built from the collected games IF the reviewed
       sample suffices; persona config only if the ≥30 verified floor holds
-- [ ] Beat-X generator produces a valid spec:215 Program + plan doc from a profile
+- [x] Beat-X generator produces a valid spec:215 Program + plan doc from a profile
       (test against an existing rival profile)
-- [ ] Roster shows pipeline-built profiles gated on artifacts; dossier-only
+      (verified 2026-07-17: `buildBeatPlan` emits the spec:215 Program + the
+      markdown plan (lib/beat-program.ts:170,324); terminal path
+      scripts/persona/generate_beat_plan.mjs reuses the SAME generator;
+      beat-program.test.ts "buildBeatPlan — the spec 215 Program" incl. the
+      existing-rival-profile case — green)
+- [x] Roster shows pipeline-built profiles gated on artifacts; dossier-only
       profiles field no bot
+      (verified 2026-07-17: artifact-existence rule in beat-program.ts:53;
+      roster.test.ts "buildRoster with pipeline profiles (spec 225)" — full
+      verdict unbadged + Beat-armed, dossier-only card fields NO bot — green)
 - [ ] "Add player profile…" UI flow runs the pipeline from the app
 
 **User-blocked:**
@@ -153,8 +168,12 @@ Promise 4 applies: dad tells his friend, same as dad was told.
 - [ ] Own-games import by username (hjaltth et al.): fetch the user's own
       archives and review them under the engine-LAST discipline. (000:114;
       900 Medium)
-- [ ] Lichess export-API fetcher (only the PGN-fixture import path is boxed
+- [x] Lichess export-API fetcher (only the PGN-fixture import path is boxed
       today; the lichess export API itself is not). (225:36-38)
+      (verified 2026-07-17: scripts/fetch_lichess.py — single streaming
+      request to lichess.org/api/games/user/{username}, identifying
+      User-Agent, 429 backoff per API etiquette; invoked by
+      build_player_profile.py's `--lichess` source (:180,:820))
 - [ ] Server-side Beat-X delivery: dad runs his program in the arena; the
       generator stays arena-agnostic so it works local-first and
       server-hosted without a rewrite. (225:90-93)

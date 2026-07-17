@@ -247,6 +247,9 @@ moves last — the moves are then mechanical.
       implementations (code-verified 2026-07-15)
 - [ ] `pnpm-workspace.yaml` in place; `pnpm tauri dev` and
       `scripts/install-app.sh --debug` verified green (workspace, pre-move)
+      (partial 2026-07-17: pnpm-workspace.yaml is in place at the repo root;
+      the dev-mode + install-build "green" halves need a live run — listed in
+      900-backlog "Pending user walkthrough (2026-07-17)")
 - [x] `packages/core` extracted: zero React/DOM/platform imports inside it
       (verifiable via its package.json deps + `tsc`), all tests moved with it
       still passing (code-verified 2026-07-15)
@@ -272,7 +275,10 @@ moves last — the moves are then mechanical.
 - [ ] AI-proxy commands (`recognize_fen`, `coach_feedback`/`coach_followup`)
       move from Rust-proxied Anthropic calls to a shared server endpoint, so
       the web client gets vision + coach too. (220:95-98; spec:221)
-- [ ] Document the Next.js static-export hard constraint in a `packages/ui`
+- [x] Document the Next.js static-export hard constraint in a `packages/ui`
       README so it isn't rediscovered by breaking it. (220:203-207)
+      (verified 2026-07-17: packages/ui/README.md "Static export (load-bearing)"
+      — no API routes, no IO-doing server components, images.unoptimized, plus
+      the platform-seam rule)
 - [ ] Web-local database story — user decision: server DB via the arena API
       (current house choice) vs sql.js/OPFS local. (220:109; spec:221)
