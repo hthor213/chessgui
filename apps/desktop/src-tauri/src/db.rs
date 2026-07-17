@@ -671,6 +671,7 @@ impl Db {
         // v2: avoidance puzzles (spec 211). Schema text lives next to its
         // import logic in puzzles.rs; it mirrors scripts/mining/import_puzzles.py.
         self.conn.execute_batch(crate::puzzles::PUZZLES_SCHEMA)?;
+        crate::puzzles::migrate_puzzles_columns(&self.conn)?;
         // Record the schema version once; bump an older recorded version in
         // place (the DDL above is idempotent, so running it IS the migration).
         let has: i64 =

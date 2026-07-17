@@ -75,10 +75,33 @@ CREATE TABLE IF NOT EXISTS puzzles (
     engine_verify_depth  INTEGER NOT NULL,
     generator            TEXT,
     created_at           TEXT NOT NULL,
+    -- Depth-differential difficulty PRIOR (spec 214 cognitive-gate proposal):
+    -- minimal Stockfish depth at which the trap registers as clearly losing;
+    -- -1 = swept to max depth without registering, NULL = not annotated.
+    -- Written by scripts/mining/depth_differential.py. The depth->Elo mapping
+    -- awaits Tier-2 band miss-rate calibration (spec 211) — a prior, not a
+    -- calibrated difficulty.
+    visible_from_depth   INTEGER,
     UNIQUE (fen, trap_uci)
 );
 CREATE INDEX IF NOT EXISTS idx_puzzles_band ON puzzles (band);
 "#;
+
+/// Idempotent column migration: DBs whose `puzzles` table predates
+/// `visible_from_depth` never get it from CREATE TABLE IF NOT EXISTS, so the
+/// column is ALTERed in — appended, matching its append-only position in the
+/// DDL (and what scripts/mining/depth_differential.py does on standalone DBs).
+pub(crate) fn migrate_puzzles_columns(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let has: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('puzzles') WHERE name = 'visible_from_depth'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        conn.execute("ALTER TABLE puzzles ADD COLUMN visible_from_depth INTEGER", [])?;
+    }
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
 // Serde boundary types (mirrored in lib/puzzles.ts)

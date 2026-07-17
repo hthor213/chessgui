@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS puzzles (
     engine_verify_depth  INTEGER NOT NULL,
     generator            TEXT,
     created_at           TEXT NOT NULL,
+    -- Depth-differential difficulty PRIOR (spec 214): minimal Stockfish depth
+    -- at which the trap registers as clearly losing; -1 = swept without
+    -- registering, NULL = not annotated. Filled post-import by
+    -- depth_differential.py; the generator never emits it.
+    visible_from_depth   INTEGER,
     UNIQUE (fen, trap_uci)
 );
 CREATE INDEX IF NOT EXISTS idx_puzzles_band ON puzzles (band);
@@ -61,7 +66,7 @@ COLS = ("fen", "trap_uci", "trap_san", "refutation_line", "played_reply_san",
         "verified_pre_best_cp", "verified_after_cp", "n_alternatives", "mate",
         "mover", "ply", "band", "white_elo", "black_elo", "source_game_id",
         "site", "date", "time_control", "source_file", "engine_verify_depth",
-        "generator", "created_at")
+        "generator", "created_at", "visible_from_depth")
 
 
 def row_values(rec):
