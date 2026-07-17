@@ -44,10 +44,12 @@ export interface SparResultRecorderArgs {
    *  false by the caller for probe games — passed straight through to
    *  buildSparResult, which also enforces "probe never counts" itself. */
   countsTowardTraining: boolean
+  /** The game's TC string ("10+5", spec 215); null = unclocked. */
+  timeControl: string | null
 }
 
 export function useSparResultRecorder(args: SparResultRecorderArgs): void {
-  const { active, over, resultLabel, mode, opponent, level, userColor, plies, gameKey, countsTowardTraining } = args
+  const { active, over, resultLabel, mode, opponent, level, userColor, plies, gameKey, countsTowardTraining, timeControl } = args
   // The id recorded for the current gameKey, so a take-back that un-ends the
   // game can withdraw it. Reset whenever gameKey changes.
   const recordedRef = useRef<{ key: number | string; id: string } | null>(null)
@@ -60,7 +62,7 @@ export function useSparResultRecorder(args: SparResultRecorderArgs): void {
     if (!active) return
 
     if (over && resultLabel && !recordedRef.current) {
-      const entry = buildSparResult({ opponent, level, mode, userColor, resultLabel, plies, countsTowardTraining })
+      const entry = buildSparResult({ opponent, level, mode, userColor, resultLabel, plies, countsTowardTraining, timeControl })
       if (!entry) return // unknown label — record nothing rather than guess
       persistSparResults(appendSparResult(loadSparResults(), entry))
       recordedRef.current = { key: gameKey, id: entry.id }
@@ -72,5 +74,5 @@ export function useSparResultRecorder(args: SparResultRecorderArgs): void {
       persistSparResults(removeSparResult(loadSparResults(), recordedRef.current.id))
       recordedRef.current = null
     }
-  }, [active, over, resultLabel, mode, opponent, level, userColor, plies, gameKey, countsTowardTraining])
+  }, [active, over, resultLabel, mode, opponent, level, userColor, plies, gameKey, countsTowardTraining, timeControl])
 }

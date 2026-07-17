@@ -51,6 +51,10 @@ export interface SparResultEntry {
   /** Declared intent: does this game feed the training metrics? Serious games
    *  default true; probe games are always false and can never be flipped. */
   countsTowardTraining: boolean
+  /** Time control the game was played at ("10+5", spec 215) — absent on
+   *  unclocked games and on every pre-clock entry. Training aggregates
+   *  filter on this string. */
+  timeControl?: string
   /** Anomaly flags — shown, never silently acted on. Empty = clean. */
   anomalyFlags: SparAnomalyFlag[]
   /** Set when the user manually reclassified countsTowardTraining. */
@@ -118,6 +122,8 @@ export function buildSparResult(input: {
    *  value — spec 215 "probe never counts" is not overridable at record time
    *  (matches setCountsToward's same refusal at reclassify time). */
   countsTowardTraining?: boolean
+  /** The game's TC string ("10+5"); null/omitted = unclocked, not stored. */
+  timeControl?: string | null
 }): SparResultEntry | null {
   const result = resultFromLabel(input.resultLabel, input.userColor)
   if (result === null) return null
@@ -135,6 +141,7 @@ export function buildSparResult(input: {
     // value, if given); probe never counts, no matter what was passed.
     countsTowardTraining: input.mode === "serious" ? (input.countsTowardTraining ?? true) : false,
     anomalyFlags: detectAnomalies({ result, resultLabel: input.resultLabel, plies: input.plies }),
+    ...(input.timeControl ? { timeControl: input.timeControl } : {}),
   }
 }
 
