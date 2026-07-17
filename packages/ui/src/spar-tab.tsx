@@ -55,6 +55,7 @@ import {
 import {
   buildRivalMoveMap,
   lookupRivalReply,
+  pliesSinceBookExit,
   replySanToUci,
   START_FEN,
   type RivalMoveMap,
@@ -535,9 +536,13 @@ export function SparTab() {
     if (turnOf(fen) !== rivalColor) return
     if (frozen) return
 
-    if (bookStartMode === "movebymove" && moveMaps) {
-      const map = rivalColor === "white" ? moveMaps.white : moveMaps.black
-      const reply = lookupRivalReply(map, fen, Math.random)
+    // The rival-colour half of the book map — the reply source in move-by-move
+    // mode, and (both modes) the reference for how many plies ago the game
+    // left his book, which the persona engine's style-bias window keys off.
+    const bookMap = moveMaps ? (rivalColor === "white" ? moveMaps.white : moveMaps.black) : null
+
+    if (bookStartMode === "movebymove" && bookMap) {
+      const reply = lookupRivalReply(bookMap, fen, Math.random)
       if (reply) {
         const uci = replySanToUci(fen, reply.san)
         const ply = uci ? applyUci(fen, uci) : null
@@ -569,6 +574,13 @@ export function SparTab() {
       level: effectiveLevel,
       seed: gameSeed,
       ply: movePly,
+      // Book-exit wiring (spec 214 contract step 3): how many plies ago the
+      // game left this persona's book, enabling the post-book style-bias
+      // window Rust-side. Omitted for no-book personas (absent = neutral,
+      // the window never fires).
+      ...(bookMap
+        ? { plies_since_book_exit: pliesSinceBookExit(bookMap, rivalColor, startFen, plies) }
+        : {}),
     })
       .then((decision) => {
         // Discard if the board moved on (take-back / new game) while we waited.
@@ -614,7 +626,11 @@ export function SparTab() {
     bookStartMode,
     moveMaps,
     gameSeed,
-    plies.length,
+    // The full array, not just its length: the book-exit computation replays
+    // the played line. Identity only changes when a ply lands or is taken
+    // back, so this fires no more often than plies.length did.
+    plies,
+    startFen,
     sparMode,
   ])
 

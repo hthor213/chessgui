@@ -20,7 +20,7 @@ import { parseFen, makeFen } from "chessops/fen";
 import { parseSan } from "chessops/san";
 import { makeEngineUci } from "@chessgui/core/uci-parser";
 import type { RivalBookEntry } from "@/lib/rival-book";
-import type { SparColor } from "@/lib/spar";
+import { turnOf, type SparColor } from "@/lib/spar";
 
 /** The standard start position — exported so callers (e.g. the "from move 1"
  *  spar start) don't hand-roll their own copy of this string. */
@@ -131,6 +131,42 @@ export function lookupRivalReply(map: RivalMoveMap, fen: string, rng: () => numb
   const replies = map.get(normalizeFenKey(fen));
   if (!replies || replies.length === 0) return null;
   return weightedChoice(replies, rng);
+}
+
+/**
+ * Plies played since the game left the rival's book — the persona engine's
+ * `plies_since_book_exit` (spec 214 contract step 3: the post-book style-bias
+ * window is active while this stays under `window_plies`). The exit ply is the
+ * first played ply absent from the book's continuation for that line: a rival
+ * ply whose SAN isn't among the node's recorded replies, or a user ply whose
+ * resulting position isn't a book node (the book has no rival reply there,
+ * so the line is out of the rival's recorded games). Returns 0 when the game
+ * is leaving book on the move being computed right now — every played ply was
+ * still in book, or the exit ply was the last one played. Each ply is checked
+ * fresh against the map rather than latching "out", so a transposition back
+ * onto a book node re-enters book — matching the spar loop's per-turn lookup.
+ * No-book personas never reach this: the caller omits the param instead
+ * (absent = neutral, the window never fires).
+ */
+export function pliesSinceBookExit(
+  map: RivalMoveMap,
+  rivalColor: SparColor,
+  startFen: string,
+  plies: readonly { fen: string; san: string }[],
+): number {
+  let exit: number | null = null;
+  let preFen = startFen;
+  for (let i = 0; i < plies.length; i++) {
+    const ply = plies[i];
+    const inBook =
+      turnOf(preFen) === rivalColor
+        ? (map.get(normalizeFenKey(preFen)) ?? []).some((r) => r.san === ply.san)
+        : map.has(normalizeFenKey(ply.fen));
+    if (inBook) exit = null;
+    else if (exit === null) exit = i;
+    preFen = ply.fen;
+  }
+  return exit === null ? 0 : plies.length - 1 - exit;
 }
 
 /**
