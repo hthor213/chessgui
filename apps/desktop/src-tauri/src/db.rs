@@ -46,6 +46,11 @@ pub const DEFAULT_PLY_CAP: u32 = 40;
 /// (IF NOT EXISTS), so upgrading is just running the batch again.
 const SCHEMA_VERSION: i64 = 4;
 
+/// Games per committed slice of the material backfill. Small enough that an
+/// interrupted run loses seconds of work, large enough that transaction
+/// overhead stays negligible.
+const MATERIAL_BACKFILL_BATCH: usize = 1000;
+
 // ---------------------------------------------------------------------------
 // Serde boundary types (mirrored in lib/database.ts)
 // ---------------------------------------------------------------------------
@@ -599,9 +604,12 @@ impl Db {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         let mut db = Db { conn };
         db.init_schema()?;
-        // v4 migration: index material signatures for games imported before
-        // the game_material table existed. Idempotent; a no-op once caught up.
-        db.backfill_material()?;
+        // NOTE: the v4 material backfill deliberately does NOT run here. On a
+        // large pre-v4 database (~1M games) it pegs a core for tens of minutes
+        // while DbManager's mutex blocks every command — the app appears hung
+        // from launch. New imports index themselves at parse time; historical
+        // games are backfilled out-of-process by tools/material-backfill
+        // (resumable, batched), whose results import via games.dup_hash.
         Ok(db)
     }
 
@@ -692,31 +700,56 @@ impl Db {
     /// indexed game owns at least its start signature, so "no rows" identifies
     /// the un-indexed ones — which makes this idempotent and cheap once caught
     /// up. Games whose packed mainline can't be replayed from the standard
-    /// start (a `[FEN]`-tag game imported pre-v4) are skipped rather than
-    /// indexed wrongly; new imports compute signatures from the actual
-    /// positions at parse time, so only pre-v4 rows can miss out.
+    /// start (a `[FEN]`-tag game imported pre-v4) get a `''` sentinel row so
+    /// they aren't reselected forever; the sentinel never matches a material
+    /// query. New imports compute signatures from the actual positions at
+    /// parse time, so only pre-v4 rows can miss out.
+    ///
+    /// Kept in sync with `tools/material-backfill`, which runs the same
+    /// backfill out-of-process for large databases. Never call this on the
+    /// open path: on ~1M un-indexed games it runs for tens of minutes.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn backfill_material(&mut self) -> rusqlite::Result<()> {
+        while self.backfill_material_batch(MATERIAL_BACKFILL_BATCH)? > 0 {}
+        Ok(())
+    }
+
+    /// One resumable slice of the material backfill: index up to `limit`
+    /// un-indexed games and commit. Returns how many games were processed;
+    /// 0 means fully caught up. Progress survives interruption at batch
+    /// granularity — nothing ever restarts from scratch.
+    fn backfill_material_batch(&mut self, limit: usize) -> rusqlite::Result<usize> {
         let tx = self.conn.transaction()?;
+        let processed;
         {
             let mut stmt = tx.prepare(
                 "SELECT id, moves FROM games g WHERE NOT EXISTS \
-                 (SELECT 1 FROM game_material m WHERE m.game_id = g.id)",
+                 (SELECT 1 FROM game_material m WHERE m.game_id = g.id) LIMIT ?1",
             )?;
             let rows: Vec<(i64, Vec<u8>)> = stmt
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .query_map([limit], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .collect::<Result<_, _>>()?;
+            processed = rows.len();
             let mut ins = tx.prepare(
                 "INSERT OR IGNORE INTO game_material (game_id, signature) VALUES (?1, ?2)",
             )?;
             for (id, moves) in rows {
-                if let Some(sigs) = replay_material_sigs(&moves) {
-                    for sig in sigs {
-                        ins.execute(params![id, sig])?;
+                match replay_material_sigs(&moves) {
+                    Some(sigs) => {
+                        for sig in sigs {
+                            ins.execute(params![id, sig])?;
+                        }
+                    }
+                    // Unreplayable (FEN-start): sentinel row, so this game
+                    // stops counting as un-indexed and batches make progress.
+                    None => {
+                        ins.execute(params![id, ""])?;
                     }
                 }
             }
         }
-        tx.commit()
+        tx.commit()?;
+        Ok(processed)
     }
 
     /// Import a PGN string (paste / small input; held in memory).
@@ -2331,7 +2364,7 @@ mod tests {
     #[test]
     fn material_backfill_reindexes_missing_games() {
         // Simulate a pre-v4 database: import (which indexes), wipe the
-        // material table, and confirm the open-time backfill restores it.
+        // material table, and confirm the backfill restores it.
         let mut db = Db::open_in_memory().unwrap();
         db.import_pgn_str(SAMPLE, "test").unwrap();
         db.conn.execute("DELETE FROM game_material", []).unwrap();
@@ -2340,6 +2373,63 @@ mod tests {
         db.backfill_material().unwrap();
         let rows = db.list_games(&start, 100, 0, None, false).unwrap();
         assert!(!rows.is_empty(), "standard-start games regain their start signature");
+    }
+
+    #[test]
+    fn material_backfill_commits_per_batch_and_resumes() {
+        // Regression for the launch hang: the backfill must make durable
+        // progress in slices, not one giant transaction over every game.
+        let mut db = Db::open_in_memory().unwrap();
+        let mut pgn = String::new();
+        // Distinct openings — identical movetext would collapse via dup_hash.
+        for (i, open) in ["1. e4 e5", "1. d4 d5", "1. c4 c5"].iter().enumerate() {
+            pgn.push_str(&format!(
+                "[Event \"E{i}\"]\n[White \"W{i}\"]\n[Black \"B{i}\"]\n[Result \"*\"]\n\n{open} *\n\n"
+            ));
+        }
+        db.import_pgn_str(&pgn, "test").unwrap();
+        db.conn.execute("DELETE FROM game_material", []).unwrap();
+        // Batch of 1: each call indexes exactly one game and commits, so an
+        // interruption between calls keeps everything indexed so far.
+        assert_eq!(db.backfill_material_batch(1).unwrap(), 1);
+        let indexed: i64 = db
+            .conn
+            .query_row("SELECT COUNT(DISTINCT game_id) FROM game_material", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(indexed, 1, "first slice is committed on its own");
+        assert_eq!(db.backfill_material_batch(1).unwrap(), 1);
+        assert_eq!(db.backfill_material_batch(1).unwrap(), 1);
+        assert_eq!(db.backfill_material_batch(1).unwrap(), 0, "caught up: no work left");
+    }
+
+    #[test]
+    fn material_backfill_sentinels_unreplayable_games() {
+        // A pre-v4 FEN-start game can't be replayed from the standard start;
+        // it must stop counting as un-indexed or batch loops never terminate.
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(SAMPLE, "test").unwrap();
+        db.conn.execute("DELETE FROM game_material", []).unwrap();
+        // Corrupt one game's packed moves so replay fails.
+        db.conn
+            .execute("UPDATE games SET moves = x'FFFF' WHERE id = (SELECT MIN(id) FROM games)", [])
+            .unwrap();
+        while db.backfill_material_batch(1).unwrap() > 0 {}
+        let unindexed: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM games g WHERE NOT EXISTS \
+                 (SELECT 1 FROM game_material m WHERE m.game_id = g.id)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unindexed, 0, "every game is indexed or sentineled");
+        // The sentinel never matches a real material query.
+        let sentinel: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM game_material WHERE signature = ''", [], |r| r.get(0))
+            .unwrap();
+        assert!(sentinel >= 1, "unreplayable game got the sentinel row");
     }
 
     #[test]

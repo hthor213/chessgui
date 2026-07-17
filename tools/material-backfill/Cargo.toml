@@ -1,0 +1,13 @@
+[package]
+name = "material-backfill"
+version = "0.1.0"
+edition = "2021"
+description = "Out-of-process material-signature backfill for ChessGUI's games.db (spec 200). Runs on any box (built for the homeserver), resumable in batches, results merge back via games.dup_hash."
+license = "GPL-3.0"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+shakmaty = "=0.30.0"
+
+[profile.release]
+opt-level = 3
