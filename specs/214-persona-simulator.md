@@ -288,6 +288,51 @@ the temperature schedule (contract step 3) and the error model (step 5).
       errs for HUMAN reasons (candidate-set omission, not noise), currently
       spread across 211/213/214. (memory chessbase-parity moonshot)
 
+## Cognitive-gate pipeline proposal — evaluated 2026-07-17
+
+A user-supplied design ("Cognitive Humanizer Pipeline": multi-Elo Maia
+candidate harvesting → depth-throttled "horizon" search per band →
+shallow-vs-deep WDL differential to find band-invisible traps → persona
+style faders) was evaluated against what already exists. Verdict, so no
+future session re-litigates it:
+
+**Already built (proposal converges with the architecture):**
+- Steps 1–2 are substantially `human_search.rs` (Eval_R): Maia-policy
+  candidate generation IS the human perception filter, bounded tree depth +
+  fixed-depth SF leaves IS the horizon — more principled than raw
+  depth-throttled Stockfish, because the candidate set (not the depth knob)
+  carries the band's blindness.
+- Step 3's "trap invisible to the band" is spec 213's "visible from ~R"
+  mistake labels (213 checklist, Eval_R pass in the tournament evaluator).
+- Step 4's faders are the wave-14 tuner-gated persona wiring plus the
+  style-prior mining items already queued (materialism/compactness priors).
+
+**Adopted (new, actionable):**
+- **Depth-differential puzzle difficulty**: for each mined puzzle, find the
+  minimal SF depth at which the trap's refutation registers; store it as
+  `visible_from_depth` on the puzzles table. Serves spec 211/224 finer
+  difficulty. HONESTY GATE: depth is a *prior*, not a rating — the
+  depth→Elo mapping must be calibrated against Tier-2 band miss-rates
+  before any UI claims "2100+ puzzle" (213's measured-not-vibes rule).
+- **Multi-band Maia candidate harvest** in `persona_move`: query the
+  persona's band ± one neighbor and pool candidates before the tunable
+  faders pick — widens the human candidate set without synthetic lines.
+  Design lands in the move-selection contract; implementation follows the
+  managed-net port (spec 218 queue item) so both touch persona.rs once.
+- **Expected-score (WDL) space for cliff grading** in `mine_cliffs.py`
+  Tier-2: a fixed centipawn cliff threshold over-counts cliffs in decided
+  positions and under-counts them near equality; win-prob conversion
+  (packages/core/src/win-prob.ts is the reference curve) normalizes this.
+  Fold into the Tier-2 methodology (gated on the mining sign-off).
+
+**Rejected:**
+- Replacing the corpus-fit error model (error_model.fit.json) with pure
+  depth throttling — the measured model already encodes band-conditional
+  blunder rates from real games; depth throttling is the weaker proxy the
+  proposal itself argues against.
+- The fixed "Depth 6 casual … Depth 14 Masters" mapping — unvalidated;
+  any depth↔band mapping must come out of the E1/corpus experiments.
+
 ## Open questions
 
 Resolved 2026-07-15 — the 2026-07-15 feedback batch (roster, avatars, exhibition,
