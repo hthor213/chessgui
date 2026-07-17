@@ -119,6 +119,8 @@ export interface MetricMeta {
    *  false when lower is better (calibration error). */
   higherIsBetter: boolean
   format: (v: number) => string
+  /** Tooltip clause stating the number's provenance and limits. */
+  hint?: string
 }
 
 export const METRIC_META: Record<MetricKey, MetricMeta> = {
@@ -127,6 +129,7 @@ export const METRIC_META: Record<MetricKey, MetricMeta> = {
     label: "Maia rapid",
     higherIsBetter: true,
     format: (v) => Math.round(v).toString(),
+    hint: "Estimates rapid strength from your rapid games scored by blitz-trained Maia nets — an estimate, not a rapid rating.",
   },
   eg_conversion: {
     key: "eg_conversion",

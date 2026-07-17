@@ -839,7 +839,7 @@ function MilestoneCard({
                 <span className="text-muted-foreground">{-days} days past</span>
               )}
             </span>
-            <span className="text-muted-foreground">
+            <span className="text-muted-foreground" title={METRIC_META.maia_rapid.hint}>
               Maia rapid{" "}
               {maiaVal == null ? (
                 <span className="italic">not yet measured</span>
@@ -908,7 +908,9 @@ function TrajectoryCard({
       className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2"
     >
       <div className="flex items-baseline justify-between">
-        <h2 className="font-bold text-sm">Maia rapid — trajectory</h2>
+        <h2 className="font-bold text-sm" title={METRIC_META.maia_rapid.hint}>
+          Maia rapid — trajectory
+        </h2>
         <span className="text-[11px] text-muted-foreground">
           measured monthly · dashed = projection
         </span>
@@ -1344,7 +1346,12 @@ function MetricsPanel({
         {METRIC_KEYS.map((k) => {
           const l = latestMetric(metrics, k)
           return (
-            <div key={k} className="rounded-md border border-white/10 p-2" data-testid={`training-latest-${k}`}>
+            <div
+              key={k}
+              className="rounded-md border border-white/10 p-2"
+              data-testid={`training-latest-${k}`}
+              title={METRIC_META[k].hint}
+            >
               <div className="text-[11px] text-muted-foreground leading-tight">{METRIC_META[k].label}</div>
               <div className="text-lg font-bold tabular-nums mt-0.5">
                 {l == null ? <span className="text-muted-foreground text-sm italic">—</span> : METRIC_META[k].format(l.value)}

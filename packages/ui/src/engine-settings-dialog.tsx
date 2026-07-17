@@ -313,6 +313,18 @@ export function EngineSettingsDialog({
               </div>
             ))}
           </div>
+
+          {/* Credits (spec 213/218) — the projects this app is built on. This
+              dialog is the app's settings surface, so attribution lives here. */}
+          <div className="flex flex-col gap-1 border-t border-[#2a2825] pt-3">
+            <span className="text-sm text-foreground">About</span>
+            <p className="text-xs text-muted-foreground">
+              ChessGUI is GPL-3.0. Built on Stockfish (analysis engine), Maia
+              human-move models (CSSLab, University of Toronto — maiachess.com)
+              running on lc0 (the LCZero project), Chessground (lichess.org,
+              GPL-3.0), and chessops.
+            </p>
+          </div>
         </div>
 
         <DialogFooter>
