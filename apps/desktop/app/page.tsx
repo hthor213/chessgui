@@ -17,7 +17,6 @@ import { MoveList } from "@chessgui/ui/move-list"
 import { AnnotationBar } from "@chessgui/ui/annotation-bar"
 import { EvalGraph } from "@chessgui/ui/eval-graph"
 import { GameAnalysisControl } from "@chessgui/ui/game-analysis-control"
-import { AdvantageSparkline } from "@chessgui/ui/advantage-sparkline"
 import { AnalysisPanel } from "@chessgui/ui/analysis-panel"
 import { EngineComparePanel } from "@chessgui/ui/engine-compare-panel"
 import { OpeningExplorerPanel } from "@chessgui/ui/opening-explorer-panel"
@@ -32,6 +31,8 @@ import { ErrorBoundary } from "@chessgui/ui/error-boundary"
 import { usePlyReview } from "@chessgui/ui/use-ply-review"
 import { CapturedPieces } from "@chessgui/ui/captured-pieces"
 import { computeMaterial } from "@chessgui/core/material"
+import { nodeEval, judgeMove, hasJudgmentNag, nextKeyMoveIndex } from "@chessgui/core/annotations"
+import { estimatePerformance } from "@/lib/performance-elo"
 import { TournamentTab } from "@chessgui/ui/tournament-tab"
 import { DatabaseTab } from "@chessgui/ui/database-tab"
 import { CalibrationTab } from "@chessgui/ui/calibration-tab"
@@ -164,6 +165,56 @@ export default function Home() {
   const topColor = bottomColor === "white" ? ("black" as const) : ("white" as const)
   const isPlayMode = engine.state.mode === "play"
   const playerColor = engine.state.playerColor
+
+  // Analyze-view derived state (spec 202 notebook/engine-room IA) --------------
+
+  // "Key move": the cursor sits on a move the analysis pass flagged (?!/?/??),
+  // or one whose eval swing classifies as inaccuracy/mistake/blunder. Move
+  // quality is the engine's call, so the manual NAG toolbar only opens here —
+  // and never under the spec 219 lockout, where there is no engine data (a
+  // hand-added NAG on an unanalyzed active game must not light the toolbar).
+  const currentNodeIsKeyMove = useMemo(() => {
+    if (engine.engineLocked) return false
+    const node = game.currentNode
+    if (!node || node.parent === null) return false
+    if (hasJudgmentNag(node.nags)) return true
+    const after = nodeEval(node)
+    const before = nodeEval(game.tree.get(node.parent) ?? { comment: "" })
+    return !!(after && before && judgeMove(before, after, node.ply % 2 === 1))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.currentNode, game.tree, game.treeVersion, game.currentNodeId, engine.engineLocked])
+
+  // "Next key move" (chess.com-style review nav): the next mainline node after
+  // the cursor carrying a judgment NAG. Null when none lie ahead (button
+  // disabled). Resolves the cursor to its deepest mainline ancestor so it works
+  // from inside a variation too.
+  const nextKeyMoveId = useMemo(() => {
+    const mainline = game.tree.mainlineNodes()
+    const idxById = new Map(mainline.map((n, i) => [n.id, i]))
+    const path = game.tree.pathToNode(game.currentNodeId)
+    let cur = 0
+    for (let i = path.length - 1; i >= 0; i--) {
+      const idx = idxById.get(path[i].id)
+      if (idx !== undefined) {
+        cur = idx
+        break
+      }
+    }
+    const next = nextKeyMoveIndex(mainline, cur)
+    return next >= 0 ? mainline[next].id : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.tree, game.currentNodeId, game.treeVersion])
+
+  // Per-game performance Elo (spec 202 honesty gate): computed from the
+  // mainline's evals — so it appears exactly when Analyze Game (or an imported
+  // game's [%eval]s) has populated enough of them, and stays null otherwise.
+  // Engine-derived, so hidden under the spec 219 lockout like every eval.
+  const performance = useMemo(
+    () => estimatePerformance(game.tree.mainlineNodes()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [game.tree, game.treeVersion],
+  )
+  const showPerformance = !isPlayMode && !engine.engineLocked
 
   // ---- Play vs engine game start / clocks / handoff (spec 011) ----
   const [playSetupOpen, setPlaySetupOpen] = useState(false)
@@ -1196,7 +1247,7 @@ export default function Home() {
             keep desktop (≥1024px) byte-for-byte identical to the old
             layout. */}
         <main
-          className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_220px] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible overflow-x-hidden lg:overflow-x-visible"
+          className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr_320px] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible overflow-x-hidden lg:overflow-x-visible"
           style={view !== "board" || liveViewing ? { display: "none" } : undefined}
         >
           {/* Left column: Player Panel */}
@@ -1211,7 +1262,7 @@ export default function Home() {
               aria-expanded={playersOpen}
               data-testid="mobile-players-toggle"
             >
-              Players & clocks
+              Notebook — moves, graph &amp; notes
               <span className="text-muted-foreground">{playersOpen ? "▾" : "▸"}</span>
             </button>
             <div className={`${playersOpen ? "flex" : "hidden"} flex-col gap-6 lg:contents`}>
@@ -1244,6 +1295,16 @@ export default function Home() {
                   {playClock.preset.label} · flag = loss
                 </p>
               )}
+              {/* Per-game performance Elo (spec 202) — Black's, honesty-gated. */}
+              {showPerformance && performance.black && (
+                <p
+                  className="text-[11px] font-medium text-[#9bc700] text-center mt-1.5"
+                  data-testid="performance-black"
+                  title={`ACPL ${performance.black.acpl} · ${performance.black.blunders} blunder(s), ${performance.black.mistakes} mistake(s) over ${performance.black.scored} moves`}
+                >
+                  {performance.black.label}
+                </p>
+              )}
             </Card>
 
             {/* Pieces the top player has captured (+x when ahead on points) */}
@@ -1252,6 +1313,43 @@ export default function Home() {
               captured={topColor === "white" ? material.capturedByWhite : material.capturedByBlack}
               points={material.advantage === topColor ? material.points : 0}
             />
+
+            {/* Move history (spec 202 notebook): the annotator's move list —
+                NAG glyphs always, engine eval badges only when analysis data is
+                allowed (showEvals unchanged). Renders in play mode too. */}
+            <MoveList
+              tree={game.tree}
+              currentId={game.currentNodeId}
+              onGoToNode={game.goToNode}
+              version={game.treeVersion}
+              showEvals={!isPlayMode && !engine.engineLocked}
+            />
+
+            {/* Eval graph with key-move markers (spec 202): replaced the plain
+                advantage sparkline — one graph, the one that marks blunders /
+                mistakes. Engine-derived: analyze mode only, hidden under the
+                spec 219 lockout. */}
+            {!isPlayMode && !engine.engineLocked && (
+              <EvalGraph
+                tree={game.tree}
+                currentId={game.currentNodeId}
+                onGoToNode={game.goToNode}
+                version={game.treeVersion}
+              />
+            )}
+
+            {/* Annotation editor (spec 202): the comment textarea is always
+                available in analyze mode (fair-play legal — stays up under the
+                lockout); the manual NAG toolbar opens only at a key move. */}
+            {!isPlayMode && (
+              <AnnotationBar
+                node={game.currentNode}
+                onSetNags={game.setNags}
+                onSetComment={game.setComment}
+                active={view === "board" && !liveViewing && !pgnDialogOpen && !editorOpen}
+                showNags={currentNodeIsKeyMove}
+              />
+            )}
 
             {/* Game info */}
             {game.headers["White"] && (
@@ -1280,14 +1378,6 @@ export default function Home() {
                   </p>
                 )}
               </Card>
-            )}
-
-            {/* Advantage sparkline (spec 001 §3 "Match History"): the game's
-                eval history at a glance. Engine-derived like the eval graph,
-                so analyze mode only and hidden under the spec 219 lockout;
-                the component renders nothing until two evals exist. */}
-            {!isPlayMode && !engine.engineLocked && (
-              <AdvantageSparkline tree={game.tree} version={game.treeVersion} />
             )}
 
             {/* Game status (check / checkmate / draw). Lives in the left
@@ -1346,7 +1436,24 @@ export default function Home() {
               <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider opacity-80">
                 {isPlayMode ? humanClockText : "--:--"}
               </div>
+              {/* Per-game performance Elo (spec 202) — White's, honesty-gated. */}
+              {showPerformance && performance.white && (
+                <p
+                  className="text-[11px] font-medium text-[#9bc700] text-center mt-1.5"
+                  data-testid="performance-white"
+                  title={`ACPL ${performance.white.acpl} · ${performance.white.blunders} blunder(s), ${performance.white.mistakes} mistake(s) over ${performance.white.scored} moves`}
+                >
+                  {performance.white.label}
+                </p>
+              )}
             </Card>
+
+            {/* Opening explorer (spec 200): book-class data, no engine — so it
+                belongs in the notebook (fair-play legal, stays up under the
+                spec 219 lockout), pinned at the bottom. Analyze mode only. */}
+            {!isPlayMode && (
+              <OpeningExplorerPanel currentFen={game.fen} onPlayMove={game.playUciMove} />
+            )}
             </div>
           </div>
 
@@ -1464,6 +1571,45 @@ export default function Home() {
               </div>
             )}
 
+            {/* Move-navigation bar (spec 202): visible start / back / forward /
+                end, plus "Next" = jump to the next key move (the next mainline
+                move the analysis pass flagged). All wired to the same
+                goToMove / goToNode the keyboard handler uses. */}
+            <div className="flex items-center gap-1.5 justify-center" data-testid="nav-bar">
+              <NavBtn
+                onClick={() => game.goToMove(-1)}
+                disabled={game.currentMoveIndex < 0}
+                title="Start (Home)"
+                label="⏮"
+              />
+              <NavBtn
+                onClick={() => game.goToMove(game.currentMoveIndex - 1)}
+                disabled={game.currentMoveIndex < 0}
+                title="Back (←)"
+                label="◀"
+              />
+              <NavBtn
+                onClick={() => game.goToMove(game.currentMoveIndex + 1)}
+                disabled={game.currentMoveIndex >= game.moves.length - 1}
+                title="Forward (→)"
+                label="▶"
+              />
+              <NavBtn
+                onClick={() => game.goToMove(game.moves.length - 1)}
+                disabled={game.currentMoveIndex >= game.moves.length - 1}
+                title="End (End)"
+                label="⏭"
+              />
+              <NavBtn
+                onClick={() => nextKeyMoveId && game.goToNode(nextKeyMoveId)}
+                disabled={!nextKeyMoveId}
+                title="Next key move — jump to the next flagged mistake/blunder"
+                label="Next"
+                testId="next-key-move"
+                wide
+              />
+            </div>
+
             {/* Control bar (spec 001 §4): ghost Buttons under the board.
                 Wraps below lg so nine buttons never force sideways scroll
                 on a phone. */}
@@ -1546,7 +1692,7 @@ export default function Home() {
               aria-expanded={analysisOpen}
               data-testid="mobile-analysis-toggle"
             >
-              Analysis & moves
+              Engine room
               <span className="text-muted-foreground">{analysisOpen ? "▾" : "▸"}</span>
             </button>
             <div className={`${analysisOpen ? "flex" : "hidden"} flex-col gap-6 lg:contents`}>
@@ -1591,55 +1737,19 @@ export default function Home() {
                 />
               </div>
             )}
-            <MoveList
-              tree={game.tree}
-              currentId={game.currentNodeId}
-              onGoToNode={game.goToNode}
-              version={game.treeVersion}
-              // Per-move eval badges (spec 202): engine-derived, so same
-              // gating as the eval graph — analyze mode, no spec 219 lockout.
-              showEvals={!isPlayMode && !engine.engineLocked}
-            />
-            {/* Annotation editing + eval graph (spec 202) — analyze mode only.
-                Hand annotations stay available in an active game (books and
-                notes are fair-play legal); the eval graph is engine-derived,
-                so it's hidden while the lockout holds (spec 219 B). */}
-            {!isPlayMode && (
-              <>
-                <AnnotationBar
-                  node={game.currentNode}
-                  onSetNags={game.setNags}
-                  onSetComment={game.setComment}
-                  active={view === "board" && !liveViewing && !pgnDialogOpen && !editorOpen}
-                />
-                {!engine.engineLocked && (
-                  <>
-                    {/* Full-game blunder check (spec 212): batch-evals the
-                        mainline on its own engine session; results land as
-                        node evals (graph below) + ?!/?/?? NAGs (move list).
-                        Hidden — not merely disabled — under the spec 219
-                        lockout, like every other engine surface. */}
-                    <GameAnalysisControl
-                      state={gameAnalysis.state}
-                      onStart={gameAnalysis.start}
-                      onCancel={gameAnalysis.cancel}
-                      disabled={game.moves.length === 0}
-                    />
-                    <EvalGraph
-                      tree={game.tree}
-                      currentId={game.currentNodeId}
-                      onGoToNode={game.goToNode}
-                      version={game.treeVersion}
-                    />
-                  </>
-                )}
-                {/* Live opening explorer (spec 200): database stats for the
-                    current position, Lichess fallback when empty. Book-class
-                    data, no engine — so unlike the eval graph it stays up
-                    under the spec 219 lockout (same ruling as annotations:
-                    books are fair-play legal). Analyze mode only. */}
-                <OpeningExplorerPanel currentFen={game.fen} onPlayMove={game.playUciMove} />
-              </>
+            {/* Full-game blunder check (spec 212): batch-evals the mainline on
+                its own engine session; results land as node evals (notebook
+                eval graph) + ?!/?/?? NAGs (notebook move list) and feed the
+                per-game performance estimate. Analyze mode only; hidden — not
+                merely disabled — under the spec 219 lockout, like every other
+                engine surface, so the engine room collapses to just the notice. */}
+            {!isPlayMode && !engine.engineLocked && (
+              <GameAnalysisControl
+                state={gameAnalysis.state}
+                onStart={gameAnalysis.start}
+                onCancel={gameAnalysis.cancel}
+                disabled={game.moves.length === 0}
+              />
             )}
             </div>
           </div>
@@ -1757,6 +1867,35 @@ function ControlBtn({
     >
       {children}
     </Button>
+  )
+}
+
+/** A move-navigation button (spec 202): start / back / forward / end / next. */
+function NavBtn({
+  onClick,
+  disabled,
+  title,
+  label,
+  testId,
+  wide,
+}: {
+  onClick: () => void
+  disabled?: boolean
+  title: string
+  label: string
+  testId?: string
+  wide?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      data-testid={testId}
+      className={`${wide ? "px-2.5" : "px-2 min-w-8"} py-1 text-sm rounded-md border border-input bg-background text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground`}
+    >
+      {label}
+    </button>
   )
 }
 

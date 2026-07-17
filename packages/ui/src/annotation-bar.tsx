@@ -20,6 +20,14 @@ interface AnnotationBarProps {
   onSetComment: (id: string, comment: string) => void;
   /** Keyboard shortcuts only fire while the board view is frontmost. */
   active: boolean;
+  /**
+   * Move quality is the engine's call (spec 202): the manual NAG toolbar and
+   * the "!"/"?" keyboard shortcuts appear ONLY at a key move — one the analysis
+   * pass flagged (?!/?/??) — so the human can override/refine the engine's mark
+   * exactly there. The comment textarea is always available. Off under the
+   * spec 219 lockout (no engine data, so no key moves).
+   */
+  showNags: boolean;
 }
 
 const NAG_TITLES: Record<number, string> = {
@@ -55,16 +63,18 @@ function isTextInput(target: EventTarget | null): boolean {
  * then the combo (!, ?, !!, ??, !?, ?!) toggles on the current move. "="
  * toggles the equal-position NAG immediately.
  */
-export function AnnotationBar({ node, onSetNags, onSetComment, active }: AnnotationBarProps) {
+export function AnnotationBar({ node, onSetNags, onSetComment, active, showNags }: AnnotationBarProps) {
   const isRoot = node.parent === null;
 
   // Latest props in refs so the document-level key handler stays stable.
   const nodeRef = useRef(node);
   const onSetNagsRef = useRef(onSetNags);
   const activeRef = useRef(active);
+  const showNagsRef = useRef(showNags);
   nodeRef.current = node;
   onSetNagsRef.current = onSetNags;
   activeRef.current = active;
+  showNagsRef.current = showNags;
 
   const bufferRef = useRef("");
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -81,6 +91,8 @@ export function AnnotationBar({ node, onSetNags, onSetComment, active }: Annotat
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (!activeRef.current || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Manual move-quality NAGs only apply at a key move (see showNags).
+      if (!showNagsRef.current) return;
       if (isTextInput(e.target)) return;
 
       if (e.key === "!" || e.key === "?") {
@@ -138,11 +150,15 @@ export function AnnotationBar({ node, onSetNags, onSetComment, active }: Annotat
       <span className="text-xs font-semibold text-[#bababa]">
         Annotate{isRoot ? "" : ` — ${Math.ceil(node.ply / 2)}${node.ply % 2 === 1 ? "." : "..."} ${node.san}`}
       </span>
-      <div className="flex flex-wrap gap-0.5" title='Keyboard: type ! or ? combos, "=" for equality'>
-        {MOVE_NAGS.map(nagButton)}
-        <span className="w-px bg-[#2a2825] mx-1 self-stretch" />
-        {POSITION_BUTTONS.map(nagButton)}
-      </div>
+      {/* Move quality is the engine's call (spec 202): the NAG toolbar shows
+          only at a key move, letting the human override the engine's mark. */}
+      {showNags && (
+        <div className="flex flex-wrap gap-0.5" title='Keyboard: type ! or ? combos, "=" for equality'>
+          {MOVE_NAGS.map(nagButton)}
+          <span className="w-px bg-[#2a2825] mx-1 self-stretch" />
+          {POSITION_BUTTONS.map(nagButton)}
+        </div>
+      )}
       <textarea
         rows={2}
         placeholder={isRoot ? "Comment on the starting position…" : "Comment on this move…"}

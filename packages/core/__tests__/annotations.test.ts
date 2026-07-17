@@ -13,6 +13,8 @@ import {
   judgeMove,
   JUDGMENT_NAGS,
   withJudgmentNag,
+  hasJudgmentNag,
+  nextKeyMoveIndex,
 } from "@chessgui/core/annotations";
 
 function line(sans: string[]): GameTree {
@@ -272,5 +274,42 @@ describe("withJudgmentNag — engine judgment → move-quality NAG (spec 212)", 
     const nags = [1, 16];
     withJudgmentNag(nags, "mistake");
     expect(nags).toEqual([1, 16]);
+  });
+});
+
+describe("hasJudgmentNag — key-move detection (spec 202)", () => {
+  it("is true only for judgment NAGs (?! / ? / ??)", () => {
+    expect(hasJudgmentNag([6])).toBe(true); // inaccuracy
+    expect(hasJudgmentNag([2])).toBe(true); // mistake
+    expect(hasJudgmentNag([4])).toBe(true); // blunder
+    expect(hasJudgmentNag([4, 16])).toBe(true); // judgment + positional
+    expect(hasJudgmentNag([])).toBe(false);
+    expect(hasJudgmentNag([1, 3, 5])).toBe(false); // !, !!, !? are not judgments
+    expect(hasJudgmentNag([16, 19])).toBe(false); // positional only
+  });
+});
+
+describe("nextKeyMoveIndex — Next-key-move navigation (spec 202)", () => {
+  const nodes = [
+    { nags: [] }, // 0 (root)
+    { nags: [] }, // 1
+    { nags: [2] }, // 2 mistake
+    { nags: [] }, // 3
+    { nags: [4] }, // 4 blunder
+  ];
+
+  it("finds the next flagged move after the cursor", () => {
+    expect(nextKeyMoveIndex(nodes, 0)).toBe(2);
+    expect(nextKeyMoveIndex(nodes, 2)).toBe(4); // skips the current one
+    expect(nextKeyMoveIndex(nodes, 3)).toBe(4);
+  });
+
+  it("returns -1 when none lie ahead", () => {
+    expect(nextKeyMoveIndex(nodes, 4)).toBe(-1);
+    expect(nextKeyMoveIndex([{ nags: [] }, { nags: [] }], 0)).toBe(-1);
+  });
+
+  it("accepts a -1 cursor (before the first move)", () => {
+    expect(nextKeyMoveIndex(nodes, -1)).toBe(2);
   });
 });

@@ -166,3 +166,25 @@ export function withJudgmentNag(nags: number[], judgment: MoveJudgment): number[
   const kept = nags.filter((n) => !(MOVE_NAGS as readonly number[]).includes(n));
   return [...kept, JUDGMENT_NAGS[judgment]].sort((a, b) => a - b);
 }
+
+// The move-quality NAGs the analysis pass assigns (inaccuracy ?!, mistake ?,
+// blunder ??) — the marks that make a move a "key move" for review navigation
+// and the key-move annotation gate (spec 202).
+const JUDGMENT_NAG_SET: ReadonlySet<number> = new Set(Object.values(JUDGMENT_NAGS));
+
+/** True when a node carries an engine judgment NAG (?!/?/??). */
+export function hasJudgmentNag(nags: number[]): boolean {
+  return nags.some((n) => JUDGMENT_NAG_SET.has(n));
+}
+
+/**
+ * Index of the next node AFTER `fromIndex` in `nodes` that carries an engine
+ * judgment NAG, or -1 when none remain. `nodes` is the mainline (root at [0]);
+ * used by the "Next key move" navigation button (spec 202).
+ */
+export function nextKeyMoveIndex(nodes: { nags: number[] }[], fromIndex: number): number {
+  for (let i = Math.max(-1, fromIndex) + 1; i < nodes.length; i++) {
+    if (hasJudgmentNag(nodes[i].nags)) return i;
+  }
+  return -1;
+}
