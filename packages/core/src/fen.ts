@@ -42,6 +42,14 @@ export function validateFen(fen: string): { ok: true } | { ok: false; error: str
   return { ok: true };
 }
 
+// Shredder/X-FEN detection (shared chess960 variant contract): a castling
+// field naming rook FILES ("DAda", "HAha") instead of K/Q letters marks a
+// Chess960 position. Files a–h never collide with the standard K/Q/k/q set.
+export function castlingFieldHasFileLetters(fen: string): boolean {
+  const field = fen.trim().split(/\s+/)[2];
+  return !!field && field !== "-" && /[a-hA-H]/.test(field);
+}
+
 // Pad a 4- or 5-field FEN out to a full 6-field FEN (default counters).
 export function padFen(fen: string): string {
   const parts = fen.trim().split(/\s+/);
