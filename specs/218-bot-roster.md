@@ -91,6 +91,26 @@ back/forward review mechanic is copied in place in the spar tab first; it gets
 extracted into a shared component when the exhibition viewer gains its SAN move
 list, not before.
 
+## Decision (2026-07-17, user): GM persona strength is explicit, never a silent cap
+
+The old card copy ("~1900 policy approximation; full-strength persona
+available in Tournament") described a real constraint — the spar arm could
+only drive Maia bands until the BT3 managed-net port (2026-07-17) — but as
+a product it reads as "a 1900 bot in a Kasparov costume", which the user
+rejects. Rule now:
+
+- A GM persona card offers a **strength selector**: **Full strength**
+  (BT3 policy + his book + verification reweight) and the Maia bands
+  (1900/1700/1500/1300/1100 approximations with his book). No silent cap.
+- Labels tell the truth per selection: full = "his openings, full-strength
+  policy"; band = "his openings, ~N approximation". The honesty gate keeps
+  its job — it gates CLAIMS (a band pick may not claim to be Kasparov's
+  real strength), it no longer forces a cap the engine doesn't have.
+- Full strength downloads the ~190MB net on first use — the card says so
+  instead of surprising the user; while absent/undownloaded the serving
+  fallback stays Maia-1900 and the UI shows which backend actually served
+  (the decision log already records it).
+
 ## Hard rules
 
 spec:214's hard rules apply wholesale: personas of private individuals — including
