@@ -27,10 +27,12 @@ import {
 
 /** Fair-play wording for the deletion confirmation (spec 219 B). */
 export const ACTIVE_GAME_DELETE_WARNING =
-  "This game was flagged as an active chess.com daily game. Deleting the " +
-  "flag re-enables engine analysis on this position — only do this if the " +
-  "game is truly over or was never real. Engine assistance during an " +
-  "ongoing game violates chess.com's Fair Play Policy."
+  "This game was flagged as an ongoing chess.com daily game. Deleting " +
+  "discards the saved game — it is not imported into the database, and if " +
+  "it is open on the board, the board is cleared. Delete only if the game " +
+  "was never real or you no longer need it; to keep a finished game, use " +
+  "Archive instead. Engine assistance during an ongoing game violates " +
+  "chess.com's Fair Play Policy."
 
 /** Mainline move count of a serialized tree (children[0] chain from root). */
 export function mainlineMoveCount(tree: SerializedTree): number {

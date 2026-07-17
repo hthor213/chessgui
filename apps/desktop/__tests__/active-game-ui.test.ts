@@ -169,10 +169,11 @@ describe("ActiveGamesList (spec 219 D)", () => {
 
   it("deletion warning carries the fair-play wording", () => {
     expect(ACTIVE_GAME_DELETE_WARNING).toContain("Fair Play Policy")
-    expect(ACTIVE_GAME_DELETE_WARNING).toContain("re-enables engine analysis")
-    expect(ACTIVE_GAME_DELETE_WARNING).toContain(
-      "only do this if the game is truly over or was never real",
-    )
+    // Deletion discards the game and clears the board — it must never be
+    // described as re-enabling analysis on an ongoing game's position.
+    expect(ACTIVE_GAME_DELETE_WARNING).toContain("discards the saved game")
+    expect(ACTIVE_GAME_DELETE_WARNING).toContain("the board is cleared")
+    expect(ACTIVE_GAME_DELETE_WARNING).not.toContain("re-enables engine analysis")
   })
 })
 

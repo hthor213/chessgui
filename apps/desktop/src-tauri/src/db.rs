@@ -674,6 +674,16 @@ impl Db {
             ) WITHOUT ROWID;
 
             CREATE INDEX IF NOT EXISTS idx_game_material_sig ON game_material(signature);
+
+            -- Cached row counts (name → n) so stats() never scans. COUNT(*)
+            -- on positions (~40 rows per game) walks tens of millions of
+            -- index entries — 8.4s measured on a 956k-game database — and
+            -- the Database tab requests stats on every mount. Insert/delete
+            -- keep these current; a missing row is lazily seeded by stats().
+            CREATE TABLE IF NOT EXISTS db_counts (
+                name TEXT PRIMARY KEY,
+                n    INTEGER NOT NULL
+            ) WITHOUT ROWID;
             "#,
         )?;
         // v2: avoidance puzzles (spec 211). Schema text lives next to its
@@ -1081,11 +1091,18 @@ impl Db {
         let zobrist = pos.zobrist_hash::<Zobrist64>(EnPassantMode::Legal).0 as i64;
         let target_epd = epd(&pos);
 
+        // No ORDER BY: with an equality match on idx_positions_zobrist the
+        // LIMIT then bounds the index scan itself. An ORDER BY game_id forces
+        // SQLite to fetch and sort EVERY matching row first — for the starting
+        // position that's ~1M rows, measured at 10.4s vs 0.01s on a 956k-game
+        // database (and the DatabaseTab queries it on every board reset).
+        // Index order for a fixed zobrist is rowid order, which follows
+        // insertion order and therefore game id order in practice.
         let mut stmt = self.conn.prepare(
             "SELECT p.game_id, p.ply, g.white, g.black, g.white_elo, g.black_elo, \
              g.result, g.date, g.moves \
              FROM positions p JOIN games g ON g.id = p.game_id \
-             WHERE p.zobrist = ?1 ORDER BY p.game_id LIMIT ?2",
+             WHERE p.zobrist = ?1 LIMIT ?2",
         )?;
         let raw = stmt.query_map(params![zobrist, limit], |r| {
             Ok((
@@ -1132,9 +1149,21 @@ impl Db {
             return Ok(0);
         }
         let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+        let tx = self.conn.unchecked_transaction()?;
+        // Count the cascading position rows before the delete — the FK
+        // cascade removes them invisibly, so this is the only chance to
+        // keep db_counts honest. Indexed by idx_positions_game; cheap.
+        let positions: i64 = tx.query_row(
+            &format!("SELECT COUNT(*) FROM positions WHERE game_id IN ({placeholders})"),
+            params_from_iter(ids.iter()),
+            |r| r.get(0),
+        )?;
         let sql = format!("DELETE FROM games WHERE id IN ({placeholders})");
-        self.conn
-            .execute(&sql, params_from_iter(ids.iter()))
+        let removed = tx.execute(&sql, params_from_iter(ids.iter()))?;
+        bump_count(&tx, "games", -(removed as i64))?;
+        bump_count(&tx, "positions", -positions)?;
+        tx.commit()?;
+        Ok(removed)
     }
 
     /// Attach `tag` to a game (spec 200 tagging; no-op if already present).
@@ -1171,11 +1200,31 @@ impl Db {
     }
 
     pub fn stats(&self) -> rusqlite::Result<DbStats> {
-        let games = self.conn.query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0))?;
-        let positions = self
+        Ok(DbStats {
+            games: self.cached_count("games")?,
+            positions: self.cached_count("positions")?,
+        })
+    }
+
+    /// Row count from `db_counts`, lazily seeded with one real `COUNT(*)`
+    /// the first time a table is asked for. `bump_count` keeps seeded rows
+    /// current on insert/delete, so the full scan happens once per database
+    /// lifetime, not on every Database-tab mount.
+    fn cached_count(&self, table: &str) -> rusqlite::Result<i64> {
+        use rusqlite::OptionalExtension;
+        if let Some(n) = self
             .conn
-            .query_row("SELECT COUNT(*) FROM positions", [], |r| r.get(0))?;
-        Ok(DbStats { games, positions })
+            .query_row("SELECT n FROM db_counts WHERE name = ?1", [table], |r| r.get(0))
+            .optional()?
+        {
+            return Ok(n);
+        }
+        // `table` is an internal constant ("games"/"positions"), never input.
+        let n: i64 =
+            self.conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))?;
+        self.conn
+            .execute("INSERT OR REPLACE INTO db_counts (name, n) VALUES (?1, ?2)", params![table, n])?;
+        Ok(n)
     }
 
     /// Draw up to `limit` random positions from Elo-known games whose average
@@ -1436,6 +1485,15 @@ enum InsertOutcome {
     Error,
 }
 
+/// Adjust a cached row count by `delta`. Deliberately an UPDATE, not an
+/// upsert: when the counter row doesn't exist yet, the next stats() call
+/// seeds it with a real COUNT(*) that already reflects this change —
+/// creating the row here from a delta alone would record a wrong total.
+fn bump_count(conn: &Connection, name: &str, delta: i64) -> rusqlite::Result<()> {
+    conn.execute("UPDATE db_counts SET n = n + ?2 WHERE name = ?1", params![name, delta])?;
+    Ok(())
+}
+
 fn insert_game(
     tx: &Connection,
     game: &ParsedGame,
@@ -1490,6 +1548,8 @@ fn insert_game(
     for sig in &game.material_sigs {
         mat.execute(params![game_id, sig])?;
     }
+    bump_count(tx, "games", 1)?;
+    bump_count(tx, "positions", game.positions.len() as i64)?;
     Ok(InsertOutcome::Inserted)
 }
 
@@ -2430,6 +2490,32 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM game_material WHERE signature = ''", [], |r| r.get(0))
             .unwrap();
         assert!(sentinel >= 1, "unreplayable game got the sentinel row");
+    }
+
+    #[test]
+    fn stats_counters_stay_exact_across_import_delete_and_reseed() {
+        // Regression for the Database-tab freeze: stats() must not scan the
+        // positions table, and the cached counters must match real COUNT(*)
+        // through every mutation path.
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(SAMPLE, "test").unwrap();
+        let real = |db: &Db, t: &str| -> i64 {
+            db.conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0)).unwrap()
+        };
+        let s = db.stats().unwrap();
+        assert_eq!(s.games, real(&db, "games"));
+        assert_eq!(s.positions, real(&db, "positions"));
+        // Delete keeps counters exact despite the invisible FK cascade.
+        let ids = db.list_games(&GameFilter::default(), 1, 0, None, true).unwrap();
+        db.delete_games(&[ids[0].id]).unwrap();
+        let s = db.stats().unwrap();
+        assert_eq!(s.games, real(&db, "games"));
+        assert_eq!(s.positions, real(&db, "positions"));
+        // A pre-counter database (no db_counts rows) reseeds correctly.
+        db.conn.execute("DELETE FROM db_counts", []).unwrap();
+        let s = db.stats().unwrap();
+        assert_eq!(s.games, real(&db, "games"));
+        assert_eq!(s.positions, real(&db, "positions"));
     }
 
     #[test]

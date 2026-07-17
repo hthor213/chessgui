@@ -333,15 +333,29 @@ export default function Home() {
     [game.restoreSnapshot],
   )
 
-  // A record was archived (lockout lifted) or deleted (fair-play confirmed):
-  // if it backs the game open on the board, unflag that game too.
-  const handleActiveGameResolved = useCallback(
+  // Archived: the game is over and saved to the database, so if it backs the
+  // game open on the board, lifting the lockout there is legitimate — the
+  // finished game may be analyzed in place.
+  const handleActiveGameArchived = useCallback(
     (record: ActiveGameRecord) => {
       const meta = game.activeGame
       if (meta && activeGameIdFor(meta) === record.id) game.setActiveGame(null)
       setActiveGamesNonce((n) => n + 1) // keep the header bell count honest
     },
     [game.activeGame, game.setActiveGame],
+  )
+
+  // Deleted: the record is discarded, not finished. If it backs the game on
+  // the board, clear the board rather than just unflagging — deleting must
+  // not be a loophole that leaves an ongoing game's position sitting there
+  // with the engine unlocked (fair play, spec 219).
+  const handleActiveGameDeleted = useCallback(
+    (record: ActiveGameRecord) => {
+      const meta = game.activeGame
+      if (meta && activeGameIdFor(meta) === record.id) game.newGame()
+      setActiveGamesNonce((n) => n + 1)
+    },
+    [game.activeGame, game.newGame],
   )
   const [now, setNow] = useState(Date.now())
 
@@ -970,8 +984,8 @@ export default function Home() {
             <div className="shrink-0 px-6 pt-4 empty:hidden">
               <ActiveGamesPanel
                 onResume={handleResumeActiveGame}
-                onArchived={handleActiveGameResolved}
-                onDeleted={handleActiveGameResolved}
+                onArchived={handleActiveGameArchived}
+                onDeleted={handleActiveGameDeleted}
                 refreshNonce={activeGamesNonce}
               />
             </div>
