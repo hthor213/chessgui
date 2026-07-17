@@ -73,24 +73,36 @@ fn open(db_path: &str) -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
-/// Index up to `limit` un-indexed games in one committed transaction.
-/// Returns games processed; 0 = caught up. Mirrors Db::backfill_material_batch.
-fn backfill_batch(conn: &mut Connection, limit: usize) -> rusqlite::Result<usize> {
+/// Index up to `limit` un-indexed games with id > `cursor` in one committed
+/// transaction, advancing `cursor` past them. Returns games processed.
+///
+/// The cursor matters: without it every batch's NOT-EXISTS scan restarts at
+/// the top of `games` and re-probes everything already indexed, which turns
+/// the whole run quadratic — measured live, throughput fell from 2.5k to
+/// ~230 games/s by the 750k mark. Scanning forward from the cursor keeps
+/// each pass linear; the caller wraps around once to catch stragglers.
+fn backfill_batch(
+    conn: &mut Connection,
+    limit: usize,
+    cursor: &mut i64,
+) -> rusqlite::Result<usize> {
     let tx = conn.transaction()?;
     let processed;
     {
         let mut stmt = tx.prepare_cached(
-            "SELECT id, moves FROM games g WHERE NOT EXISTS \
-             (SELECT 1 FROM game_material m WHERE m.game_id = g.id) LIMIT ?1",
+            "SELECT id, moves FROM games g WHERE g.id > ?2 AND NOT EXISTS \
+             (SELECT 1 FROM game_material m WHERE m.game_id = g.id) \
+             ORDER BY g.id LIMIT ?1",
         )?;
         let rows: Vec<(i64, Vec<u8>)> = stmt
-            .query_map([limit], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map(params![limit, *cursor], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?;
         processed = rows.len();
         let mut ins = tx.prepare_cached(
             "INSERT OR IGNORE INTO game_material (game_id, signature) VALUES (?1, ?2)",
         )?;
         for (id, moves) in rows {
+            *cursor = id;
             match replay_material_sigs(&moves) {
                 Some(sigs) => {
                     for sig in sigs {
@@ -120,10 +132,18 @@ fn backfill(db_path: &str, batch: usize) -> rusqlite::Result<()> {
     println!("{total} games to index (batch = {batch}, committed per batch)");
     let started = Instant::now();
     let mut done: i64 = 0;
+    let mut cursor: i64 = 0;
     loop {
-        let n = backfill_batch(&mut conn, batch)? as i64;
+        let n = backfill_batch(&mut conn, batch, &mut cursor)? as i64;
         if n == 0 {
-            break;
+            // End of a forward pass. Wrap around once — games can land
+            // behind the cursor mid-run — and stop when a pass from the
+            // top finds nothing.
+            if cursor == 0 {
+                break;
+            }
+            cursor = 0;
+            continue;
         }
         done += n;
         let rate = done as f64 / started.elapsed().as_secs_f64().max(0.001);
