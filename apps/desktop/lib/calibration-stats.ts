@@ -12,8 +12,10 @@ import type {
   CalibrationSummary,
   DeckStat,
   EvalRange,
+  GroupStats,
   Miss,
   PhaseStat,
+  SelectionSplit,
 } from "./calibration"
 
 /** Mate is capped to this many pawns for numeric comparison, so a single mate
@@ -128,13 +130,7 @@ export function scoredAnswers(
 
 /** Accuracy metrics over a subset of scored answers — MAE, correlation, and
  *  best-move hit rate, each null when there isn't enough data. */
-export function groupStats(scored: Scored[]): {
-  count: number
-  mae: number | null
-  pearson: number | null
-  bestMoveHitRate: number | null
-  moveAnswers: number
-} {
+export function groupStats(scored: Scored[]): GroupStats {
   const withMove = scored.filter((s) => s.answer.move_uci != null)
   const hits = withMove.filter((s) => s.answer.move_uci === s.pos.sf_best_uci).length
   return {
@@ -149,17 +145,44 @@ export function groupStats(scored: Scored[]): {
   }
 }
 
+/** How this session's positions were ordered — drives the §6.4 stat
+ *  segregation. `lockInN` is the length of the fixed-order lock-in burst at
+ *  the session head; with `adaptive` true, every position at index ≥ lockInN
+ *  was model-chosen (spec 213 Phase B). */
+export type SelectionInfo = { adaptive: boolean; lockInN: number }
+
 /** Full results summary: correlation, error, per-band + per-phase tables, move
- *  hit-rate, and the biggest misses (up to `missCount`, default 10). */
+ *  hit-rate, and the biggest misses (up to `missCount`, default 10).
+ *
+ *  `selection` (spec 213 §6.4): with Phase-B adaptive selection on, positions
+ *  after the lock-in burst were chosen conditioned on earlier answers, which
+ *  biases naive pooled statistics. The headline stats are therefore ALSO
+ *  computed over the fixed-order burst alone (selection-clean); the top-level
+ *  numbers stay pooled and the report labels which is which. Omitted
+ *  `selection` means a fixed presentation order throughout (pre-Phase-B
+ *  session) — pooled IS selection-clean then. */
 export function summarize(
   session: CalibrationSession,
   answers: CalibrationAnswer[],
   missCount = 10,
+  selection?: SelectionInfo,
 ): CalibrationSummary {
   const scored = scoredAnswers(session, answers)
   const skipped = answers.filter((a) => a.skipped).length
 
   const overall = groupStats(scored)
+
+  // Stat segregation (§6.4). Answer indices ARE presentation slots (Phase B
+  // only ever promotes into the unanswered tail), so index < lockInN is
+  // exactly the fixed-order burst.
+  const adaptive = selection?.adaptive ?? false
+  const fixedScored = adaptive ? scored.filter((s) => s.index < (selection?.lockInN ?? 0)) : scored
+  const selectionSplit: SelectionSplit = {
+    adaptive,
+    fixedOrderCount: fixedScored.length,
+    adaptiveCount: scored.length - fixedScored.length,
+    fixedOrder: adaptive ? groupStats(fixedScored) : null,
+  }
 
   const perBand: BandStat[] = BANDS.map((band) => {
     const inBand = scored.filter((s) => s.pos.band === band)
@@ -232,6 +255,7 @@ export function summarize(
     perPhase,
     perDeck,
     planDirection,
+    selection: selectionSplit,
     biggestMisses,
   }
 }

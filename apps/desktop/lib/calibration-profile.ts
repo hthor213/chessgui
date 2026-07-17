@@ -134,14 +134,35 @@ export function mergeProfiles(a: LabelerProfile, b: LabelerProfile): LabelerProf
   }
 }
 
+/** Whether a stored results file was a reveal session. Blind
+ *  (show_reveal=false) sessions are methodologically distinct — no feedback
+ *  between positions (docs/research/calibration-data-format.md) — so
+ *  cross-session aggregates must never mix the two modes. Files that predate
+ *  the flag were all reveal sessions. */
+export function isRevealResults(r: CalibrationResults): boolean {
+  return r.show_reveal !== false
+}
+
 /** Fold every saved results file into one profile, oldest first. Tolerates the
  *  full history: v1 point sessions, pre-think_ms answers (normalized in), and
  *  malformed entries (skipped — a damaged artifact degrades the prior, it
  *  never blocks a session). Returns null when nothing usable exists, so a
- *  fresh labeler is distinguishable from an all-miss one. */
-export function buildProfileFromResults(results: CalibrationResults[]): LabelerProfile | null {
+ *  fresh labeler is distinguishable from an all-miss one.
+ *
+ *  `showReveal` given ⇒ only sessions of that reveal mode are folded (the
+ *  blind/reveal split above); omitted keeps the historical pool-everything
+ *  behavior for callers that want the raw union. */
+export function buildProfileFromResults(
+  results: CalibrationResults[],
+  showReveal?: boolean,
+): LabelerProfile | null {
   const usable = results.filter(
-    (r) => r != null && typeof r === "object" && r.session?.positions != null && Array.isArray(r.answers),
+    (r) =>
+      r != null &&
+      typeof r === "object" &&
+      r.session?.positions != null &&
+      Array.isArray(r.answers) &&
+      (showReveal === undefined || isRevealResults(r) === showReveal),
   )
   if (usable.length === 0) return null
   return usable.reduce(
@@ -286,13 +307,19 @@ export function cellKey(pos: Pick<CalibrationPosition, "phase" | "band">): strin
 
 /** Labels per coverage cell across saved results — the sparsity stream's
  *  prior. Same tolerance as buildProfileFromResults: v1 point sessions load,
- *  malformed entries are skipped, never fatal. */
-export function cellCounts(results: CalibrationResults[]): Record<string, number> {
+ *  malformed entries are skipped, never fatal. `showReveal` given ⇒ only
+ *  sessions of that reveal mode count (blind/reveal split, like
+ *  buildProfileFromResults). */
+export function cellCounts(
+  results: CalibrationResults[],
+  showReveal?: boolean,
+): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const r of results) {
     if (r == null || typeof r !== "object" || r.session?.positions == null || !Array.isArray(r.answers)) {
       continue
     }
+    if (showReveal !== undefined && isRevealResults(r) !== showReveal) continue
     for (const s of scoredAnswers(r.session, r.answers.map(normalizeAnswer))) {
       const k = cellKey(s.pos)
       counts[k] = (counts[k] ?? 0) + 1
