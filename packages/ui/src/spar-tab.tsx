@@ -71,6 +71,16 @@ import {
   type SparPly,
 } from "@/lib/spar"
 import { useSparResultRecorder } from "@/hooks/use-spar-results"
+import { usePlayClock } from "@/hooks/use-play-clock"
+import { remainingMs, type PlayClockPreset } from "@/lib/play-clock"
+import { formatClockMs } from "@/lib/arena-moves"
+import {
+  flagResultLabel,
+  personaThinkTimeMs,
+  SPAR_TC_OFF,
+  SPAR_TC_PRESETS,
+  sparTimeControlLabel,
+} from "@/lib/spar-clock"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -268,6 +278,10 @@ export function SparTab() {
   // for the duration of the session like level/mode. Probe always forces
   // false regardless of this value — see effectiveCountsTowardTraining below.
   const [countsTowardTraining, setCountsTowardTraining] = useState(true)
+  // Optional time control (spec 215, increment TCs in local spar): picked on
+  // the config screen, fixed for the duration of a game. Off = the pre-clock
+  // spar, byte-for-byte (no clock, no persona think delay).
+  const [tcPreset, setTcPreset] = useState<PlayClockPreset>(SPAR_TC_OFF)
 
   // Roster (spec 218 decision 4): built from the local rival book's load
   // state (his entry exists only when the book actually loaded, no error
@@ -389,12 +403,27 @@ export function SparTab() {
   }, [stepReview])
 
   const rivalColor: SparColor = userColor === "white" ? "black" : "white"
+
+  // Game clock (spec 215): the Play-mode Fischer clock hook, keyed to the
+  // spar loop's own live tip (plies.length / whose turn `fen` says it is) —
+  // a real move pays the increment, a take-back charges the thinking time
+  // without paying one, and the 100ms watcher adjudicates flag = loss
+  // locally, all in hooks/use-play-clock. Untimed (TC off) keeps clock null.
+  const playClock = usePlayClock(plies.length, fen ? turnOf(fen) : "white")
+  const { clock: gameClock, flagged, start: startClock, getEngineClock } = playClock
+
   // A manual end (resign / draw agreed) overrides the position-derived status;
-  // a probe abort freezes the board without claiming any result at all.
+  // a probe abort freezes the board without claiming any result at all. A
+  // fallen flag ends a LIVE game (flag = loss) but never rewrites an end that
+  // already happened — position-derived and manual ends are checked first, so
+  // a clock left conceptually running after checkmate can't relabel the game.
   const status = useMemo(() => {
     if (manualEnd) return { over: true, label: manualEnd.label }
-    return fen ? sparStatus(fen) : { over: false, label: null }
-  }, [fen, manualEnd])
+    const s = fen ? sparStatus(fen) : { over: false, label: null }
+    if (s.over) return s
+    if (flagged) return { over: true, label: flagResultLabel(flagged) }
+    return s
+  }, [fen, manualEnd, flagged])
   const frozen = status.over || probeEnded
   // Probe can never count (spec 215 hard rule) — the config screen's toggle
   // renders disabled and forced off for probe, but this is the actual
@@ -417,7 +446,19 @@ export function SparTab() {
     plies: plies.length,
     gameKey: boardNonce,
     countsTowardTraining: effectiveCountsTowardTraining,
+    // Recorded so training aggregates can filter by TC later (spec 215).
+    timeControl: sparTimeControlLabel(tcPreset),
   })
+
+  // Re-render tick while a clock is live so the running face counts down;
+  // stops at any freeze, so both faces hold their final reading.
+  const [clockNow, setClockNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (phase !== "playing" || !gameClock || frozen) return
+    setClockNow(Date.now())
+    const iv = setInterval(() => setClockNow(Date.now()), 100)
+    return () => clearInterval(iv)
+  }, [phase, gameClock, frozen])
 
   // Load the book + the local private-rival configs + the pipeline profiles
   // once on mount. reloadNonce bumps after "Add player profile…" finishes so
@@ -501,6 +542,8 @@ export function SparTab() {
       setStartFen(START_FEN)
       setFen(START_FEN)
       setPlies([])
+      // Clock starts (or resets to null for TC off) with White to move.
+      startClock(tcPreset, "white")
       setBoardNonce((n) => n + 1)
       setPhase("playing")
       return
@@ -520,9 +563,11 @@ export function SparTab() {
     setStartFen(picked.fen)
     setFen(picked.fen)
     setPlies([])
+    // A drop-into-line start may be mid-game with Black to move.
+    startClock(tcPreset, turnOf(picked.fen))
     setBoardNonce((n) => n + 1)
     setPhase("playing")
-  }, [participant, hasBook, oppBook, side, bookStartMode])
+  }, [participant, hasBook, oppBook, side, bookStartMode, startClock, tcPreset])
 
   // Drive the rival's reply whenever it's their turn at the live tip: an
   // exact-position book lookup first (move-by-move mode only), Maia otherwise
@@ -541,17 +586,44 @@ export function SparTab() {
     // left his book, which the persona engine's style-bias window keys off.
     const bookMap = moveMaps ? (rivalColor === "white" ? moveMaps.white : moveMaps.black) : null
 
+    // Persona think-time (spec 215): with a clock running, the reply lands
+    // only after a plausible pause, so the persona's clock actually burns.
+    // No persona time model exists (persona.rs / machine.rs carry none), so
+    // it's lib/spar-clock's bounded draw off the persona's remaining time —
+    // a plausibility bound, never a claim about the player's real pace.
+    // 0 when unclocked, keeping the pre-clock behavior byte-for-byte.
+    const clk = getEngineClock()
+    const thinkMs = clk
+      ? personaThinkTimeMs(rivalColor === "white" ? clk.wtimeMs : clk.btimeMs)
+      : 0
+    const thinkStartedAt = Date.now()
+    let applyTimer: ReturnType<typeof setTimeout> | undefined
+
     if (bookStartMode === "movebymove" && bookMap) {
       const reply = lookupRivalReply(bookMap, fen, Math.random)
       if (reply) {
         const uci = replySanToUci(fen, reply.san)
         const ply = uci ? applyUci(fen, uci) : null
         if (ply) {
-          pendingFenRef.current = null
+          if (thinkMs <= 0) {
+            pendingFenRef.current = null
+            setBookStatus("book")
+            setPlies((prev) => [...prev, ply])
+            setFen(ply.fen)
+            return
+          }
+          // Clocked: hold the (instant) book reply for the sampled think time.
+          pendingFenRef.current = fen
+          setThinking(true)
           setBookStatus("book")
-          setPlies((prev) => [...prev, ply])
-          setFen(ply.fen)
-          return
+          applyTimer = setTimeout(() => {
+            if (pendingFenRef.current !== fen) return
+            pendingFenRef.current = null
+            setThinking(false)
+            setPlies((prev) => [...prev, ply])
+            setFen(ply.fen)
+          }, thinkMs)
+          return () => clearTimeout(applyTimer)
         }
         // A malformed/stale entry (SAN didn't parse or apply here) — fall
         // through to Maia below rather than getting stuck.
@@ -588,6 +660,7 @@ export function SparTab() {
         const ply = applyUci(fen, decision.uci)
         if (!ply) {
           setMoveError(`Opponent returned an illegal move (${decision.uci}).`)
+          setThinking(false)
           return
         }
         // Stash the per-move decision log locally (private data, contract step
@@ -602,18 +675,26 @@ export function SparTab() {
           mode: sparMode,
           decision,
         })
-        setPlies((prev) => [...prev, ply])
-        setFen(ply.fen)
+        const applyMove = () => {
+          if (!live || pendingFenRef.current !== fen) return
+          setThinking(false)
+          setPlies((prev) => [...prev, ply])
+          setFen(ply.fen)
+        }
+        // The engine's own compute time counts toward the sampled think time;
+        // only the remainder (if any) is still waited out.
+        const waitMs = Math.max(0, thinkMs - (Date.now() - thinkStartedAt))
+        if (waitMs > 0) applyTimer = setTimeout(applyMove, waitMs)
+        else applyMove()
       })
       .catch((e) => {
         if (!live || pendingFenRef.current !== fen) return
         setMoveError(humanizeMoveError(String(e)))
-      })
-      .finally(() => {
-        if (live && pendingFenRef.current === fen) setThinking(false)
+        setThinking(false)
       })
     return () => {
       live = false
+      clearTimeout(applyTimer)
     }
   }, [
     phase,
@@ -632,6 +713,7 @@ export function SparTab() {
     plies,
     startFen,
     sparMode,
+    getEngineClock,
   ])
 
   const userToMove = phase === "playing" && !!fen && turnOf(fen) === userColor && !frozen
@@ -658,6 +740,7 @@ export function SparTab() {
   // THAT — neither one consumed a ply, so it just resumes at the same position.
   const takeBack = useCallback(() => {
     if (thinking) return
+    if (flagged) return // a fallen flag is final (flag = loss) — no take-back
     if (manualEnd || probeEnded) {
       pendingFenRef.current = null
       setManualEnd(null)
@@ -676,7 +759,7 @@ export function SparTab() {
     setThinking(false)
     setMoveError(null)
     setBoardNonce((n) => n + 1)
-  }, [thinking, plies, userColor, startFen, manualEnd, probeEnded])
+  }, [thinking, flagged, plies, userColor, startFen, manualEnd, probeEnded])
 
   // Resign / offer draw (spec 214 "Spar modes + game controls"): available in
   // both Serious and probe modes, always visible during play.
@@ -816,6 +899,7 @@ export function SparTab() {
           setBookStartMode(DEFAULT_BOOK_START_MODE)
           setSide("either")
           setCountsTowardTraining(true)
+          setTcPreset(SPAR_TC_OFF)
           setPhase("config")
         }}
         onAddProfile={() => setPhase("addProfile")}
@@ -846,6 +930,8 @@ export function SparTab() {
         canImprove={canImprove}
         countsTowardTraining={countsTowardTraining}
         setCountsTowardTraining={setCountsTowardTraining}
+        tcPreset={tcPreset}
+        setTcPreset={setTcPreset}
         onStart={startGame}
         onBack={() => setPhase("roster")}
         canStart={hasBook ? !!oppBook : true}
@@ -894,6 +980,15 @@ export function SparTab() {
               {bookStatus === "book" ? "in book" : `out of book — playing like a ~${effectiveLevel}`}
             </span>
           )}
+          {gameClock && (
+            <span
+              className="inline-block px-1.5 py-0.5 rounded text-[11px] font-mono tabular-nums border border-white/10 text-muted-foreground"
+              title="Fischer time control (base+increment) — flag = loss."
+              data-testid="spar-tc-label"
+            >
+              {sparTimeControlLabel(tcPreset)}
+            </span>
+          )}
         </div>
         <span
           className={`inline-block px-2.5 py-1 rounded-md text-xs font-medium ${
@@ -908,6 +1003,15 @@ export function SparTab() {
 
       <div className="flex-1 min-h-0 flex gap-8 p-6">
         <div className="flex-1 min-w-0 flex flex-col items-center justify-center gap-3" data-testid="spar-board">
+          {gameClock && (
+            <SparClockFace
+              label={opponentLabel}
+              ms={remainingMs(gameClock, rivalColor, clockNow)}
+              running={!frozen && gameClock.running === rivalColor}
+              hasFlagged={flagged === rivalColor}
+              testId="spar-clock-opponent"
+            />
+          )}
           <Board
             key={boardNonce}
             fen={derivedFen}
@@ -918,6 +1022,15 @@ export function SparTab() {
             autoShapes={lastShape}
             viewOnly={!userToMove || reviewing}
           />
+          {gameClock && (
+            <SparClockFace
+              label="You"
+              ms={remainingMs(gameClock, userColor, clockNow)}
+              running={!frozen && gameClock.running === userColor}
+              hasFlagged={flagged === userColor}
+              testId="spar-clock-user"
+            />
+          )}
 
           <div className="flex items-center gap-2 h-7">
             <Button
@@ -965,6 +1078,23 @@ export function SparTab() {
               <div className="font-mono text-foreground mt-0.5" data-testid="spar-line">
                 {entry.line}
               </div>
+            </div>
+          )}
+
+          {/* Flag banner (spec 215): flag = loss, adjudicated locally like
+              Play mode — unmistakable, and final (no take-back past a flag). */}
+          {flagged && (
+            <div
+              className={`rounded-md border px-3 py-2 text-sm font-medium ${
+                flagged === userColor
+                  ? "border-red-400/40 bg-red-500/10 text-red-300"
+                  : "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+              }`}
+              data-testid="spar-flag-banner"
+            >
+              {flagged === userColor
+                ? "Flag fell — you lost on time."
+                : `Flag fell — ${opponentLabel} lost on time. You win.`}
             </div>
           )}
 
@@ -1140,7 +1270,7 @@ export function SparTab() {
                 variant="outline"
                 size="sm"
                 onClick={takeBack}
-                disabled={thinking || (plies.length === 0 && !manualEnd && !probeEnded)}
+                disabled={thinking || !!flagged || (plies.length === 0 && !manualEnd && !probeEnded)}
                 data-testid="spar-takeback"
               >
                 Take back
@@ -1152,6 +1282,42 @@ export function SparTab() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** One side's clock face, above/below the board (spec 215) — same shape as
+ *  Play mode's LivePlayer row (app/page.tsx), same formatClockMs as every
+ *  other clock face in the app. The running side's face brightens; a fallen
+ *  flag turns red and holds at 0:00.0. */
+function SparClockFace({
+  label,
+  ms,
+  running,
+  hasFlagged,
+  testId,
+}: {
+  label: string
+  ms: number
+  running: boolean
+  hasFlagged: boolean
+  testId: string
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 w-full max-w-[min(70vh,560px)] px-1">
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      <span
+        className={`px-2 py-0.5 rounded border text-base font-mono tabular-nums ${
+          hasFlagged
+            ? "bg-red-500/15 border-red-400/40 text-red-300"
+            : running
+              ? "bg-white/10 border-white/30 text-foreground"
+              : "bg-secondary/60 border-white/10 text-muted-foreground"
+        }`}
+        data-testid={testId}
+      >
+        {formatClockMs(ms)}
+      </span>
     </div>
   )
 }
@@ -1435,6 +1601,8 @@ function SparConfig({
   canImprove,
   countsTowardTraining,
   setCountsTowardTraining,
+  tcPreset,
+  setTcPreset,
   onStart,
   onBack,
   canStart,
@@ -1457,6 +1625,9 @@ function SparConfig({
    *  this off and the toggle renders disabled — probe can never count. */
   countsTowardTraining: boolean
   setCountsTowardTraining: (b: boolean) => void
+  /** Optional time control (spec 215): Off, or one of the increment presets. */
+  tcPreset: PlayClockPreset
+  setTcPreset: (p: PlayClockPreset) => void
   onStart: () => void
   onBack: () => void
   canStart: boolean
@@ -1577,6 +1748,36 @@ function SparConfig({
                 ))}
               </div>
             </div>
+        )}
+
+        {/* Optional time control (spec 215): off / 5+3 / 10+5 / 15+10 — the
+            training program's Christmas-match TCs. Fischer increment, both
+            clocks live during play, flag = loss (adjudicated locally, like
+            Play mode). */}
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Clock:</span>
+          <div className="flex gap-1">
+            {SPAR_TC_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                data-testid={`spar-tc-${p.id}`}
+                onClick={() => setTcPreset(p)}
+                className={`px-3 py-1.5 text-sm rounded-md border transition-colors tabular-nums ${
+                  tcPreset.id === p.id
+                    ? "border-white/30 bg-white/10 text-foreground"
+                    : "border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {tcPreset.baseS != null && (
+          <p className="text-xs text-muted-foreground -mt-2">
+            Fischer increment ({tcPreset.incS}s per move). Flag = loss — {opponentLabel} thinks
+            on its own clock too.
+          </p>
         )}
 
         {canImprove && (
