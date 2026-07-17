@@ -55,6 +55,7 @@ import {
   fetchLichessExplorer,
   type LichessExplorerResult,
 } from "@/lib/lichess-explorer"
+import { chesscomGameUrl, fetchFinishedGame } from "@chessgui/core/chesscom"
 import { ecoName } from "@chessgui/core/eco"
 import { parseMaterialQuery } from "@chessgui/core/material-signature"
 import { addDbPath, dbDisplayName, loadDbPaths, saveDbPaths } from "@/lib/db-registry"
@@ -889,6 +890,15 @@ function ImportDialog({
   const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A pasted chess.com game LINK is not PGN — catch it before the parser
+  // does and fetch the real PGN from the player's public archive instead
+  // (user pasted a share URL and got a bare failure, 2026-07-17). The API
+  // has no games-by-id endpoint, so it needs the user's username.
+  const pastedGameUrl = useMemo(() => chesscomGameUrl(text), [text])
+  const [chesscomUser, setChesscomUser] = useState("")
+  // fetchFromChesscom auto-imports on success but is declared before
+  // runImport; the ref breaks the ordering cycle without reordering hooks.
+  const runImportRef = useRef<((pgn: string, source: string) => Promise<void>) | null>(null)
   const [cbhProgress, setCbhProgress] = useState<CbhImportProgress | null>(null)
   const [cbhCancelling, setCbhCancelling] = useState(false)
   const [pgnProgress, setPgnProgress] = useState<PgnImportProgress | null>(null)
@@ -901,10 +911,56 @@ function ImportDialog({
   const [tauri, setTauri] = useState(false)
   useEffect(() => setTauri(isTauri()), [])
 
+  // Resolve a pasted chess.com link: find the game in the username's public
+  // archive (exact URL match via the spec-219 client), then import its PGN —
+  // unless it's a variant the database can't store yet, in which case the
+  // fetched PGN lands in the textarea with an honest explanation instead of
+  // a silent error-count.
+  const fetchFromChesscom = useCallback(async () => {
+    if (!pastedGameUrl || !chesscomUser.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await fetchFinishedGame({
+        username: chesscomUser,
+        gameUrl: pastedGameUrl,
+        maxMonths: 6,
+      })
+      if (result.status === "matched") {
+        const rules = result.game.rules ?? "chess"
+        if (rules !== "chess") {
+          setText(result.pgn)
+          setError(
+            `Fetched the game, but it's a ${rules} game — the database only stores standard chess for now (variant support is on the backlog). The PGN is in the box above if you want to copy it elsewhere.`,
+          )
+        } else {
+          setText("")
+          await runImportRef.current?.(result.pgn, "chess.com")
+        }
+      } else if (result.status === "not-found") {
+        setError(
+          `Couldn't find that game in ${chesscomUser.trim()}'s recent archives — check the username (the account that PLAYED the game), or note chess.com's archive can lag a few hours after a game ends. You can also use Share → Download on chess.com and paste the PGN here.`,
+        )
+      } else if (result.status === "error") {
+        setError(`chess.com lookup failed: ${result.message}`)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "chess.com lookup failed.")
+    } finally {
+      setBusy(false)
+    }
+  }, [pastedGameUrl, chesscomUser])
+
   const runImport = useCallback(
     async (pgn: string, source: string) => {
       if (!pgn.trim()) {
         setError("Paste some PGN or choose a file first.")
+        return
+      }
+      if (chesscomGameUrl(pgn)) {
+        setError(
+          "That's a chess.com game link, not PGN — enter your chess.com username below and use Fetch, and the PGN comes over by itself.",
+        )
         return
       }
       setBusy(true)
@@ -927,6 +983,7 @@ function ImportDialog({
     },
     [onImported, dbPath],
   )
+  runImportRef.current = runImport
 
   const handleFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1003,11 +1060,42 @@ function ImportDialog({
         </DialogHeader>
         <Textarea
           className="h-48 font-mono text-xs"
-          placeholder="[Event &quot;…&quot;]&#10;1. e4 e5 …"
+          placeholder="[Event &quot;…&quot;]&#10;1. e4 e5 … — or paste a chess.com game link"
           value={text}
           onChange={(e) => setText(e.target.value)}
           data-testid="db-import-text"
         />
+        {pastedGameUrl && (
+          <div
+            className="rounded-md border border-emerald-700/50 bg-emerald-950/30 p-3 space-y-2"
+            data-testid="db-import-chesscom-row"
+          >
+            <p className="text-xs text-emerald-200">
+              That&apos;s a chess.com game link. Enter the chess.com username that played it
+              and the PGN is fetched from the public archive.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                value={chesscomUser}
+                onChange={(e) => setChesscomUser(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void fetchFromChesscom()
+                }}
+                placeholder="chess.com username"
+                className="h-8 text-xs"
+                data-testid="db-import-chesscom-user"
+              />
+              <Button
+                size="sm"
+                onClick={() => void fetchFromChesscom()}
+                disabled={busy || !chesscomUser.trim()}
+                data-testid="db-import-chesscom-fetch"
+              >
+                {busy ? "Fetching…" : "Fetch game"}
+              </Button>
+            </div>
+          </div>
+        )}
         {error && <p className="text-sm text-destructive">{error}</p>}
         {/* PGN import progress (spec 200): streamed per committed batch. No
             total is knowable for a PGN stream, so the bar is indeterminate —

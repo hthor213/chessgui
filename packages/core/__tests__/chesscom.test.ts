@@ -177,3 +177,23 @@ describe("fetchFinishedGame", () => {
     expect(result.status).toBe("error")
   })
 })
+
+describe("chesscomGameUrl (paste-box URL detection, 2026-07-17)", () => {
+  it("canonicalizes daily/live game links, tolerating share params", async () => {
+    const { chesscomGameUrl } = await import("../src/chesscom")
+    expect(chesscomGameUrl("https://www.chess.com/game/daily/997892824")).toBe(
+      "https://www.chess.com/game/daily/997892824",
+    )
+    expect(chesscomGameUrl("  https://chess.com/game/LIVE/123?ref_id=abc  ")).toBe(
+      "https://www.chess.com/game/live/123",
+    )
+  })
+
+  it("rejects anything that could be actual PGN or other URLs", async () => {
+    const { chesscomGameUrl } = await import("../src/chesscom")
+    expect(chesscomGameUrl('[Event "x"]\n1. e4 e5')).toBeNull()
+    expect(chesscomGameUrl("https://lichess.org/abcd1234")).toBeNull()
+    expect(chesscomGameUrl("https://www.chess.com/member/hjaltth")).toBeNull()
+    expect(chesscomGameUrl("see https://www.chess.com/game/daily/1 for the game")).toBeNull()
+  })
+})

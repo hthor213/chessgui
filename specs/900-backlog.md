@@ -77,6 +77,19 @@ names its eventual home decision.
       audit are partially done as of 2026-07-16 — 001-project-setup archived,
       011-stockfish-uci + 012 superseded, 010 closed into 016).
 
+## Chess960 support gap (2026-07-17, user-hit)
+
+The user's real daily game vs the neighbor rival was Chess960; the app fails
+it END TO END, measured: `Db::import_pgn_file` reports 1 error (Rust import
+assumes standard castling), and `parsePgnToTrees` accepts the start FEN but
+normalizes castling rights `DAda`→`KQkq` and replays 0 plies — so neither
+the database nor the analysis board can hold the game. Needs: CastlingMode
+awareness (shakmaty + chessops both support Chess960) through the packed-
+move encoding, replay paths (positions/material/zobrist), core pgn.ts, and
+board castling UI; plus import errors that SAY what failed (a variant game
+currently just increments an anonymous error count). Until then the import
+dialog's chess.com fetch branch names the limitation honestly.
+
 ## Pending user walkthrough (2026-07-17)
 
 Cross-spec tick-sweep leftovers: the code half of each item verified green,

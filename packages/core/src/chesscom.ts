@@ -33,8 +33,26 @@ export interface ChesscomGame {
   /** Epoch seconds. */
   end_time?: number
   time_class?: string
+  /** chess.com variant: "chess", "chess960", "kingofthehill", … The app's
+   *  database and board replay only support standard chess today, so import
+   *  callers MUST branch on this — a Chess960 game imports as 0 plies /
+   *  errors silently otherwise (user-reported 2026-07-17). */
+  rules?: string
   white: ChesscomPlayer
   black: ChesscomPlayer
+}
+
+/** The canonical game URL when `text` is (only) a chess.com game link —
+ *  tolerates whitespace and share-link query params; null when the text is
+ *  anything else (i.e. plausibly actual PGN). Lets paste boxes catch a URL
+ *  before handing it to the PGN parser (user-reported 2026-07-17: a pasted
+ *  share URL produced a bare "failed to load game"). */
+export function chesscomGameUrl(text: string): string | null {
+  const m = text
+    .trim()
+    .match(/^https?:\/\/(?:www\.)?chess\.com\/game\/(daily|live)\/(\d+)(?:[?#]\S*)?$/i)
+  if (!m) return null
+  return `https://www.chess.com/game/${m[1].toLowerCase()}/${m[2]}`
 }
 
 interface ArchivesResponse {
