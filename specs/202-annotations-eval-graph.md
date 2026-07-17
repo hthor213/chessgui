@@ -78,6 +78,40 @@ Red dots where eval drops significantly:
 - Mistake: 1.0-3.0 pawn drop
 - Blunder: >3.0 pawn drop
 
+## Analyze-view information architecture (user decision, 2026-07-17)
+
+The analyze view splits by WHO the content is for (reference: chess.com Game
+Review, which the user finds natural):
+
+- **Left column — the player's notebook**: everything a person annotating a
+  game with pen and paper would have. (a) move history, (b) good/bad move
+  glyphs on the moves, (c) annotations/comments, (d) who is playing,
+  (e) clocks. The eval graph WITH key-move markers also lives here, under
+  the move list (it replaced the plain advantage graph — one graph, the one
+  that marks key moves, not two).
+- **Right column — the engine room**: everything engine-derived. Analysis
+  lines/PVs, engine controls, Analyze Game, engine compare. May be WIDER
+  than the old right column.
+- **Move quality is the ENGINE's call**: !/?/?? glyphs are assigned by the
+  analysis pass (eval-swing thresholds), not typed by hand. The manual NAG
+  toolbar goes away as a primary surface; hand annotation (text, and NAG
+  override) stays available at KEY MOVES — those annotations feed the
+  training program ("why did I go wrong here" in the user's own words).
+- **Fair-play mode falls out cleanly**: a fair-play game turns the right
+  column OFF entirely and hides evals/glyphs/graph in the notebook — the
+  left side is exactly what an OTB player may legally have (spec 219).
+- **Navigation**: beginning / back / forward / end plus **Next** = jump to
+  the next key move (chess.com-style), under the board.
+- **Per-game performance Elo (user, 2026-07-17)**: after Analyze Game, each
+  player gets a performance estimate for THAT game. Honesty gate applies
+  (213/224 house rule): a single game is a thin sample, so the number is
+  labeled as such ("performed like ~1500 — single game, wide range") and
+  derived from measured machinery, not vibes — first choice is band
+  likelihood under the corpus error model (error_model.fit.json:
+  P(mistake | eval, phase, band) scored per band over the game's classified
+  moves), ACPL→band mapping as fallback. Displayed in the notebook next to
+  each player.
+
 ## Done When
 
 > Status 2026-07-13: annotation UI + eval graph implemented (`lib/annotations.ts`,
