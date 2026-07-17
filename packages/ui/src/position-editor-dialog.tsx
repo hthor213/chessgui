@@ -22,6 +22,12 @@ import {
   type PieceMap,
   type CastlingOptions,
 } from "@chessgui/core/fen";
+import {
+  validate960BackRank,
+  complete960Fen,
+  random960BackRank,
+  type BackRankSlots,
+} from "@chessgui/core/chess960-setup";
 import type { ActiveGameMeta } from "@chessgui/core/active-game";
 import {
   ActiveGameSetupSection,
@@ -46,6 +52,18 @@ const GLYPH: Record<Color, Record<Role, string>> = {
 };
 
 const PALETTE_ROLES: Role[] = ["king", "queen", "rook", "bishop", "knight", "pawn"];
+const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
+const isRank1 = (square: string) => square[1] === "1";
+const NO_CASTLING: CastlingOptions = { K: false, Q: false, k: false, q: false };
+
+// The White back rank the user has placed on rank 1, as file-indexed slots for
+// validate960BackRank / complete960Fen (Chess960 quick setup, spec 014).
+function whiteBackRankSlots(pieces: PieceMap): BackRankSlots {
+  return FILES.map((file) => {
+    const p = pieces.get(`${file}1`);
+    return p && p.color === "white" ? p.role : null;
+  });
+}
 
 type Tool =
   | { kind: "piece"; color: Color; role: Role }
@@ -85,6 +103,9 @@ export function PositionEditorDialog({
   const [orientation, setOrientation] = useState<Color>("white");
   const [fenText, setFenText] = useState("");
   const [fenError, setFenError] = useState<string | null>(null);
+  // Chess960 quick setup (spec 014): when on, the user places only White's
+  // rank-1 pieces and the rest of the position is auto-generated live.
+  const [chess960, setChess960] = useState(false);
   // Active-game flag (spec 219 A). Reset on every open; username prefilled
   // with the shell-remembered default.
   const [activeGameSetup, setActiveGameSetup] = useState<ActiveGameSetupValue>(
@@ -124,11 +145,58 @@ export function PositionEditorDialog({
       q: rights.includes("q"),
     });
     setTool({ kind: "pointer" });
+    setChess960(false);
     setActiveGameSetup(emptyActiveGameSetup(defaultChesscomUsername));
   }, [open, currentFen, applyState, defaultChesscomUsername]);
 
+  // Derived Chess960 state: what the user has placed on rank 1, whether it is a
+  // legal 960 back rank, and (when legal) the full auto-completed start FEN.
+  const chess960Slots = chess960 ? whiteBackRankSlots(pieces) : null;
+  const chess960Validation = chess960Slots ? validate960BackRank(chess960Slots) : null;
+  const chess960Fen =
+    chess960Slots && chess960Validation?.valid
+      ? complete960Fen(chess960Slots as Role[])
+      : null;
+
+  // In 960 mode we don't run the standard castling/turn machinery — just store
+  // the placed pieces (White forced) and let the derived state drive the board.
+  const applyPieces960 = useCallback((map: PieceMap) => {
+    setPieces(map);
+    setTurn("white");
+  }, []);
+
+  const enableChess960 = useCallback((on: boolean) => {
+    setChess960(on);
+    if (on) {
+      // Fresh placement: empty rank-1 canvas, White to move.
+      setPieces(new Map());
+      setTurn("white");
+      setTool({ kind: "pointer" });
+    }
+  }, []);
+
+  const handleRandom960 = useCallback(() => {
+    const rank = random960BackRank(Math.random);
+    const map: PieceMap = new Map();
+    rank.forEach((role, file) => map.set(`${FILES[file]}1`, { role, color: "white" }));
+    applyPieces960(map);
+  }, [applyPieces960]);
+
   const handleSelect = useCallback(
     (square: string) => {
+      if (chess960) {
+        // Only rank-1 White pieces matter; palette color is forced White.
+        if (tool.kind === "piece" && isRank1(square)) {
+          const map = new Map(pieces);
+          map.set(square, { role: tool.role, color: "white" });
+          applyPieces960(map);
+        } else if (tool.kind === "erase" && pieces.has(square)) {
+          const map = new Map(pieces);
+          map.delete(square);
+          applyPieces960(map);
+        }
+        return;
+      }
       if (tool.kind === "piece") {
         const map = new Map(pieces);
         map.set(square, { role: tool.role, color: tool.color });
@@ -139,13 +207,24 @@ export function PositionEditorDialog({
         applyState(map, turn, castling);
       }
     },
-    [tool, pieces, turn, castling, applyState],
+    [chess960, tool, pieces, turn, castling, applyState, applyPieces960],
   );
 
   // A drag always relocates the piece (replacing any occupant) so Chessground's
   // own DOM and our placement state never diverge.
   const handleMove = useCallback(
     (from: string, to: string) => {
+      if (chess960) {
+        // Rank-1 rearrangement only; auto-generated pieces aren't draggable.
+        if (!isRank1(from) || !isRank1(to)) return;
+        const p = pieces.get(from);
+        if (!p) return;
+        const map = new Map(pieces);
+        map.delete(from);
+        map.set(to, { role: p.role, color: "white" });
+        applyPieces960(map);
+        return;
+      }
       const p = pieces.get(from);
       if (!p) return;
       const map = new Map(pieces);
@@ -153,7 +232,7 @@ export function PositionEditorDialog({
       map.set(to, p);
       applyState(map, turn, castling);
     },
-    [pieces, turn, castling, applyState],
+    [chess960, pieces, turn, castling, applyState, applyPieces960],
   );
 
   const handleFenInput = (text: string) => {
@@ -181,8 +260,15 @@ export function PositionEditorDialog({
   };
 
   const options = computeCastlingOptions(pieces);
-  const boardFen = pieceMapToFen(pieces, turn, castling);
-  const confirmDisabled = fenError !== null || !validateFen(boardFen).ok;
+  // In 960 mode the board shows the auto-completed position when the rank-1
+  // placement is legal, otherwise just the partial White rank the user is
+  // building (no castling rights until it completes).
+  const boardFen = chess960
+    ? chess960Fen ?? pieceMapToFen(pieces, "white", NO_CASTLING)
+    : pieceMapToFen(pieces, turn, castling);
+  const confirmDisabled = chess960
+    ? !chess960Fen
+    : fenError !== null || !validateFen(boardFen).ok;
 
   const toggleCastle = (k: keyof CastlingOptions) =>
     applyState(pieces, turn, { ...castling, [k]: !castling[k] });
@@ -214,7 +300,7 @@ export function PositionEditorDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="bg-[#1e1c19] border-[#2a2825] text-[#bababa] sm:max-w-3xl"
+        className="bg-[#1e1c19] border-[#2a2825] text-[#bababa] sm:max-w-4xl"
         onPaste={handleImagePaste}
       >
         <DialogHeader>
@@ -226,9 +312,10 @@ export function PositionEditorDialog({
 
         <div className="flex flex-col md:flex-row gap-6">
           {/* Board */}
-          {/* Fixed 400px at md+ (unchanged); below md the wrapper shrinks to
-              the dialog width and the Board's ResizeObserver follows. */}
-          <div style={{ height: 448 }} className="mx-auto md:mx-0 w-full max-w-[400px] md:w-[400px] md:max-w-none">
+          {/* ~560px at md+ (close to the main playing board); below md the
+              wrapper shrinks to the dialog width and the Board's ResizeObserver
+              follows (max 400 to keep the mobile layout intact). */}
+          <div className="mx-auto md:mx-0 w-full max-w-[400px] md:w-[560px] md:max-w-none h-[448px] md:h-[608px]">
             <Board
               fen={boardFen}
               orientation={orientation}
@@ -241,6 +328,44 @@ export function PositionEditorDialog({
 
           {/* Controls */}
           <div className="flex-1 flex flex-col gap-4 min-w-0">
+            {/* Chess960 quick setup (spec 014) */}
+            <div className="flex flex-col gap-2 rounded border border-[#2a2825] bg-[#232120] p-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="flex items-center gap-2 text-xs text-[#bababa]">
+                  <input
+                    type="checkbox"
+                    checked={chess960}
+                    onChange={(e) => enableChess960(e.target.checked)}
+                    className="accent-green-600"
+                    data-testid="chess960-checkbox"
+                  />
+                  Chess960 starting position
+                </label>
+                <button
+                  type="button"
+                  className={toolBtnClass(false)}
+                  disabled={!chess960}
+                  onClick={handleRandom960}
+                  data-testid="chess960-random"
+                >
+                  Random 960
+                </button>
+              </div>
+              {chess960 && (
+                <p className="text-xs text-muted-foreground">
+                  {chess960Fen ? (
+                    <span className="text-green-500">
+                      Valid 960 back rank — pawns, Black&apos;s mirror, and castling filled in.
+                    </span>
+                  ) : (
+                    <span className="text-amber-400" data-testid="chess960-problem">
+                      Place White&apos;s rank-1 pieces. {chess960Validation?.problem}
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+
             {/* Palette */}
             <div className="flex flex-col gap-2">
               {(["white", "black"] as Color[]).map((color) => (
@@ -286,7 +411,8 @@ export function PositionEditorDialog({
               </div>
             </div>
 
-            {/* Side to move */}
+            {/* Side to move (Chess960 forces White) */}
+            {!chess960 && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground w-24">Side to move</span>
               <button
@@ -304,8 +430,10 @@ export function PositionEditorDialog({
                 Black
               </button>
             </div>
+            )}
 
-            {/* Castling */}
+            {/* Castling (derived from rook files in Chess960 mode) */}
+            {!chess960 && (
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-xs text-muted-foreground w-24">Castling</span>
               {([
@@ -331,6 +459,7 @@ export function PositionEditorDialog({
                 </label>
               ))}
             </div>
+            )}
 
             {/* Quick actions */}
             <div className="flex gap-2">
@@ -362,12 +491,13 @@ export function PositionEditorDialog({
               <span className="text-xs text-muted-foreground">FEN</span>
               <input
                 type="text"
-                value={fenText}
+                value={chess960 ? boardFen : fenText}
                 onChange={(e) => handleFenInput(e.target.value)}
+                readOnly={chess960}
                 spellCheck={false}
-                className="bg-[#2a2825] border border-[#3a3835] rounded px-2 py-1 text-xs font-mono text-[#bababa] w-full"
+                className="bg-[#2a2825] border border-[#3a3835] rounded px-2 py-1 text-xs font-mono text-[#bababa] w-full disabled:opacity-60"
               />
-              {fenError && <span className="text-xs text-red-400">{fenError}</span>}
+              {!chess960 && fenError && <span className="text-xs text-red-400">{fenError}</span>}
             </div>
           </div>
         </div>
