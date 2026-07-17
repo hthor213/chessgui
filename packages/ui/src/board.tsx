@@ -89,8 +89,12 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
       // Use the smaller of container width/height, leave room for controls
-      // below and for the coordinate gutters on the left/bottom.
-      const size = Math.min(rect.width - gutter, rect.height - 48 - gutter);
+      // below and for the coordinate gutters on the left/bottom. Below lg
+      // (spec 223 stacked layout) the board slot is already viewport-capped
+      // and the controls live outside it, so the 48px reserve would only
+      // shrink the board — skip it there.
+      const reserve = window.matchMedia("(min-width: 1024px)").matches ? 48 : 0;
+      const size = Math.min(rect.width - gutter, rect.height - reserve - gutter);
       const snapped = Math.max(160, Math.floor(size / 8) * 8);
       setBoardSize(snapped);
       onBoardSize?.(snapped);
@@ -99,7 +103,14 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
 
     const ro = new ResizeObserver(updateSize);
     ro.observe(container);
-    return () => ro.disconnect();
+    // Breakpoint crossings normally resize the container too, but recompute
+    // explicitly so the reserve toggle never depends on that coincidence.
+    const mq = window.matchMedia("(min-width: 1024px)");
+    mq.addEventListener("change", updateSize);
+    return () => {
+      ro.disconnect();
+      mq.removeEventListener("change", updateSize);
+    };
   }, [gutter]);
 
   useEffect(() => {

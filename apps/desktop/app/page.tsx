@@ -206,6 +206,11 @@ export default function Home() {
   }, [playClock.stop, engine.setPlayMode])
 
   const [boardSize, setBoardSize] = useState(560)
+  // Stacked-mode accordion (spec 223): below lg the side columns collapse
+  // behind tap headers. Desktop is untouched — at lg+ the headers are hidden
+  // and the sections render open regardless of this state (lg:contents).
+  const [playersOpen, setPlayersOpen] = useState(true)
+  const [analysisOpen, setAnalysisOpen] = useState(true)
   const [view, setView] = useState<"board" | "tournament" | "thinking" | "database" | "learn">("board")
   // Sub-view within the Learn tab: eval calibration, persona sparring (spec 214),
   // avoidance puzzles (spec 211), repertoire drilling (spec 900 backlog), or
@@ -832,16 +837,20 @@ export default function Home() {
       <div className="h-screen flex flex-col bg-[#0a0a0a]">
         {/* Header (spec 001 §2): knight logo + uppercase name, shadcn
             NavigationMenu of ghost view-switch buttons, bell + avatar. */}
-        <header className="flex items-center justify-between px-6 py-3 border-b border-white/10">
+        <header className="flex items-center justify-between gap-2 md:gap-0 px-3 md:px-6 py-3 border-b border-white/10">
           <div className="flex items-baseline gap-2">
             <span className="flex items-center gap-1.5 text-lg font-bold uppercase tracking-tight text-foreground">
               <ChessKnight className="h-5 w-5 shrink-0" aria-hidden="true" />
-              ChessGUI
+              <span className="hidden min-[400px]:inline">ChessGUI</span>
             </span>
-            <span className="text-[11px] text-muted-foreground font-mono" title="version · commit · build date">
+            <span className="hidden md:inline text-[11px] text-muted-foreground font-mono" title="version · commit · build date">
               v{process.env.NEXT_PUBLIC_APP_VERSION} · {process.env.NEXT_PUBLIC_BUILD_INFO}
             </span>
           </div>
+          {/* Below md the nav scrolls sideways in its own box (spec 223) —
+              md:contents dissolves the wrapper so md+ keeps today's exact
+              flex layout. */}
+          <div className="min-w-0 overflow-x-auto md:contents">
           <NavigationMenu>
             <NavigationMenuList className="space-x-1">
               <NavButton
@@ -903,7 +912,8 @@ export default function Home() {
               </NavButton>
             </NavigationMenuList>
           </NavigationMenu>
-          <div className="flex items-center gap-2">
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             <Button
               variant="ghost"
               size="icon"
@@ -975,7 +985,9 @@ export default function Home() {
                 refreshNonce={activeGamesNonce}
               />
             </div>
-            <div className="flex-1 min-h-0">
+            {/* overflow-x containment below lg (spec 223): anything wide
+                inside a tab scrolls in this box, never the page. */}
+            <div className="flex-1 min-h-0 overflow-x-auto lg:overflow-x-visible">
               <DatabaseTab
                 currentFen={game.fen}
                 onLoadGame={handleLoadFromDatabase}
@@ -989,11 +1001,13 @@ export default function Home() {
             active; a small sub-nav switches between the two. */}
         {view === "learn" && (
           <main className="flex-1 min-h-0 flex flex-col">
-            <div className="px-6 pt-3 flex items-center gap-1 border-b border-white/10">
+            {/* Sub-nav scrolls sideways below md (spec 223) instead of
+                pushing the page wide; taller touch targets on phones. */}
+            <div className="px-3 md:px-6 pt-3 flex items-center gap-1 border-b border-white/10 overflow-x-auto md:overflow-x-visible">
               <button
                 data-testid="learn-sub-calibrate"
                 onClick={() => setLearnSub("calibrate")}
-                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                className={`shrink-0 whitespace-nowrap px-3 py-2.5 md:py-1.5 text-sm rounded-t-md transition-colors ${
                   learnSub === "calibrate"
                     ? "text-foreground font-medium border-b-2 border-emerald-500"
                     : "text-muted-foreground hover:text-foreground"
@@ -1004,7 +1018,7 @@ export default function Home() {
               <button
                 data-testid="learn-sub-spar"
                 onClick={() => setLearnSub("spar")}
-                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                className={`shrink-0 whitespace-nowrap px-3 py-2.5 md:py-1.5 text-sm rounded-t-md transition-colors ${
                   learnSub === "spar"
                     ? "text-foreground font-medium border-b-2 border-emerald-500"
                     : "text-muted-foreground hover:text-foreground"
@@ -1015,7 +1029,7 @@ export default function Home() {
               <button
                 data-testid="learn-sub-puzzles"
                 onClick={() => setLearnSub("puzzles")}
-                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                className={`shrink-0 whitespace-nowrap px-3 py-2.5 md:py-1.5 text-sm rounded-t-md transition-colors ${
                   learnSub === "puzzles"
                     ? "text-foreground font-medium border-b-2 border-emerald-500"
                     : "text-muted-foreground hover:text-foreground"
@@ -1026,7 +1040,7 @@ export default function Home() {
               <button
                 data-testid="learn-sub-repertoire"
                 onClick={() => setLearnSub("repertoire")}
-                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                className={`shrink-0 whitespace-nowrap px-3 py-2.5 md:py-1.5 text-sm rounded-t-md transition-colors ${
                   learnSub === "repertoire"
                     ? "text-foreground font-medium border-b-2 border-emerald-500"
                     : "text-muted-foreground hover:text-foreground"
@@ -1037,7 +1051,7 @@ export default function Home() {
               <button
                 data-testid="learn-sub-training"
                 onClick={() => setLearnSub("training")}
-                className={`px-3 py-1.5 text-sm rounded-t-md transition-colors ${
+                className={`shrink-0 whitespace-nowrap px-3 py-2.5 md:py-1.5 text-sm rounded-t-md transition-colors ${
                   learnSub === "training"
                     ? "text-foreground font-medium border-b-2 border-emerald-500"
                     : "text-muted-foreground hover:text-foreground"
@@ -1046,7 +1060,9 @@ export default function Home() {
                 Training
               </button>
             </div>
-            <div className="flex-1 min-h-0">
+            {/* overflow-x containment below lg (spec 223): anything wide
+                inside a tab scrolls in this box, never the page. */}
+            <div className="flex-1 min-h-0 overflow-x-auto lg:overflow-x-visible">
               {learnSub === "calibrate" ? (
                 <CalibrationTab onLoadPosition={handleLoadCalibrationPosition} />
               ) : learnSub === "spar" ? (
@@ -1159,11 +1175,25 @@ export default function Home() {
             keep desktop (≥1024px) byte-for-byte identical to the old
             layout. */}
         <main
-          className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_220px] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible"
+          className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_220px] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible overflow-x-hidden lg:overflow-x-visible"
           style={view !== "board" || liveViewing ? { display: "none" } : undefined}
         >
           {/* Left column: Player Panel */}
           <div className="flex flex-col gap-6 order-2 lg:order-none">
+            {/* Accordion header, stacked mode only. The section wrapper is
+                lg:contents, so at lg+ the cards are direct flex children of
+                the column — byte-identical to the pre-mobile layout. */}
+            <button
+              type="button"
+              className="lg:hidden flex items-center justify-between px-3 py-2.5 rounded-md bg-secondary/40 border border-white/10 text-sm font-medium text-foreground"
+              onClick={() => setPlayersOpen((o) => !o)}
+              aria-expanded={playersOpen}
+              data-testid="mobile-players-toggle"
+            >
+              Players & clocks
+              <span className="text-muted-foreground">{playersOpen ? "▾" : "▸"}</span>
+            </button>
+            <div className={`${playersOpen ? "flex" : "hidden"} flex-col gap-6 lg:contents`}>
             {/* Opponent card (top of board) */}
             <Card className="bg-secondary/40 backdrop-blur-md border-white/10 p-4">
               <div className="flex items-center gap-3">
@@ -1296,6 +1326,7 @@ export default function Home() {
                 {isPlayMode ? humanClockText : "--:--"}
               </div>
             </Card>
+            </div>
           </div>
 
           {/* Center column: Board */}
@@ -1486,6 +1517,18 @@ export default function Home() {
 
           {/* Right column: Game Analytics */}
           <div className="flex flex-col gap-6 min-h-0 overflow-hidden order-3 lg:order-none">
+            {/* Accordion header, stacked mode only (see left column). */}
+            <button
+              type="button"
+              className="lg:hidden flex items-center justify-between px-3 py-2.5 rounded-md bg-secondary/40 border border-white/10 text-sm font-medium text-foreground"
+              onClick={() => setAnalysisOpen((o) => !o)}
+              aria-expanded={analysisOpen}
+              data-testid="mobile-analysis-toggle"
+            >
+              Analysis & moves
+              <span className="text-muted-foreground">{analysisOpen ? "▾" : "▸"}</span>
+            </button>
+            <div className={`${analysisOpen ? "flex" : "hidden"} flex-col gap-6 lg:contents`}>
             <div className="shrink-0">
               {/* Spec 219 B: for an active game every engine surface —
                   analysis panel, eval bar, human eval — is replaced by the
@@ -1576,6 +1619,7 @@ export default function Home() {
                 <OpeningExplorerPanel currentFen={game.fen} onPlayMove={game.playUciMove} />
               </>
             )}
+            </div>
           </div>
         </main>
       </div>
@@ -1656,7 +1700,7 @@ function NavButton({
         variant="ghost"
         onClick={onClick}
         title={title}
-        className={`h-auto px-3 py-1.5 text-base transition-colors hover:bg-white/5 hover:text-foreground ${
+        className={`h-auto px-3 py-2.5 md:py-1.5 text-base transition-colors hover:bg-white/5 hover:text-foreground ${
           active ? "font-medium text-foreground" : "font-normal text-muted-foreground"
         }`}
       >

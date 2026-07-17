@@ -315,10 +315,11 @@ export function DatabaseTab({ currentFen, onLoadGame, onPlayMove }: DatabaseTabP
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE))
 
   return (
-    <div className="h-full overflow-y-auto p-6" data-testid="database-tab">
+    <div className="h-full overflow-y-auto p-3 md:p-6" data-testid="database-tab">
       <div className="mx-auto max-w-6xl flex flex-col gap-4">
-        {/* Header: title, stats, import */}
-        <div className="flex items-center justify-between gap-4">
+        {/* Header: title, stats, import. Wraps below md so the switcher +
+            buttons never push the page wide on a phone (spec 223). */}
+        <div className="flex items-center justify-between gap-4 flex-wrap md:flex-nowrap">
           <div>
             <h2 className="text-lg font-medium">Game Database</h2>
             <p className="text-sm text-muted-foreground" data-testid="db-stats">
