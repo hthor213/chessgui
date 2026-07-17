@@ -42,9 +42,12 @@ pub const DEFAULT_PLY_CAP: u32 = 40;
 /// v1: games + positions. v2: puzzles (spec 211 — DDL lives in puzzles.rs,
 /// mirroring scripts/mining/import_puzzles.py). v3: game_tags (spec 200
 /// tagging/favorites). v4: game_material (spec 200 material-signature search;
-/// existing games are backfilled by replay on open). All DDL is idempotent
-/// (IF NOT EXISTS), so upgrading is just running the batch again.
-const SCHEMA_VERSION: i64 = 4;
+/// existing games are backfilled by replay on open). v5: `variant` +
+/// `start_fen` columns on games (Chess960 support — variant is "" for
+/// standard or "chess960"; start_fen carries the `[FEN]` tag so exports and
+/// replays can reconstruct non-standard starts). All DDL is idempotent
+/// (IF NOT EXISTS + ALTER-if-missing), so upgrading is just running it again.
+const SCHEMA_VERSION: i64 = 5;
 
 /// Games per committed slice of the material backfill. Small enough that an
 /// interrupted run loses seconds of work, large enough that transaction
@@ -88,6 +91,9 @@ pub struct GameHeader {
     pub result: String,
     pub ply_count: i64,
     pub source: String,
+    /// "" for standard chess, "chess960" for Fischer Random (spec 013/200 —
+    /// lets the game list badge 960 games). Mirrors `variant?` in database.ts.
+    pub variant: String,
     /// User tags on this game (spec 200 tagging; "favorite" is the star).
     pub tags: Vec<String>,
 }
@@ -226,6 +232,30 @@ struct GameTags {
     result: String,
     /// Non-standard starting position, if a `[FEN "..."]` tag is present.
     fen: Option<String>,
+    /// Raw `[Variant "..."]` tag value, if present (Chess960 detection).
+    variant: Option<String>,
+}
+
+/// True when a `[Variant]` tag value names Chess960. Case-insensitive, and
+/// tolerant of the spellings in the wild: "Chess960", "chess 960",
+/// "Fischerandom" (lichess), "Fischer Random" / "Fischer-Random" (ChessBase).
+fn is_chess960_tag(value: &str) -> bool {
+    let v: String = value
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| !matches!(c, ' ' | '-' | '_'))
+        .collect();
+    matches!(v.as_str(), "chess960" | "fischerandom" | "fischerrandom")
+}
+
+/// True when a FEN's castling field uses file letters (Shredder/X-FEN, e.g.
+/// "DAda" or "HAha") — the other way Chess960 games identify themselves, even
+/// without a `[Variant]` tag. Standard castling letters K/Q/k/q sort outside
+/// the a–h/A–H file ranges, so any in-range letter means files.
+fn fen_castling_uses_files(fen: &str) -> bool {
+    fen.split_whitespace()
+        .nth(2)
+        .is_some_and(|c| c.chars().any(|ch| ch.is_ascii_alphabetic() && ch.to_ascii_lowercase() <= 'h'))
 }
 
 struct ParsedGame {
@@ -243,6 +273,8 @@ struct ParsedGame {
     material_sigs: Vec<String>,
     ply_count: u32,
     result: String,
+    /// "" (standard) or "chess960" — the shared variant contract string.
+    variant: String,
     /// Set when the mainline could not be fully applied (illegal/ambiguous SAN or
     /// an unparseable FEN tag). Such games are counted as errors, not imported.
     error: Option<String>,
@@ -267,6 +299,9 @@ struct Frame {
 struct GameBuilder {
     tags: GameTags,
     pos: Chess,
+    /// Standard for ordinary games; Chess960 for detected 960 games, so their
+    /// castling moves pack as king-takes-rook (shakmaty's native 960 UCI form).
+    castling_mode: CastlingMode,
     start_fullmove: u32,
     start_white: bool,
     ply_cap: u32,
@@ -281,7 +316,7 @@ struct GameBuilder {
 }
 
 impl GameBuilder {
-    fn new(tags: GameTags, pos: Chess, ply_cap: u32) -> GameBuilder {
+    fn new(tags: GameTags, pos: Chess, ply_cap: u32, castling_mode: CastlingMode) -> GameBuilder {
         let start_white = pos.turn() == Color::White;
         let start_fullmove = pos.fullmoves().get();
         // Index the start position itself (ply 0) so a search for the opening
@@ -293,6 +328,7 @@ impl GameBuilder {
         GameBuilder {
             tags,
             pos,
+            castling_mode,
             start_fullmove,
             start_white,
             ply_cap,
@@ -359,7 +395,7 @@ impl GameBuilder {
             // Resolve the SAN against the live position, then play + index it.
             match san_plus.san.to_move(&self.pos) {
                 Ok(mv) => {
-                    let uci = UciMove::from_move(mv, CastlingMode::Standard);
+                    let uci = UciMove::from_move(mv, self.castling_mode);
                     self.packed_moves
                         .extend_from_slice(&PackedUciMove::pack(uci).to_bytes());
                     // Material only changes on a capture or promotion; unlike
@@ -447,6 +483,10 @@ impl GameBuilder {
         let closing = self.result_token.clone().unwrap_or_else(|| result.clone());
         self.push_token(&closing);
         let ply_count = self.packed_moves.len() as u32 / PackedUciMove::BYTES as u32;
+        let variant = match self.castling_mode {
+            CastlingMode::Chess960 => "chess960".to_string(),
+            CastlingMode::Standard => String::new(),
+        };
         ParsedGame {
             tags: self.tags,
             movetext: self.movetext,
@@ -455,6 +495,7 @@ impl GameBuilder {
             material_sigs: self.material_sigs,
             ply_count,
             result,
+            variant,
             error: self.error,
         }
     }
@@ -502,22 +543,31 @@ impl Visitor for ImportVisitor {
             b"ECO" => tags.eco = v(),
             b"Result" => tags.result = v(),
             b"FEN" => tags.fen = Some(v()),
+            b"Variant" => tags.variant = Some(v()),
             _ => {}
         }
         ControlFlow::Continue(())
     }
 
     fn begin_movetext(&mut self, tags: Self::Tags) -> ControlFlow<Self::Output, Self::Movetext> {
+        // Chess960 detection (shared variant contract): a [Variant] tag naming
+        // Chess960, or a [FEN] whose castling field uses file letters
+        // (Shredder/X-FEN). Standard games keep CastlingMode::Standard exactly
+        // as before, so their packed encoding is byte-identical.
+        let is960 = tags.variant.as_deref().is_some_and(is_chess960_tag)
+            || tags.fen.as_deref().is_some_and(fen_castling_uses_files);
+        let mode = if is960 { CastlingMode::Chess960 } else { CastlingMode::Standard };
         let pos = match &tags.fen {
             Some(fen_str) => match Fen::from_ascii(fen_str.as_bytes())
                 .ok()
-                .and_then(|f| f.into_position::<Chess>(CastlingMode::Standard).ok())
+                .and_then(|f| f.into_position::<Chess>(mode).ok())
             {
                 Some(p) => p,
                 None => {
                     // Unparseable/illegal FEN tag: emit a game marked as an error
                     // so the import counts it and moves on.
-                    let mut b = GameBuilder::new(GameTags::default(), Chess::default(), 0);
+                    let mut b =
+                        GameBuilder::new(GameTags::default(), Chess::default(), 0, CastlingMode::Standard);
                     b.tags = tags;
                     b.error = Some("invalid FEN tag".to_string());
                     return ControlFlow::Continue(b);
@@ -525,7 +575,7 @@ impl Visitor for ImportVisitor {
             },
             None => Chess::default(),
         };
-        ControlFlow::Continue(GameBuilder::new(tags, pos, self.ply_cap))
+        ControlFlow::Continue(GameBuilder::new(tags, pos, self.ply_cap, mode))
     }
 
     fn san(&mut self, mt: &mut Self::Movetext, san_plus: SanPlus) -> ControlFlow<Self::Output> {
@@ -654,7 +704,12 @@ impl Db {
                 pgn_moves    TEXT NOT NULL DEFAULT '',
                 moves        BLOB NOT NULL,
                 dup_hash     TEXT NOT NULL,
-                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                -- v5: "" = standard, "chess960" = Fischer Random.
+                variant      TEXT NOT NULL DEFAULT '',
+                -- v5: the [FEN] tag for non-standard starts ('' = default
+                -- start), so exports and replays can rebuild the position.
+                start_fen    TEXT NOT NULL DEFAULT ''
             );
 
             CREATE UNIQUE INDEX IF NOT EXISTS idx_games_dup   ON games(dup_hash);
@@ -708,6 +763,9 @@ impl Db {
         // import logic in puzzles.rs; it mirrors scripts/mining/import_puzzles.py.
         self.conn.execute_batch(crate::puzzles::PUZZLES_SCHEMA)?;
         crate::puzzles::migrate_puzzles_columns(&self.conn)?;
+        // v5: a pre-v5 games table lacks the variant/start_fen columns —
+        // CREATE TABLE IF NOT EXISTS won't add them, so ALTER-if-missing.
+        self.migrate_games_columns()?;
         // Record the schema version once; bump an older recorded version in
         // place (the DDL above is idempotent, so running it IS the migration).
         let has: i64 =
@@ -721,6 +779,25 @@ impl Db {
                 "UPDATE schema_version SET version = ?1 WHERE version < ?1",
                 [SCHEMA_VERSION],
             )?;
+        }
+        Ok(())
+    }
+
+    /// Add columns introduced after a database's games table was created
+    /// (v5: variant, start_fen). Checked against `PRAGMA table_info` so the
+    /// ALTERs run exactly once per column; idempotent thereafter.
+    fn migrate_games_columns(&self) -> rusqlite::Result<()> {
+        let mut stmt = self.conn.prepare("PRAGMA table_info(games)")?;
+        let have: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .collect::<Result<_, _>>()?;
+        for (col, ddl) in [
+            ("variant", "ALTER TABLE games ADD COLUMN variant TEXT NOT NULL DEFAULT ''"),
+            ("start_fen", "ALTER TABLE games ADD COLUMN start_fen TEXT NOT NULL DEFAULT ''"),
+        ] {
+            if !have.iter().any(|c| c == col) {
+                self.conn.execute(ddl, [])?;
+            }
         }
         Ok(())
     }
@@ -1080,7 +1157,7 @@ impl Db {
         // contains), split apart in `row_to_header` — one query, no N+1.
         let mut sql = String::from(
             "SELECT id, white, black, white_elo, black_elo, event, site, round, \
-             date, eco, result, ply_count, source, \
+             date, eco, result, ply_count, source, variant, \
              (SELECT group_concat(tag, char(31)) FROM \
               (SELECT tag FROM game_tags WHERE game_id = games.id ORDER BY tag)) \
              FROM games",
@@ -1220,7 +1297,8 @@ impl Db {
     /// (tags followed by the movetext).
     pub fn get_game_pgn(&self, id: i64) -> rusqlite::Result<Option<String>> {
         let row = self.conn.query_row(
-            "SELECT white, black, event, site, round, date, eco, result, pgn_moves \
+            "SELECT white, black, event, site, round, date, eco, result, pgn_moves, \
+             variant, start_fen \
              FROM games WHERE id = ?1",
             [id],
             |r| {
@@ -1234,6 +1312,8 @@ impl Db {
                     eco: r.get(6)?,
                     result: r.get(7)?,
                     movetext: r.get(8)?,
+                    variant: r.get(9)?,
+                    start_fen: r.get(10)?,
                 })
             },
         );
@@ -1248,10 +1328,15 @@ impl Db {
     /// (EPD) verification to reject the rare hash collision. Returns, per game,
     /// the move played next from that position.
     pub fn search_position(&self, fen: &str, limit: i64) -> rusqlite::Result<Vec<PositionHit>> {
-        let pos = match Fen::from_ascii(fen.trim().as_bytes())
-            .ok()
-            .and_then(|f| f.into_position::<Chess>(CastlingMode::Standard).ok())
-        {
+        // Standard mode first (unchanged for ordinary FENs); Chess960 mode as
+        // the fallback so 960 positions — file-letter castling or non-corner
+        // rooks — are searchable too.
+        let pos = match Fen::from_ascii(fen.trim().as_bytes()).ok().and_then(|f| {
+            f.clone()
+                .into_position::<Chess>(CastlingMode::Standard)
+                .or_else(|_| f.into_position::<Chess>(CastlingMode::Chess960))
+                .ok()
+        }) {
             Some(p) => p,
             None => return Ok(Vec::new()),
         };
@@ -1267,7 +1352,7 @@ impl Db {
         // insertion order and therefore game id order in practice.
         let mut stmt = self.conn.prepare(
             "SELECT p.game_id, p.ply, g.white, g.black, g.white_elo, g.black_elo, \
-             g.result, g.date, g.moves \
+             g.result, g.date, g.moves, g.variant, g.start_fen \
              FROM positions p JOIN games g ON g.id = p.game_id \
              WHERE p.zobrist = ?1 LIMIT ?2",
         )?;
@@ -1722,8 +1807,9 @@ fn insert_game(
     let changed = tx.execute(
         "INSERT OR IGNORE INTO games \
          (white, black, white_elo, black_elo, event, site, round, date, eco, \
-          result, ply_count, source, import_batch, pgn_moves, moves, dup_hash) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+          result, ply_count, source, import_batch, pgn_moves, moves, dup_hash, \
+          variant, start_fen) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
         params![
             t.white,
             t.black,
@@ -1741,6 +1827,8 @@ fn insert_game(
             game.movetext,
             game.packed_moves,
             hash,
+            game.variant,
+            t.fen.as_deref().unwrap_or(""),
         ],
     )?;
     if changed == 0 {
@@ -1765,21 +1853,39 @@ fn insert_game(
     Ok(InsertOutcome::Inserted)
 }
 
-/// Replay `packed_moves` from the start position to `ply`, confirm the EPD there
-/// matches `target_epd`, and return the next move (UCI + SAN) if any.
+/// Start position for replaying a game row: the default board when `start_fen`
+/// is empty, otherwise the stored FEN parsed under the game's variant's
+/// castling mode. `None` (drop the row, never a false match) if the FEN does
+/// not parse — including pre-v5 rows whose FEN was never stored (their
+/// `start_fen` is '' but the packed moves won't replay from the default start,
+/// so `verify_and_next`'s EPD check rejects them exactly as before).
+fn start_position(variant: &str, start_fen: &str) -> Option<Chess> {
+    if start_fen.is_empty() {
+        return Some(Chess::default());
+    }
+    let mode = if variant == "chess960" {
+        CastlingMode::Chess960
+    } else {
+        CastlingMode::Standard
+    };
+    Fen::from_ascii(start_fen.as_bytes()).ok()?.into_position::<Chess>(mode).ok()
+}
+
+/// Replay `packed_moves` from `start` to `ply`, confirm the EPD there matches
+/// `target_epd`, and return the next move (UCI + SAN) if any. Chess960 rows
+/// pack castling as king-takes-rook, which `UciMove::to_move` resolves to a
+/// castle natively, so no mode is needed here.
 fn verify_and_next(
     packed_moves: &[u8],
     ply: usize,
     target_epd: &str,
+    start: Chess,
 ) -> (bool, Option<String>, Option<String>) {
-    let mut pos = Chess::default();
+    let mut pos = start;
     let moves: Vec<UciMove> = packed_moves
         .chunks_exact(PackedUciMove::BYTES)
         .map(|c| PackedUciMove::from_bytes([c[0], c[1]]).unpack())
         .collect();
-    // Positions indexed from a FEN start would need the FEN to replay; this slice
-    // verifies standard-start games (the overwhelming majority) and safely rejects
-    // the rest rather than returning a false match.
     for uci in moves.iter().take(ply) {
         match uci.to_move(&pos) {
             Ok(m) => pos.play_unchecked(m),
@@ -1816,8 +1922,9 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<GameHeader> {
         result: r.get(10)?,
         ply_count: r.get(11)?,
         source: r.get(12)?,
+        variant: r.get(13)?,
         tags: r
-            .get::<_, Option<String>>(13)?
+            .get::<_, Option<String>>(14)?
             .map(|s| s.split('\x1f').map(str::to_string).collect())
             .unwrap_or_default(),
     })
@@ -1833,6 +1940,8 @@ struct GameForPgn {
     eco: String,
     result: String,
     movetext: String,
+    variant: String,
+    start_fen: String,
 }
 
 impl GameForPgn {
@@ -1851,6 +1960,15 @@ impl GameForPgn {
         tag("Result", &self.result);
         if !self.eco.is_empty() {
             tag("ECO", &self.eco);
+        }
+        // Round-trip the variant + non-standard start (v5): re-importing this
+        // export must detect Chess960 and rebuild the same start position.
+        if self.variant == "chess960" {
+            tag("Variant", "Chess960");
+        }
+        if !self.start_fen.is_empty() {
+            tag("SetUp", "1");
+            tag("FEN", &self.start_fen);
         }
         out.push('\n');
         out.push_str(&self.movetext);
@@ -1934,7 +2052,7 @@ fn player_candidates_sql(player_param: u32, limit_param: u32) -> String {
 fn player_position_search_sql() -> String {
     format!(
         "SELECT p.game_id, p.ply, g.white, g.black, g.white_elo, g.black_elo, \
-         g.result, g.date, g.moves \
+         g.result, g.date, g.moves, g.variant, g.start_fen \
          FROM ({cand}) cand \
          JOIN positions p INDEXED BY idx_positions_game \
               ON p.game_id = cand.id AND p.zobrist = ?1 \
@@ -1962,9 +2080,11 @@ fn player_openings_sql() -> String {
 }
 
 /// Run a position-search statement (any param shape, fixed column shape:
-/// game_id, ply, white, black, white_elo, black_elo, result, date, moves) and
-/// map its rows to verified `PositionHit`s — shared by the whole-database and
-/// player-filtered searches.
+/// game_id, ply, white, black, white_elo, black_elo, result, date, moves,
+/// variant, start_fen) and map its rows to verified `PositionHit`s — shared
+/// by the whole-database and player-filtered searches. The row's variant +
+/// start FEN pick the replay's start position, so chess960 and FEN-start
+/// games verify correctly instead of being dropped (spec 900 chess960 gap).
 fn collect_position_hits<P: rusqlite::Params>(
     stmt: &mut rusqlite::Statement<'_>,
     params: P,
@@ -1981,15 +2101,21 @@ fn collect_position_hits<P: rusqlite::Params>(
             r.get::<_, String>(6)?,
             r.get::<_, String>(7)?,
             r.get::<_, Vec<u8>>(8)?,
+            r.get::<_, String>(9)?,
+            r.get::<_, String>(10)?,
         ))
     })?;
 
     let mut hits = Vec::new();
     for row in raw {
-        let (game_id, ply, white, black, white_elo, black_elo, result, date, moves) = row?;
+        let (game_id, ply, white, black, white_elo, black_elo, result, date, moves, variant, start_fen) =
+            row?;
         // Replay the mainline to the matched ply to (a) verify the EPD against
         // a collision and (b) read off the next move as UCI + SAN.
-        let (verified, next_uci, next_san) = verify_and_next(&moves, ply as usize, target_epd);
+        let (verified, next_uci, next_san) = match start_position(&variant, &start_fen) {
+            Some(start) => verify_and_next(&moves, ply as usize, target_epd, start),
+            None => (false, None, None),
+        };
         if !verified {
             continue;
         }
@@ -3251,6 +3377,164 @@ mod tests {
         let mut db = Db::open_in_memory().unwrap();
         assert!(db.save_game("", "saved").is_err());
         assert_eq!(db.stats().unwrap().games, 0);
+    }
+
+    // -- Chess960 (spec 013/200 shared variant contract) ----------------------
+
+    /// Synthetic Chess960 game from the start "RQKRBNNB": both knights and the
+    /// e-bishop clear the back rank, then White castles kingside (c1 king +
+    /// d1 rook -> Kg1/Rf1, packed as the king-takes-rook move c1d1).
+    const C960: &str = "\
+[Event \"960 Test\"]\n[Site \"?\"]\n[Date \"2026.01.01\"]\n[Round \"1\"]\n\
+[White \"A\"]\n[Black \"B\"]\n[Result \"1-0\"]\n[Variant \"Chess960\"]\n\
+[SetUp \"1\"]\n[FEN \"rqkrbnnb/pppppppp/8/8/8/8/PPPPPPPP/RQKRBNNB w DAda - 0 1\"]\n\n\
+1. d4 d5 2. Nf3 Nf6 3. Ng3 Ng6 4. Bd2 Bd7 5. O-O 1-0\n";
+
+    #[test]
+    fn chess960_imports_replays_and_roundtrips() {
+        let mut db = Db::open_in_memory().unwrap();
+        let rep = db.import_pgn_str(C960, "test").unwrap();
+        assert_eq!(rep.imported, 1);
+        assert_eq!(rep.errors, 0, "960 mainline (incl. O-O) replays cleanly");
+
+        let hdr = &db.list_games(&GameFilter::default(), 10, 0, None, true).unwrap()[0];
+        assert_eq!(hdr.variant, "chess960");
+        assert_eq!(hdr.ply_count, 9);
+        let positions: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM positions WHERE game_id = ?1", [hdr.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(positions, 10, "start + all 9 plies indexed");
+
+        // Castling packs king-takes-rook (shakmaty's native Chess960 UCI form).
+        let moves: Vec<u8> = db
+            .conn
+            .query_row("SELECT moves FROM games WHERE id = ?1", [hdr.id], |r| r.get(0))
+            .unwrap();
+        let last = PackedUciMove::from_bytes([moves[16], moves[17]]).unpack();
+        assert_eq!(last.to_string(), "c1d1", "O-O packed as king takes own rook");
+
+        // Export round-trips the [Variant] and [FEN] headers…
+        let pgn = db.get_game_pgn(hdr.id).unwrap().unwrap();
+        assert!(pgn.contains("[Variant \"Chess960\"]"), "variant exported: {pgn}");
+        assert!(
+            pgn.contains("[FEN \"rqkrbnnb/pppppppp/8/8/8/8/PPPPPPPP/RQKRBNNB w DAda - 0 1\"]"),
+            "start FEN exported: {pgn}"
+        );
+        // …so re-importing the export reproduces the same mainline: exact dup.
+        let again = db.import_pgn_str(&pgn, "test").unwrap();
+        assert_eq!((again.imported, again.dups_skipped, again.errors), (0, 1, 0));
+
+        // Position search reaches into the 960 game: its start position is
+        // indexed and verified by replaying from the stored FEN.
+        let hits = db
+            .search_position("rqkrbnnb/pppppppp/8/8/8/8/PPPPPPPP/RQKRBNNB w DAda - 0 1", 10)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].ply, 0);
+        assert_eq!(hits[0].next_uci.as_deref(), Some("d2d4"));
+    }
+
+    /// Detection per the shared contract: a [Variant] spelling variant alone,
+    /// or file-letter (Shredder/X-FEN) castling in the [FEN] alone, flags 960.
+    #[test]
+    fn chess960_detected_from_tag_spellings_and_xfen() {
+        assert!(is_chess960_tag("Chess960"));
+        assert!(is_chess960_tag("chess 960"));
+        assert!(is_chess960_tag("Fischerandom"));
+        assert!(is_chess960_tag("Fischer Random"));
+        assert!(!is_chess960_tag("Standard"));
+        assert!(!is_chess960_tag("Atomic"));
+
+        assert!(fen_castling_uses_files("rqkrbnnb/pppppppp/8/8/8/8/PPPPPPPP/RQKRBNNB w DAda - 0 1"));
+        assert!(fen_castling_uses_files("nrkr2qb/8/8/8/8/8/8/NRKR2QB w HAha - 0 1"));
+        assert!(!fen_castling_uses_files("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"));
+        assert!(!fen_castling_uses_files("4k3/8/8/8/8/8/8/4K3 w - - 0 1"));
+
+        // No [Variant] tag at all: the X-FEN castling field still flags it.
+        let mut db = Db::open_in_memory().unwrap();
+        let pgn = "[Result \"*\"]\n[SetUp \"1\"]\n\
+                   [FEN \"rqkrbnnb/pppppppp/8/8/8/8/PPPPPPPP/RQKRBNNB w DAda - 0 1\"]\n\n1. d4 *\n";
+        let rep = db.import_pgn_str(pgn, "t").unwrap();
+        assert_eq!((rep.imported, rep.errors), (1, 0));
+        let hdr = &db.list_games(&GameFilter::default(), 10, 0, None, true).unwrap()[0];
+        assert_eq!(hdr.variant, "chess960");
+    }
+
+    /// Regression: standard games must pack byte-identically to the pre-960
+    /// encoding — castling stays king-two-squares (e1g1), never e1h1 — so
+    /// every existing database row keeps replaying and dedup keys are stable.
+    #[test]
+    fn standard_games_keep_packed_encoding_and_blank_variant() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.import_pgn_str(
+            "[White \"A\"]\n[Black \"B\"]\n[Result \"*\"]\n\n\
+             1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. O-O *\n",
+            "t",
+        )
+        .unwrap();
+        let moves: Vec<u8> = db
+            .conn
+            .query_row("SELECT moves FROM games", [], |r| r.get(0))
+            .unwrap();
+        let expected: Vec<u8> = ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6", "e1g1"]
+            .iter()
+            .flat_map(|u| {
+                PackedUciMove::pack(UciMove::from_ascii(u.as_bytes()).unwrap()).to_bytes()
+            })
+            .collect();
+        assert_eq!(moves, expected, "pre-change packed encoding, castling = e1g1");
+
+        db.import_pgn_str(SAMPLE, "t").unwrap();
+        let all = db.list_games(&GameFilter::default(), 100, 0, None, true).unwrap();
+        assert!(all.iter().all(|g| g.variant.is_empty()), "standard games carry no variant");
+    }
+
+    /// A pre-v5 games table (no variant/start_fen columns) gains them on open
+    /// via the ALTER-if-missing migration, defaulted to ''.
+    #[test]
+    fn v4_games_table_gains_variant_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (4);
+             CREATE TABLE games (
+                id           INTEGER PRIMARY KEY,
+                white        TEXT NOT NULL DEFAULT '',
+                black        TEXT NOT NULL DEFAULT '',
+                white_elo    INTEGER,
+                black_elo    INTEGER,
+                event        TEXT NOT NULL DEFAULT '',
+                site         TEXT NOT NULL DEFAULT '',
+                round        TEXT NOT NULL DEFAULT '',
+                date         TEXT NOT NULL DEFAULT '',
+                eco          TEXT NOT NULL DEFAULT '',
+                result       TEXT NOT NULL DEFAULT '*',
+                ply_count    INTEGER NOT NULL DEFAULT 0,
+                source       TEXT NOT NULL DEFAULT '',
+                import_batch TEXT NOT NULL DEFAULT '',
+                pgn_moves    TEXT NOT NULL DEFAULT '',
+                moves        BLOB NOT NULL,
+                dup_hash     TEXT NOT NULL,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')));
+             INSERT INTO games (moves, dup_hash) VALUES (x'', 'h');",
+        )
+        .unwrap();
+        let db = Db::from_conn(conn).unwrap();
+        let version: i64 = db
+            .conn
+            .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let (variant, start_fen): (String, String) = db
+            .conn
+            .query_row("SELECT variant, start_fen FROM games", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!((variant.as_str(), start_fen.as_str()), ("", ""));
+        // The header list reads the migrated column without erroring.
+        let rows = db.list_games(&GameFilter::default(), 10, 0, None, true).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].variant.is_empty());
     }
 
     // -- CBH import cancellation (run_cbh_import flag path) -------------------
