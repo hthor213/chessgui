@@ -50,3 +50,4 @@ lichess-bot/
 .claude/worktrees/
 data/rivals/
 data/personas/_cache/
+data/puzzles/
