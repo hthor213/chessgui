@@ -1,5 +1,7 @@
 # Installing ChessGUI on a Windows or Linux PC
 
+Íslensk útgáfa: [pc-install.is.md](pc-install.is.md)
+
 Plain-language install notes for the PC builds (spec 222). These builds are
 **unsigned** — that is a deliberate choice for a family-scale app, and it
 means Windows will warn you once during install. That warning is expected
@@ -18,9 +20,9 @@ and safe to click through; the steps below show exactly where.
 5. Follow the installer. That's it — ChessGUI appears in the Start menu.
 
 The chess engine (Stockfish) is included inside the app; there is nothing
-else to download. On first launch the app runs a few-second speed test of
-your computer in the background — you'll see a small notice, no action
-needed.
+else to download. (A short automatic speed test of your computer on first
+launch is planned but not built yet — until it lands, the app's strength
+labels are estimates rather than measured for this machine.)
 
 ### If the engine won't start
 
@@ -48,5 +50,5 @@ Requires Ubuntu 22.04+ or an equally recent distribution (webkit2gtk 4.1).
   sudo apt install ./ChessGUI_*.deb
   ```
 
-The bundled engine and first-start speed test work the same as on Windows;
-the same non-AVX2 escape hatch applies (Engine settings → Browse…).
+The bundled engine works the same as on Windows, and the same non-AVX2
+escape hatch applies (Engine settings → Browse…).
