@@ -1805,6 +1805,22 @@ function LiveGameView({
     return () => window.removeEventListener("keydown", onKey)
   }, [back, forward])
 
+  // Numbered SAN move list (spec 210 Phase 4 checklist / spec 218 "Move
+  // numbers" follow-up: "the same fix in the tournament live viewer — today
+  // it shows only 'game #N · move M'"). Reuses the exhibition viewer's exact
+  // reconstruction path (lib/game-replay.ts's sansFromUci + numberMoves) so
+  // there is one SAN-numbering implementation for every tournament/exhibition
+  // surface, not a second copy here.
+  //
+  // MUST stay above the `if (!live)` early return: this component is
+  // long-lived (TournamentTab never unmounts), so a hook below the guard
+  // changes the hook count on the first live frame — React error #310,
+  // which crashed the whole page on every tournament start.
+  const moveRows = useMemo(
+    () => numberMoves(live?.startFen ?? "", sansFromUci(live?.startFen ?? "", live?.uciMoves ?? [])),
+    [live?.startFen, live?.uciMoves],
+  )
+
   if (!live) {
     return (
       <div className="text-sm text-muted-foreground">
@@ -1830,17 +1846,6 @@ function LiveGameView({
       ? ({ type: "mate", value: ev.mate } as const)
       : ({ type: "cp", value: ev.cp ?? 0 } as const)
     : null
-
-  // Numbered SAN move list (spec 210 Phase 4 checklist / spec 218 "Move
-  // numbers" follow-up: "the same fix in the tournament live viewer — today
-  // it shows only 'game #N · move M'"). Reuses the exhibition viewer's exact
-  // reconstruction path (lib/game-replay.ts's sansFromUci + numberMoves) so
-  // there is one SAN-numbering implementation for every tournament/exhibition
-  // surface, not a second copy here.
-  const moveRows = useMemo(
-    () => numberMoves(live?.startFen ?? "", sansFromUci(live?.startFen ?? "", live?.uciMoves ?? [])),
-    [live?.startFen, live?.uciMoves],
-  )
 
   return (
     <div className="flex flex-col items-center gap-2 w-full h-full min-h-0 py-2">
