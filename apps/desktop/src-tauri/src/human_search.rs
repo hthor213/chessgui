@@ -56,7 +56,7 @@ use tauri::ipc::Channel;
 use tauri::State;
 use tokio::io::BufReader;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, Semaphore, SemaphorePermit};
 
 use crate::maia::{self, MaiaMove, MaiaState};
 use crate::persona::{
@@ -575,8 +575,15 @@ impl SfLeaf {
 
         sf_send(&mut stdin, "uci").await?;
         read_until(&mut reader, |l| l == "uciok").await?;
-        // Single thread: fixed-depth results stay reproducible per SF build.
+        // Resource box (spec 213): the leaf engine must never starve the
+        // user's analysis engine or tournament players. Threads=1 pins it to
+        // one core (and keeps fixed-depth results reproducible per SF build);
+        // Hash=16 MB caps memory (fixed value, so the reproducibility claim
+        // still holds). Time is bounded too: eval_cp only ever issues
+        // `go depth N` (N = leaf_depth, clamped 1..=20 by the Tauri commands,
+        // default 10 ≈ tens of ms/leaf) — never `go infinite` or movetime.
         sf_send(&mut stdin, "setoption name Threads value 1").await?;
+        sf_send(&mut stdin, "setoption name Hash value 16").await?;
         sf_send(&mut stdin, "isready").await?;
         read_until(&mut reader, |l| l == "readyok").await?;
 
@@ -644,10 +651,37 @@ impl PolicySource for MaiaPolicySource<'_> {
 /// cancellation token: a sweep records the generation it started under and
 /// aborts (per node) once any later sweep or an explicit cancel bumps it —
 /// so a stale sweep can never hold the TT lock hostage for seconds.
-#[derive(Default)]
 pub struct HumanTreeState {
     tt: AsyncMutex<TranspositionTable>,
     sweep_gen: AtomicU64,
+    /// One-permit guard: at most one Eval_R Stockfish leaf process exists per
+    /// app instance (spec 213 resource isolation). Commands hold the permit
+    /// for the SfLeaf's whole lifetime, so overlapping tree/sweep invocations
+    /// queue instead of multiplying engines under the user's analysis engine
+    /// or a running tournament. Queueing is safe: sweeps in flight see the
+    /// generation bump and abort within ~one node.
+    leaf_slot: Semaphore,
+}
+
+impl Default for HumanTreeState {
+    fn default() -> Self {
+        Self {
+            tt: AsyncMutex::new(TranspositionTable::new()),
+            sweep_gen: AtomicU64::new(0),
+            leaf_slot: Semaphore::new(1),
+        }
+    }
+}
+
+impl HumanTreeState {
+    /// Wait for the single leaf-engine slot. Must be held across
+    /// `SfLeaf::spawn` and dropped only after the SfLeaf (kill_on_drop) is.
+    async fn acquire_leaf_slot(&self) -> SemaphorePermit<'_> {
+        self.leaf_slot
+            .acquire()
+            .await
+            .expect("leaf_slot semaphore is never closed")
+    }
 }
 
 /// Tier-1 Eval_R for `fen` at rating `band` (spec 213 Phase 3). `band` is the
@@ -693,6 +727,9 @@ pub async fn human_eval_tree(
 
     let sf = resolve_stockfish()
         .ok_or("stockfish not found — install it with: brew install stockfish")?;
+    // Declared before `leaf` so it drops after the engine dies: the slot is
+    // free only once no SfLeaf process is alive.
+    let _leaf_slot = tree_state.acquire_leaf_slot().await;
     let mut leaf = SfLeaf::spawn(&sf, cfg.leaf_depth).await?;
     let policy = MaiaPolicySource {
         app: &app,
@@ -744,12 +781,16 @@ pub async fn human_eval_sweep(
         leaf_depth: leaf_depth.unwrap_or(DEFAULT_LEAF_DEPTH).clamp(1, 20),
     };
 
-    // Claim the generation BEFORE waiting on the TT lock: the sweep holding
-    // it sees the bump at its next node and releases within ~one node's work.
+    // Claim the generation BEFORE waiting on the leaf slot or the TT lock:
+    // the sweep holding them sees the bump at its next node and releases
+    // both within ~one node's work.
     let my_gen = tree_state.sweep_gen.fetch_add(1, Ordering::SeqCst) + 1;
 
     let sf = resolve_stockfish()
         .ok_or("stockfish not found — install it with: brew install stockfish")?;
+    // Declared before `leaf` so it drops after the engine dies: the slot is
+    // free only once no SfLeaf process is alive.
+    let _leaf_slot = tree_state.acquire_leaf_slot().await;
     let mut leaf = SfLeaf::spawn(&sf, base.leaf_depth).await?;
     let policy = MaiaPolicySource {
         app: &app,
@@ -1404,6 +1445,48 @@ mod tests {
         assert!(r.cancelled);
         assert!(r.points.is_empty());
         assert_eq!(leaf.calls, 0, "the engine was never consulted");
+    }
+
+    // -- Resource isolation (spec 213): one leaf engine per app instance --------
+
+    #[tokio::test]
+    async fn leaf_slot_admits_at_most_one_holder_at_a_time() {
+        let state = HumanTreeState::default();
+        let permit = state.acquire_leaf_slot().await;
+        assert!(
+            state.leaf_slot.try_acquire().is_err(),
+            "a second Eval_R engine slot must not open while one is held"
+        );
+        drop(permit);
+        let again = state.leaf_slot.try_acquire();
+        assert!(again.is_ok(), "slot reopens once the holder drops");
+    }
+
+    #[tokio::test]
+    async fn leaf_slot_serializes_concurrent_sweep_style_holders() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+
+        // N tasks each hold the slot briefly; the observed concurrent-holder
+        // count must never exceed 1 (the "at most one SfLeaf process" claim).
+        let state = Arc::new(HumanTreeState::default());
+        let live = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let (state, live, peak) = (state.clone(), live.clone(), peak.clone());
+            tasks.push(tokio::spawn(async move {
+                let _slot = state.acquire_leaf_slot().await;
+                let now = live.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                tokio::task::yield_now().await; // give overlap a chance to show
+                live.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for t in tasks {
+            t.await.unwrap();
+        }
+        assert_eq!(peak.load(Ordering::SeqCst), 1, "holders never overlap");
     }
 
     // -- Real engines (gated; skips cleanly when lc0/stockfish are absent) ------
