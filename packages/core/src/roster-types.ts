@@ -12,12 +12,13 @@ export interface PersonaConfigFile {
   display_name: string
   /** "public-figure" (committed GM personas) or "private-rival" (local). */
   kind: string
-  /** The persona-engine contract flag: false means "persona_move v1 drives
-   *  Maia bands only — this config's real backend is NOT runnable here".
-   *  persona_move takes level + tunables from the frontend and cannot
-   *  self-gate; the loader owns honesty (gatePersonaLevel below). */
+  /** The persona-engine contract flag: false means "this config's real
+   *  backend is NOT runnable as a plain Maia band". persona_move now also
+   *  honors a managed-net `weights` selector (spec 218, with a clean Maia
+   *  fallback), but it still takes its params from the frontend and cannot
+   *  self-gate; the loader owns honesty (gatePersonaLevel). */
   runnable_in_engine_v1: boolean
-  backend?: { kind: string; level?: number }
+  backend?: { kind: string; level?: number; net?: { file?: string } }
   sampling: {
     level: number
     temperature?: number

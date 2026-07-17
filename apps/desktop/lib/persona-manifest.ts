@@ -16,17 +16,18 @@
 //
 // WHY A SEPARATE FILE FROM lib/roster.ts's GM_PERSONA_CONFIGS, given both
 // import the same JSON: the two surfaces need different DERIVED shapes.
-// roster.ts's `gatePersonaLevel` HONESTY GATE clamps every GM persona to the
-// top native Maia band for Play vs Bot, because that surface's engine
-// (`persona_move`) literally cannot drive a managed net — sending `weights`
-// there would silently do nothing (worse: an unreviewed reader might assume
-// it works). The tournament/exhibition runner (`match_runner.rs`'s
-// `PersonaConfig`) is a DIFFERENT engine that DOES support a managed net via
-// `weights: "bt3"` (spec 218 "Managed weights" checklist item, 2026-07-15) —
-// so on THIS surface sending `weights` is both possible and required by the
-// honesty gate (a GM persona must never be sent level-only). Two engines,
-// two honestly-different capabilities, two derived shapes from one JSON
-// source of truth.
+// Both engines now honor a managed-net `weights` selector — the tournament/
+// exhibition runner (`match_runner.rs`'s `PersonaConfig`) strictly (spec 218
+// "Managed weights" checklist item, 2026-07-15: a batch errors rather than
+// silently substitute), and Play vs Bot's `persona_move` with a clean
+// fallback to the config's Maia band when the net is absent (spec 218
+// follow-up, 2026-07-17). What still differs is the CLAIM each surface may
+// make: roster.ts's `gatePersonaLevel` HONESTY GATE keeps every GM persona's
+// Play vs Bot label an approximation at the top native Maia band (the
+// fallback means BT3 serving is a runtime fact, not a promise), while THIS
+// surface requires `weights: "bt3"` plus a measured harness label and must
+// never send a GM persona level-only. Two claim regimes, two derived shapes
+// from one JSON source of truth.
 //
 // Regenerates itself automatically — there is no snapshot to go stale: this
 // module recomputes `GM_PERSONAS` from the live imports below every time it
@@ -34,6 +35,7 @@
 // build/dev-server restart with no separate script to remember to run.
 
 import type { ErrorModel } from "@chessgui/core/persona-types"
+import { BT3_NET_FILE } from "@/lib/maia"
 
 import fischerConfig from "@/data/personas/fischer.config.json"
 import kasparovConfig from "@/data/personas/kasparov.config.json"
@@ -84,11 +86,10 @@ const RAW_CONFIGS = [
   sigurjonssonPeakConfig,
 ] as unknown as RawPersonaConfig[]
 
-/** The BT3 managed net's file name (src-tauri/src/maia.rs `MANAGED_NETS`,
- *  name "bt3") — every committed GM config's backend targets this net today;
- *  a config targeting a different/no managed net is skipped below rather
- *  than sent level-only (spec 218 item 1 honesty gate). */
-const BT3_NET_FILE = "BT3-768x15x24h-swa-2790000.pb.gz"
+// BT3_NET_FILE (imported from lib/maia.ts, the TS mirror of maia.rs
+// MANAGED_NETS): every committed GM config's backend targets this net today;
+// a config targeting a different/no managed net is skipped below rather than
+// sent level-only (spec 218 item 1 honesty gate).
 
 export interface GmPersonaManifestEntry {
   slug: string

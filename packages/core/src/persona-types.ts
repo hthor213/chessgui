@@ -66,8 +66,17 @@ export interface EndgameArm {
  *  (step 8). `seed` must stay below 2^53 so it survives the JSON number
  *  round-trip. */
 export interface PersonaParams {
-  /** Maia rating band (the policy backend weights). */
+  /** Maia rating band (the default policy backend weights, and the Maia
+   *  fallback band when `weights` names a net that isn't available). */
   level: number;
+  /** Named managed net overriding the Maia band policy backend (e.g. "bt3"
+   *  for the BT3-backed GM personas, spec 218) — the same selector the match
+   *  runner's PersonaConfig drives. Undefined = the Maia band at `level`.
+   *  persona_move degrades to `level`'s Maia net when the named net isn't
+   *  present; the decision log's `policy_backend` records what ACTUALLY
+   *  served. The roster honesty gate (roster.ts gatePersonaLevel) owns
+   *  whether a config may send this. */
+  weights?: string;
   /** Global softmax sharpening over the combined policy+verification logit. */
   temperature: number;
   /** Policy-prior exponent in the reweight. */
@@ -138,5 +147,10 @@ export interface PersonaDecision {
   /** The fitted P(mistake) looked up for this move's cell; null/undefined =
    *  model off, no eval evidence, or uncovered cell. */
   mistake_rate?: number | null;
+  /** The policy backend that ACTUALLY served this move ("bt3" or
+   *  "maia-<band>") — the requested `weights` net when it was available, the
+   *  Maia fallback otherwise. Optional because the headless mock predates it;
+   *  the Rust engine always sends it. */
+  policy_backend?: string;
   candidates: PersonaCandidate[];
 }

@@ -18,6 +18,16 @@ export const MAIA_SLIDER_BANDS = [1100, 1300, 1500, 1700, 1900] as const;
 /** The top band with a validated native net; stops above this would be experimental. */
 export const MAIA_MAX_NATIVE_BAND = 1900;
 
+/**
+ * The managed-net registry's BT3 entry (src-tauri/src/maia.rs `MANAGED_NETS`,
+ * name "bt3"): the wire `weights` selector every BT3-backed persona surface
+ * sends (match runner, arena, and — since persona_move grew the selector with
+ * a clean Maia fallback, spec 218 — the spar loop), and the net file a
+ * config's `backend.net.file` must name to resolve to it.
+ */
+export const BT3_WEIGHTS_NAME = "bt3";
+export const BT3_NET_FILE = "BT3-768x15x24h-swa-2790000.pb.gz";
+
 // Extracted to @chessgui/core (spec 220 step 5); re-exported so existing
 // importers keep working.
 import type { MaiaMove, MaiaPolicy, MaiaStatus, PersonaMove } from "@chessgui/core/maia-types";

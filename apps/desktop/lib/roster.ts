@@ -22,12 +22,13 @@
 //     bundled, absent = silently absent, display names come from the LOCAL
 //     config file, never from committed code).
 //   - the 12 committed GM personas (data/personas/*.config.json, spec 214
-//     Tier 2): real opening books (legitimately theirs, committed), but their
-//     full-strength policy backend is BT3 (`runnable_in_engine_v1: false`), so
-//     in THIS surface they are honest approximations — real book + top native
-//     Maia band — gated by gatePersonaLevel below (spec 216/214 hard rule: no
-//     unmeasured realism claims; the loader owns honesty, persona_move cannot
-//     self-gate).
+//     Tier 2): real opening books (legitimately theirs, committed) and a BT3
+//     policy backend (`runnable_in_engine_v1: false`) that persona_move now
+//     drives via the gate-resolved `weights` selector when the net is present
+//     (Maia fallback otherwise, spec 218 follow-up). Their CLAIM stays an
+//     honest approximation — top-native-band label — gated by gatePersonaLevel
+//     below (spec 216/214 hard rule: no unmeasured realism claims; the loader
+//     owns honesty, persona_move cannot self-gate).
 //   - the Maia strength bands (1100-1900, the full published-net set —
 //     src-tauri/src/maia.rs BANDS) as generic bots, no persona/identity
 //     attached.
@@ -39,7 +40,7 @@
 // (spec 218 decision 1) — nothing here changes that when it lands.
 
 import { getProviders } from "@/lib/platform"
-import { MAIA_MAX_NATIVE_BAND } from "@/lib/maia"
+import { BT3_NET_FILE, BT3_WEIGHTS_NAME, MAIA_MAX_NATIVE_BAND } from "@/lib/maia"
 import type { RivalBook } from "@/lib/rival-book"
 import type { ErrorModel } from "@chessgui/core/persona-types"
 
@@ -74,15 +75,22 @@ export type ParticipantAction = "play" | "improve" | "beat"
  *    `rival_personas` command (gitignored data/rivals, never bundled) */
 export type BookKind = "rival" | "persona" | "local"
 
-/** spec 214's persona config payload — book source, policy backend
- *  (Maia band in v1; BT3/stronger backends live in the Tournament surface's
- *  wire shape, never here), and whether the strength label is a measured fact
- *  or an honest approximation. */
+/** spec 214's persona config payload — book source, policy backend (a Maia
+ *  band, optionally overridden by a managed-net `weights` selector the gate
+ *  resolved), and whether the strength label is a measured fact or an honest
+ *  approximation. */
 export interface PersonaConfig {
-  /** Maia rating band used as the policy backend (persona engine v1). The
-   *  honesty gate guarantees this is always a real published band — never a
-   *  BT3-strength number smuggled into persona_move. */
+  /** Maia rating band used as the policy backend — and the fallback band when
+   *  `weights` names a net that isn't available. The honesty gate guarantees
+   *  this is always a real published band — never a BT3-strength number
+   *  smuggled into persona_move. */
   level: number
+  /** Managed-net policy backend selector for persona_move (e.g. "bt3"),
+   *  present ONLY when gatePersonaLevel resolved the config's backend to a
+   *  net the play path can actually drive (spec 218 follow-up: persona_move
+   *  honors `weights` with a clean fallback to `level`'s Maia band). Never
+   *  changes what the entry may CLAIM — level/approximate stay gated. */
+  weights?: string
   /** True when the strength label is an honest approximation, not a
    *  measured fact about the modeled player (spec 216/214 hard rule). */
   approximate?: boolean
@@ -246,12 +254,16 @@ const MAIA_MIN_NATIVE_BAND = 1100
 export interface GatedLevel {
   level: number
   approximate: boolean
+  /** persona_move `weights` selector, present ONLY when the config's backend
+   *  resolves to the known managed net the play path can actually drive.
+   *  Absent = the Maia band at `level` serves alone. */
+  weights?: string
 }
 
 /**
- * HONESTY GATE. persona_move v1 drives Maia bands only, takes `level` +
- * tunables straight from the frontend, and CANNOT self-gate — so this loader
- * decides what a config may claim in the Play vs Bot surface:
+ * HONESTY GATE. persona_move takes `level` + tunables straight from the
+ * frontend and CANNOT self-gate — so this loader decides what a config may
+ * claim in the Play vs Bot surface:
  *
  * - A config that is runnable as a plain Maia band (`runnable_in_engine_v1:
  *   true`, backend kind "maia", level within the published 1100-1900 set)
@@ -260,8 +272,18 @@ export interface GatedLevel {
  *   personas), a non-Maia backend, or an out-of-band level — is clamped to
  *   the top native Maia band and marked `approximate`. Its real book still
  *   plays (the book is legitimately the player's own recorded moves); the
- *   policy strength claim does not. It may never be routed through
- *   persona_move as a full-strength persona in disguise.
+ *   policy strength claim does not.
+ *
+ * BACKEND vs CLAIM (spec 218 follow-up, 2026-07-17): persona_move now honors
+ * a managed-net `weights` selector with a clean fallback to `level`'s Maia
+ * band when the net is absent — so a gated config whose backend resolves to
+ * the known managed net additionally gets `weights`, letting its real policy
+ * actually serve when the net is present. That changes nothing about the
+ * CLAIM: level stays clamped (it is the fallback band) and `approximate`
+ * stays true, because whether BT3 serves is a runtime fact the decision
+ * log's `policy_backend` reports, not a promise this label may make. A
+ * config whose backend does NOT resolve (unknown net, unknown kind) gets no
+ * `weights` and keeps plain Maia.
  */
 export function gatePersonaLevel(cfg: PersonaConfigFile): GatedLevel {
   const level = cfg.sampling.level
@@ -272,7 +294,13 @@ export function gatePersonaLevel(cfg: PersonaConfigFile): GatedLevel {
     level <= MAIA_MAX_NATIVE_BAND
   if (runnableAsMaiaBand) return { level, approximate: false }
   const clamped = Math.min(Math.max(level, MAIA_MIN_NATIVE_BAND), MAIA_MAX_NATIVE_BAND)
-  return { level: clamped, approximate: true }
+  const managedNet =
+    cfg.backend?.kind === "lc0-policy" && cfg.backend?.net?.file === BT3_NET_FILE
+  return {
+    level: clamped,
+    approximate: true,
+    ...(managedNet ? { weights: BT3_WEIGHTS_NAME } : {}),
+  }
 }
 
 /** camelCase sampling overrides for the spar loop, from a config file's
@@ -329,9 +357,11 @@ function maiaBandBot(level: number): Participant {
 
 /** A committed GM persona (spec 218 decision 3: best fidelity currently
  *  available in THIS surface, always with an honest strength label). All 12
- *  are BT3-backed (`runnable_in_engine_v1: false`), so the gate makes each an
- *  approximation: real opening book, top-band Maia policy, and a label that
- *  says exactly that and points at the Tournament surface for full strength. */
+ *  are BT3-backed (`runnable_in_engine_v1: false`): the gate resolves their
+ *  backend to the `weights` selector — persona_move drives the BT3 net when
+ *  it's present, falling back to the top native Maia band otherwise — while
+ *  the CLAIM stays an approximation: real opening book, gated top-band label
+ *  pointing at the Tournament surface for the measured full-strength entry. */
 function gmPersonaParticipant(cfg: PersonaConfigFile): Participant {
   const gate = gatePersonaLevel(cfg)
   return {
@@ -340,6 +370,7 @@ function gmPersonaParticipant(cfg: PersonaConfigFile): Participant {
     kind: "persona",
     personaConfig: {
       level: gate.level,
+      ...(gate.weights ? { weights: gate.weights } : {}),
       ...(gate.approximate ? { approximate: true } : {}),
       book: "persona",
       bookSlug: cfg.slug,
@@ -366,6 +397,7 @@ function localRivalParticipant(rp: LocalRivalPersona, profile?: PlayerProfileFil
     kind: "persona",
     personaConfig: {
       level: gate.level,
+      ...(gate.weights ? { weights: gate.weights } : {}),
       ...(gate.approximate ? { approximate: true } : {}),
       ...(hasBook ? { book: "local" as const, bookSlug: cfg.slug } : {}),
       ...samplingOverrides(cfg),
@@ -436,6 +468,7 @@ function selfParticipant(rp: LocalRivalPersona): Participant {
     kind: "persona",
     personaConfig: {
       level: gate.level,
+      ...(gate.weights ? { weights: gate.weights } : {}),
       ...(gate.approximate ? { approximate: true } : {}),
       book: "local",
       bookSlug: rp.config.slug,
