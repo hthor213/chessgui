@@ -10,10 +10,11 @@
 // exhibition viewer (spec 218, tournament-tab.tsx ExhibitionView) is the
 // reference UX: board + live status + numbered move list.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
 import type { Key } from "@lichess-org/chessground/types"
 import { Button } from "@chessgui/ui/ui/button"
+import { usePlyReview } from "@chessgui/ui/use-ply-review"
 import { replayFens } from "@chessgui/core/game-replay"
 import {
   ArenaApiError,
@@ -43,25 +44,26 @@ export function ExhibitionScreen({
 }) {
   const [ex, setEx] = useState<ArenaExhibitionState | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [ply, setPly] = useState(0)
-  // Follow the live game while the spectator is at the tip; stepping back
-  // pauses following, the Live button resumes it.
-  const followLive = useRef(true)
+  // Shared ply-review model (spec 218, use-ply-review): following the live
+  // game means the index tracks the tip as moves arrive; stepping back pauses
+  // following, the Live button (toTip) resumes it. This screen keeps its
+  // original controls: no arrow keys, and forward parks AT the tip instead of
+  // resuming the live follow.
+  const { index: ply, following, atTip, back, forward, toTip } = usePlyReview({
+    tip: ex?.moves.length ?? 0,
+    keyboard: false,
+    resumeAtTip: false,
+  })
   const [stopping, setStopping] = useState(false)
-
-  const apply = useCallback((next: ArenaExhibitionState) => {
-    setEx(next)
-    if (followLive.current) setPly(next.moves.length)
-  }, [])
 
   const load = useCallback(async () => {
     try {
-      apply(await getArenaApi().getExhibition(exhibitionId))
+      setEx(await getArenaApi().getExhibition(exhibitionId))
       setError(null)
     } catch (e) {
       setError(e instanceof ArenaApiError ? e.message : "Couldn't load the exhibition.")
     }
-  }, [exhibitionId, apply])
+  }, [exhibitionId])
 
   useEffect(() => {
     load()
@@ -77,7 +79,7 @@ export function ExhibitionScreen({
   const stop = useCallback(async () => {
     setStopping(true)
     try {
-      apply(await getArenaApi().stopExhibition(exhibitionId))
+      setEx(await getArenaApi().stopExhibition(exhibitionId))
     } catch (e) {
       // A 409 means it finished on its own while we clicked — the next poll
       // (or this reload) shows the honest end, not an error.
@@ -86,7 +88,7 @@ export function ExhibitionScreen({
     } finally {
       setStopping(false)
     }
-  }, [exhibitionId, apply, load])
+  }, [exhibitionId, load])
 
   const fens = useMemo(() => (ex ? replayFens("", ex.moves.map((m) => m.uci)) : []), [ex])
   const rows = useMemo(() => (ex ? pairExhibitionMoves(ex.moves) : []), [ex])
@@ -123,12 +125,6 @@ export function ExhibitionScreen({
 
   const label = arenaExhibitionStatusLabel(ex)
   const thinkingName = ex.moves.length % 2 === 0 ? ex.whiteName : ex.blackName
-  const atTip = ply >= ex.moves.length
-
-  const stepTo = (next: number) => {
-    followLive.current = false
-    setPly(next)
-  }
 
   return (
     <div className="flex-1 min-h-0 flex flex-col p-4 md:p-6 gap-4" data-testid="arena-exhibition">
@@ -187,7 +183,7 @@ export function ExhibitionScreen({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => stepTo(Math.max(0, ply - 1))}
+              onClick={back}
               disabled={ply === 0}
               data-testid="arena-exhibition-back-ply"
             >
@@ -196,20 +192,17 @@ export function ExhibitionScreen({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => stepTo(Math.min(ex.moves.length, ply + 1))}
+              onClick={forward}
               disabled={atTip}
               data-testid="arena-exhibition-forward-ply"
             >
               ▶
             </Button>
-            {!followLive.current && active && (
+            {!following && active && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  followLive.current = true
-                  setPly(ex.moves.length)
-                }}
+                onClick={toTip}
                 data-testid="arena-exhibition-live"
               >
                 Live
