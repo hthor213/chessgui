@@ -43,7 +43,12 @@ import {
   type Participant,
   type PersonaConfig,
 } from "@/lib/roster"
-import { buildBeatPlan, beatTargetFor } from "@/lib/beat-program"
+import { buildBeatPlan, beatTargetFor, traineeFromMetrics } from "@/lib/beat-program"
+import {
+  DEFAULT_METRICS,
+  STORAGE_KEYS as TRAINING_STORAGE_KEYS,
+  type MetricPoint,
+} from "@/lib/training-program"
 import { AddProfileScreen } from "@chessgui/ui/add-profile-screen"
 import {
   loadRivalBook,
@@ -753,11 +758,22 @@ export function SparTab() {
       const row = profiles.find((pr) => pr.profile.slug === p.profileSlug)
       if (!row) return
       const hasPersona = p.actions.includes("play") && !!p.personaConfig
+      // Rating-gap honesty (spec 225): frame the goal against the trainee's
+      // last measured maia_rapid — the same store the Training tab reads.
+      let trainee = traineeFromMetrics(DEFAULT_METRICS)
+      try {
+        const mx = getProviders().storage.get(TRAINING_STORAGE_KEYS.metrics)
+        const parsed = mx ? (JSON.parse(mx) as MetricPoint[]) : null
+        if (Array.isArray(parsed) && parsed.length > 0) trainee = traineeFromMetrics(parsed)
+      } catch {
+        /* malformed store — the baseline metrics above already apply */
+      }
       const plan = buildBeatPlan(
         beatTargetFor(row, {
           hasPersona,
           personaLevel: p.personaConfig?.level,
           book: localRivals.find((r) => r.config.slug === p.profileSlug)?.book ?? null,
+          trainee,
         }),
       )
       getProviders()

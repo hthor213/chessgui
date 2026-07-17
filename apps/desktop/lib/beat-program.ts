@@ -56,6 +56,16 @@ export interface BeatTarget {
   personaLevel?: number
   /** The player's opening book, when available — measures his book depth. */
   book?: RivalBook | null
+  /** The trainee's last MEASURED level, when one exists — frames the goal's
+   *  rating gap honestly (spec 225: "beat" never promises parity). */
+  trainee?: TraineeSnapshot | null
+}
+
+/** The trainee's side of the rating gap: a measured metric, never a hope. */
+export interface TraineeSnapshot {
+  rating: number
+  /** Where the number came from, e.g. "maia_rapid 2026-07". */
+  source: string
 }
 
 export interface BeatPlan {
@@ -89,6 +99,44 @@ export function maiaBandForRating(rating: number | null | undefined): {
   if (nearest < MAIA_MIN) return { level: MAIA_MIN, capped: true }
   if (nearest > MAIA_MAX) return { level: MAIA_MAX, capped: true }
   return { level: nearest, capped: false }
+}
+
+/** A rating gap smaller than this is inside measurement noise for these
+ *  sources — the goal says nothing rather than something spurious. */
+export const RATING_GAP_MIN = 100
+
+/** Honest rating-gap clause (spec 225): when the target's rating and the
+ *  trainee's last measured level are both real and the target sits
+ *  meaningfully above, the program's goal states the gap plainly — "beat"
+ *  means score against him, never rating parity. Null when the data doesn't
+ *  allow the claim (either number missing, or gap below RATING_GAP_MIN). */
+export function ratingGapClause(
+  targetRating: number | null | undefined,
+  trainee: TraineeSnapshot | null | undefined,
+): string | null {
+  if (targetRating == null || !Number.isFinite(targetRating)) return null
+  if (!trainee || !Number.isFinite(trainee.rating)) return null
+  const gap = Math.round((targetRating - trainee.rating) / 10) * 10
+  if (gap < RATING_GAP_MIN) return null
+  return (
+    `The target is ~${gap} above your last measured level ` +
+    `(${trainee.rating}, ${trainee.source}) — "beat" here means score against him, not outrate him.`
+  )
+}
+
+/** Pull the trainee snapshot out of a training metrics list (the newest
+ *  maia_rapid point — lib/training-program's MetricPoint shape, taken
+ *  structurally so this module stays runtime-dependency-free). */
+export function traineeFromMetrics(
+  points: readonly { metric: string; value: number; at: string }[] | null | undefined,
+): TraineeSnapshot | null {
+  if (!points) return null
+  for (let i = points.length - 1; i >= 0; i--) {
+    if (points[i].metric === "maia_rapid") {
+      return { rating: points[i].value, source: `maia_rapid ${points[i].at}` }
+    }
+  }
+  return null
 }
 
 /** The move by which prepared lines should have left X's book: one full move
@@ -176,6 +224,7 @@ export function buildBeatPlan(t: BeatTarget, generatedAt: Date = new Date()): Be
   const exitMove = bookExitMove(t.book)
   const phases = readPhaseProfile(stats)
   const band = maiaBandForRating(t.profile.rating?.value ?? null)
+  const gapClause = ratingGapClause(t.profile.rating?.value ?? null, t.trainee)
 
   const whiteFams = topFamilies(stats?.opening_families?.as_white, 2)
   const blackFams = topFamilies(stats?.opening_families?.as_black, 2)
@@ -304,18 +353,25 @@ export function buildBeatPlan(t: BeatTarget, generatedAt: Date = new Date()): Be
   const program: Program = {
     id: beatProgramId(slug),
     name: `Beat ${name}`,
-    goal: `A 14-week program aimed at beating ${name}, built from his measured dossier (${sample.games} games, verdict: ${sample.verdict}).`,
+    goal:
+      `A 14-week program aimed at beating ${name}, built from his measured dossier (${sample.games} games, verdict: ${sample.verdict}).` +
+      (gapClause ? ` ${gapClause}` : ""),
     chapters: [ch1, ch2, ch3],
   }
 
-  return { program, markdown: renderMarkdown(t, program, { exitMove, phases, band, whiteFams, blackFams, whiteLines, blackLines, sparDetail }, generatedAt) }
+  return { program, markdown: renderMarkdown(t, program, { exitMove, phases, band, whiteFams, blackFams, whiteLines, blackLines, sparDetail, gapClause }, generatedAt) }
 }
 
 /** Convenience: build a BeatTarget from a loaded profile row + the loaded
  *  persona configs' slugs (artifact-existence, spec 218 precedent). */
 export function beatTargetFor(
   p: LocalPlayerProfile,
-  opts: { hasPersona: boolean; personaLevel?: number; book?: RivalBook | null },
+  opts: {
+    hasPersona: boolean
+    personaLevel?: number
+    book?: RivalBook | null
+    trainee?: TraineeSnapshot | null
+  },
 ): BeatTarget {
   return { profile: p.profile, stats: p.stats, ...opts }
 }
@@ -333,6 +389,7 @@ interface Derived {
   whiteLines: { line: string; games: number }[]
   blackLines: { line: string; games: number }[]
   sparDetail: string
+  gapClause: string | null
 }
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
@@ -370,6 +427,9 @@ function renderMarkdown(
   )
   if (t.profile.rating?.value != null) {
     push(`- **Rating**: ~${t.profile.rating.value} (${t.profile.rating.source}).`)
+  }
+  if (d.gapClause) {
+    push(`- **The gap, honestly**: ${d.gapClause}`)
   }
   if (res) {
     push(

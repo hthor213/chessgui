@@ -45,7 +45,7 @@ import {
   type Program,
   type TrainingOverlay,
 } from "@/lib/training-program"
-import { buildBeatPlan, beatTargetFor } from "@/lib/beat-program"
+import { buildBeatPlan, beatTargetFor, traineeFromMetrics } from "@/lib/beat-program"
 import { gatePersonaLevel, loadLocalRivalPersonas, loadPlayerProfiles } from "@/lib/roster"
 import {
   appendLogLine,
@@ -153,6 +153,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   // Hydrate from storage once, on the client.
   useEffect(() => {
     const storage = getProviders().storage
+    let loadedMetrics: MetricPoint[] = DEFAULT_METRICS
     try {
       const s = storage.get(STORAGE_KEYS.start)
       if (s) setStartISO(s)
@@ -163,7 +164,10 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
       const mx = storage.get(STORAGE_KEYS.metrics)
       if (mx) {
         const parsed = JSON.parse(mx) as MetricPoint[]
-        if (Array.isArray(parsed) && parsed.length > 0) setMetrics(parsed)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          loadedMetrics = parsed
+          setMetrics(parsed)
+        }
       }
     } catch {
       /* malformed storage — fall back to defaults already in state */
@@ -179,6 +183,9 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     // artifact-existence rule (a config actually loaded), and its level is
     // the same honesty-gated band the spar roster uses.
     const savedProgram = storage.get(STORAGE_KEYS.activeProgram)
+    // Rating-gap honesty (spec 225): the trainee's last MEASURED maia_rapid
+    // frames each program's goal — "beat" never quietly promises parity.
+    const trainee = traineeFromMetrics(loadedMetrics)
     Promise.all([loadPlayerProfiles(), loadLocalRivalPersonas()]).then(([profiles, rivals]) => {
       const programs = profiles.map((p) => {
         const rp = rivals.find((r) => r.config.slug === p.profile.slug)
@@ -187,6 +194,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
             hasPersona: !!rp,
             personaLevel: rp ? gatePersonaLevel(rp.config).level : undefined,
             book: rp?.book ?? null,
+            trainee,
           }),
         ).program
       })
