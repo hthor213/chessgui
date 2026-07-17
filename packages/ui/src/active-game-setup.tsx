@@ -88,10 +88,11 @@ export function ActiveGameSetupSection({
         className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3"
       >
         <p className="text-sm font-semibold text-amber-200">
-          Live game — analysis board only
+          Fair-play game — analysis board only
         </p>
         <p className="text-xs text-amber-200/80 mt-1 leading-relaxed">
-          This game is already flagged as an active chess.com daily game
+          This game is already flagged as a fair-play game — an ongoing
+          chess.com daily game
           {lockedMeta.opponent ? ` (vs ${lockedMeta.opponent})` : ""}. The flag
           carries over to the edited position — engine help stays off until you
           mark the game finished (fair play).

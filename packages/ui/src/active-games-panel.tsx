@@ -27,7 +27,7 @@ import {
 
 /** Fair-play wording for the deletion confirmation (spec 219 B). */
 export const ACTIVE_GAME_DELETE_WARNING =
-  "This game was flagged as an ongoing chess.com daily game. Deleting " +
+  "This is a fair-play game — an ongoing chess.com daily game. Deleting " +
   "discards the saved game — it is not imported into the database, and if " +
   "it is open on the board, the board is cleared. Delete only if the game " +
   "was never real or you no longer need it; to keep a finished game, use " +
@@ -200,7 +200,7 @@ export function ActiveGamesList({
   return (
     <div className="flex flex-col gap-2" data-testid="active-games-list">
       <div className="flex items-baseline gap-2">
-        <span className="text-sm font-semibold text-amber-200">Active games</span>
+        <span className="text-sm font-semibold text-amber-200">Fair-play games</span>
         <span className="text-xs text-muted-foreground">
           engine off until marked finished (fair play)
         </span>

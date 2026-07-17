@@ -97,7 +97,7 @@ describe("ActiveGameSetupSection (spec 219 A)", () => {
       }),
     )
     expect(html).toContain('data-testid="active-game-locked"')
-    expect(html).toContain("already flagged as an active chess.com daily game")
+    expect(html).toContain("already flagged as a fair-play game")
     expect(html).not.toContain('data-testid="active-game-checkbox"')
   })
 })
@@ -135,7 +135,7 @@ describe("ActiveGameNotice (spec 219 B honest UX)", () => {
         onShowList: noop,
       }),
     )
-    expect(html).toContain("Live game — engine off (fair play)")
+    expect(html).toContain("Fair-play game — engine off")
     expect(html).toContain("vs dad")
     expect(html).toContain("Continue later")
     expect(html).toContain('data-testid="active-game-notice"')

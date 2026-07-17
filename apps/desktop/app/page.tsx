@@ -923,7 +923,7 @@ export default function Home() {
               size="icon"
               className="relative h-8 w-8 hover:bg-white/5 hover:text-foreground"
               onClick={() => setView("database")}
-              title="Active chess.com daily games (engine locked until finished)"
+              title="Fair-play games — ongoing chess.com daily games (engine locked until finished)"
               data-testid="header-bell"
             >
               <Bell className="h-4 w-4" />
