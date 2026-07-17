@@ -117,6 +117,8 @@ export default function Home() {
     game.activeGame,
     undefined,
     playClock.getEngineClock,
+    // Chess960 (spec 011): the engine must know castling is king-takes-rook.
+    game.variant === "chess960",
   )
 
   // Full-game blunder check (spec 212 "Analyze Game"): batch mainline evals
@@ -1523,6 +1525,7 @@ export default function Home() {
                   startFen={game.startFen}
                   currentMoveIndex={game.currentMoveIndex}
                   activeGame={game.activeGame}
+                  chess960={game.variant === "chess960"}
                 />
               </div>
             )}

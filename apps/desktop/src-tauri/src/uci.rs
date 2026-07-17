@@ -105,13 +105,32 @@ pub fn context_is_locked(context: Option<&str>) -> bool {
 const ENGINE_LOCKED_ERROR: &str =
     "Engine refused: this game is flagged as an active chess.com daily game (fair play lockout, spec 219)";
 
+/// UCI options sent between `uciok` and `isready` at engine start.
+/// Chess960 (spec 011): a 960 game's castling moves ride as king-takes-rook
+/// UCI, which Stockfish and lc0 only parse with UCI_Chess960 set — so the
+/// option must reach the engine before any `position`/`go`. Standard games
+/// send nothing (absent = the engine's own default, false), keeping the
+/// pre-960 handshake byte-identical. The frontend re-asserts the option per
+/// search (use-engine applyEngineOptions) when the loaded game changes
+/// without an engine restart; this covers the very first search.
+fn startup_option_commands(chess960: bool) -> Vec<String> {
+    if chess960 {
+        vec!["setoption name UCI_Chess960 value true".to_string()]
+    } else {
+        Vec::new()
+    }
+}
+
 /// Start a UCI engine process at the given binary path. `session` (spec 900)
 /// selects which engine slot to start — absent means the default session.
+/// `chess960` (spec 011) asserts UCI_Chess960 during the handshake — see
+/// `startup_option_commands`.
 #[tauri::command]
 pub async fn start_engine(
     path: String,
     context: Option<String>,
     session: Option<String>,
+    chess960: Option<bool>,
     app: tauri::AppHandle,
     state: State<'_, Mutex<EngineState>>,
 ) -> Result<EngineInfo, String> {
@@ -165,6 +184,15 @@ pub async fn start_engine(
         if trimmed == "uciok" {
             break;
         }
+    }
+
+    // Startup options (spec 011 Chess960) — must precede any position/go,
+    // so they go out here, before the isready that gates the first search.
+    for cmd in startup_option_commands(chess960.unwrap_or(false)) {
+        stdin
+            .write_all(format!("{cmd}\n").as_bytes())
+            .await
+            .map_err(|e| format!("Write error: {}", e))?;
     }
 
     // Send isready
@@ -365,6 +393,19 @@ mod tests {
     fn output_event_names_are_per_session() {
         assert_eq!(output_event(DEFAULT_SESSION), "engine-output");
         assert_eq!(output_event("compare"), "engine-output:compare");
+    }
+
+    // Spec 011 Chess960: the flag becomes the UCI_Chess960 option line,
+    // emitted between uciok and isready — i.e. before any position/go can
+    // reach the engine. Unset keeps the handshake untouched (the engine's
+    // own default is false).
+    #[test]
+    fn chess960_flag_emits_uci_option_line() {
+        assert_eq!(
+            startup_option_commands(true),
+            vec!["setoption name UCI_Chess960 value true".to_string()]
+        );
+        assert!(startup_option_commands(false).is_empty());
     }
 
     fn sleeper_session() -> (u32, EngineSession) {

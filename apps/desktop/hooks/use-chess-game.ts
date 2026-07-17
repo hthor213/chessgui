@@ -103,6 +103,9 @@ export function useChessGame() {
       // Spec 219: the active-game flag rides the tree, so every load path
       // (hydration, loadTree, restoreSnapshot) re-applies the lockout.
       activeGame: tree.activeGame,
+      // Chess960 (spec 011): rides the tree the same way, so every load
+      // path re-applies the engine's UCI_Chess960 wiring.
+      variant: tree.variant,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
@@ -418,6 +421,7 @@ export function useChessGame() {
     playUciMove,
     // Active game mode (spec 219)
     activeGame: view.activeGame,
+    variant: view.variant,
     setActiveGame,
     setOrientation,
     flipBoard: () => setOrientation((o) => (o === "white" ? "black" : "white")),

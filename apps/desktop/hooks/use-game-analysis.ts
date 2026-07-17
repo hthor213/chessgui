@@ -10,7 +10,7 @@ import { getProviders } from "@/lib/platform"
 import { engineAllowedForGame, ENGINE_LOCKED_MESSAGE, type ActiveGameMeta } from "@chessgui/core/active-game"
 import { withJudgmentNag } from "@chessgui/core/annotations"
 import type { GameTree, NodeEval } from "@chessgui/core/game-tree"
-import { loadEnginePath, loadEngineSettings } from "@/lib/engine-settings"
+import { loadEnginePath, loadEngineSettings, treeChess960 } from "@/lib/engine-settings"
 import {
   GAME_ANALYSIS_SESSION,
   runGameAnalysis,
@@ -90,6 +90,9 @@ export function useGameAnalysis(game: {
       isCancelled: () => cancelledRef.current || treeRef.current !== tree,
       threads: settings.threads,
       hash: settings.hash,
+      // Chess960 (spec 011): the batch run replays this tree's mainline, so
+      // its variant decides the UCI_Chess960 assertion.
+      chess960: treeChess960(tree),
       callbacks: {
         onEval: (id, ev) => setEvalRef.current(id, ev),
         onJudgment: (id, judgment) => {

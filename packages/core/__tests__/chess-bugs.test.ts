@@ -377,6 +377,29 @@ describe("Bug 3: UCI castling notation normalization", () => {
     expect(makeEngineUci(chess, move!)).toBe("c1a1");
   });
 
+  it("Chess960: forces king-takes-rook even on classical squares when the flag is set", () => {
+    // A 960 game can reach a classical-square setup (king e1, rook h1) —
+    // its engine runs with UCI_Chess960 set and expects king-takes-rook for
+    // EVERY castle, so the standard-notation conversion must be suppressed.
+    const chess = posFromFen(KS_FEN);
+    const move = parseEngineUci(chess, "e1g1")!;
+    expect(makeEngineUci(chess, move)).toBe("e1g1"); // standard game: unchanged
+    expect(makeEngineUci(chess, move, true)).toBe("e1h1"); // 960 game
+  });
+
+  it("Chess960: castling appears in chessgroundDests as king-takes-rook", () => {
+    // Same 960 setup as above: king c1, rook a1, X-FEN "Q" right. The board
+    // computes dests via chessgroundDests — the castle must be offered as
+    // the king-takes-rook destination (chessops' native form; its e-file
+    // c1/g1 extras only apply to a classical king square, so nothing here
+    // needs fixing for rook-square-based castles).
+    const fen = "rnbq1bnr/pppkpppp/8/3p4/3P4/8/PPPBPPPP/R1K2BNR w Q - 0 1";
+    const setup = parseFen(fen).unwrap();
+    const chess = Chess.fromSetup(setup).unwrap();
+    const dests = chessgroundDests(chess);
+    expect(dests.get("c1")).toContain("a1");
+  });
+
   it("normalized castling UCI produces correct SAN via makeSan", () => {
     const chess = posFromFen(KS_FEN);
     const move = parseEngineUci(chess, "e1g1");

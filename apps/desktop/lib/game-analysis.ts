@@ -106,6 +106,11 @@ export async function runGameAnalysis(opts: {
   movetimeMs?: number
   threads?: number
   hash?: number
+  /** Chess960 game (spec 011): assert UCI_Chess960 before any position/go —
+   *  the mainline's castling moves are king-takes-rook UCI, which the
+   *  engine only parses with the option set. Fresh session per run, so
+   *  absent/false sends nothing (the engine default). */
+  chess960?: boolean
 }): Promise<GameAnalysisResult> {
   const { engine, targets, callbacks } = opts
   const movetime = opts.movetimeMs ?? ANALYZE_MOVETIME_MS
@@ -147,6 +152,7 @@ export async function runGameAnalysis(opts: {
 
     if (opts.threads) await send(`setoption name Threads value ${opts.threads}`)
     if (opts.hash) await send(`setoption name Hash value ${opts.hash}`)
+    if (opts.chess960) await send("setoption name UCI_Chess960 value true")
     await send("setoption name MultiPV value 1")
 
     const evals: (NodeEval | null)[] = []
