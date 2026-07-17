@@ -33,6 +33,7 @@ import { CapturedPieces } from "@chessgui/ui/captured-pieces"
 import { computeMaterial } from "@chessgui/core/material"
 import { nodeEval, judgeMove, hasJudgmentNag, nextKeyMoveIndex } from "@chessgui/core/annotations"
 import { estimatePerformance } from "@/lib/performance-elo"
+import { playerCardModel } from "@/lib/player-card"
 import { TournamentTab } from "@chessgui/ui/tournament-tab"
 import { DatabaseTab } from "@chessgui/ui/database-tab"
 import { CalibrationTab } from "@chessgui/ui/calibration-tab"
@@ -452,6 +453,22 @@ export default function Home() {
   const humanClockText = timedClock
     ? formatClockMs(remainingMs(timedClock, playerColor, now))
     : formatClock(humanLiveTime)
+
+  // The two cards flanking the board derive their entire content from the board
+  // color at their end (topColor/bottomColor) — so a flip or a Set-up side-to-
+  // move change can never leave a card labelled for the wrong side (spec 001).
+  const cardInput = {
+    isPlayMode,
+    playerColor,
+    headers: game.headers,
+    engineName: engine.state.engineName || "",
+    humanClock: humanClockText,
+    engineClock: engineClockText,
+    performance,
+    showPerformance,
+  }
+  const topCard = playerCardModel({ ...cardInput, color: topColor })
+  const bottomCard = playerCardModel({ ...cardInput, color: bottomColor })
 
   // PV preview (spec 011): clicking a move in an engine line shows the line
   // on the board up to that ply — a read-only overlay, never a tree mutation.
@@ -1266,43 +1283,35 @@ export default function Home() {
               <span className="text-muted-foreground">{playersOpen ? "▾" : "▸"}</span>
             </button>
             <div className={`${playersOpen ? "flex" : "hidden"} flex-col gap-6 lg:contents`}>
-            {/* Opponent card (top of board) */}
-            <Card className="bg-secondary/40 backdrop-blur-md border-white/10 p-4">
+            {/* Top card: whichever color sits at the top of the board now
+                (topColor). Content comes entirely from playerCardModel so it
+                tracks flips and Set-up side-to-move changes. */}
+            <Card className="bg-secondary/40 backdrop-blur-md border-white/10 p-4" data-testid={`player-card-top-${topCard.color}`}>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
-                  <span className="text-sm font-medium">
-                    {isPlayMode ? "SF" : "B"}
-                  </span>
+                  <span className="text-sm font-medium">{topCard.avatar}</span>
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    {isPlayMode
-                      ? engine.state.engineName || "Stockfish"
-                      : game.headers["Black"] || "Black"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {isPlayMode
-                      ? `Engine (${playerColor === "white" ? "Black" : "White"})`
-                      : game.headers["BlackElo"] || "---"}
-                  </p>
+                  <p className="text-sm font-semibold text-foreground">{topCard.name}</p>
+                  <p className="text-xs text-muted-foreground">{topCard.subtitle}</p>
                 </div>
               </div>
               <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider">
-                {isPlayMode ? engineClockText : "--:--"}
+                {topCard.clock}
               </div>
               {timedClock && playClock.preset && (
                 <p className="text-[10px] text-muted-foreground text-center mt-0.5">
                   {playClock.preset.label} · flag = loss
                 </p>
               )}
-              {/* Per-game performance Elo (spec 202) — Black's, honesty-gated. */}
-              {showPerformance && performance.black && (
+              {/* Per-game performance Elo (spec 202) — this card's color, honesty-gated. */}
+              {topCard.performance && (
                 <p
                   className="text-[11px] font-medium text-[#9bc700] text-center mt-1.5"
-                  data-testid="performance-black"
-                  title={`ACPL ${performance.black.acpl} · ${performance.black.blunders} blunder(s), ${performance.black.mistakes} mistake(s) over ${performance.black.scored} moves`}
+                  data-testid={`performance-${topCard.color}`}
+                  title={`ACPL ${topCard.performance.acpl} · ${topCard.performance.blunders} blunder(s), ${topCard.performance.mistakes} mistake(s) over ${topCard.performance.scored} moves`}
                 >
-                  {performance.black.label}
+                  {topCard.performance.label}
                 </p>
               )}
             </Card>
@@ -1414,36 +1423,29 @@ export default function Home() {
               />
             </div>
 
-            {/* Player card (bottom of board) */}
-            <Card className="bg-secondary/40 backdrop-blur-md border-white/10 p-4">
+            {/* Bottom card: whichever color sits at the bottom of the board now
+                (bottomColor). Same playerCardModel mapping as the top card. */}
+            <Card className="bg-secondary/40 backdrop-blur-md border-white/10 p-4" data-testid={`player-card-bottom-${bottomCard.color}`}>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
-                  <span className="text-sm font-medium">
-                    {isPlayMode ? "You" : game.headers["White"]?.[0] || "W"}
-                  </span>
+                  <span className="text-sm font-medium">{bottomCard.avatar}</span>
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    {isPlayMode
-                      ? `You (${playerColor === "white" ? "White" : "Black"})`
-                      : game.headers["White"] || "White"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {isPlayMode ? "" : game.headers["WhiteElo"] || "---"}
-                  </p>
+                  <p className="text-sm font-semibold text-foreground">{bottomCard.name}</p>
+                  <p className="text-xs text-muted-foreground">{bottomCard.subtitle}</p>
                 </div>
               </div>
               <div className="mt-3 text-2xl font-mono text-foreground text-center tracking-wider opacity-80">
-                {isPlayMode ? humanClockText : "--:--"}
+                {bottomCard.clock}
               </div>
-              {/* Per-game performance Elo (spec 202) — White's, honesty-gated. */}
-              {showPerformance && performance.white && (
+              {/* Per-game performance Elo (spec 202) — this card's color, honesty-gated. */}
+              {bottomCard.performance && (
                 <p
                   className="text-[11px] font-medium text-[#9bc700] text-center mt-1.5"
-                  data-testid="performance-white"
-                  title={`ACPL ${performance.white.acpl} · ${performance.white.blunders} blunder(s), ${performance.white.mistakes} mistake(s) over ${performance.white.scored} moves`}
+                  data-testid={`performance-${bottomCard.color}`}
+                  title={`ACPL ${bottomCard.performance.acpl} · ${bottomCard.performance.blunders} blunder(s), ${bottomCard.performance.mistakes} mistake(s) over ${bottomCard.performance.scored} moves`}
                 >
-                  {performance.white.label}
+                  {bottomCard.performance.label}
                 </p>
               )}
             </Card>
