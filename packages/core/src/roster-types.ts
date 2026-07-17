@@ -39,4 +39,10 @@ export interface PersonaConfigFile {
 export interface LocalRivalPersona {
   config: PersonaConfigFile
   book: RivalBook | null
+  /** Persona snapshot id (spec 214 "Persona snapshots"), computed Rust-side
+   *  where the files load: sha256 of the canonicalized config JSON + the book
+   *  FILE's content hash + the weights reference + the sampling params. The
+   *  content hash IS the version — editing the config or rebuilding the book
+   *  yields a new id automatically. Optional: mocks/older shells omit it. */
+  snapshotId?: string
 }

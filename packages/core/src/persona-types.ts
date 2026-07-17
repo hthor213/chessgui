@@ -138,5 +138,11 @@ export interface PersonaDecision {
   /** The fitted P(mistake) looked up for this move's cell; null/undefined =
    *  model off, no eval evidence, or uncovered cell. */
   mistake_rate?: number | null;
+  /** Persona snapshot id (spec 214 "Persona snapshots") this move was sampled
+   *  under — the Rust-computed content hash of the immutable bundle (config +
+   *  book reference + weights id + sampling params). Same effective knobs =
+   *  same id across the spar command and the match runner; any knob change =
+   *  a new id, automatically. Optional: the headless mock predates it. */
+  snapshot_id?: string;
   candidates: PersonaCandidate[];
 }

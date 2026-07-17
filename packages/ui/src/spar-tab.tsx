@@ -171,6 +171,13 @@ interface PersonaDecisionLogEntry {
   seed: number // the per-game seed the move was sampled under
   fen: string // the position the move was chosen for
   mode: SparGameMode
+  /** Persona snapshot id (spec 214 "Persona snapshots") this game plays
+   *  under: the roster entry's load-time bundle id (config + book file hash,
+   *  Rust-computed by `rival_personas`) when the persona is file-backed;
+   *  otherwise `decision.snapshot_id` — the engine-side hash of the effective
+   *  sampling knobs — still names the version. Same seed + same snapshot
+   *  reproduces the move; older stored entries predate this field. */
+  snapshotId?: string
   decision: PersonaDecision
 }
 
@@ -673,6 +680,9 @@ export function SparTab() {
           seed: gameSeed,
           fen,
           mode: sparMode,
+          // Spec 214 snapshot: the file-level bundle id when the roster
+          // loaded one, else the engine's effective-knob id from this move.
+          snapshotId: participant?.personaConfig?.snapshotId ?? decision.snapshot_id,
           decision,
         })
         const applyMove = () => {
