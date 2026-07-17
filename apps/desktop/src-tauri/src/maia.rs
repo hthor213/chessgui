@@ -273,14 +273,32 @@ pub fn managed_net(name: &str) -> Option<&'static ManagedNet> {
 ///   3. else download from `net.url` (must be non-empty), verify, and cache.
 /// The pinned SHA-256 is enforced in every branch.
 pub async fn ensure_managed_net(net: &ManagedNet, dir: &Path) -> Result<PathBuf, String> {
+    // Verify each net file ONCE per process: reading + SHA-256ing the 190MB
+    // net is ~100ms+, and persona_move resolves per move — per-move hashing
+    // turned every reply into a disk scan (review finding 2026-07-17). The
+    // set only ever holds paths whose bytes passed verify_download.
+    static VERIFIED_NETS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> =
+        std::sync::OnceLock::new();
+    let verified = VERIFIED_NETS.get_or_init(Default::default);
+    let already_verified = |p: &PathBuf| verified.lock().map(|s| s.contains(p)).unwrap_or(false);
+    let mark_verified = |p: &PathBuf| {
+        if let Ok(mut s) = verified.lock() {
+            s.insert(p.clone());
+        }
+    };
+
     // 1. Locally registered copy — the 190MB net is often already on disk.
     if let Ok(p) = std::env::var(net.local_env) {
         if !p.trim().is_empty() {
             let pb = PathBuf::from(&p);
             if pb.exists() {
+                if already_verified(&pb) {
+                    return Ok(pb);
+                }
                 let bytes = std::fs::read(&pb)
                     .map_err(|e| format!("reading registered net {pb:?}: {e}"))?;
                 verify_download(&bytes, Some(net.sha256))?;
+                mark_verified(&pb);
                 return Ok(pb);
             }
             return Err(format!(
@@ -295,8 +313,12 @@ pub async fn ensure_managed_net(net: &ManagedNet, dir: &Path) -> Result<PathBuf,
 
     // 2. Verified cache hit.
     if path.exists() {
+        if already_verified(&path) {
+            return Ok(path);
+        }
         if let Ok(bytes) = std::fs::read(&path) {
             if verify_download(&bytes, Some(net.sha256)).is_ok() {
+                mark_verified(&path);
                 return Ok(path);
             }
         }
@@ -315,6 +337,7 @@ pub async fn ensure_managed_net(net: &ManagedNet, dir: &Path) -> Result<PathBuf,
     let tmp = dir.join(format!("{}.part", net.filename));
     std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    mark_verified(&path);
     Ok(path)
 }
 

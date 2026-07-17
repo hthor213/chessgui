@@ -304,10 +304,20 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   // carries session + answers + prior profile, so the live ResultsScreen
   // re-renders it exactly. Phase-B coverage folds over the sessions that
   // preceded it, matching what the readout showed when it was first seen.
+  // The artifact's OWN adaptive flag and lock-in length MUST be restored
+  // (not the intro screen's live state): a Phase-B session re-rendered with
+  // adaptive=false would present its selection-biased pooled stats as
+  // selection-clean — the exact §6.4 mislabeling the v7 stat segregation
+  // exists to prevent (review finding 2026-07-17).
   const openPastReport = useCallback(
     (r: CalibrationResults) => {
       const older = pastResults.filter((x) => x.finished_at < r.finished_at)
-      phaseBRef.current = { enabled: false, priorCells: cellCounts(older), spreads: {} }
+      phaseBRef.current = {
+        enabled: r.phase_b != null,
+        priorCells: cellCounts(older),
+        spreads: {},
+      }
+      setLockInN(r.lock_in_n ?? 0)
       setSession(r.session)
       setAnswers(r.answers.map(normalizeAnswer))
       setProfilePrior(r.profile_prior ?? null)

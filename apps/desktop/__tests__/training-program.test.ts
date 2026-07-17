@@ -241,3 +241,29 @@ describe("training profiles (spec 225 scoping)", () => {
     expect(s.profiles[0].id).toBe(DEFAULT_PROFILE_ID)
   })
 })
+
+describe("profile id collisions + external key resolution (review 2026-07-17)", () => {
+  it("uniqueProfileId never returns the reserved default id or a different person's id", async () => {
+    const { uniqueProfileId, DEFAULT_PROFILE_ID } = await import("@/lib/training-program")
+    expect(uniqueProfileId("Default", [])).not.toBe(DEFAULT_PROFILE_ID)
+    const existing = [{ id: "dad", name: "Dad" }]
+    // Same name → same person → same id (reactivation, not duplication).
+    expect(uniqueProfileId("Dad", existing)).toBe("dad")
+    // Different name slugging to the same id → disambiguated.
+    expect(uniqueProfileId("DAD!", existing)).not.toBe("dad")
+  })
+
+  it("activeProfileKey resolves the stored active profile and falls back to the bare key", async () => {
+    const { activeProfileKey, STORAGE_KEYS } = await import("@/lib/training-program")
+    const store = new Map<string, string>()
+    const get = (k: string) => store.get(k) ?? null
+    expect(activeProfileKey(get, STORAGE_KEYS.metrics)).toBe(STORAGE_KEYS.metrics)
+    store.set(
+      STORAGE_KEYS.profiles,
+      JSON.stringify({ profiles: [{ id: "dad", name: "Dad" }], activeId: "dad" }),
+    )
+    expect(activeProfileKey(get, STORAGE_KEYS.metrics)).toBe(`${STORAGE_KEYS.metrics}:dad`)
+    store.set(STORAGE_KEYS.profiles, "not json")
+    expect(activeProfileKey(get, STORAGE_KEYS.metrics)).toBe(STORAGE_KEYS.metrics)
+  })
+})

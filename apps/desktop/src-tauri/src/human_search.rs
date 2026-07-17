@@ -975,6 +975,11 @@ pub async fn visible_from_sweep(
 
     let sf = resolve_stockfish()
         .ok_or("stockfish not found — install it with: brew install stockfish")?;
+    // The leaf slot MUST be held before spawning, like human_eval_tree and
+    // human_eval_sweep — "at most one Eval_R Stockfish leaf process per app
+    // instance". Spawning first would leave a second engine alive and idle
+    // behind the TT lock while a live sweep runs (review finding 2026-07-17).
+    let _leaf_slot = tree_state.acquire_leaf_slot().await;
     let mut leaf = SfLeaf::spawn(&sf, base.leaf_depth).await?;
     let policy = MaiaPolicySource {
         app: &app,

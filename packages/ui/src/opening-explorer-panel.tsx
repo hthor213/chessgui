@@ -157,6 +157,13 @@ export function OpeningExplorerPanel({ currentFen, onPlayMove }: OpeningExplorer
     [online, explorerSort],
   )
 
+  // A changed player filter invalidates whatever report is on screen — the
+  // ok-state rows were computed FOR a name, and leaving them rendered under
+  // a new name presents one player's leaks as another's (review 2026-07-17).
+  useEffect(() => {
+    setLeaks({ status: "idle" })
+  }, [player])
+
   const runLeakReport = useCallback(async () => {
     if (!player) return
     setLeaks({ status: "loading" })

@@ -17,6 +17,7 @@
 // loadSparResults/persistSparResults touch localStorage, guarded.
 
 import { getProviders } from "@/lib/platform"
+import { activeProfileKey } from "@/lib/training-program"
 import type { SparColor } from "@/lib/spar"
 
 export type SparResultOutcome = "win" | "loss" | "draw"
@@ -215,9 +216,17 @@ export function sparScore(
 // StorageProvider glue (client-only; the provider absorbs unavailability)
 // ---------------------------------------------------------------------------
 
+// Spar games are personal data: both ends resolve the ACTIVE training
+// profile's scoped key (the bare key belongs to the default profile), so one
+// person's games never feed another's spar-score metric (review 2026-07-17).
+function scopedKey(): string {
+  const storage = getProviders().storage
+  return activeProfileKey((k) => storage.get(k), SPAR_RESULTS_STORAGE_KEY)
+}
+
 export function loadSparResults(): SparResultEntry[] {
   try {
-    const raw = getProviders().storage.get(SPAR_RESULTS_STORAGE_KEY)
+    const raw = getProviders().storage.get(scopedKey())
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? (parsed as SparResultEntry[]) : []
@@ -228,5 +237,5 @@ export function loadSparResults(): SparResultEntry[] {
 
 export function persistSparResults(entries: SparResultEntry[]): void {
   // Storage unavailable — entries stay in memory only.
-  getProviders().storage.set(SPAR_RESULTS_STORAGE_KEY, JSON.stringify(entries))
+  getProviders().storage.set(scopedKey(), JSON.stringify(entries))
 }

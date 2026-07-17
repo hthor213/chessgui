@@ -1487,6 +1487,7 @@ pub async fn persona_move(
         maia::query_policy_with_weights(state.inner(), &fen, params.level, &weights, &backend)
             .await?;
     let stockfish = resolve_stockfish();
+    let served_backend = backend.clone();
     let ctx = SelectContext {
         ply: params.ply,
         clock_ms: params.clock_ms,
@@ -1513,9 +1514,13 @@ pub async fn persona_move(
     .await?;
     // Persona snapshot (spec 214): stamp the content hash of the effective
     // bundle this move was sampled under. At this surface the sampling params
-    // ARE the whole config (the frontend roster owns the file-level config),
-    // the weights reference is the Maia band, and the book phase never
-    // reaches this command (bookless here by contract).
+    // ARE the whole config (the frontend roster owns the file-level config)
+    // and the book phase never reaches this command (bookless by contract).
+    // The weights reference is the backend that ACTUALLY served — a BT3 game
+    // and its Maia-fallback twin must not share an id, or "same seed + same
+    // snapshot = same game" breaks; the match runner's strict resolver means
+    // served == declared there, so ids still join across surfaces when the
+    // net really played (review finding 2026-07-17).
     let bundle = sampling_bundle(
         params.level,
         params.temperature,
@@ -1529,12 +1534,7 @@ pub async fn persona_move(
         params.endgame.as_ref(),
         params.error_model.as_ref(),
     );
-    decision.snapshot_id = snapshot_id(
-        &serde_json::Value::Null,
-        None,
-        &format!("maia-{}", params.level),
-        &bundle,
-    );
+    decision.snapshot_id = snapshot_id(&serde_json::Value::Null, None, &served_backend, &bundle);
     Ok(decision)
 }
 

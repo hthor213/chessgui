@@ -23,6 +23,7 @@ import {
 } from "@chessgui/core/win-prob"
 import { MATE_EVAL_PAWNS } from "@chessgui/core/tournament"
 import { getProviders } from "@/lib/platform"
+import { activeProfileKey } from "@/lib/training-program"
 import {
   detectAnomalies,
   resultFromLabel,
@@ -504,9 +505,17 @@ export function normalizePlayoutResult(
 
 // StorageProvider glue (client-only; the provider absorbs unavailability).
 
+// Playout results are personal data: both ends resolve the ACTIVE training
+// profile's scoped key (the bare key belongs to the default profile), so one
+// person's playouts never feed another's eg_conversion (review 2026-07-17).
+function scopedPlayoutKey(): string {
+  const storage = getProviders().storage
+  return activeProfileKey((k) => storage.get(k), PLAYOUT_STORAGE_KEY)
+}
+
 export function loadPlayoutResults(): PlayoutResultEntry[] {
   try {
-    const raw = getProviders().storage.get(PLAYOUT_STORAGE_KEY)
+    const raw = getProviders().storage.get(scopedPlayoutKey())
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed)
@@ -519,5 +528,5 @@ export function loadPlayoutResults(): PlayoutResultEntry[] {
 
 export function persistPlayoutResults(entries: PlayoutResultEntry[]): void {
   // Storage unavailable — entries stay in memory only.
-  getProviders().storage.set(PLAYOUT_STORAGE_KEY, JSON.stringify(entries))
+  getProviders().storage.set(scopedPlayoutKey(), JSON.stringify(entries))
 }

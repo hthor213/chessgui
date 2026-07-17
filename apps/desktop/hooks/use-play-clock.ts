@@ -26,16 +26,28 @@ export function usePlayClock(movesLength: number, tipTurn: ClockColor) {
   const flaggedRef = useRef(flagged);
   flaggedRef.current = flagged;
 
+  // Frozen = the game ended by non-clock means (checkmate, resignation,
+  // abort). The faces keep their final times, but the watcher and the
+  // hand-over accounting stop — otherwise the mover's clock keeps draining
+  // and a phantom flag fires minutes after the game already ended.
+  const frozenRef = useRef(false);
+
   const start = useCallback((p: PlayClockPreset, turn: ClockColor) => {
     setPreset(p);
     setClock(startPlayClock(p, turn, Date.now())); // null for untimed
     setFlagged(null);
+    frozenRef.current = false;
   }, []);
 
   const stop = useCallback(() => {
     setPreset(null);
     setClock(null);
     setFlagged(null);
+    frozenRef.current = false;
+  }, []);
+
+  const freeze = useCallback(() => {
+    frozenRef.current = true;
   }, []);
 
   // The tip moved: charge the side that was thinking and hand the clock over.
@@ -45,7 +57,7 @@ export function usePlayClock(movesLength: number, tipTurn: ClockColor) {
   useEffect(() => {
     const prev = prevLenRef.current;
     prevLenRef.current = movesLength;
-    if (movesLength === prev || flaggedRef.current) return;
+    if (movesLength === prev || flaggedRef.current || frozenRef.current) return;
     setClock((c) => (c ? advanceClock(c, tipTurn, movesLength > prev, Date.now()) : c));
   }, [movesLength, tipTurn]);
 
@@ -55,7 +67,7 @@ export function usePlayClock(movesLength: number, tipTurn: ClockColor) {
     if (!hasClock || flagged) return;
     const iv = setInterval(() => {
       const c = clockRef.current;
-      if (!c || flaggedRef.current) return;
+      if (!c || flaggedRef.current || frozenRef.current) return;
       const f = flaggedSide(c, Date.now());
       if (f) setFlagged(f);
     }, 100);
@@ -78,5 +90,5 @@ export function usePlayClock(movesLength: number, tipTurn: ClockColor) {
   // (e.g. an in-flight bestmove landing after "stop").
   const isFlagged = useCallback(() => flaggedRef.current != null, []);
 
-  return { preset, clock, flagged, start, stop, getEngineClock, isFlagged };
+  return { preset, clock, flagged, start, stop, freeze, getEngineClock, isFlagged };
 }

@@ -49,6 +49,7 @@ import {
 } from "@/lib/roster"
 import { buildBeatPlan, beatTargetFor, traineeFromMetrics } from "@/lib/beat-program"
 import {
+  activeProfileKey,
   DEFAULT_METRICS,
   STORAGE_KEYS as TRAINING_STORAGE_KEYS,
   type MetricPoint,
@@ -413,7 +414,13 @@ export function SparTab() {
   // without paying one, and the 100ms watcher adjudicates flag = loss
   // locally, all in hooks/use-play-clock. Untimed (TC off) keeps clock null.
   const playClock = usePlayClock(plies.length, fen ? turnOf(fen) : "white")
-  const { clock: gameClock, flagged, start: startClock, getEngineClock } = playClock
+  const {
+    clock: gameClock,
+    flagged,
+    start: startClock,
+    freeze: freezeClock,
+    getEngineClock,
+  } = playClock
 
   // A manual end (resign / draw agreed) overrides the position-derived status;
   // a probe abort freezes the board without claiming any result at all. A
@@ -428,6 +435,14 @@ export function SparTab() {
     return s
   }, [fen, manualEnd, flagged])
   const frozen = status.over || probeEnded
+
+  // A non-flag game end freezes the clock in place: without this the 100ms
+  // watcher keeps draining the side to move and a phantom flag banner fires
+  // minutes after checkmate/resignation/probe-abort (review 2026-07-17).
+  // Freezing after a flag end is a no-op; a new game's startClock unfreezes.
+  useEffect(() => {
+    if (frozen) freezeClock()
+  }, [frozen, freezeClock])
   // Probe can never count (spec 215 hard rule) — the config screen's toggle
   // renders disabled and forced off for probe, but this is the actual
   // enforcement point, independent of whatever the toggle currently shows.
@@ -863,7 +878,13 @@ export function SparTab() {
       // last measured maia_rapid — the same store the Training tab reads.
       let trainee = traineeFromMetrics(DEFAULT_METRICS)
       try {
-        const mx = getProviders().storage.get(TRAINING_STORAGE_KEYS.metrics)
+        // Resolve the ACTIVE training profile's store — the bare key belongs
+        // to the default profile only (review 2026-07-17: the gap clause was
+        // framing one person's goal against another person's rating).
+        const storage = getProviders().storage
+        const mx = storage.get(
+          activeProfileKey((k) => storage.get(k), TRAINING_STORAGE_KEYS.metrics),
+        )
         const parsed = mx ? (JSON.parse(mx) as MetricPoint[]) : null
         if (Array.isArray(parsed) && parsed.length > 0) trainee = traineeFromMetrics(parsed)
       } catch {

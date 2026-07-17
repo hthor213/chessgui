@@ -45,8 +45,8 @@ import {
   type Program,
   type TrainingOverlay,
   defaultProfilesState,
-  profileIdFromName,
   profileScopedKey,
+  uniqueProfileId,
   type TrainingProfilesState,
 } from "@/lib/training-program"
 import { buildBeatPlan, beatTargetFor, traineeFromMetrics } from "@/lib/beat-program"
@@ -137,6 +137,9 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   const [profilesState, setProfilesState] = useState<TrainingProfilesState>(defaultProfilesState)
   const pid = profilesState.activeId
   const skey = useCallback((base: string) => profileScopedKey(base, pid), [pid])
+  // Live pid for async completions (the monthly-measure run outlives renders).
+  const pidRef = useRef(pid)
+  pidRef.current = pid
   const persistProfiles = useCallback((next: TrainingProfilesState) => {
     setProfilesState(next)
     getProviders().storage.set(STORAGE_KEYS.profiles, JSON.stringify(next))
@@ -146,7 +149,10 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
   const addPerson = useCallback(() => {
     const name = newPersonName.trim()
     if (!name) return
-    const id = profileIdFromName(name)
+    // uniqueProfileId: never the reserved default id, never a different
+    // person's id via slug collision — same name re-entered reactivates
+    // that person instead of duplicating them.
+    const id = uniqueProfileId(name, profilesState.profiles)
     const exists = profilesState.profiles.some((p) => p.id === id)
     persistProfiles({
       profiles: exists ? profilesState.profiles : [...profilesState.profiles, { id, name }],
@@ -381,6 +387,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
     (opts: { skipFetch: boolean; skipMaia: boolean }) => {
       const user = measureUser.trim()
       if (!user || measureRunning) return
+      const launchPid = pid
       setMeasureRunning(true)
       setMeasureStage("Starting pipeline…")
       setMeasureLog([])
@@ -394,8 +401,34 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
         })
         .then((report) => {
           const msg = measureRunMessage(report)
-          if (msg) setMeasureMsg(msg)
-          else importMeasurementText(report.metrics_json ?? "")
+          if (msg) {
+            setMeasureMsg(msg)
+          } else if (pidRef.current === launchPid) {
+            importMeasurementText(report.metrics_json ?? "")
+          } else {
+            // The user switched training profiles mid-run: the results belong
+            // to the profile that LAUNCHED the run. Merge straight into that
+            // profile's store; touching the live setMetrics here would write
+            // the launcher's data into the now-active person's state
+            // (review finding 2026-07-17).
+            try {
+              const points = parseMeasurementJson(report.metrics_json ?? "")
+              const key = profileScopedKey(STORAGE_KEYS.metrics, launchPid)
+              const storage = getProviders().storage
+              let existing: MetricPoint[] = DEFAULT_METRICS
+              const raw = storage.get(key)
+              if (raw) {
+                const parsed = JSON.parse(raw) as MetricPoint[]
+                if (Array.isArray(parsed) && parsed.length > 0) existing = parsed
+              }
+              storage.set(key, JSON.stringify(mergeMetricPoints(existing, points).merged))
+              setMeasureMsg(
+                `Imported ${points.length} point${points.length === 1 ? "" : "s"} into the profile that started the run.`,
+              )
+            } catch (e) {
+              setMeasureMsg(`Import failed: ${e instanceof Error ? e.message : String(e)}`)
+            }
+          }
         })
         .catch((e) => {
           setMeasureMsg(`Measurement run failed: ${e instanceof Error ? e.message : String(e)}`)
@@ -405,7 +438,7 @@ export function TrainingTab({ onLaunch, initialView = "today" }: TrainingTabProp
           setMeasureStage(null)
         })
     },
-    [measureUser, measureRunning, importMeasurementText, skey],
+    [measureUser, measureRunning, importMeasurementText, skey, pid],
   )
 
   // Cancel kills the pipeline's whole process group (orchestrator + the

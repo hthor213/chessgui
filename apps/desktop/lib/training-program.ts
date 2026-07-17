@@ -346,6 +346,40 @@ export function profileScopedKey(base: string, profileId: string): string {
   return profileId === DEFAULT_PROFILE_ID ? base : `${base}:${profileId}`
 }
 
+/** The active profile's scoped variant of `base`, resolved from the stored
+ *  profiles registry — for surfaces OUTSIDE the Training tab (spar's
+ *  beat-plan gap clause, the spar/playout result stores) that must read and
+ *  write the SAME person's data the tab shows. Falls back to the bare key
+ *  (default profile) when the registry is absent or malformed. */
+export function activeProfileKey(
+  storageGet: (key: string) => string | null,
+  base: string,
+): string {
+  try {
+    const raw = storageGet(STORAGE_KEYS.profiles)
+    if (!raw) return base
+    const st = JSON.parse(raw) as TrainingProfilesState
+    return profileScopedKey(base, st.activeId || DEFAULT_PROFILE_ID)
+  } catch {
+    return base
+  }
+}
+
+/** A profile id for `name` that cannot collide: never the reserved default
+ *  id, and never an EXISTING profile's id unless the name matches it (then
+ *  it IS that profile) — two people whose names slug identically must not
+ *  silently merge their training data. */
+export function uniqueProfileId(name: string, existing: TrainingProfile[]): string {
+  const base = profileIdFromName(name)
+  const taken = (id: string) =>
+    id === DEFAULT_PROFILE_ID ||
+    existing.some((p) => p.id === id && p.name.trim().toLowerCase() !== name.trim().toLowerCase())
+  if (!taken(base)) return base
+  let n = 2
+  while (taken(`${base}-${n}`)) n += 1
+  return `${base}-${n}`
+}
+
 /** Stable id from a display name ("Dad (Þórarinn)" → "dad-orarinn"). */
 export function profileIdFromName(name: string): string {
   const slug = name

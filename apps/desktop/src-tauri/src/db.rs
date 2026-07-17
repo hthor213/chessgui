@@ -869,22 +869,49 @@ impl Db {
         source_path: &str,
         mut progress: impl FnMut(&ImportReport, u64),
     ) -> rusqlite::Result<ImportReport> {
-        // ATTACH is not allowed inside a transaction, so it brackets the
-        // batched loop; DETACH must run even when the loop errors (the failed
-        // batch's transaction already rolled back on drop).
-        self.conn
-            .execute("ATTACH DATABASE ?1 AS merge_src", [source_path])?;
-        let result = self.merge_attached(&mut progress);
-        let detach = self.conn.execute_batch("DETACH DATABASE merge_src");
-        let report = result?;
-        detach?;
+        let mut report = ImportReport::default();
+        let mut processed = 0u64;
+        let mut cursor = 0i64;
+        loop {
+            let (delta, next) = self.merge_batch_from(source_path, cursor)?;
+            report.imported += delta.imported;
+            report.dups_skipped += delta.dups_skipped;
+            processed += delta.imported + delta.dups_skipped;
+            progress(&report, processed);
+            match next {
+                Some(id) => cursor = id,
+                None => break,
+            }
+        }
         Ok(report)
     }
 
-    fn merge_attached(
+    /// One committed slice of a cross-database merge: ATTACH, copy up to 1000
+    /// source games with id > `last_id`, DETACH, return the slice's counts and
+    /// the next cursor (None = source exhausted). ATTACH/DETACH bracket each
+    /// slice so a caller can release the DbManager mutex between slices — a
+    /// large merge must never freeze every other DB surface for its whole
+    /// duration (the launch-hang post-mortem rule). ATTACH is not allowed
+    /// inside a transaction, so it brackets the slice; DETACH runs even when
+    /// the slice errors (the failed transaction already rolled back on drop).
+    pub fn merge_batch_from(
         &mut self,
-        progress: &mut impl FnMut(&ImportReport, u64),
-    ) -> rusqlite::Result<ImportReport> {
+        source_path: &str,
+        last_id: i64,
+    ) -> rusqlite::Result<(ImportReport, Option<i64>)> {
+        self.conn
+            .execute("ATTACH DATABASE ?1 AS merge_src", [source_path])?;
+        let result = self.merge_attached_batch(last_id);
+        let detach = self.conn.execute_batch("DETACH DATABASE merge_src");
+        let out = result?;
+        detach?;
+        Ok(out)
+    }
+
+    fn merge_attached_batch(
+        &mut self,
+        last_id: i64,
+    ) -> rusqlite::Result<(ImportReport, Option<i64>)> {
         let has_table = |conn: &Connection, name: &str| -> rusqlite::Result<bool> {
             conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM merge_src.sqlite_master \
@@ -903,12 +930,10 @@ impl Db {
         let copy_tags = has_table(&self.conn, "game_tags")?;
 
         let mut report = ImportReport::default();
-        let mut processed = 0u64;
         // Keyset pagination on the source PK: no OFFSET rescans, bounded
         // memory per batch regardless of source size.
-        let mut last_id = 0i64;
         const BATCH: i64 = 1000;
-        loop {
+        {
             let tx = self.conn.transaction()?;
             let ids: Vec<i64> = {
                 let mut stmt = tx.prepare_cached(
@@ -920,8 +945,12 @@ impl Db {
                 ids
             };
             if ids.is_empty() {
-                break;
+                return Ok((report, None));
             }
+            // Counted per batch so the db_counts cache stays exact — the
+            // INSERT...SELECTs here bypass insert_game, the usual bump site.
+            let mut batch_games = 0i64;
+            let mut batch_positions = 0i64;
             {
                 // INSERT OR IGNORE hits the UNIQUE(dup_hash) index, exactly
                 // like PGN import; changes()==0 → already in the target.
@@ -953,7 +982,7 @@ impl Db {
                     } else {
                         let new_id = tx.last_insert_rowid();
                         if copy_positions {
-                            ins_pos.execute(params![src_id, new_id])?;
+                            batch_positions += ins_pos.execute(params![src_id, new_id])? as i64;
                         }
                         if copy_material {
                             ins_mat.execute(params![src_id, new_id])?;
@@ -961,17 +990,17 @@ impl Db {
                         if copy_tags {
                             ins_tag.execute(params![src_id, new_id])?;
                         }
+                        batch_games += 1;
                         report.imported += 1;
                     }
-                    processed += 1;
                 }
             }
-            last_id = *ids.last().unwrap();
+            bump_count(&tx, "games", batch_games)?;
+            bump_count(&tx, "positions", batch_positions)?;
+            let next = *ids.last().unwrap();
             tx.commit()?;
-            progress(&report, processed);
+            Ok((report, Some(next)))
         }
-        progress(&report, processed);
-        Ok(report)
     }
 
     /// Save one game's PGN (spec 202: save the annotated game to the DB).
@@ -2240,7 +2269,25 @@ pub async fn db_merge_from(
             });
         };
         emit(&ImportReport::default(), 0);
-        state.with(&target, |db| db.merge_from(&source, emit))
+        // One DbManager lock acquisition PER SLICE, not per merge: other DB
+        // commands (list/search/stats) interleave between slices instead of
+        // freezing for the whole run (the launch-hang post-mortem rule).
+        let mut report = ImportReport::default();
+        let mut processed = 0u64;
+        let mut cursor = 0i64;
+        loop {
+            let (delta, next) =
+                state.with(&target, |db| db.merge_batch_from(&source, cursor))?;
+            report.imported += delta.imported;
+            report.dups_skipped += delta.dups_skipped;
+            processed += delta.imported + delta.dups_skipped;
+            emit(&report, processed);
+            match next {
+                Some(id) => cursor = id,
+                None => break,
+            }
+        }
+        Ok(report)
     })
     .await
     .map_err(|e| e.to_string())?
