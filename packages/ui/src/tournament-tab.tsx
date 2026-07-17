@@ -131,6 +131,17 @@ const RECKLESS_DEFAULT =
 
 const MAX_PLIES = 400
 
+// Narrow-range imbalance presets (spec 210) — one click fills the min/max
+// imbalance fields in Eval mode. "Any" restores the full curated 0–2.4 sweep
+// (the field defaults). Values are the raw field strings so the active check
+// can compare exactly against what the inputs hold.
+const EVAL_RANGE_PRESETS: { label: string; min: string; max: string }[] = [
+  { label: "±0.3", min: "0", max: "0.3" },
+  { label: "±0.6", min: "0", max: "0.6" },
+  { label: "±1.0", min: "0", max: "1.0" },
+  { label: "Any", min: "0", max: "2.4" },
+]
+
 // Human-recognizable time-format presets (spec 216 UI:1) — one click fills the
 // existing base/increment custom fields with the FACE VALUE (pre-pacing)
 // clock. Distinct from TIME_CONTROLS above, which are engine-benchmark points
@@ -1586,6 +1597,32 @@ export function TournamentTab({
 
           {mode === "eval" && (
             <div className="flex flex-wrap items-end gap-4">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Range (fills from + to)</span>
+                <div className="flex flex-wrap gap-2">
+                  {EVAL_RANGE_PRESETS.map((p) => {
+                    const active = minEval === p.min && maxEval === p.max
+                    return (
+                      <button
+                        key={p.label}
+                        data-testid={`tournament-eval-preset-${p.label}`}
+                        onClick={() => {
+                          setMinEval(p.min)
+                          setMaxEval(p.max)
+                        }}
+                        disabled={running}
+                        className={`px-3 py-1.5 text-sm rounded-md border transition-colors disabled:opacity-50 ${
+                          active
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-input hover:text-foreground"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">Imbalance from (pawns)</span>
                 <input
