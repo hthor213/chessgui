@@ -38,8 +38,12 @@ import {
   type SparPly,
 } from "@/lib/spar"
 import {
+  appendPlayoutResult,
+  buildPlayoutAbandon,
   claimFor,
   expectedScoreFor,
+  loadPlayoutResults,
+  persistPlayoutResults,
   playoutUserSide,
   DEFAULT_PLAYOUT_LEVEL,
   VERDICT_LABELS,
@@ -55,7 +59,8 @@ const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default:
 
 interface PlayoutScreenProps {
   request: PlayoutRequest
-  /** Back to the launching surface. An unfinished game records nothing. */
+  /** Back to the launching surface. Exiting an unfinished game records an
+   *  abandon entry first (spec 215 playout hardening) — never a verdict. */
   onExit: () => void
 }
 
@@ -148,6 +153,9 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
   // Stale-async guard: the FEN an opponent reply is being computed for.
   const pendingFenRef = useRef<string | null>(null)
 
+  // Wall-clock game start, for the elapsed time an abandon entry records.
+  const startedAtRef = useRef(0)
+
   // Start-position sanity: a malformed/terminal FEN can't be played out.
   const startProblem = useMemo(() => {
     const setup = parseFen(startFen)
@@ -172,6 +180,7 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
     resultLabel: status.label,
     source: request.source,
     fen: startFen,
+    positionId: request.positionId,
     evalPawns: request.evalPawns,
     userSide,
     level,
@@ -193,6 +202,7 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
     setFen(startFen)
     setPlies([])
     setBoardNonce((n) => n + 1)
+    startedAtRef.current = Date.now()
     setPhase("playing")
   }, [startProblem, startFen])
 
@@ -299,6 +309,34 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
     clearTimeout(drawDeclinedTimer.current)
     drawDeclinedTimer.current = setTimeout(() => setDrawDeclinedNote(false), 2500)
   }, [frozen, thinking, drawOfferOnCooldown, plies, fen])
+
+  // Exit mid-game records an abandon entry (spec 215 playout hardening) —
+  // otherwise abandons are invisible to the training aggregates. Written
+  // directly (not via the recorder hook: that fires on game ends, this on a
+  // click); countsTowardTraining is forced false by the builder, so an
+  // abandon can never inflate eg_conversion. A finished game just exits —
+  // the recorder already stored its verdict.
+  const exitPlayout = useCallback(() => {
+    if (phase === "playing" && !status.over) {
+      persistPlayoutResults(
+        appendPlayoutResult(
+          loadPlayoutResults(),
+          buildPlayoutAbandon({
+            source: request.source,
+            fen: startFen,
+            positionId: request.positionId,
+            evalPawns: request.evalPawns,
+            userSide,
+            level,
+            mode: playoutMode,
+            plies: plies.length,
+            elapsedMs: Date.now() - startedAtRef.current,
+          }),
+        ),
+      )
+    }
+    onExit()
+  }, [phase, status.over, request, startFen, userSide, level, playoutMode, plies.length, onExit])
 
   const lastShape = useMemo<DrawShape[]>(() => {
     if (plies.length === 0) return []
@@ -605,8 +643,8 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
               <Button size="sm" onClick={startGame} data-testid="playout-retry">
                 Retry position
               </Button>
-              <Button variant="outline" size="sm" onClick={onExit} data-testid="playout-exit">
-                {status.over ? "Done" : "Exit (no result)"}
+              <Button variant="outline" size="sm" onClick={exitPlayout} data-testid="playout-exit">
+                {status.over ? "Done" : "Exit (abandon)"}
               </Button>
             </div>
           </div>

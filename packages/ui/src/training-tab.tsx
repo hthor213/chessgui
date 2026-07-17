@@ -1706,7 +1706,9 @@ function PlayoutGamesCard({
                         ? "text-emerald-300"
                         : g.verdict === "dropped"
                           ? "text-red-300"
-                          : "text-amber-300"
+                          : g.verdict === "abandoned"
+                            ? "text-muted-foreground"
+                            : "text-amber-300"
                     }
                   >
                     {VERDICT_LABELS[g.verdict]}
@@ -1724,20 +1726,26 @@ function PlayoutGamesCard({
                   {g.anomalyFlags.map((f) => ANOMALY_LABELS[f]).join(", ")}
                 </td>
                 <td className="py-1 text-right">
+                  {/* Probe never counts (spec 215); an abandon has no result
+                      to count — both render the toggle honestly disabled. */}
                   <label
                     className={`inline-flex items-center gap-1.5 text-xs ${
-                      g.mode === "probe" ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+                      g.mode === "probe" || g.verdict === "abandoned"
+                        ? "opacity-40 cursor-not-allowed"
+                        : "cursor-pointer"
                     }`}
                     title={
                       g.mode === "probe"
                         ? "Probe playouts never count toward training."
-                        : "Counts toward the endgame conversion rate."
+                        : g.verdict === "abandoned"
+                          ? "Abandoned playouts have no result and never count toward training."
+                          : "Counts toward the endgame conversion rate."
                     }
                   >
                     <input
                       type="checkbox"
                       checked={g.countsTowardTraining}
-                      disabled={g.mode === "probe"}
+                      disabled={g.mode === "probe" || g.verdict === "abandoned"}
                       onChange={(e) => onReclassify(g.id, e.target.checked)}
                       data-testid={`training-playout-counts-${g.id}`}
                     />

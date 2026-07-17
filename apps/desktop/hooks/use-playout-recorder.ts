@@ -35,6 +35,8 @@ export interface PlayoutRecorderArgs {
   resultLabel: string | null
   source: PlayoutSourceKind
   fen: string
+  /** Stable launch-position id, when the request carried one. */
+  positionId?: string
   evalPawns: number
   userSide: SparColor
   level: number
@@ -50,7 +52,7 @@ export interface PlayoutRecorderArgs {
 }
 
 export function usePlayoutRecorder(args: PlayoutRecorderArgs): PlayoutResultEntry | null {
-  const { active, over, resultLabel, source, fen, evalPawns, userSide, level, mode, plies, gameKey, countsTowardTraining } = args
+  const { active, over, resultLabel, source, fen, positionId, evalPawns, userSide, level, mode, plies, gameKey, countsTowardTraining } = args
   const recordedRef = useRef<{ key: number | string; id: string } | null>(null)
   const [entry, setEntry] = useState<PlayoutResultEntry | null>(null)
 
@@ -63,7 +65,7 @@ export function usePlayoutRecorder(args: PlayoutRecorderArgs): PlayoutResultEntr
     if (!active) return
 
     if (over && resultLabel && !recordedRef.current) {
-      const built = buildPlayoutResult({ source, fen, evalPawns, userSide, level, mode, resultLabel, plies, countsTowardTraining })
+      const built = buildPlayoutResult({ source, fen, positionId, evalPawns, userSide, level, mode, resultLabel, plies, countsTowardTraining })
       if (!built) return // unknown label — record nothing rather than guess
       persistPlayoutResults(appendPlayoutResult(loadPlayoutResults(), built))
       recordedRef.current = { key: gameKey, id: built.id }
@@ -77,7 +79,7 @@ export function usePlayoutRecorder(args: PlayoutRecorderArgs): PlayoutResultEntr
       recordedRef.current = null
       setEntry(null)
     }
-  }, [active, over, resultLabel, source, fen, evalPawns, userSide, level, mode, plies, gameKey, countsTowardTraining])
+  }, [active, over, resultLabel, source, fen, positionId, evalPawns, userSide, level, mode, plies, gameKey, countsTowardTraining])
 
   return entry
 }

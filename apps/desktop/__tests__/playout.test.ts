@@ -5,10 +5,13 @@ import { describe, it, expect } from "vitest"
 import { Chess } from "chessops/chess"
 import { parseFen } from "chessops/fen"
 import {
+  ABANDON_RESULT_LABEL,
   CLAIM_WIN_PROB,
   DEFAULT_PLAYOUT_LEVEL,
   TRAINING_PLAYOUT_DECK,
+  VERDICT_LABELS,
   appendPlayoutResult,
+  buildPlayoutAbandon,
   buildPlayoutResult,
   claimFor,
   claimedScore,
@@ -159,9 +162,14 @@ describe("buildPlayoutResult", () => {
   }
 
   it("scores a checkmate win as converted on a win claim", () => {
-    const e = buildPlayoutResult({ ...base, resultLabel: "Checkmate — White wins" })
+    const e = buildPlayoutResult({
+      ...base,
+      positionId: "42:31",
+      resultLabel: "Checkmate — White wins",
+    })
     expect(e).not.toBeNull()
     expect(e!.kind).toBe("playout")
+    expect(e!.positionId).toBe("42:31")
     expect(e!.claim).toBe("win")
     expect(e!.result).toBe("win")
     expect(e!.actualScore).toBe(1)
@@ -233,6 +241,65 @@ describe("buildPlayoutResult", () => {
     expect(resign.anomalyFlags).toContain("early_resign")
     const clean = buildPlayoutResult({ ...base, resultLabel: "Checkmate — White wins" })!
     expect(clean.anomalyFlags).toEqual([])
+  })
+})
+
+describe("buildPlayoutAbandon (mid-playout exit, spec 215 hardening)", () => {
+  const base = {
+    source: "training" as const,
+    fen: "8/8/4k3/8/4K3/8/3R4/8 w - - 0 1",
+    positionId: "kr-vs-k",
+    evalPawns: 6.5,
+    userSide: "white" as const,
+    level: 1700,
+    mode: "serious" as const,
+    plies: 17,
+    elapsedMs: 93_000,
+  }
+
+  it("records an abandoned entry with position id, plies, and elapsed time", () => {
+    const e = buildPlayoutAbandon(base)
+    expect(e.kind).toBe("playout")
+    expect(e.verdict).toBe("abandoned")
+    expect(e.positionId).toBe("kr-vs-k")
+    expect(e.plies).toBe(17)
+    expect(e.elapsedMs).toBe(93_000)
+    expect(e.resultLabel).toBe(ABANDON_RESULT_LABEL)
+    expect(VERDICT_LABELS[e.verdict]).toBe("Abandoned")
+  })
+
+  it("has no result to score: result/actualScore null, no anomaly proxies", () => {
+    const e = buildPlayoutAbandon(base)
+    expect(e.result).toBeNull()
+    expect(e.actualScore).toBeNull()
+    expect(e.anomalyFlags).toEqual([])
+    // The claim itself is still real — it's the position's property.
+    expect(e.claim).toBe("win")
+    expect(e.expectedScore).toBeCloseTo(expectedScoreFor(6.5, "white"))
+  })
+
+  it("never counts toward training, regardless of mode", () => {
+    expect(buildPlayoutAbandon(base).countsTowardTraining).toBe(false)
+    expect(buildPlayoutAbandon({ ...base, mode: "probe" }).countsTowardTraining).toBe(false)
+  })
+
+  it("cannot be reclassified to counting (no result to count)", () => {
+    const e = { ...buildPlayoutAbandon(base), id: "ab" }
+    const next = setPlayoutCountsToward([e], "ab", true)
+    expect(next[0].countsTowardTraining).toBe(false)
+    expect(next[0].reclassifiedAt).toBeUndefined()
+  })
+
+  it("survives normalizePlayoutResult untouched (null result, empty flags)", () => {
+    const e = buildPlayoutAbandon(base)
+    const n = normalizePlayoutResult(e)
+    expect(n).toEqual(e)
+    // Legacy-shaped abandon (flags stripped): no result → no anomaly proxies.
+    const stripped = { ...e } as Record<string, unknown>
+    delete stripped.anomalyFlags
+    expect(normalizePlayoutResult(stripped as unknown as PlayoutResultEntry).anomalyFlags).toEqual(
+      [],
+    )
   })
 })
 
@@ -376,6 +443,23 @@ describe("egConversion (verdict aggregation)", () => {
     expect(c.rate).toBe(1)
   })
 
+  it("never aggregates abandons — even hand-flipped to counting", () => {
+    const abandon = buildPlayoutAbandon({
+      source: "training",
+      fen: "8/8/4k3/8/4K3/8/3R4/8 w - - 0 1",
+      evalPawns: 2.1, // win claim, like the finished games
+      userSide: "white",
+      level: 1700,
+      mode: "serious",
+      plies: 17,
+      elapsedMs: 60_000,
+      at: "2026-07-10T10:00:00Z",
+    })
+    const c = egConversion([game({}), abandon, { ...abandon, countsTowardTraining: true }], NOW)
+    expect(c.games).toBe(1)
+    expect(c.rate).toBe(1)
+  })
+
   it("includes flagged games and reports the count (flag, never drop)", () => {
     const c = egConversion([game({ anomalyFlags: ["short_game"], verdict: "dropped" })], NOW)
     expect(c.games).toBe(1)
@@ -417,6 +501,7 @@ describe("curated training deck", () => {
       expect(r.source).toBe("training")
       expect(r.fen).toBe(TRAINING_PLAYOUT_DECK[i].fen)
       expect(r.label).toBe(TRAINING_PLAYOUT_DECK[i].name)
+      expect(r.positionId).toBe(TRAINING_PLAYOUT_DECK[i].id)
     }
   })
 })
