@@ -126,6 +126,23 @@ export function cancelCbhImport(): Promise<void> {
   return getProviders().database.cancelCbhImport()
 }
 
+/**
+ * Merge another ChessGUI database file into the target database (spec 200
+ * "merge databases"). Games copy with their indexed positions, material
+ * signatures and tags; exact duplicates are skipped via the same dup hash as
+ * PGN import. `sourcePath` must be a real filesystem path (the backend
+ * ATTACHes the SQLite file), so callers obtain it from the native file
+ * dialog — native-only like {@link importCbh}; gate on {@link isTauri}.
+ * `onProgress` receives a snapshot up front and after every committed batch.
+ */
+export function mergeDatabase(args: {
+  sourcePath: string
+  dbPath?: string
+  onProgress?: (p: PgnImportProgress) => void
+}): Promise<ImportReport> {
+  return getProviders().database.mergeDatabase(args)
+}
+
 /** Paginated, filtered header list. Sort defaults to newest-inserted first. */
 export function listGames(
   filter: GameFilter,

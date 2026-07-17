@@ -30,6 +30,7 @@ import {
   isTauri,
   listGames,
   listTags,
+  mergeDatabase,
   removeTag,
   searchPosition,
   stats as dbStats,
@@ -868,7 +869,8 @@ function PositionResults({
 }
 
 // ---------------------------------------------------------------------------
-// Import dialog — paste PGN, pick a .pgn file, or import a ChessBase .cbh
+// Import dialog — paste PGN, pick a .pgn file, import a ChessBase .cbh, or
+// merge another ChessGUI database
 // ---------------------------------------------------------------------------
 
 function ImportDialog({
@@ -889,6 +891,7 @@ function ImportDialog({
   const [cbhProgress, setCbhProgress] = useState<CbhImportProgress | null>(null)
   const [cbhCancelling, setCbhCancelling] = useState(false)
   const [pgnProgress, setPgnProgress] = useState<PgnImportProgress | null>(null)
+  const [mergeProgress, setMergeProgress] = useState<PgnImportProgress | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // CBH import needs a real filesystem path (native dialog + Rust decoder), so
@@ -963,13 +966,37 @@ function ImportDialog({
     }
   }, [onImported, dbPath])
 
+  const handleMerge = useCallback(async () => {
+    setError(null)
+    // Native picker: the backend ATTACHes the source SQLite file by path.
+    const picked = await pickFile({
+      filters: [{ name: "ChessGUI database", extensions: ["db", "sqlite", "sqlite3"] }],
+    })
+    if (!picked) return // cancelled
+    setBusy(true)
+    try {
+      const report = await mergeDatabase({
+        sourcePath: picked,
+        dbPath,
+        onProgress: setMergeProgress,
+      })
+      onImported(report)
+    } catch (e) {
+      setError(typeof e === "string" ? e : e instanceof Error ? e.message : "Merge failed.")
+    } finally {
+      setBusy(false)
+      setMergeProgress(null)
+    }
+  }, [onImported, dbPath])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="db-import-dialog">
         <DialogHeader>
           <DialogTitle>Import games</DialogTitle>
           <DialogDescription>
-            Paste PGN text, choose a .pgn file{tauri ? ", or import a ChessBase .cbh database" : ""}.
+            Paste PGN text, choose a .pgn file
+            {tauri ? ", import a ChessBase .cbh database, or merge another ChessGUI database" : ""}.
             Exact duplicates are skipped automatically.
           </DialogDescription>
         </DialogHeader>
@@ -991,6 +1018,21 @@ function ImportDialog({
               {pgnProgress.imported.toLocaleString()} added,{" "}
               {pgnProgress.dups_skipped.toLocaleString()} duplicates
               {pgnProgress.errors ? `, ${pgnProgress.errors.toLocaleString()} errors` : ""})
+            </span>
+            <div className="mt-1 h-1.5 rounded bg-secondary overflow-hidden">
+              <div className="h-full w-1/3 bg-primary animate-pulse" />
+            </div>
+          </div>
+        )}
+        {/* Merge progress (spec 200): same batched-count pattern as PGN
+            import — the backend streams running counts, no total. */}
+        {mergeProgress && (
+          <div className="text-sm text-muted-foreground" data-testid="db-merge-progress">
+            <span>
+              Merging… {mergeProgress.processed.toLocaleString()} games processed (
+              {mergeProgress.imported.toLocaleString()} added,{" "}
+              {mergeProgress.dups_skipped.toLocaleString()} duplicates
+              {mergeProgress.errors ? `, ${mergeProgress.errors.toLocaleString()} errors` : ""})
             </span>
             <div className="mt-1 h-1.5 rounded bg-secondary overflow-hidden">
               <div className="h-full w-1/3 bg-primary animate-pulse" />
@@ -1039,6 +1081,16 @@ function ImportDialog({
           data-testid="db-import-file"
         />
         <DialogFooter>
+          {tauri && (
+            <Button
+              variant="outline"
+              onClick={handleMerge}
+              disabled={busy}
+              data-testid="db-merge-button"
+            >
+              Merge database…
+            </Button>
+          )}
           {tauri && (
             <Button
               variant="outline"

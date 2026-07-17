@@ -793,6 +793,125 @@ impl Db {
         Ok(report)
     }
 
+    /// Merge every game from another ChessGUI database file into this one
+    /// (spec 200 "merge databases"). Streams the source in id order, 1000
+    /// games per committed transaction — the same resumable pattern as
+    /// `import_reader_progress`/`backfill_material`: a crash mid-merge keeps
+    /// every committed batch, and re-running skips them as duplicates via the
+    /// `games.dup_hash` unique index. Each copied game's positions, material
+    /// signatures and tags come along, re-keyed to its freshly assigned id.
+    /// `progress` runs after every committed batch with the running report
+    /// and the number of source games processed.
+    pub fn merge_from(
+        &mut self,
+        source_path: &str,
+        mut progress: impl FnMut(&ImportReport, u64),
+    ) -> rusqlite::Result<ImportReport> {
+        // ATTACH is not allowed inside a transaction, so it brackets the
+        // batched loop; DETACH must run even when the loop errors (the failed
+        // batch's transaction already rolled back on drop).
+        self.conn
+            .execute("ATTACH DATABASE ?1 AS merge_src", [source_path])?;
+        let result = self.merge_attached(&mut progress);
+        let detach = self.conn.execute_batch("DETACH DATABASE merge_src");
+        let report = result?;
+        detach?;
+        Ok(report)
+    }
+
+    fn merge_attached(
+        &mut self,
+        progress: &mut impl FnMut(&ImportReport, u64),
+    ) -> rusqlite::Result<ImportReport> {
+        let has_table = |conn: &Connection, name: &str| -> rusqlite::Result<bool> {
+            conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM merge_src.sqlite_master \
+                 WHERE type='table' AND name=?1)",
+                [name],
+                |r| r.get(0),
+            )
+        };
+        if !has_table(&self.conn, "games")? {
+            return Err(save_err("source is not a ChessGUI database (no games table)"));
+        }
+        // Side tables may predate their schema version in an old source file;
+        // copy what exists.
+        let copy_positions = has_table(&self.conn, "positions")?;
+        let copy_material = has_table(&self.conn, "game_material")?;
+        let copy_tags = has_table(&self.conn, "game_tags")?;
+
+        let mut report = ImportReport::default();
+        let mut processed = 0u64;
+        // Keyset pagination on the source PK: no OFFSET rescans, bounded
+        // memory per batch regardless of source size.
+        let mut last_id = 0i64;
+        const BATCH: i64 = 1000;
+        loop {
+            let tx = self.conn.transaction()?;
+            let ids: Vec<i64> = {
+                let mut stmt = tx.prepare_cached(
+                    "SELECT id FROM merge_src.games WHERE id > ?1 ORDER BY id LIMIT ?2",
+                )?;
+                let ids = stmt
+                    .query_map(params![last_id, BATCH], |r| r.get(0))?
+                    .collect::<Result<_, _>>()?;
+                ids
+            };
+            if ids.is_empty() {
+                break;
+            }
+            {
+                // INSERT OR IGNORE hits the UNIQUE(dup_hash) index, exactly
+                // like PGN import; changes()==0 → already in the target.
+                let mut ins_game = tx.prepare_cached(
+                    "INSERT OR IGNORE INTO games \
+                     (white, black, white_elo, black_elo, event, site, round, date, eco, \
+                      result, ply_count, source, import_batch, pgn_moves, moves, dup_hash, \
+                      created_at) \
+                     SELECT white, black, white_elo, black_elo, event, site, round, date, eco, \
+                      result, ply_count, source, import_batch, pgn_moves, moves, dup_hash, \
+                      created_at \
+                     FROM merge_src.games WHERE id = ?1",
+                )?;
+                let mut ins_pos = tx.prepare_cached(
+                    "INSERT INTO positions (zobrist, game_id, ply) \
+                     SELECT zobrist, ?2, ply FROM merge_src.positions WHERE game_id = ?1",
+                )?;
+                let mut ins_mat = tx.prepare_cached(
+                    "INSERT OR IGNORE INTO game_material (game_id, signature) \
+                     SELECT ?2, signature FROM merge_src.game_material WHERE game_id = ?1",
+                )?;
+                let mut ins_tag = tx.prepare_cached(
+                    "INSERT OR IGNORE INTO game_tags (game_id, tag) \
+                     SELECT ?2, tag FROM merge_src.game_tags WHERE game_id = ?1",
+                )?;
+                for &src_id in &ids {
+                    if ins_game.execute([src_id])? == 0 {
+                        report.dups_skipped += 1;
+                    } else {
+                        let new_id = tx.last_insert_rowid();
+                        if copy_positions {
+                            ins_pos.execute(params![src_id, new_id])?;
+                        }
+                        if copy_material {
+                            ins_mat.execute(params![src_id, new_id])?;
+                        }
+                        if copy_tags {
+                            ins_tag.execute(params![src_id, new_id])?;
+                        }
+                        report.imported += 1;
+                    }
+                    processed += 1;
+                }
+            }
+            last_id = *ids.last().unwrap();
+            tx.commit()?;
+            progress(&report, processed);
+        }
+        progress(&report, processed);
+        Ok(report)
+    }
+
     /// Save one game's PGN (spec 202: save the annotated game to the DB).
     /// Parses with the same visitor as import, then upserts on the dup hash —
     /// annotations (comments, NAGs, `[%eval]`/`[%cal]`/`[%csl]` tags) live in
@@ -1554,9 +1673,10 @@ impl GameForPgn {
     }
 }
 
-/// Wrap a save-time validation failure (unparseable/empty PGN) in a rusqlite
-/// error so `save_game` shares the `DbManager::with` plumbing, which maps all
-/// errors to display strings for the frontend.
+/// Wrap a validation failure (unparseable/empty PGN on save, a non-ChessGUI
+/// merge source) in a rusqlite error so `save_game`/`merge_from` share the
+/// `DbManager::with` plumbing, which maps all errors to display strings for
+/// the frontend.
 fn save_err(msg: &str) -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
         std::io::ErrorKind::InvalidData,
@@ -1822,6 +1942,48 @@ pub async fn db_import_cbh(
 pub fn db_cancel_cbh_import(cancel: tauri::State<'_, CbhImportCancel>) -> Result<(), String> {
     cancel.0.store(true, Ordering::SeqCst);
     Ok(())
+}
+
+/// Merge another ChessGUI database file into the target database (spec 200
+/// "merge databases"). Copies games with their positions/material/tags,
+/// skipping exact duplicates via the dup_hash unique index. Runs on a
+/// blocking thread — a source can hold hundreds of thousands of games — and
+/// streams progress per committed batch. The PGN-import progress shape is
+/// reused (running counts, no total).
+#[tauri::command]
+pub async fn db_merge_from(
+    app: tauri::AppHandle,
+    source_path: String,
+    db_path: Option<String>,
+    on_progress: tauri::ipc::Channel<PgnImportProgress>,
+) -> Result<ImportReport, String> {
+    let target = resolve_db_path(&app, db_path)?;
+    // ATTACH would silently create an empty database at a bad path, and
+    // merging a database into itself would only dup-skip 100% — both are
+    // user errors worth naming up front.
+    let source = std::fs::canonicalize(&source_path)
+        .map_err(|e| format!("cannot open source database {source_path}: {e}"))?;
+    if std::fs::canonicalize(&target).ok().as_deref() == Some(source.as_path()) {
+        return Err("cannot merge a database into itself".to_string());
+    }
+    let source = source.to_string_lossy().into_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<DbManager>();
+        // A send failure just means the webview went away; keep merging.
+        let emit = |rep: &ImportReport, processed: u64| {
+            let _ = on_progress.send(PgnImportProgress {
+                processed,
+                imported: rep.imported,
+                dups_skipped: rep.dups_skipped,
+                errors: rep.errors,
+            });
+        };
+        emit(&ImportReport::default(), 0);
+        state.with(&target, |db| db.merge_from(&source, emit))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2602,5 +2764,121 @@ mod tests {
             flushed_batches,
             vec![CBH_FLUSH_EVERY, 2 * CBH_FLUSH_EVERY, total]
         );
+    }
+
+    /// Cross-database merge (spec 200 "merge databases"): games already in the
+    /// target dedup on dup_hash, new games copy in with their positions,
+    /// material signatures and tags re-keyed to the fresh id, and re-merging
+    /// is idempotent.
+    #[test]
+    fn merge_from_dedups_and_copies_side_tables() {
+        // The source must live on disk — merge_from ATTACHes it by path.
+        let src_path =
+            std::env::temp_dir().join(format!("db-merge-test-{}.db", std::process::id()));
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(src_path.with_extension(format!("db{suffix}")));
+        }
+        {
+            let mut src = Db::open(&src_path).unwrap();
+            src.import_pgn_str(SAMPLE, "src").unwrap(); // overlap with target
+            let extra = src
+                .import_pgn_str(
+                    "[White \"Only\"]\n[Black \"InSource\"]\n[Result \"1-0\"]\n\n\
+                     1. e4 e5 2. Nf3 1-0\n",
+                    "src",
+                )
+                .unwrap();
+            assert_eq!(extra.imported, 1);
+            let only = src
+                .list_games(
+                    &GameFilter {
+                        white: Some("Only".into()),
+                        ..Default::default()
+                    },
+                    10,
+                    0,
+                    None,
+                    true,
+                )
+                .unwrap();
+            src.add_tag(only[0].id, "merged-tag").unwrap();
+        }
+
+        let mut target = Db::open_in_memory().unwrap();
+        target.import_pgn_str(SAMPLE, "target").unwrap();
+        let before = target.stats().unwrap();
+
+        let mut snapshots = 0u32;
+        let report = target
+            .merge_from(src_path.to_str().unwrap(), |_, _| snapshots += 1)
+            .unwrap();
+        assert_eq!(report.imported, 1, "only the non-overlapping game copies");
+        assert_eq!(report.dups_skipped, before.games as u64);
+        assert!(snapshots >= 1, "progress fires at least once");
+
+        let merged = target
+            .list_games(
+                &GameFilter {
+                    white: Some("Only".into()),
+                    ..Default::default()
+                },
+                10,
+                0,
+                None,
+                true,
+            )
+            .unwrap();
+        assert_eq!(merged.len(), 1);
+        let new_id = merged[0].id;
+        assert_eq!(merged[0].tags, vec!["merged-tag"], "tags ride along");
+        let pos_count: i64 = target
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM positions WHERE game_id = ?1",
+                [new_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        // 1.e4 e5 2.Nf3 = start + 3 plies indexed.
+        assert_eq!(pos_count, 4, "positions re-keyed to the new game id");
+        let mat_count: i64 = target
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM game_material WHERE game_id = ?1",
+                [new_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(mat_count >= 1, "material signatures ride along");
+
+        // Idempotent: a second merge finds everything already present.
+        let again = target.merge_from(src_path.to_str().unwrap(), |_, _| {}).unwrap();
+        assert_eq!(again.imported, 0);
+        assert_eq!(again.dups_skipped, before.games as u64 + 1);
+
+        let _ = std::fs::remove_file(&src_path);
+    }
+
+    /// A random SQLite file without a games table is refused, and the failed
+    /// merge leaves the source detached so a later merge can attach again.
+    #[test]
+    fn merge_from_rejects_non_chessgui_source() {
+        let src_path =
+            std::env::temp_dir().join(format!("db-merge-bad-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&src_path);
+        Connection::open(&src_path)
+            .unwrap()
+            .execute_batch("CREATE TABLE other (x)")
+            .unwrap();
+        let mut target = Db::open_in_memory().unwrap();
+        let err = target.merge_from(src_path.to_str().unwrap(), |_, _| {});
+        assert!(err.is_err());
+        // Detached despite the error: attaching again must not conflict.
+        target
+            .conn
+            .execute("ATTACH DATABASE ?1 AS merge_src", [src_path.to_str().unwrap()])
+            .unwrap();
+        target.conn.execute_batch("DETACH DATABASE merge_src").unwrap();
+        let _ = std::fs::remove_file(&src_path);
     }
 }
