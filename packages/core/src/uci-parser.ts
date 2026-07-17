@@ -109,9 +109,14 @@ function isClassicalCastling(pos: Position, move: Move): boolean {
 /**
  * Render a chessops move as UCI for sending TO an engine: standard castling
  * notation (e1g1) for classical setups, king-takes-rook for Chess960.
+ *
+ * `chess960` (spec 011): an engine with UCI_Chess960 set expects
+ * king-takes-rook for EVERY castling move, even when a 960 game reaches a
+ * classical-square setup (king e1, corner rook) — so the flag suppresses
+ * the standard-notation conversion entirely.
  */
-export function makeEngineUci(pos: Position, move: Move): string {
-  if (isNormal(move) && isClassicalCastling(pos, move)) {
+export function makeEngineUci(pos: Position, move: Move, chess960 = false): string {
+  if (!chess960 && isNormal(move) && isClassicalCastling(pos, move)) {
     const side = castlingSide(pos, move)!;
     return makeUci({ from: move.from, to: kingCastlesTo(pos.turn, side) });
   }

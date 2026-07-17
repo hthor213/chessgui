@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   analysisGoCommand,
+  chess960OptionCommand,
   clearEnginePath,
   customOptionCommand,
   defaultEngineSettings,
@@ -9,6 +10,7 @@ import {
   sanitizeCustomOptions,
   saveEnginePath,
   saveEngineSettings,
+  treeChess960,
 } from "@/lib/engine-settings";
 
 // loadEngineSettings/saveEngineSettings short-circuit when `window` is
@@ -238,5 +240,21 @@ describe("engine path — per-session keys (spec 900 multi-engine comparison)", 
     clearEnginePath("compare");
     expect(store.has("engine-path:compare")).toBe(false);
     expect(loadEnginePath()).toBe("/engines/stockfish");
+  });
+});
+
+describe("Chess960 engine wiring (spec 011)", () => {
+  it("treeChess960 keys on the tree's variant field", () => {
+    expect(treeChess960({ variant: "chess960" })).toBe(true);
+    expect(treeChess960({})).toBe(false); // absent = standard chess
+    expect(treeChess960({ variant: "" })).toBe(false);
+    expect(treeChess960(null)).toBe(false);
+    expect(treeChess960(undefined)).toBe(false);
+  });
+
+  it("chess960OptionCommand renders the UCI_Chess960 assertion", () => {
+    expect(chess960OptionCommand(true)).toBe("setoption name UCI_Chess960 value true");
+    // false exists only to undo an earlier true on the same process.
+    expect(chess960OptionCommand(false)).toBe("setoption name UCI_Chess960 value false");
   });
 });

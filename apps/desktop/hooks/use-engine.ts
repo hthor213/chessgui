@@ -11,6 +11,7 @@ import {
 } from "@chessgui/core/active-game";
 import {
   analysisGoCommand,
+  chess960OptionCommand,
   customOptionCommand,
   defaultEnginePath,
   clearEnginePath,
@@ -163,6 +164,12 @@ export function useEngine(
   // mode's `go` uses it verbatim; null/absent keeps the spec 216 virtual
   // pace clock (human side effectively untimed).
   getPlayClock?: () => { wtimeMs: number; btimeMs: number; incMs: number } | null,
+  // Chess960 (spec 011): true when the served game is Fischer Random
+  // (tree.variant === "chess960"). Asserted as UCI_Chess960 before every
+  // position/go — a 960 game's castling moves ride as king-takes-rook UCI,
+  // which the engine only parses with the option set. Default false =
+  // standard chess, the pre-960 behavior.
+  chess960 = false,
 ) {
   const [state, setState] = useState<EngineState>(initialState);
   // Settings start at defaults for SSR consistency; hydrated from
@@ -178,6 +185,7 @@ export function useEngine(
     threads: number;
     contempt: number;
     customSig: string;
+    chess960: boolean;
   } | null>(null);
   const fenRef = useRef(fen);
   const isAnalyzingRef = useRef(false);
@@ -237,6 +245,10 @@ export function useEngine(
   activeGameRef.current = activeGame;
   const getPlayClockRef = useRef(getPlayClock);
   getPlayClockRef.current = getPlayClock;
+  // Chess960 flag of the game THIS hook serves (spec 011). Ref so the
+  // search callbacks read the current value after a game load.
+  const chess960Ref = useRef(chess960);
+  chess960Ref.current = chess960;
   const engineLocked = !engineAllowedForGame(activeGame);
 
   // User-selected engine binary (spec 011). SSR-safe default, hydrated from
@@ -289,7 +301,14 @@ export function useEngine(
         await sendCommand(customOptionCommand(opt));
       }
     }
-    appliedOptionsRef.current = { hash: s.hash, threads: s.threads, contempt: s.contempt, customSig };
+    // Chess960 (spec 011): asserted before every position/go so loading a
+    // 960 game onto a running engine stays correct. A fresh engine already
+    // defaults to false, so false is only sent to undo an earlier true.
+    const chess960 = chess960Ref.current;
+    if (applied ? applied.chess960 !== chess960 : chess960) {
+      await sendCommand(chess960OptionCommand(chess960));
+    }
+    appliedOptionsRef.current = { hash: s.hash, threads: s.threads, contempt: s.contempt, customSig, chess960 };
   }, [sendCommand]);
 
   const startAnalysis = useCallback(
@@ -440,7 +459,9 @@ export function useEngine(
 
       let result: { name: string; ready: boolean };
       try {
-        result = await engine.startEngine(requestedPath, context, sessionId);
+        // chess960 rides the start so UCI_Chess960 is set during the
+        // handshake, before the first position/go (spec 011).
+        result = await engine.startEngine(requestedPath, context, sessionId, chess960Ref.current);
         saveEnginePath(requestedPath, sessionId);
         setEnginePathState(requestedPath);
       } catch (e) {
@@ -451,7 +472,7 @@ export function useEngine(
           console.warn(`Engine path "${requestedPath}" failed (${e}); retrying with default.`);
           clearEnginePath(sessionId);
           try {
-            result = await engine.startEngine(defaultEnginePath(), context, sessionId);
+            result = await engine.startEngine(defaultEnginePath(), context, sessionId, chess960Ref.current);
           } catch (retryErr) {
             console.error("Failed to start engine:", retryErr);
             throw new Error(defaultEngineFailedMessage(retryErr));

@@ -117,11 +117,14 @@ export const tauriProviders: PlatformProviders = {
     // refuse active-game contexts defensively (uci.rs context_is_locked).
     // The spec 900 session id selects which engine slot the call addresses
     // (uci.rs session_key); absent means the default (main analysis) engine.
-    startEngine(path: string, context?: string, sessionId?: string): Promise<EngineStartResult> {
+    // The chess960 flag (spec 011) makes the Rust side assert UCI_Chess960
+    // between uciok and isready, before any position/go reaches the engine.
+    startEngine(path: string, context?: string, sessionId?: string, chess960?: boolean): Promise<EngineStartResult> {
       return invoke<EngineStartResult>("start_engine", {
         path,
         context: context ?? null,
         session: sessionId ?? null,
+        chess960: chess960 ?? false,
       })
     },
     async sendCommand(command: string, context?: string, sessionId?: string): Promise<void> {

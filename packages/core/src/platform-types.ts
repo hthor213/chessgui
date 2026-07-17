@@ -104,7 +104,13 @@ export interface EngineProvider {
   // by side. Optional: absent means the default session, i.e. the pre-900
   // single-engine behavior. Shells with only one engine slot (the WASM
   // worker) refuse/no-op non-default sessions rather than sharing the slot.
-  startEngine(path: string, context?: string, sessionId?: string): Promise<EngineStartResult>
+  //
+  // `chess960` (spec 011 Chess960 analysis) makes the shell assert
+  // UCI_Chess960 during the engine handshake — before any position/go —
+  // because a 960 game's castling moves ride as king-takes-rook UCI, which
+  // engines only parse with the option set. Optional: absent = false =
+  // standard chess, the engine's own default.
+  startEngine(path: string, context?: string, sessionId?: string, chess960?: boolean): Promise<EngineStartResult>
   sendCommand(command: string, context?: string, sessionId?: string): Promise<void>
   stopEngine(sessionId?: string): Promise<void>
   /** Subscribe to one session's stdout line stream — the app's only event

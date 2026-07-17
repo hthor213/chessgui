@@ -17,6 +17,7 @@ import {
   type GameAnalysisEngine,
 } from "@/lib/game-analysis"
 import { GameAnalysisControl } from "@chessgui/ui/game-analysis-control"
+import { treeChess960 } from "@/lib/engine-settings"
 import { GameTree } from "@chessgui/core/game-tree"
 import { ENGINE_LOCKED_MESSAGE, type ActiveGameMeta } from "@chessgui/core/active-game"
 import type { NodeEval } from "@chessgui/core/game-tree"
@@ -154,6 +155,57 @@ describe("runGameAnalysis", () => {
     // Position commands carry the game history for repetition-aware evals.
     expect(commands).toContain("position startpos moves e2e4 e7e5")
     expect(commands.filter((cmd) => cmd.startsWith("go movetime"))).toHaveLength(4)
+  })
+
+  it("carries chess960=true for a 960 tree: UCI_Chess960 asserted before any position/go", async () => {
+    // The hook derives the flag from the tree's variant (use-game-analysis
+    // passes treeChess960(tree)); exercise that exact seam, including the
+    // serialization round-trip every load path goes through.
+    const tree = GameTree.create()
+    for (const san of ["e4", "e5"]) expect(tree.addMoveSan(san)).not.toBeNull()
+    tree.variant = "chess960"
+    const restored = GameTree.fromJSON(tree.toJSON())
+    expect(treeChess960(restored)).toBe(true)
+
+    const targets = restored.mainlineNodes().map((n) => ({ id: n.id, fen: n.fen, uci: n.uci }))
+    const { engine, commands } = fakeEngine([0, 0, 0])
+    const c = collector()
+    const result = await runGameAnalysis({
+      engine,
+      enginePath: "/fake/stockfish",
+      targets,
+      activeGame: () => null,
+      isCancelled: () => false,
+      callbacks: c.callbacks,
+      chess960: treeChess960(restored),
+    })
+    expect(result.completed).toBe(true)
+    const optionAt = commands.indexOf("setoption name UCI_Chess960 value true")
+    const firstPositionAt = commands.findIndex((cmd) => cmd.startsWith("position "))
+    expect(optionAt).toBeGreaterThanOrEqual(0)
+    expect(firstPositionAt).toBeGreaterThan(optionAt)
+  })
+
+  it("carries chess960=false for a standard tree: UCI_Chess960 never sent", async () => {
+    const tree = GameTree.create()
+    for (const san of ["e4", "e5"]) expect(tree.addMoveSan(san)).not.toBeNull()
+    expect(treeChess960(tree)).toBe(false)
+
+    const targets = tree.mainlineNodes().map((n) => ({ id: n.id, fen: n.fen, uci: n.uci }))
+    const { engine, commands } = fakeEngine([0, 0, 0])
+    const c = collector()
+    const result = await runGameAnalysis({
+      engine,
+      enginePath: "/fake/stockfish",
+      targets,
+      activeGame: () => null,
+      isCancelled: () => false,
+      callbacks: c.callbacks,
+      chess960: treeChess960(tree),
+    })
+    expect(result.completed).toBe(true)
+    // A fresh session keeps the engine default (false) — nothing to send.
+    expect(commands.some((cmd) => cmd.includes("UCI_Chess960"))).toBe(false)
   })
 
   it("skips terminal positions (mate delivery goes unjudged, progress still completes)", async () => {

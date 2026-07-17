@@ -60,7 +60,10 @@ export async function stopWasmEngine(): Promise<void> {
   w.terminate()
 }
 
-export async function startWasmEngine(): Promise<EngineStartResult> {
+// `chess960` (spec 011): assert UCI_Chess960 right after the handshake —
+// before any position/go — because a 960 game's castling moves ride as
+// king-takes-rook UCI, which stockfish only parses with the option set.
+export async function startWasmEngine(chess960 = false): Promise<EngineStartResult> {
   if (!wasmEngineAvailable()) {
     throw new Error(
       "Engine unavailable: this page is not cross-origin isolated, so " +
@@ -123,6 +126,12 @@ export async function startWasmEngine(): Promise<EngineStartResult> {
   } finally {
     resolveBoot = null
     rejectBoot = null
+  }
+
+  // Post-handshake, pre-search startup option (mirrors the desktop Rust
+  // side's startup_option_commands). Absent = the engine default, false.
+  if (chess960) {
+    w.postMessage({ type: "uci", command: "setoption name UCI_Chess960 value true" })
   }
 
   return { name: engineName, ready: true }

@@ -33,6 +33,9 @@ interface EngineComparePanelProps {
   /** Spec 219: MUST be the same active-game context the primary engine hook
    *  gets, so both sessions fall under the same fair-play lockout. */
   activeGame: ActiveGameMeta | null | undefined
+  /** Chess960 (spec 011): same flag as the primary engine hook, so the
+   *  second engine parses the shared move list's castling identically. */
+  chess960?: boolean
 }
 
 /** A pickable second-engine binary: the shell default plus every registered
@@ -45,6 +48,7 @@ export function EngineComparePanel({
   startFen,
   currentMoveIndex,
   activeGame,
+  chess960,
 }: EngineComparePanelProps) {
   // No onBestMove and atLatestMove pinned true: this session is analysis-only
   // (the panel exposes no play-mode controls, so the hook never issues a
@@ -58,6 +62,8 @@ export function EngineComparePanel({
     currentMoveIndex,
     activeGame,
     COMPARE_ENGINE_SESSION,
+    undefined,
+    chess960,
   )
   const { state } = engine
 

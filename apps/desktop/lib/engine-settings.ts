@@ -138,6 +138,25 @@ export function customOptionCommand(opt: CustomUciOption): string {
     : `setoption name ${opt.name}`;
 }
 
+/**
+ * Whether an engine request for this tree must run in Chess960 mode
+ * (spec 011). Accepts the live GameTree or its serialized form — both carry
+ * the optional `variant` field; absent = standard chess.
+ */
+export function treeChess960(tree: { variant?: string } | null | undefined): boolean {
+  return tree?.variant === "chess960";
+}
+
+/**
+ * The UCI_Chess960 assertion preceding a search (spec 011): a 960 game's
+ * castling moves ride as king-takes-rook UCI, which Stockfish and lc0 only
+ * parse with the option set. `false` is sent only to undo an earlier `true`
+ * on the same engine process — a fresh engine already defaults to false.
+ */
+export function chess960OptionCommand(chess960: boolean): string {
+  return `setoption name UCI_Chess960 value ${chess960}`;
+}
+
 /** The `go` command analysis mode issues (spec 011). */
 export function analysisGoCommand(s: EngineSettings): string {
   switch (s.analysisMode) {

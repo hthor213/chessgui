@@ -56,13 +56,13 @@ const webProviders: PlatformProviders = {
     // (machine bench/profile, spec 221 v1-OUT), not analysis itself.
     defaultEnginePath: WASM_ENGINE_PATH,
     // the WASM build is the only engine — path ignored
-    startEngine(_path: string, _context?: string, sessionId?: string): Promise<EngineStartResult> {
+    startEngine(_path: string, _context?: string, sessionId?: string, chess960?: boolean): Promise<EngineStartResult> {
       if (!isDefaultSession(sessionId)) {
         return Promise.reject(
           new Error("Only one engine runs in the browser — side-by-side comparison needs the desktop app"),
         )
       }
-      return startWasmEngine()
+      return startWasmEngine(chess960)
     },
     sendCommand(command: string, _context?: string, sessionId?: string): Promise<void> {
       if (!isDefaultSession(sessionId)) return Promise.resolve()

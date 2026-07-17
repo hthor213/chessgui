@@ -102,6 +102,10 @@ export interface SerializedTree {
   // serialized game so EVERY load path re-applies the engine lockout.
   // Optional so pre-219 saves load unchanged (absent = not an active game).
   activeGame?: ActiveGameMeta | null;
+  // Chess960 (spec 011/013): set when the game is Fischer Random — drives
+  // the engine's UCI_Chess960 flag and 960-aware castling handling.
+  // Optional so every stored tree loads unchanged (absent = standard chess).
+  variant?: "chess960";
 }
 
 // Backwards-compatible alias: page.tsx snapshots the game as an opaque blob.
@@ -146,6 +150,10 @@ export class GameTree {
   // engine lockout key. Serialized with the tree; cleared only by the
   // archive step (or explicit deletion behind the fair-play confirmation).
   activeGame: ActiveGameMeta | null = null;
+  // Chess960 (spec 011/013): "chess960" flags a Fischer Random game (absent
+  // = standard). Rides serialization so engine wiring can assert
+  // UCI_Chess960 on every load path.
+  variant?: "chess960";
   private seq: number;
 
   private constructor(
@@ -420,7 +428,9 @@ export class GameTree {
     if (!san || san === "--") return null;
     // Canonical UCI: standard castling (e1g1) for classical setups,
     // king-takes-rook for Chess960 — computed against the pre-move position.
-    const uci = makeEngineUci(chess, move);
+    // A 960 game forces king-takes-rook even on classical squares, since
+    // its engine runs with UCI_Chess960 set (spec 011).
+    const uci = makeEngineUci(chess, move, this.variant === "chess960");
 
     const existing = parent.children.find((cid) => this.nodes.get(cid)!.uci === uci);
     if (existing) {
@@ -586,6 +596,9 @@ export class GameTree {
     if (this.variant) out.variant = this.variant;
     // Written only when set, so non-flagged saves keep their pre-219 shape.
     if (this.activeGame) out.activeGame = this.activeGame;
+    // Same stance for the variant (spec 011): standard games keep their
+    // pre-960 serialized shape byte-identically.
+    if (this.variant) out.variant = this.variant;
     return out;
   }
 
@@ -610,6 +623,8 @@ export class GameTree {
     // game, not an ambiguity. Normalized to null so the guard predicate
     // (engineAllowedForGame) never sees undefined from a loaded tree.
     tree.activeGame = data.activeGame ?? null;
+    // Chess960 (spec 011): absent on pre-960 saves = standard chess.
+    if (data.variant === "chess960") tree.variant = "chess960";
     // Restore the id counter so freshly added nodes never collide with loaded
     // ones, even if the stored `seq` is missing (older saves).
     let maxSeq = data.seq ?? 0;
