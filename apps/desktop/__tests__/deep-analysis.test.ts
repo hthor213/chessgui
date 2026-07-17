@@ -10,6 +10,13 @@ import {
   runDeepAnalysis,
   DEEP_ANALYSIS_SESSION,
   DEEP_MULTIPV,
+  EVAL_R_BANDS,
+  EVAL_R_MAX_SWEEPS,
+  EVAL_R_TOP_BAND,
+  VISIBLE_MATE_CP,
+  visibleFromCp,
+  visibleFromInvokeArgs,
+  worstMistakes,
   type DeepPositionReport,
   type DeepTarget,
 } from "@/lib/deep-analysis"
@@ -263,5 +270,52 @@ describe("runDeepAnalysis", () => {
     })
     expect(result).toEqual({ completed: true, error: null })
     expect(commands).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Eval_R "visible from ~R" pass helpers (spec 213 Phase 4) — pure functions
+// feeding the Rust `visible_from_sweep` command from tournament-tab.tsx.
+// ---------------------------------------------------------------------------
+
+describe("visible-from pass helpers", () => {
+  it("visibleFromCp collapses mates to the bounded pawn-equivalent and clamps cp", () => {
+    expect(visibleFromCp({ cp: 120, mate: null })).toBe(120)
+    expect(visibleFromCp({ cp: null, mate: 3 })).toBe(VISIBLE_MATE_CP)
+    expect(visibleFromCp({ cp: null, mate: -2 })).toBe(-VISIBLE_MATE_CP)
+    expect(visibleFromCp({ cp: 99999, mate: null })).toBe(VISIBLE_MATE_CP)
+    expect(visibleFromCp({ cp: -99999, mate: null })).toBe(-VISIBLE_MATE_CP)
+    expect(visibleFromCp({ cp: null, mate: null })).toBeNull()
+  })
+
+  it("worstMistakes keeps the cap worst by drop without mutating the input", () => {
+    const labeled = [
+      { ply: 1, drop: 0.05 },
+      { ply: 2, drop: 0.4 },
+      { ply: 3, drop: 0.2 },
+      { ply: 4, drop: 0.3 },
+    ]
+    const snapshot = [...labeled]
+    expect(worstMistakes(labeled, 2).map((s) => s.ply)).toEqual([2, 4])
+    expect(labeled).toEqual(snapshot)
+    // Default cap is the spec's per-game bound.
+    expect(worstMistakes(labeled)).toHaveLength(4)
+    expect(EVAL_R_MAX_SWEEPS).toBe(10)
+  })
+
+  it("visibleFromInvokeArgs pins the Rust command's camelCase parameter names", () => {
+    expect(visibleFromInvokeArgs("FEN", 50, -300)).toEqual({
+      fen: "FEN",
+      beforeCp: 50,
+      afterCp: -300,
+      bands: EVAL_R_BANDS,
+    })
+    expect(visibleFromInvokeArgs("FEN", 0, 200, [1500])).toEqual({
+      fen: "FEN",
+      beforeCp: 0,
+      afterCp: 200,
+      bands: [1500],
+    })
+    expect(EVAL_R_TOP_BAND).toBe(1900)
   })
 })

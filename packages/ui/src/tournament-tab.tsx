@@ -98,8 +98,14 @@ import {
   runDeepAnalysis,
   DEEP_MOVETIME_MS,
   DEEP_MULTIPV,
+  EVAL_R_MAX_SWEEPS,
+  EVAL_R_TOP_BAND,
+  visibleFromCp,
+  visibleFromInvokeArgs,
+  worstMistakes,
   type DeepLine,
   type DeepPositionReport,
+  type VisibleFromSweep,
 } from "@/lib/deep-analysis"
 import { loadRivalBook, type RivalBook } from "@/lib/rival-book"
 import type { PersonaCandidate, PersonaDecision } from "@/lib/persona"
@@ -3032,6 +3038,11 @@ export function ResultsExplorer({
   const [deepRunning, setDeepRunning] = useState(false)
   const [deepError, setDeepError] = useState<string | null>(null)
   const [deepProgress, setDeepProgress] = useState<{ done: number; total: number } | null>(null)
+  // Opt-in Eval_R "visible from ~R" add-on to the deep pass (spec 213 Phase
+  // 4): strictly off by default; when on, the worst mistakes each get a
+  // bounded visible-from scan after the deep search finishes.
+  const [evalRPass, setEvalRPass] = useState(false)
+  const [visProgress, setVisProgress] = useState<{ done: number; total: number } | null>(null)
   const deepCancelled = useRef(false)
   // Bumped on every selection change so a search already in flight when the
   // user switches games can't land its report/error on the new game's panel
@@ -3043,6 +3054,7 @@ export function ResultsExplorer({
     setDeepByPly(new Map())
     setDeepError(null)
     setDeepProgress(null)
+    setVisProgress(null)
   }, [selectedId])
 
   // Per-game swing analysis (spec 212:82 — decisive moment + error counts in
@@ -3104,6 +3116,10 @@ export function ResultsExplorer({
   const runDeep = useCallback(async () => {
     if (deepRunning) {
       deepCancelled.current = true
+      // Also frees an Eval_R scan mid-sweep (the scan only polls its own
+      // cancellation between backend calls); live perception sweeps are
+      // user-cancelled here too, which an explicit cancel click may do.
+      void invoke("human_eval_sweep_cancel").catch(() => {})
       return
     }
     const an = selected ? analyses.get(selected.id) : null
@@ -3118,6 +3134,7 @@ export function ResultsExplorer({
     setDeepError(null)
     setDeepByPly(new Map())
     setDeepProgress({ done: 0, total: targets.length })
+    setVisProgress(null)
     const res = await runDeepAnalysis({
       engine: getProviders().engine,
       enginePath: deepEnginePath,
@@ -3132,8 +3149,49 @@ export function ResultsExplorer({
       },
     })
     if (res.error && deepToken.current === token) setDeepError(res.error)
+
+    // Opt-in Eval_R pass (spec 213 Phase 4): bounded visible-from scan over
+    // the worst mistakes' AFTER-positions, one backend call per mistake. The
+    // backend serializes behind (and yields to) live slider sweeps, so this
+    // never competes with the tournament's playing engines.
+    if (evalRPass && res.completed && !deepCancelled.current && deepToken.current === token) {
+      const scans = worstMistakes(
+        an.labeled.filter((s) => s.ply >= 1 && fens[s.ply] !== undefined),
+        EVAL_R_MAX_SWEEPS,
+      )
+      setVisProgress({ done: 0, total: scans.length })
+      for (let i = 0; i < scans.length; i++) {
+        if (deepCancelled.current || deepToken.current !== token) break
+        const s = scans[i]
+        const beforeCp = visibleFromCp(s.evalBefore)
+        const afterCp = visibleFromCp(s.evalAfter)
+        if (beforeCp !== null && afterCp !== null) {
+          try {
+            const r = await invoke<VisibleFromSweep>(
+              "visible_from_sweep",
+              visibleFromInvokeArgs(fens[s.ply], beforeCp, afterCp),
+            )
+            if (r.cancelled) break // a live sweep preempted the pass
+            if (deepToken.current === token) {
+              setDeepByPly((m) => {
+                const prev = m.get(s.ply)
+                if (!prev) return m
+                return new Map(m).set(s.ply, { ...prev, visibleFrom: r.visible_from })
+              })
+            }
+          } catch (e) {
+            if (deepToken.current === token) {
+              setDeepError(`Eval_R: ${e instanceof Error ? e.message : String(e)}`)
+            }
+            break
+          }
+        }
+        if (deepToken.current === token) setVisProgress({ done: i + 1, total: scans.length })
+      }
+      if (deepToken.current === token) setVisProgress(null)
+    }
     setDeepRunning(false)
-  }, [deepRunning, selected, analyses, gr, fens, deepEnginePath])
+  }, [deepRunning, selected, analyses, gr, fens, deepEnginePath, evalRPass])
 
   if (games.length === 0) return null
 
@@ -3355,7 +3413,7 @@ export function ResultsExplorer({
                   {/* Deep multi-PV re-analysis of the flagged positions
                       (spec 212 "Later": deep verify decisive moments). */}
                   {deepEnginePath && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         data-testid="tournament-deep-analysis"
                         onClick={() => void runDeep()}
@@ -3365,9 +3423,29 @@ export function ResultsExplorer({
                           ? "Cancel deep analysis"
                           : `Deep analysis (${an.labeled.length} position${an.labeled.length === 1 ? "" : "s"}, ${DEEP_MULTIPV}-PV @ ${DEEP_MOVETIME_MS / 1000}s)`}
                       </button>
-                      {deepRunning && deepProgress && (
+                      {/* Opt-in Eval_R visible-from pass (spec 213 Phase 4). */}
+                      <label
+                        className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none"
+                        title={`Experimental: after the deep pass, sweep Eval_R (Maia 1100–1900 restricted tree) over the ${EVAL_R_MAX_SWEEPS} worst mistakes to estimate the lowest rating that sees each one. Needs lc0 + Maia weights.`}
+                      >
+                        <input
+                          type="checkbox"
+                          data-testid="tournament-evalr-pass"
+                          checked={evalRPass}
+                          disabled={deepRunning}
+                          onChange={(e) => setEvalRPass(e.target.checked)}
+                          className="accent-primary"
+                        />
+                        + Eval_R “visible from” pass
+                      </label>
+                      {deepRunning && deepProgress && !visProgress && (
                         <span className="text-xs text-muted-foreground font-mono">
                           {deepProgress.done}/{deepProgress.total}
+                        </span>
+                      )}
+                      {deepRunning && visProgress && (
+                        <span className="text-xs text-muted-foreground font-mono">
+                          Eval_R {visProgress.done}/{visProgress.total}
                         </span>
                       )}
                       {deepError && <span className="text-xs text-red-400">{deepError}</span>}
@@ -3381,15 +3459,31 @@ export function ResultsExplorer({
                           const s = an.labeled.find((x) => x.ply === r.ply)
                           return (
                             <div key={r.ply} className="flex flex-col gap-0.5">
-                              <button
-                                data-testid={`tournament-deep-hop-${r.ply}`}
-                                onClick={() => setPly(Math.min(r.ply - 1, maxPly))}
-                                className="self-start text-xs text-foreground hover:underline text-left font-mono"
-                              >
-                                m{moveNoOf(r.ply)}
-                                {s?.label ? ` ${glyph[s.label]}` : ""} — before{" "}
-                                {s ? engineName(s.engine) : "the move"} played
-                              </button>
+                              <span className="flex items-center gap-2">
+                                <button
+                                  data-testid={`tournament-deep-hop-${r.ply}`}
+                                  onClick={() => setPly(Math.min(r.ply - 1, maxPly))}
+                                  className="self-start text-xs text-foreground hover:underline text-left font-mono"
+                                >
+                                  m{moveNoOf(r.ply)}
+                                  {s?.label ? ` ${glyph[s.label]}` : ""} — before{" "}
+                                  {s ? engineName(s.engine) : "the move"} played
+                                </button>
+                                {/* Spec 213 Phase 4 "visible from ~R" badge —
+                                    only present when the opt-in Eval_R pass
+                                    swept this mistake. */}
+                                {r.visibleFrom !== undefined && (
+                                  <span
+                                    data-testid={`tournament-visible-from-${r.ply}`}
+                                    title="Experimental: lowest Maia band (1100–1900) whose restricted-tree Eval_R registers this swing — a rough range (±one band), not a measurement."
+                                    className="px-1.5 py-0.5 text-[10px] font-mono rounded-sm border border-violet-400/40 text-violet-300"
+                                  >
+                                    {r.visibleFrom !== null
+                                      ? `visible from ~${r.visibleFrom}`
+                                      : `not visible ≤ ${EVAL_R_TOP_BAND}`}
+                                  </span>
+                                )}
+                              </span>
                               {r.lines.length === 0 ? (
                                 <span className="pl-3 text-[11px] text-muted-foreground">
                                   no line reported

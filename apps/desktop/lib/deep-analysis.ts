@@ -53,6 +53,74 @@ export interface DeepPositionReport {
   fen: string
   /** Sorted by multipv; empty if the engine reported no parseable PV. */
   lines: DeepLine[]
+  /**
+   * Spec 213 Phase 4 "visible from ~R": lowest Maia band whose Eval_R
+   * registers this mistake's swing. `null` = swept but not visible at any
+   * band (refutation deeper than every 1100–1900 nucleus); absent = the
+   * opt-in Eval_R pass didn't run (or skipped this position).
+   */
+  visibleFrom?: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Eval_R "visible from ~R" pass (spec 213 Phase 4) — strictly opt-in add-on
+// to the deep pass: for the worst mistakes, ask the Rust `visible_from_sweep`
+// command (human_search.rs) for the lowest Maia band whose restricted-tree
+// Eval_R of the AFTER-mistake position registers the swing. The backend
+// yields to live slider sweeps and shares the tier-1 session TT.
+// ---------------------------------------------------------------------------
+
+/** Maia-1 bands the visible-from scan sweeps, ascending. */
+export const EVAL_R_BANDS = [1100, 1300, 1500, 1700, 1900]
+
+/** Top band swept — "not visible" verdicts read "not visible ≤ this". */
+export const EVAL_R_TOP_BAND = EVAL_R_BANDS[EVAL_R_BANDS.length - 1]
+
+/** Hard cap on Eval_R scans per game: the 10 worst mistakes, nothing more. */
+export const EVAL_R_MAX_SWEEPS = 10
+
+/**
+ * Bounded pawn-equivalent for mate scores fed to the visible-from swing test
+ * (mirrors tier-0's mate clamping — a mate signal, not a blendable cp).
+ */
+export const VISIBLE_MATE_CP = 1000
+
+/**
+ * White-POV cp for the swing endpoints: mates collapse to ±VISIBLE_MATE_CP,
+ * cp scores clamp to the same bound so "half the swing" stays meaningful.
+ * Null when the evaluator produced no score for the ply.
+ */
+export function visibleFromCp(e: { cp: number | null; mate: number | null }): number | null {
+  if (e.mate !== null) return e.mate > 0 ? VISIBLE_MATE_CP : -VISIBLE_MATE_CP
+  if (e.cp === null) return null
+  return Math.max(-VISIBLE_MATE_CP, Math.min(VISIBLE_MATE_CP, e.cp))
+}
+
+/** The `cap` worst mistakes by win-prob drop — the bounded scan's targets. */
+export function worstMistakes<T extends { drop: number }>(
+  labeled: T[],
+  cap: number = EVAL_R_MAX_SWEEPS,
+): T[] {
+  return [...labeled].sort((a, b) => b.drop - a.drop).slice(0, Math.max(0, cap))
+}
+
+/**
+ * Invoke args for `visible_from_sweep` (pure, vitest-pinned like the tier-1
+ * wrappers in lib/human-eval-tree.ts). Knobs stay backend-defaulted.
+ */
+export function visibleFromInvokeArgs(
+  fen: string,
+  beforeCp: number,
+  afterCp: number,
+  bands: number[] = EVAL_R_BANDS,
+): Record<string, unknown> {
+  return { fen, beforeCp, afterCp, bands }
+}
+
+/** Rust `VisibleFromResult` (default serde field names). */
+export interface VisibleFromSweep {
+  visible_from: number | null
+  cancelled: boolean
 }
 
 export interface DeepAnalysisResult {
