@@ -38,6 +38,7 @@ import {
   type CalibrationAnswer,
   type CalibrationPosition,
   type CalibrationProgress,
+  type CalibrationResults,
   type CalibrationSession,
   type CoachFeedback,
   type CoachInput,
@@ -210,6 +211,10 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
   // Fixed at session creation, like the elicitation mode.
   const [lockInN, setLockInN] = useState(0)
   const [profilePrior, setProfilePrior] = useState<LabelerProfile | null>(null)
+  // Saved results files, for the intro screen's "Past reports" list — every
+  // finished session is persisted in full (session + answers + prior), so any
+  // report can be re-rendered later through the same ResultsScreen.
+  const [pastResults, setPastResults] = useState<CalibrationResults[]>([])
   // Plan elicitation (spec 213): asked on plan decks. Like the elicitation
   // mode, fixed at session creation — a resumed pre-plan session never starts
   // asking mid-session.
@@ -275,6 +280,40 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       /* ignore malformed storage */
     }
   }, [])
+
+  // Refresh the "Past reports" list whenever the intro screen shows — a
+  // session finished since the last look should appear without a remount.
+  useEffect(() => {
+    if (phase !== "intro") return
+    let cancelled = false
+    loadPriorResults()
+      .then((rs) => {
+        if (!cancelled) setPastResults(rs)
+      })
+      .catch(() => {
+        /* no saved results yet (or non-Tauri shell) — list stays empty */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [phase])
+
+  // Reopen a finished session's report from its saved artifact: the file
+  // carries session + answers + prior profile, so the live ResultsScreen
+  // re-renders it exactly. Phase-B coverage folds over the sessions that
+  // preceded it, matching what the readout showed when it was first seen.
+  const openPastReport = useCallback(
+    (r: CalibrationResults) => {
+      const older = pastResults.filter((x) => x.finished_at < r.finished_at)
+      phaseBRef.current = { enabled: false, priorCells: cellCounts(older), spreads: {} }
+      setSession(r.session)
+      setAnswers(r.answers.map(normalizeAnswer))
+      setProfilePrior(r.profile_prior ?? null)
+      setSavedPath(null)
+      setPhase("results")
+    },
+    [pastResults],
+  )
 
   const persist = useCallback(
     (
@@ -794,6 +833,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
           setShowCoach={setShowCoach}
           onStart={start}
           error={error}
+          pastResults={pastResults}
+          onOpenPast={openPastReport}
         />
       )}
 
@@ -893,6 +934,8 @@ function IntroScreen({
   setShowCoach,
   onStart,
   error,
+  pastResults,
+  onOpenPast,
 }: {
   size: number
   setSize: (n: number) => void
@@ -902,6 +945,8 @@ function IntroScreen({
   setShowCoach: (b: boolean) => void
   onStart: () => void
   error: string | null
+  pastResults: CalibrationResults[]
+  onOpenPast: (r: CalibrationResults) => void
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6">
@@ -1000,6 +1045,37 @@ function IntroScreen({
           couple of minutes.
         </p>
         {error && <p className="text-sm text-red-400">{error}</p>}
+        {pastResults.length > 0 && (
+          <div
+            className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2"
+            data-testid="calib-past-reports"
+          >
+            <p className="text-sm font-medium text-foreground">Past reports</p>
+            <ul className="space-y-1.5">
+              {[...pastResults].reverse().map((r) => (
+                <li
+                  key={r.finished_at}
+                  className="flex items-center justify-between gap-3 text-sm"
+                >
+                  <span className="text-muted-foreground min-w-0 truncate">
+                    {new Date(r.finished_at).toLocaleString()} —{" "}
+                    {r.summary.answered} answered
+                    {r.summary.skipped > 0 ? `, ${r.summary.skipped} skipped` : ""}
+                    {r.show_reveal === false ? " · blind" : ""}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onOpenPast(r)}
+                    data-testid={`calib-open-past-${r.finished_at}`}
+                  >
+                    View report
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   )
