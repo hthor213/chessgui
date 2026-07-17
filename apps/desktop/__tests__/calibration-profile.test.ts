@@ -10,6 +10,7 @@ import {
   profileOfSession,
   mergeProfiles,
   buildProfileFromResults,
+  isRevealResults,
   lockInNeed,
   lockInPlan,
   applyLockIn,
@@ -254,6 +255,58 @@ describe("buildProfileFromResults", () => {
     expect(p.per_phase.find((c) => c.phase === "middlegame")!.count).toBe(1)
     expect(p.per_phase.find((c) => c.phase === "endgame")!.count).toBe(1)
     expect(p.bias).toBeCloseTo(0.5)
+  })
+})
+
+describe("blind/reveal split — cross-session aggregates never mix modes", () => {
+  // A blind (show_reveal=false) session is methodologically distinct — no
+  // feedback between positions (calibration-data-format.md) — so the prior
+  // profile and the sparsity counts fold only same-mode sessions.
+  const revealResults = {
+    show_reveal: true,
+    session: session([pos({ sf_cp: 100, band: "0.5-1.5" })]),
+    answers: [ans({ index: 0, eval: 1.5 })], // signed error +0.5
+  } as unknown as CalibrationResults
+  const blindResults = {
+    show_reveal: false,
+    session: session([pos({ sf_cp: 200, band: "1.5-3", phase: "endgame" })]),
+    answers: [ans({ index: 0, eval: 1.0 })], // signed error -1.0
+  } as unknown as CalibrationResults
+  const preFlagResults = {
+    // Predates show_reveal entirely — every pre-flag session was a reveal run.
+    session: session([pos({ sf_cp: 0, band: "0-0.5" })]),
+    answers: [ans({ index: 0, eval: 0 })], // signed error 0
+  } as unknown as CalibrationResults
+  const all = [revealResults, blindResults, preFlagResults]
+
+  it("isRevealResults: blind is false, explicit reveal and pre-flag files are true", () => {
+    expect(isRevealResults(revealResults)).toBe(true)
+    expect(isRevealResults(blindResults)).toBe(false)
+    expect(isRevealResults(preFlagResults)).toBe(true)
+  })
+
+  it("buildProfileFromResults folds only the asked-for mode; omitted mode keeps the raw union", () => {
+    const reveal = buildProfileFromResults(all, true)!
+    expect(reveal.sessions).toBe(2) // reveal + pre-flag
+    expect(reveal.answers).toBe(2)
+    expect(reveal.bias).toBeCloseTo(0.25) // (+0.5 + 0) / 2 — the blind -1.0 never mixes in
+    const blind = buildProfileFromResults(all, false)!
+    expect(blind.sessions).toBe(1)
+    expect(blind.bias).toBeCloseTo(-1.0)
+    // No sessions of the asked-for mode ⇒ null (fresh labeler in that mode).
+    expect(buildProfileFromResults([blindResults], true)).toBeNull()
+    // Back-compat: no mode pools everything.
+    expect(buildProfileFromResults(all)!.answers).toBe(3)
+  })
+
+  it("cellCounts filters by mode the same way", () => {
+    expect(cellCounts(all, true)).toEqual({ "middlegame|0.5-1.5": 1, "middlegame|0-0.5": 1 })
+    expect(cellCounts(all, false)).toEqual({ "endgame|1.5-3": 1 })
+    expect(cellCounts(all)).toEqual({
+      "middlegame|0.5-1.5": 1,
+      "middlegame|0-0.5": 1,
+      "endgame|1.5-3": 1,
+    })
   })
 })
 

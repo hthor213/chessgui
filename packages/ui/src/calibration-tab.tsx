@@ -46,7 +46,9 @@ import {
   type LabelerProfile,
   type PhaseStat,
   type PlayedMoveEval,
+  type SelectionSplit,
 } from "@/lib/calibration"
+import { winProb, DEFAULT_LOGISTIC_K, type WinProbCurve } from "@chessgui/core/win-prob"
 import {
   applyLockIn,
   buildProfileFromResults,
@@ -343,13 +345,17 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
       // the head of the session pins the labeler's least-pinned phase. Prior
       // saved sessions are the prior — a returning user with a locked profile
       // gets no burst at all. Best-effort: an unreadable prior means a fresh-
-      // labeler plan, never a blocked session.
+      // labeler plan, never a blocked session. Blind/reveal split
+      // (calibration-data-format.md): blind sessions are methodologically
+      // distinct, so the prior profile and the sparsity counts fold only
+      // sessions of THIS session's reveal mode — cross-session aggregates
+      // never mix the two.
       let prior: LabelerProfile | null = null
       let priorCells: Record<string, number> = {}
       try {
         const priorResults = await loadPriorResults()
-        prior = buildProfileFromResults(priorResults)
-        priorCells = cellCounts(priorResults)
+        prior = buildProfileFromResults(priorResults, showReveal)
+        priorCells = cellCounts(priorResults, showReveal)
       } catch {
         prior = null
       }
@@ -413,11 +419,14 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
 
   const finish = useCallback(
     async (finalAnswers: CalibrationAnswer[], s: CalibrationSession) => {
-      const summary = summarize(s, finalAnswers)
+      const pb = phaseBRef.current
+      // §6.4 stat segregation: the summary carries fixed-order-only headline
+      // stats next to the pooled ones when Phase-B selection reordered the
+      // post-burst positions.
+      const summary = summarize(s, finalAnswers, 10, { adaptive: pb.enabled, lockInN })
       setPhase("results")
       clearStorage()
       try {
-        const pb = phaseBRef.current
         const path = await saveResults({
           version: RESULTS_VERSION,
           finished_at: Date.now(),
@@ -863,6 +872,8 @@ export function CalibrationTab({ onLoadPosition }: CalibrationTabProps) {
         <ResultsScreen
           session={session}
           answers={answers}
+          adaptive={phaseBRef.current.enabled}
+          lockInN={lockInN}
           profilePrior={profilePrior}
           priorCells={phaseBRef.current.priorCells}
           savedPath={savedPath}
@@ -1515,6 +1526,16 @@ const PLAN_GRADE_STYLE: Record<string, string> = {
   unclear: "bg-white/10 text-muted-foreground",
 }
 
+/** Eval→win-prob curve for the reveal's companion readout (elo-design §3.1):
+ *  the Learn tab has no engine-lab anchors, so this is the shared logistic
+ *  fallback from win-prob.ts. "Win-prob" is White's EXPECTED SCORE
+ *  (wins + draws/2), same convention as the tournament curves. */
+const REVEAL_WP_CURVE: WinProbCurve = {
+  anchors: [],
+  k: DEFAULT_LOGISTIC_K,
+  source: "logistic-default",
+}
+
 /** Post-answer feedback: shown only after the answer is locked (so it can't
  *  anchor the eval). Compares the user's eval to Stockfish, names the best move
  *  and its margin, what the rated human actually played, and — when the coach is
@@ -1551,6 +1572,16 @@ function RevealCard({
     : range ? rangeError(sf, range)
     : answer.eval != null ? Math.abs(answer.eval - sf)
     : null
+  // Raw-error observability (213 backlog): the bucketed "off by" (0 anywhere
+  // inside a range) hides how far the answer actually sat from the engine —
+  // surface the unbucketed distance as a tooltip, signed (+ = leaned White).
+  const userPoint = answer.skipped ? null : answer.eval ?? (range ? rangePoint(range) : null)
+  const rawErrTip =
+    userPoint == null
+      ? undefined
+      : `Raw error, unbucketed: your ${range ? "range's representative point" : "eval"} ${formatPawns(
+          userPoint,
+        )} vs Stockfish ${formatPawns(sf)} = ${formatPawns(userPoint - sf)} pawns (+ = you leaned White)`
 
   // Coach: fire once per reveal. Never blocks Continue; degrades to a hint.
   const [coach, setCoach] = useState<CoachFeedback | null>(answer.coach)
@@ -1671,15 +1702,36 @@ function RevealCard({
           <span className="text-muted-foreground">Stockfish</span>
           <span className="font-mono tabular-nums text-foreground">{formatPawns(sf)}</span>
         </div>
+        {/* Win-prob companion (elo-design §3.1): a pawn eval reads better with
+            its conversion rate next to it. */}
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">As win-prob</span>
+          <span
+            className="font-mono tabular-nums text-muted-foreground"
+            data-testid="calib-winprob"
+            title="White's expected score (wins + draws/2) at this eval, from the shared eval→win-prob curve (default logistic slope — no engine-lab anchors in the Learn tab)."
+          >
+            {userPoint != null
+              ? `you ~${Math.round(winProb(REVEAL_WP_CURVE, userPoint) * 100)}% · `
+              : ""}
+            SF ~{Math.round(winProb(REVEAL_WP_CURVE, sf) * 100)}%
+          </span>
+        </div>
         {offBy != null && (
           <div className="flex items-center justify-between text-base border-t border-white/10 pt-2">
             <span className="text-muted-foreground">Off by</span>
             {range && offBy === 0 ? (
-              <span className="font-mono tabular-nums text-emerald-300" data-testid="calib-in-range">
+              <span
+                className="font-mono tabular-nums text-emerald-300"
+                data-testid="calib-in-range"
+                title={rawErrTip}
+              >
                 in range ✓
               </span>
             ) : (
-              <span className="font-mono tabular-nums text-amber-300">{offBy.toFixed(1)}</span>
+              <span className="font-mono tabular-nums text-amber-300" title={rawErrTip}>
+                {offBy.toFixed(1)}
+              </span>
             )}
           </div>
         )}
@@ -1817,6 +1869,8 @@ function RevealCard({
 function ResultsScreen({
   session,
   answers,
+  adaptive,
+  lockInN,
   profilePrior,
   priorCells,
   savedPath,
@@ -1825,6 +1879,11 @@ function ResultsScreen({
 }: {
   session: CalibrationSession
   answers: CalibrationAnswer[]
+  /** Phase B: post-burst positions were model-chosen — pooled stats carry
+   *  selection bias (§6.4), so the report also shows fixed-order-only stats. */
+  adaptive: boolean
+  /** Phase A: length of the fixed-order lock-in burst at the session head. */
+  lockInN: number
   /** Phase A: the labeler profile before this session, or null (fresh). */
   profilePrior: LabelerProfile | null
   /** Phase B: prior per-cell label counts (sparsity stream) — the readout
@@ -1834,7 +1893,10 @@ function ResultsScreen({
   onLoadPosition: (fen: string) => void
   onRestart: () => void
 }) {
-  const summary = useMemo(() => summarize(session, answers), [session, answers])
+  const summary = useMemo(
+    () => summarize(session, answers, 10, { adaptive, lockInN }),
+    [session, answers, adaptive, lockInN],
+  )
   const points = useMemo(() => scoredAnswers(session, answers), [session, answers])
   // The labeler profile with this session folded in — the Phase-A "fun
   // by-product" display (design doc §6.1).
@@ -1860,9 +1922,20 @@ function ResultsScreen({
           </Button>
         </div>
 
+        {/* §6.4: on an adaptive session the headline tiles pool fixed-order
+            and model-chosen positions — label them so the selection-clean
+            numbers (the card below) are distinguishable at a glance. */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <Stat label="Correlation" value={summary.pearson == null ? "—" : summary.pearson.toFixed(2)} hint="vs Stockfish" />
-          <Stat label="Mean error" value={summary.mae == null ? "—" : `${summary.mae.toFixed(2)}`} hint="pawns" />
+          <Stat
+            label="Correlation"
+            value={summary.pearson == null ? "—" : summary.pearson.toFixed(2)}
+            hint={summary.selection.adaptive ? "vs Stockfish · pooled" : "vs Stockfish"}
+          />
+          <Stat
+            label="Mean error"
+            value={summary.mae == null ? "—" : `${summary.mae.toFixed(2)}`}
+            hint={summary.selection.adaptive ? "pawns · pooled" : "pawns"}
+          />
           <Stat
             label="Best-move hits"
             value={
@@ -1870,7 +1943,7 @@ function ResultsScreen({
                 ? "—"
                 : `${Math.round(summary.bestMoveHitRate * 100)}%`
             }
-            hint={`${summary.moveAnswers} with a move`}
+            hint={`${summary.moveAnswers} with a move${summary.selection.adaptive ? " · pooled" : ""}`}
           />
           <Stat
             label="Median think"
@@ -1879,6 +1952,8 @@ function ResultsScreen({
           />
           <Stat label="Answered" value={`${summary.answered}`} hint={`${summary.skipped} skipped`} />
         </div>
+
+        <SelectionSplitCard selection={summary.selection} lockInN={lockInN} />
 
         <div className="grid md:grid-cols-2 gap-6">
           <div className="space-y-2">
@@ -1974,6 +2049,48 @@ function ResultsScreen({
           human evaluator (spec 213).
         </p>
       </div>
+    </div>
+  )
+}
+
+/** §6.4 stat segregation (spec 213 adaptive elicitation): with Phase-B
+ *  selection on, each post-burst position was chosen conditioned on earlier
+ *  answers, so the pooled headline stats carry selection bias. This card puts
+ *  the selection-clean numbers — computed over the fixed-order lock-in burst
+ *  only — next to the pooled ones. Hidden on fixed-order sessions, where
+ *  pooled already IS selection-clean. */
+function SelectionSplitCard({
+  selection,
+  lockInN,
+}: {
+  selection: SelectionSplit
+  lockInN: number
+}) {
+  if (!selection.adaptive || selection.fixedOrder == null) return null
+  const fo = selection.fixedOrder
+  const fmt = (v: number | null) => (v == null ? "—" : v.toFixed(2))
+  return (
+    <div
+      data-testid="calib-selection-split"
+      className="rounded-lg border border-violet-500/20 bg-violet-500/[0.06] p-3 space-y-1.5 text-xs"
+    >
+      <p className="font-medium text-violet-200/90">
+        Adaptive session — which numbers are selection-clean
+      </p>
+      <p className="text-muted-foreground">
+        After the {lockInN}-position lock-in burst, positions were model-chosen (spec 213 Phase B).
+        Adaptive selection conditions later positions on your earlier answers, so the pooled tiles
+        above ({selection.fixedOrderCount} fixed-order + {selection.adaptiveCount} model-chosen
+        answers) carry selection bias. Selection-clean — fixed-order answers only (
+        {selection.fixedOrderCount}): correlation{" "}
+        <span className="text-foreground tabular-nums">{fmt(fo.pearson)}</span>, mean error{" "}
+        <span className="text-foreground tabular-nums">{fmt(fo.mae)}</span> pawns, best-move{" "}
+        <span className="text-foreground tabular-nums">
+          {fo.bestMoveHitRate == null ? "—" : `${Math.round(fo.bestMoveHitRate * 100)}%`}
+        </span>
+        {fo.moveAnswers > 0 ? ` (${fo.moveAnswers} with a move)` : ""}. Aggregates over the
+        adaptive tail belong to the model fit, not to naive averaging (design doc §6.4).
+      </p>
     </div>
   )
 }

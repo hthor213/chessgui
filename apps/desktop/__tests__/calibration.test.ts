@@ -292,6 +292,85 @@ describe("summarize — per-deck breakdown (v3)", () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Stat segregation (spec 213 §6.4): Phase-B adaptive selection conditions
+// later positions on earlier answers, so pooled sequential stats carry
+// selection bias — the summary must also carry fixed-order-only numbers.
+// ---------------------------------------------------------------------------
+
+describe("summarize — selection segregation (spec 213 §6.4)", () => {
+  // Burst (fixed order): indices 0-1. Adaptive tail: indices 2-3.
+  const positions = [
+    pos({ sf_cp: 100, sf_best_uci: "d2d4" }), // user 1.0 → err 0.0, move hit
+    pos({ sf_cp: 200, sf_best_uci: "a2a4" }), // user 2.5 → err 0.5, move miss
+    pos({ sf_cp: 300 }), // user 1.0 → err 2.0
+    pos({ sf_cp: 0 }), // user 1.0 → err 1.0
+  ]
+  const answers = [
+    ans({ index: 0, eval: 1.0, move_uci: "d2d4" }),
+    ans({ index: 1, eval: 2.5, move_uci: "e2e4" }),
+    ans({ index: 2, eval: 1.0 }),
+    ans({ index: 3, eval: 1.0 }),
+  ]
+
+  it("computes headline stats BOTH pooled and fixed-order-only on an adaptive session", () => {
+    const sum = summarize(session(positions), answers, 10, { adaptive: true, lockInN: 2 })
+    // Pooled numbers (the top-level fields) cover everything, as before.
+    expect(sum.answered).toBe(4)
+    expect(sum.mae).toBeCloseTo((0 + 0.5 + 2 + 1) / 4)
+    // The split says what was fixed-order and what was model-chosen…
+    expect(sum.selection.adaptive).toBe(true)
+    expect(sum.selection.fixedOrderCount).toBe(2)
+    expect(sum.selection.adaptiveCount).toBe(2)
+    // …and re-computes the headline stats over the selection-clean burst only.
+    const fo = sum.selection.fixedOrder!
+    expect(fo).not.toBeNull()
+    expect(fo.count).toBe(2)
+    expect(fo.mae).toBeCloseTo(0.25)
+    expect(fo.pearson).toBeCloseTo(1) // [1.0, 2.5] vs [1.0, 2.0]
+    expect(fo.moveAnswers).toBe(2)
+    expect(fo.bestMoveHitRate).toBeCloseTo(0.5)
+  })
+
+  it("a fixed-order session reports no split — pooled already IS selection-clean", () => {
+    const sum = summarize(session(positions), answers) // no selection info (pre-Phase-B)
+    expect(sum.selection.adaptive).toBe(false)
+    expect(sum.selection.fixedOrder).toBeNull()
+    expect(sum.selection.fixedOrderCount).toBe(4) // everything was fixed-order
+    expect(sum.selection.adaptiveCount).toBe(0)
+    // Explicit adaptive:false behaves identically.
+    const explicit = summarize(session(positions), answers, 10, { adaptive: false, lockInN: 2 })
+    expect(explicit.selection).toEqual(sum.selection)
+  })
+
+  it("counts only USABLE answers per side of the split (skips don't count)", () => {
+    const withSkip = [
+      ans({ index: 0, eval: 1.0 }),
+      ans({ index: 1, eval: null, skipped: true }), // skipped inside the burst
+      ans({ index: 2, eval: 1.0 }),
+      ans({ index: 3, eval: null, skipped: true }), // skipped in the tail
+    ]
+    const sum = summarize(session(positions), withSkip, 10, { adaptive: true, lockInN: 2 })
+    expect(sum.selection.fixedOrderCount).toBe(1)
+    expect(sum.selection.adaptiveCount).toBe(1)
+    expect(sum.selection.fixedOrder!.count).toBe(1)
+    expect(sum.selection.fixedOrder!.mae).toBeCloseTo(0)
+    expect(sum.selection.fixedOrder!.pearson).toBeNull() // one point — undefined
+  })
+
+  it("a locked prior (lockInN = 0) leaves no selection-clean subset, stated as empty, not hidden", () => {
+    const sum = summarize(session(positions), answers, 10, { adaptive: true, lockInN: 0 })
+    expect(sum.selection.adaptive).toBe(true)
+    expect(sum.selection.fixedOrderCount).toBe(0)
+    expect(sum.selection.adaptiveCount).toBe(4)
+    const fo = sum.selection.fixedOrder!
+    expect(fo.count).toBe(0)
+    expect(fo.mae).toBeNull()
+    expect(fo.pearson).toBeNull()
+    expect(fo.bestMoveHitRate).toBeNull()
+  })
+})
+
 describe("median", () => {
   it("handles odd, even, and empty", () => {
     expect(median([3, 1, 2])).toBe(2)

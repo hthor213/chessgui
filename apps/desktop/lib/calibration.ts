@@ -31,12 +31,14 @@ import type {
   CoachInput,
   DeckStat,
   EvalRange,
+  GroupStats,
   LabelerProfile,
   LineVerification,
   Miss,
   PhaseStat,
   PlayedMoveEval,
   ProfilePhaseCell,
+  SelectionSplit,
   VerifiedPly,
 } from "@chessgui/core/calibration-types"
 export type {
@@ -51,12 +53,14 @@ export type {
   CoachInput,
   DeckStat,
   EvalRange,
+  GroupStats,
   LabelerProfile,
   LineVerification,
   Miss,
   PhaseStat,
   PlayedMoveEval,
   ProfilePhaseCell,
+  SelectionSplit,
   VerifiedPly,
 }
 
@@ -143,8 +147,12 @@ export function asksPlan(pos: CalibrationPosition): boolean {
  *  sampler's `session-*.json`; v5 adds plan elicitation: `plan_decks` +
  *  per-answer `plan`/`plan_b` + coach `plan_grade`; v6 adds Phase-B adaptive
  *  selection: `phase_b` — post-burst positions are model-chosen, so the
- *  embedded session's order diverges further from the sampler artifact). */
-export const RESULTS_VERSION = 6
+ *  embedded session's order diverges further from the sampler artifact;
+ *  v7 adds stat segregation: `summary.selection` carries fixed-order-only
+ *  headline stats next to the pooled ones (§6.4 — adaptive selection biases
+ *  naive sequential statistics, so the artifact says which numbers are
+ *  selection-clean). */
+export const RESULTS_VERSION = 7
 
 // ---------------------------------------------------------------------------
 // Provider seam

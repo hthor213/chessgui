@@ -269,6 +269,38 @@ export type DeckStat = {
   moveAnswers: number
 }
 
+/** Headline accuracy metrics over one subset of scored answers. `null`
+ *  metrics mean too few (or no) answers to compute them. */
+export type GroupStats = {
+  count: number
+  mae: number | null
+  pearson: number | null
+  bestMoveHitRate: number | null
+  /** Answers in the subset on which the user chose a move. */
+  moveAnswers: number
+}
+
+/** Stat segregation for adaptively-selected sessions (spec 213 §6.4, the
+ *  URGENT Phase-B caveat): once selection is adaptive, each next position is
+ *  conditioned on earlier answers, so pooled sequential statistics carry
+ *  selection bias. The lock-in burst at the session head is the only subset
+ *  whose order was fixed before any of this session's answers existed — its
+ *  stats are selection-clean; the pooled numbers are kept for continuity but
+ *  must be labeled as pooled. */
+export type SelectionSplit = {
+  /** Whether post-burst positions were model-chosen (Phase-B adaptive). */
+  adaptive: boolean
+  /** Usable answers from the fixed-order head (the lock-in burst; the whole
+   *  session when selection was not adaptive). */
+  fixedOrderCount: number
+  /** Usable answers from the adaptively-selected tail (0 when not adaptive). */
+  adaptiveCount: number
+  /** Headline stats over the fixed-order answers ONLY — the selection-clean
+   *  numbers. Null when the session was entirely fixed-order (the pooled
+   *  stats are already selection-clean; no split to report). */
+  fixedOrder: GroupStats | null
+}
+
 /** A position the user was furthest off on. */
 export type Miss = {
   index: number
@@ -306,6 +338,10 @@ export type CalibrationSummary = {
    *  plan; the grade counts cover only coach-graded ones ("unclear"/"no_plan"
    *  and ungraded answers excluded). All zero on pre-plan sessions. */
   planDirection: { given: number; aligned: number; partial: number; wrong: number }
+  /** Stat segregation (spec 213 §6.4, v7): pooled vs fixed-order-only
+   *  headline stats when Phase-B adaptive selection reordered the session.
+   *  The top-level pearson/mae/bestMoveHitRate above are POOLED. */
+  selection: SelectionSplit
   biggestMisses: Miss[]
 }
 // ---------------------------------------------------------------------------
