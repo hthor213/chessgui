@@ -226,7 +226,9 @@ export function PositionEditorDialog({
 
         <div className="flex flex-col md:flex-row gap-6">
           {/* Board */}
-          <div style={{ width: 400, height: 448 }} className="mx-auto md:mx-0">
+          {/* Fixed 400px at md+ (unchanged); below md the wrapper shrinks to
+              the dialog width and the Board's ResizeObserver follows. */}
+          <div style={{ height: 448 }} className="mx-auto md:mx-0 w-full max-w-[400px] md:w-[400px] md:max-w-none">
             <Board
               fen={boardFen}
               orientation={orientation}
