@@ -4,8 +4,10 @@
 
 import { describe, it, expect } from "vitest"
 import { GameTree } from "@chessgui/core/game-tree"
+import { parseEvalTag } from "@chessgui/core/annotations"
 import {
   estimatePerformance,
+  regularizeFit,
   type ErrorModelFit,
 } from "@chessgui/core/performance-elo"
 
@@ -162,5 +164,105 @@ describe("estimatePerformance — forced-move exclusion", () => {
     expect(perf.white!.scored).toBe(4)
     // Black made 5 moves, none forced.
     expect(perf.black!.scored).toBe(5)
+  })
+})
+
+/** A dense fit with an explicit per-band (rate, moves), uniform across every
+ *  phase/eval/clock cell — so an estimate depends only on the mistake pattern
+ *  and the band, not on which cell a move lands in. */
+function fitWithBands(spec: { band: string; rate: number; moves: number }[]): ErrorModelFit {
+  const cellsFor = (rate: number): Record<string, number> => {
+    const cells: Record<string, number> = {}
+    for (const phase of PHASES)
+      for (const clock of CLOCKS)
+        for (const ev of EVAL_LABELS) cells[`${phase}|${ev}|${clock}`] = rate
+    return cells
+  }
+  return {
+    meta: { bands: spec.map((s) => s.band), global_rate: 0.15 },
+    bands: Object.fromEntries(
+      spec.map((s) => [s.band, { cells: cellsFor(s.rate), moves: s.moves }]),
+    ),
+  }
+}
+
+describe("regularizeFit — coverage clamp + monotonicity", () => {
+  it("drops bands whose corpus support is below the floor", () => {
+    const fit = fitWithBands([
+      { band: "1500", rate: 0.3, moves: 10_000_000 },
+      { band: "2500", rate: 0.05, moves: 1_000_000 },
+      { band: "3200", rate: 0.3, moves: 100 }, // sparse artifact band
+    ])
+    const reg = regularizeFit(fit)
+    expect(reg.meta.bands).toEqual(["1500", "2500"]) // 3200 trimmed
+    expect(reg.meta.regularized).toBe(true)
+    expect(reg.bands["3200"]).toBeUndefined()
+  })
+
+  it("forces every cell curve non-increasing in Elo (kills the top-band uptick)", () => {
+    // A hand-built cell that DECREASES then upticks at the top, all bands
+    // well-supported so the clamp doesn't hide the monotonization.
+    const bands = ["1500", "2000", "2500", "3000"]
+    const rates = [0.2, 0.12, 0.04, 0.18] // uptick at 3000
+    const fit: ErrorModelFit = {
+      meta: { bands, global_rate: 0.15 },
+      bands: Object.fromEntries(
+        bands.map((b, i) => [b, { cells: { "middlegame|+0.0|none": rates[i] }, moves: 5_000_000 }]),
+      ),
+    }
+    const reg = regularizeFit(fit)
+    const curve = reg.meta.bands.map((b) => reg.bands[b].cells["middlegame|+0.0|none"])
+    for (let i = 1; i < curve.length; i++) {
+      expect(curve[i]).toBeLessThanOrEqual(curve[i - 1] + 1e-12)
+    }
+    // The 2500/3000 violators pool to their mean (0.04+0.18)/2 = 0.11.
+    expect(curve[2]).toBeCloseTo(0.11, 6)
+    expect(curve[3]).toBeCloseTo(0.11, 6)
+  })
+
+  it("keeps the best-supported band even if the floor would drop everything", () => {
+    const reg = regularizeFit(fitWithBands([{ band: "3200", rate: 0.3, moves: 100 }]))
+    expect(reg.meta.bands).toEqual(["3200"])
+  })
+})
+
+describe("regularizeFit — the Denny inversion is fixed", () => {
+  // Artifact fit: rate decreases, then upticks at the sparse top band.
+  const artifactFit = () =>
+    fitWithBands([
+      { band: "1500", rate: 0.3, moves: 10_000_000 },
+      { band: "2500", rate: 0.05, moves: 1_000_000 },
+      { band: "3200", rate: 0.3, moves: 100 },
+    ])
+  // Player A: flawless (0 mistakes over 4 white moves). Player B: 4 blunders.
+  const cleanA = [20, 25, 20, 28, 22, 26, 20, 24, 22]
+  const blunderB = [0, -150, -150, -300, -300, -450, -450, -600, -600]
+  const whiteBand = (cps: number[], fit: ErrorModelFit) =>
+    estimatePerformance(evaledTree(OPENING, cps).mainlineNodes(), fit).white!.band
+
+  it("the RAW fit inverts them (fewer mistakes scores LOWER)", () => {
+    const raw = artifactFit()
+    // B lands on the sparse 3200 uptick, out-ranking the flawless A — the bug.
+    expect(whiteBand(blunderB, raw)).toBeGreaterThan(whiteBand(cleanA, raw))
+  })
+
+  it("the REGULARIZED fit orders them correctly (fewer mistakes scores >=)", () => {
+    const reg = regularizeFit(artifactFit())
+    expect(whiteBand(cleanA, reg)).toBeGreaterThanOrEqual(whiteBand(blunderB, reg))
+  })
+
+  it("labels a ceiling estimate as an open-ended floor (~X+)", () => {
+    const reg = regularizeFit(artifactFit())
+    const perf = estimatePerformance(evaledTree(OPENING, cleanA).mainlineNodes(), reg)
+    expect(perf.white!.label).toContain(`~${perf.white!.band}+`)
+  })
+})
+
+describe("parseEvalTag — chess.com depth suffix", () => {
+  it("accepts [%eval 0.15,18] (depth ignored) and plain [%eval 0.15]", () => {
+    expect(parseEvalTag("[%eval 0.15,18]")).toEqual({ cp: 15, depth: 0 })
+    expect(parseEvalTag("[%eval 0.15]")).toEqual({ cp: 15, depth: 0 })
+    expect(parseEvalTag("[%eval -1.5,20]")).toEqual({ cp: -150, depth: 0 })
+    expect(parseEvalTag("[%eval #-3,25]")).toEqual({ mate: -3, depth: 0 })
   })
 })

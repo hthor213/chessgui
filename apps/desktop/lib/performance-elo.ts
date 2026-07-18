@@ -13,6 +13,7 @@
 
 import {
   estimatePerformance as estimatePerformanceCore,
+  regularizeFit,
   type ErrorModelFit,
   type PerformanceElo,
   type SidePerformance,
@@ -21,8 +22,9 @@ import type { MoveNode } from "@chessgui/core/game-tree"
 import fitJson from "../../../data/personas/error_model.fit.json"
 
 // The 300KB JSON's inferred literal type is erased here so it doesn't ripple
-// into tsc across the app.
-const ERROR_MODEL_FIT = fitJson as unknown as ErrorModelFit
+// into tsc across the app. Regularize ONCE at module load (coverage clamp +
+// monotonicity — see regularizeFit); every estimate reuses the corrected model.
+const ERROR_MODEL_FIT = regularizeFit(fitJson as unknown as ErrorModelFit)
 
 export type { PerformanceElo, SidePerformance }
 

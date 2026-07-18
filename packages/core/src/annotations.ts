@@ -85,7 +85,9 @@ export function joinComment(text: string, tags: string[]): string {
  * live engine eval always outranks it.
  */
 export function parseEvalTag(comment: string): NodeEval | null {
-  const m = comment.match(/\[%eval\s+(#?-?\d+(?:\.\d+)?)\s*\]/);
+  // The optional ",<depth>" suffix is chess.com's form ("[%eval 0.15,18]");
+  // accept it (ignoring the depth) alongside Lichess's plain "[%eval 0.15]".
+  const m = comment.match(/\[%eval\s+(#?-?\d+(?:\.\d+)?)(?:,\d+)?\s*\]/);
   if (!m) return null;
   const raw = m[1];
   if (raw.startsWith("#")) {

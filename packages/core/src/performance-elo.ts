@@ -19,6 +19,12 @@
 //      to an approximate band, used when no fit is supplied or a side has too
 //      few scored moves to score against the corpus.
 //
+// The raw fit is DEGENERATE at its extreme bands (the corpus has almost no
+// 2800+ moves, so those cells are noise and the mistake rate stops decreasing
+// with Elo — which once made a blunder-heavy game read as ~3200). `regularizeFit`
+// corrects this at score time (coverage clamp + monotonicity); the shell runs it
+// once and hands the corrected model to `estimatePerformance`. See its doc.
+//
 // Opening-book/forced-move exclusion (spec 202): a move with exactly one legal
 // reply is not a choice, so it is excluded from BOTH estimators. True
 // opening-book exclusion needs a book database this layer does not have; the
@@ -48,6 +54,14 @@ const ENDGAME_PHASE_MAX = 8; // persona.rs phase_for: material weight <= 8 => en
 const OPENING_MAX_PLY = 16; // ...else opening while (0-based move index) < 16
 const BAND_WIDTH = 100;
 
+// Band-level corpus support below which a band is dropped by `regularizeFit`
+// (see its doc). In error_model.fit.json the per-band move count falls off a
+// cliff above ~2700 (2700 ≈ 106k moves; 2800 ≈ 31k, 3100 ≈ 533, 3200 ≈ 103) —
+// exactly where the fitted mistake-rate curve stops being monotone in Elo and
+// produces the artifact that made a blunder-heavy game read as a top band. A
+// 100k-move floor keeps 1400–2700 and trims the noisy tail.
+const COVERAGE_FLOOR_MOVES = 100_000;
+
 // Approximate ACPL -> rating band (fallback path). Thresholds are rough and
 // intentionally so (documented as approximate in every label). Midpoints are
 // representative club/expert ratings, not a calibrated scale.
@@ -62,12 +76,19 @@ const ACPL_BANDS: { maxAcpl: number; band: number; bandLabel: string }[] = [
 /** The fitted corpus error model (data/personas/error_model.fit.json). */
 export interface ErrorModelFit {
   meta: {
-    /** Band labels present, e.g. ["1400", ..., "3200"] (100-Elo lower edges). */
+    /** Band labels present, e.g. ["1400", ..., "3200"] (100-Elo lower edges).
+     *  After `regularizeFit`, only the adequately-sampled bands remain. */
     bands: string[];
     global_rate?: number;
+    /** Set by `regularizeFit`. */
+    regularized?: boolean;
+    /** Band-level move floor used to trim sparse bands (null if unenforced). */
+    coverageFloor?: number | null;
   };
-  /** band label -> { cells: "phase|eval_bucket_lower|clock" -> P(mistake) }. */
-  bands: Record<string, { cells: Record<string, number> }>;
+  /** band label -> { cells: "phase|eval_bucket_lower|clock" -> P(mistake) };
+   *  `moves` is the band's corpus support (present in the real fit, used by
+   *  `regularizeFit` to trim inadequately-sampled bands). */
+  bands: Record<string, { cells: Record<string, number>; moves?: number }>;
 }
 
 export interface SidePerformance {
@@ -170,13 +191,105 @@ function emptyAcc(): SideAccumulator {
   return { loss: 0, scored: 0, mistakes: 0, blunders: 0, obs: [] };
 }
 
+/** Pool-adjacent-violators (isotonic regression) for a NON-INCREASING fit over
+ *  an ordered sequence. Unweighted — the fit JSON carries no per-cell counts, so
+ *  every band's cell weighs equally. Pooling collapses a run of violators to
+ *  their mean, which also creates ties (equal-likelihood bands) that widen the
+ *  reported range where the corpus can't distinguish. */
+function isotonicNonIncreasing(y: number[]): number[] {
+  const vals: number[] = [];
+  const wts: number[] = [];
+  for (const yi of y) {
+    vals.push(yi);
+    wts.push(1);
+    // Non-increasing is violated when an earlier pool sits BELOW a later one.
+    while (vals.length > 1 && vals[vals.length - 2] < vals[vals.length - 1]) {
+      const v2 = vals.pop()!;
+      const w2 = wts.pop()!;
+      const v1 = vals.pop()!;
+      const w1 = wts.pop()!;
+      vals.push((v1 * w1 + v2 * w2) / (w1 + w2));
+      wts.push(w1 + w2);
+    }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < vals.length; i++) {
+    for (let k = 0; k < wts[i]; k++) out.push(vals[i]);
+  }
+  return out;
+}
+
+/**
+ * Correct the fitted corpus model at score time (spec 202 follow-up) so a
+ * single game's band estimate is trustworthy without refitting the corpus:
+ *
+ *  1. **Coverage clamp** — drop bands whose corpus support (band-level `moves`)
+ *     is below `COVERAGE_FLOOR_MOVES`. In error_model.fit.json the top bands are
+ *     sampled from a handful of games (3200 ≈ 103 moves), so their rates are
+ *     noise; trimming them makes the top usable band an honest, open-ended
+ *     ceiling instead of a spurious "~3200". If no band carries a `moves` count
+ *     (e.g. a synthetic fixture), no clamp is applied.
+ *  2. **Monotonicity** — within each (phase, eval, clock) cell, force the
+ *     mistake rate to be non-increasing in Elo via isotonic regression. A
+ *     stronger band can never have a higher modelled mistake rate, so more
+ *     mistakes always pull the estimate DOWN, never up (the bug that made a
+ *     blunder-heavy game out-rank a clean one).
+ *
+ * Pure and idempotent; memoize the result in the shell (it runs once per fit).
+ */
+export function regularizeFit(fit: ErrorModelFit): ErrorModelFit {
+  const sorted = fit.meta.bands
+    .map((label) => ({ label, value: Number.parseInt(label, 10), moves: fit.bands[label]?.moves }))
+    .filter((b) => Number.isFinite(b.value))
+    .sort((a, b) => a.value - b.value);
+
+  const hasCounts = sorted.some((b) => typeof b.moves === "number");
+  const usable = hasCounts
+    ? sorted.filter((b) => (b.moves ?? 0) >= COVERAGE_FLOOR_MOVES)
+    : sorted;
+  // Never clamp everything away: if the floor is too aggressive for this fit,
+  // keep the best-supported band rather than returning an unscoreable model.
+  const kept = usable.length > 0 ? usable : sorted.slice(-1);
+  const labels = kept.map((b) => b.label);
+  const globalRate = fit.meta.global_rate ?? 0.15;
+
+  const keys = new Set<string>();
+  for (const { label } of kept) {
+    for (const k of Object.keys(fit.bands[label]?.cells ?? {})) keys.add(k);
+  }
+
+  const bands: ErrorModelFit["bands"] = {};
+  for (const { label, moves } of kept) bands[label] = { cells: {}, moves };
+  for (const key of keys) {
+    const curve = labels.map((label) => {
+      const r = fit.bands[label]?.cells[key];
+      return typeof r === "number" ? r : globalRate;
+    });
+    const mono = isotonicNonIncreasing(curve);
+    labels.forEach((label, i) => {
+      bands[label].cells[key] = mono[i];
+    });
+  }
+
+  return {
+    meta: {
+      ...fit.meta,
+      bands: labels,
+      regularized: true,
+      coverageFloor: hasCounts ? COVERAGE_FLOOR_MOVES : null,
+    },
+    bands,
+  };
+}
+
 /** Log-likelihood band estimate over one side's classified moves. Returns null
  *  when the fit can't score the side (no bands, or no observation landed in a
- *  known cell). */
+ *  known cell). `atCeiling` is true when the estimate is pinned to the top
+ *  usable band — the corpus can't resolve higher, so the label reads "~X+". */
 function bandLikelihood(
   obs: Observation[],
   fit: ErrorModelFit,
-): { band: number; low: number; high: number } | null {
+): { band: number; low: number; high: number; atCeiling: boolean } | null {
   const bands = fit.meta.bands
     .map((b) => ({ label: b, value: Number.parseInt(b, 10) }))
     .filter((b) => Number.isFinite(b.value))
@@ -208,11 +321,16 @@ function bandLikelihood(
   const total = weights.reduce((a, b) => a + b, 0);
   const posterior = weights.map((w) => w / total);
 
-  // Point estimate: the most likely band's lower edge (spec's "~1500").
+  // Point estimate: the HIGHEST band within a whisker of the max posterior.
+  // Monotonization can leave the top bands tied (a clean game the corpus can't
+  // separate); taking the highest tied band reports the honest ceiling rather
+  // than an arbitrary lower member of the pool.
+  const maxPost = Math.max(...posterior);
   let mleIdx = 0;
-  for (let i = 1; i < posterior.length; i++) {
-    if (posterior[i] > posterior[mleIdx]) mleIdx = i;
+  for (let i = 0; i < posterior.length; i++) {
+    if (posterior[i] >= maxPost - 1e-9) mleIdx = i;
   }
+  const atCeiling = mleIdx === bands.length - 1;
 
   // 68%-ish credible interval over band lower edges (uniform prior).
   let cum = 0;
@@ -230,7 +348,11 @@ function bandLikelihood(
       break;
     }
   }
-  return { band: bands[mleIdx].value, low, high };
+  // The point estimate must lie within its own reported range — with only a
+  // handful of scored moves the posterior is broad, so a peak at the ceiling can
+  // sit above the 84th percentile. Widen to include it.
+  const point = bands[mleIdx].value;
+  return { band: point, low: Math.min(low, point), high: Math.max(high, point), atCeiling };
 }
 
 function finishSide(
@@ -243,10 +365,13 @@ function finishSide(
   if (fit) {
     const est = bandLikelihood(acc.obs, fit);
     if (est) {
+      // At the top usable band the corpus can't resolve higher — report an
+      // open-ended floor ("~2700+") rather than a false-precision point/CI.
+      const point = est.atCeiling ? `~${est.band}+` : `~${est.band}`;
       return {
         band: est.band,
         method: "error-model",
-        label: `performed like ~${est.band} — single game, wide range`,
+        label: `performed like ${point} — single game, wide range`,
         low: est.low,
         high: est.high,
         acpl,
