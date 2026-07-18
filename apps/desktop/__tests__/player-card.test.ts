@@ -52,7 +52,7 @@ describe("playerCardModel — analyze mode follows the card's color", () => {
   })
 
   it("shows performance only when showPerformance is set", () => {
-    const perf = { white: { band: 1600, label: "~1600 performance — single game, rough", acpl: 40, mistakes: 1, blunders: 0, scored: 20 }, black: null }
+    const perf = { white: { band: 1600, method: "acpl" as const, label: "~1600 performance — single game, rough", acpl: 40, mistakes: 1, blunders: 0, scored: 20 }, black: null }
     expect(playerCardModel({ ...base, color: "white", performance: perf, showPerformance: false }).performance).toBeNull()
     expect(playerCardModel({ ...base, color: "white", performance: perf, showPerformance: true }).performance).toBe(perf.white)
   })

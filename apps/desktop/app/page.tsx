@@ -32,7 +32,7 @@ import { usePlyReview } from "@chessgui/ui/use-ply-review"
 import { CapturedPieces } from "@chessgui/ui/captured-pieces"
 import { computeMaterial } from "@chessgui/core/material"
 import { nodeEval, judgeMove, hasJudgmentNag, nextKeyMoveIndex } from "@chessgui/core/annotations"
-import { estimatePerformance } from "@/lib/performance-elo"
+import { estimatePerformance, type SidePerformance } from "@/lib/performance-elo"
 import { playerCardModel } from "@/lib/player-card"
 import { TournamentTab } from "@chessgui/ui/tournament-tab"
 import { DatabaseTab } from "@chessgui/ui/database-tab"
@@ -83,6 +83,19 @@ const PV_ARROW_BRUSHES = ["blue", "paleBlue", "paleGrey"]
 // Slim arrows (Chessground's default lineWidth is ~10, which reads as fat on
 // our board). #1 a touch bolder than the alternatives.
 const PV_ARROW_WIDTHS = [6, 5, 4]
+
+// Hover tooltip for a per-game performance estimate (spec 202): its source
+// (corpus error model vs ACPL fallback), the estimate's range, and the raw
+// move-quality counts behind it.
+function performanceTooltip(p: SidePerformance): string {
+  const src = p.method === "error-model" ? "corpus error model" : "ACPL estimate"
+  const range =
+    p.low !== undefined && p.high !== undefined ? ` · range ${p.low}–${p.high}` : ""
+  return (
+    `${src}${range} · ACPL ${p.acpl} · ${p.blunders} blunder(s), ` +
+    `${p.mistakes} mistake(s) over ${p.scored} scored moves`
+  )
+}
 
 const Board = dynamic(
   () => import("@chessgui/ui/board").then((m) => ({ default: m.Board })),
@@ -1414,7 +1427,7 @@ export default function Home() {
                 <p
                   className="text-[11px] font-medium text-[#9bc700] text-center mt-1.5"
                   data-testid={`performance-${topCard.color}`}
-                  title={`ACPL ${topCard.performance.acpl} · ${topCard.performance.blunders} blunder(s), ${topCard.performance.mistakes} mistake(s) over ${topCard.performance.scored} moves`}
+                  title={performanceTooltip(topCard.performance)}
                 >
                   {topCard.performance.label}
                 </p>
@@ -1548,7 +1561,7 @@ export default function Home() {
                 <p
                   className="text-[11px] font-medium text-[#9bc700] text-center mt-1.5"
                   data-testid={`performance-${bottomCard.color}`}
-                  title={`ACPL ${bottomCard.performance.acpl} · ${bottomCard.performance.blunders} blunder(s), ${bottomCard.performance.mistakes} mistake(s) over ${bottomCard.performance.scored} moves`}
+                  title={performanceTooltip(bottomCard.performance)}
                 >
                   {bottomCard.performance.label}
                 </p>
