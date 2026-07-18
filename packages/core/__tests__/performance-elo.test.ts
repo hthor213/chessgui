@@ -36,18 +36,20 @@ for (let lo = -500; lo < 500; lo += 50) {
   EVAL_LABELS.push(`${pawns < 0 ? "" : "+"}${pawns.toFixed(1)}`)
 }
 
+/** Every (phase, eval, clock) cell set to a single rate. */
+function denseCells(rate: number): Record<string, number> {
+  const cells: Record<string, number> = {}
+  for (const phase of PHASES)
+    for (const clock of CLOCKS)
+      for (const ev of EVAL_LABELS) cells[`${phase}|${ev}|${clock}`] = rate
+  return cells
+}
+
 /** A dense two-band fit: band "1200" mistakes at `hi`, band "2000" at `lo`. */
 function denseFit(hi = 0.3, lo = 0.03): ErrorModelFit {
-  const cellsFor = (rate: number): Record<string, number> => {
-    const cells: Record<string, number> = {}
-    for (const phase of PHASES)
-      for (const clock of CLOCKS)
-        for (const ev of EVAL_LABELS) cells[`${phase}|${ev}|${clock}`] = rate
-    return cells
-  }
   return {
     meta: { bands: ["1200", "2000"], global_rate: 0.15 },
-    bands: { "1200": { cells: cellsFor(hi) }, "2000": { cells: cellsFor(lo) } },
+    bands: { "1200": { cells: denseCells(hi) }, "2000": { cells: denseCells(lo) } },
   }
 }
 
@@ -264,5 +266,94 @@ describe("parseEvalTag — chess.com depth suffix", () => {
     expect(parseEvalTag("[%eval 0.15]")).toEqual({ cp: 15, depth: 0 })
     expect(parseEvalTag("[%eval -1.5,20]")).toEqual({ cp: -150, depth: 0 })
     expect(parseEvalTag("[%eval #-3,25]")).toEqual({ mate: -3, depth: 0 })
+  })
+})
+
+// A clean 8-ply game: White scores 4 moves, 0 mistakes.
+const CLEAN_CPS = [20, 25, 20, 28, 22, 26, 20, 24, 22]
+function setWhiteClocks(tree: GameTree, byPly: Record<number, number>): GameTree {
+  for (const n of tree.mainlineNodes()) if (byPly[n.ply] !== undefined) n.clock = byPly[n.ply]
+  return tree
+}
+// A fit whose lt30 and none rates are INVERTED per band, so the estimate reveals
+// which clock path was taken: lt30 favours 1500, none favours 2500 (clean game).
+function clockDiscriminatingFit(): ErrorModelFit {
+  const cellsFor = (byClock: Record<string, number>): Record<string, number> => {
+    const cells: Record<string, number> = {}
+    for (const phase of PHASES)
+      for (const clock of CLOCKS)
+        for (const ev of EVAL_LABELS) cells[`${phase}|${ev}|${clock}`] = byClock[clock] ?? 0.15
+    return cells
+  }
+  return {
+    meta: { bands: ["1500", "2500"], global_rate: 0.15 },
+    bands: {
+      "1500": { cells: cellsFor({ lt30: 0.05, none: 0.3 }), moves: 5_000_000 },
+      "2500": { cells: cellsFor({ lt30: 0.3, none: 0.05 }), moves: 5_000_000 },
+    },
+  }
+}
+
+describe("estimatePerformance — clock-semantics validation", () => {
+  it("neutralizes the clock dimension for an elapsed-time (non-monotone) stream", () => {
+    // White's [%clk] jumps 5->100->5->100 (rises > tolerance): not a live clock,
+    // so scoring falls back to the clock-neutral 'none' cells (which favour 2500).
+    const t = setWhiteClocks(evaledTree(OPENING, CLEAN_CPS), { 1: 5, 3: 100, 5: 5, 7: 100 })
+    const perf = estimatePerformance(t.mainlineNodes(), clockDiscriminatingFit())
+    expect(perf.white!.band).toBe(2500)
+  })
+
+  it("uses the clock buckets for a well-behaved decreasing stream", () => {
+    // Monotonically decreasing, all < 30s (lt30 bucket, which favours 1500).
+    const t = setWhiteClocks(evaledTree(OPENING, CLEAN_CPS), { 1: 28, 3: 22, 5: 16, 7: 10 })
+    const perf = estimatePerformance(t.mainlineNodes(), clockDiscriminatingFit())
+    expect(perf.white!.band).toBe(1500)
+  })
+
+  it("allows small increment-sized rises without invalidating", () => {
+    // Rises of <=60s are legitimate live increments -> still trusted (lt30).
+    const t = setWhiteClocks(evaledTree(OPENING, CLEAN_CPS), { 1: 20, 3: 25, 5: 18, 7: 22 })
+    const perf = estimatePerformance(t.mainlineNodes(), clockDiscriminatingFit())
+    expect(perf.white!.band).toBe(1500)
+  })
+})
+
+describe("estimatePerformance — label follows information content", () => {
+  it("leads with a range when the likelihood is flat (low signal)", () => {
+    // All bands nearly equal -> the evidence can't separate them.
+    const bands = ["1400", "1600", "1800", "2000", "2200", "2400", "2600"]
+    const flat: ErrorModelFit = {
+      meta: { bands, global_rate: 0.15 },
+      bands: Object.fromEntries(
+        bands.map((b, i) => {
+          const rate = 0.1 - i * 0.001
+          const cells: Record<string, number> = {}
+          for (const phase of PHASES)
+            for (const clock of CLOCKS)
+              for (const ev of EVAL_LABELS) cells[`${phase}|${ev}|${clock}`] = rate
+          return [b, { cells, moves: 5_000_000 }]
+        }),
+      ),
+    }
+    const perf = estimatePerformance(evaledTree(OPENING, CLEAN_CPS).mainlineNodes(), flat)
+    expect(perf.white!.label.startsWith("performed somewhere in ~")).toBe(true)
+    expect(perf.white!.label).toContain("low signal")
+    expect(perf.white!.high! - perf.white!.low!).toBeGreaterThanOrEqual(600)
+  })
+
+  it("gives a confident point when the likelihood is peaked", () => {
+    // Strong band separation + a clear 2-mistake signal -> a narrow interval.
+    const peaked: ErrorModelFit = {
+      meta: { bands: ["1500", "2500"], global_rate: 0.15 },
+      bands: {
+        "1500": { cells: denseCells(0.4), moves: 5_000_000 },
+        "2500": { cells: denseCells(0.02), moves: 5_000_000 },
+      },
+    }
+    const cps = [0, -150, -150, -320, -320, -320, -320, -320, -320] // white: 2 mistakes
+    const perf = estimatePerformance(evaledTree(OPENING, cps).mainlineNodes(), peaked)
+    expect(perf.white!.mistakes).toBe(2)
+    expect(perf.white!.label.startsWith("performed like ~")).toBe(true)
+    expect(perf.white!.label).not.toContain("low signal")
   })
 })

@@ -25,6 +25,17 @@
 // corrects this at score time (coverage clamp + monotonicity); the shell runs it
 // once and hands the corrected model to `estimatePerformance`. See its doc.
 //
+// CLOCK SEMANTICS: the corpus mines only live rapid/classical games, where
+// [%clk] is the REMAINING clock and low clock => time pressure => more mistakes.
+// A chess.com daily/correspondence PGN instead records per-move ELAPSED time, so
+// its fast moves land in the corpus's time-pressure cells and a calm game reads
+// as super-GM. We defend against this WITHOUT trusting metadata the estimator
+// can't see: per side we validate that the [%clk] stream behaves like a live
+// remaining-clock (clocksLookLikeRemaining) and, if not, score that side clock-
+// neutral. FOLLOW-UP (route a): plumbing the TimeControl header through the DB
+// (no column today) + get_game_pgn into the tree would let us key off the
+// declared control directly; the clock-stream heuristic covers it until then.
+//
 // Opening-book/forced-move exclusion (spec 202): a move with exactly one legal
 // reply is not a choice, so it is excluded from BOTH estimators. True
 // opening-book exclusion needs a book database this layer does not have; the
@@ -61,6 +72,22 @@ const BAND_WIDTH = 100;
 // produces the artifact that made a blunder-heavy game read as a top band. A
 // 100k-move floor keeps 1400–2700 and trims the noisy tail.
 const COVERAGE_FLOOR_MOVES = 100_000;
+
+// Clock-semantics validation. The corpus mines only live rapid/classical games,
+// where [%clk] is the REMAINING clock: it decreases each move except for a small
+// increment top-up (max ~30s in the mined controls). A [%clk] stream that jumps
+// UP by more than this bound isn't a live remaining-clock (chess.com daily/
+// correspondence PGNs record per-move ELAPSED time instead) — so we don't trust
+// its clock dimension and score that side clock-neutral ("none"). A tolerant
+// bound avoids false negatives on legitimate increments.
+const CLOCK_INCREMENT_TOLERANCE_S = 60;
+
+// Likelihood-ratio interval: bands within this log-likelihood of the max are
+// "not distinguishable" from the best (Δ ≈ 0.5 ~ a 68% interval for 1 dof). When
+// that interval spans at least WIDE_INTERVAL_ELO the evidence is too thin for a
+// point estimate, and the label leads with the range instead.
+const LR_INTERVAL_DROP = 0.5;
+const WIDE_INTERVAL_ELO = 600;
 
 // Approximate ACPL -> rating band (fallback path). Thresholds are rough and
 // intentionally so (documented as approximate in every label). Midpoints are
@@ -175,8 +202,24 @@ function positionBefore(fen: string): {
 }
 
 interface Observation {
-  key: string; // "phase|eval_bucket_lower|clock"
+  phase: string;
+  ev: string; // eval_bucket_lower label
+  clockSeconds: number | undefined; // [%clk] seconds, if any
   mistake: boolean;
+}
+
+/** True when a side's [%clk] stream behaves like a live REMAINING clock (never
+ *  rising by more than the increment tolerance). A daily/correspondence stream
+ *  of per-move elapsed times jumps around and fails this — so its clock signal
+ *  is discarded (scored clock-neutral). Empty / all-missing streams pass. */
+function clocksLookLikeRemaining(seconds: (number | undefined)[]): boolean {
+  let prev: number | undefined;
+  for (const s of seconds) {
+    if (s === undefined) continue;
+    if (prev !== undefined && s > prev + CLOCK_INCREMENT_TOLERANCE_S) return false;
+    prev = s;
+  }
+  return true;
 }
 
 interface SideAccumulator {
@@ -284,12 +327,15 @@ export function regularizeFit(fit: ErrorModelFit): ErrorModelFit {
 
 /** Log-likelihood band estimate over one side's classified moves. Returns null
  *  when the fit can't score the side (no bands, or no observation landed in a
- *  known cell). `atCeiling` is true when the estimate is pinned to the top
- *  usable band — the corpus can't resolve higher, so the label reads "~X+". */
+ *  known cell). `useClocks` gates the clock dimension (see clocksLookLikeRemaining
+ *  — when false, every move is scored in the clock-neutral "none" cell). The
+ *  interval is a likelihood-ratio interval; `wide` means it's too broad for a
+ *  point estimate, `atCeiling` that it's pinned to the top usable band. */
 function bandLikelihood(
   obs: Observation[],
   fit: ErrorModelFit,
-): { band: number; low: number; high: number; atCeiling: boolean } | null {
+  useClocks: boolean,
+): { band: number; low: number; high: number; atCeiling: boolean; wide: boolean } | null {
   const bands = fit.meta.bands
     .map((b) => ({ label: b, value: Number.parseInt(b, 10) }))
     .filter((b) => Number.isFinite(b.value))
@@ -297,62 +343,52 @@ function bandLikelihood(
   if (bands.length === 0) return null;
   const globalRate = fit.meta.global_rate ?? 0.15;
 
-  let usable = 0;
+  const keys = obs.map(
+    (o) => `${o.phase}|${o.ev}|${useClocks ? clockBucketLabel(o.clockSeconds) : "none"}`,
+  );
+  // At least one observation must land in a real cell, else there's no corpus
+  // signal (an all-fallback score would still pick a band from nothing).
+  const usable = keys.some((k) => fit.bands[bands[0].label]?.cells[k] !== undefined);
+  if (!usable) return null;
+
   const logLik = bands.map(({ label }) => {
     const cells = fit.bands[label]?.cells ?? {};
     let ll = 0;
-    for (const o of obs) {
-      const raw = cells[o.key];
-      const p = raw === undefined ? globalRate : raw;
-      const clamped = Math.min(1 - 1e-6, Math.max(1e-6, p));
-      ll += o.mistake ? Math.log(clamped) : Math.log(1 - clamped);
+    for (let j = 0; j < obs.length; j++) {
+      const raw = cells[keys[j]];
+      const p = Math.min(1 - 1e-6, Math.max(1e-6, raw === undefined ? globalRate : raw));
+      ll += obs[j].mistake ? Math.log(p) : Math.log(1 - p);
     }
     return ll;
   });
-  // "usable" only cares that at least one observation matched a real cell; an
-  // all-fallback score would still pick a band but carries no corpus signal.
-  for (const o of obs) {
-    if (fit.bands[bands[0].label]?.cells[o.key] !== undefined) usable += 1;
-  }
-  if (usable === 0) return null;
 
   const maxLl = Math.max(...logLik);
-  const weights = logLik.map((ll) => Math.exp(ll - maxLl));
-  const total = weights.reduce((a, b) => a + b, 0);
-  const posterior = weights.map((w) => w / total);
-
-  // Point estimate: the HIGHEST band within a whisker of the max posterior.
-  // Monotonization can leave the top bands tied (a clean game the corpus can't
-  // separate); taking the highest tied band reports the honest ceiling rather
-  // than an arbitrary lower member of the pool.
-  const maxPost = Math.max(...posterior);
+  // Point estimate: the HIGHEST band at (within a whisker of) the max. After
+  // monotonization the top bands can tie — report the honest ceiling rather than
+  // an arbitrary lower member of the pool.
   let mleIdx = 0;
-  for (let i = 0; i < posterior.length; i++) {
-    if (posterior[i] >= maxPost - 1e-9) mleIdx = i;
+  for (let i = 0; i < logLik.length; i++) {
+    if (logLik[i] >= maxLl - 1e-9) mleIdx = i;
   }
   const atCeiling = mleIdx === bands.length - 1;
 
-  // 68%-ish credible interval over band lower edges (uniform prior).
-  let cum = 0;
-  let low = bands[0].value;
-  let high = bands[bands.length - 1].value;
-  let lowSet = false;
+  // Likelihood-ratio interval: every band the evidence can't separate from the
+  // best. A flat likelihood (thin evidence) yields a broad interval — honestly.
+  let low = bands[mleIdx].value;
+  let high = bands[mleIdx].value;
   for (let i = 0; i < bands.length; i++) {
-    cum += posterior[i];
-    if (!lowSet && cum >= 0.16) {
-      low = bands[i].value;
-      lowSet = true;
-    }
-    if (cum >= 0.84) {
-      high = bands[i].value;
-      break;
+    if (logLik[i] >= maxLl - LR_INTERVAL_DROP) {
+      low = Math.min(low, bands[i].value);
+      high = Math.max(high, bands[i].value);
     }
   }
-  // The point estimate must lie within its own reported range — with only a
-  // handful of scored moves the posterior is broad, so a peak at the ceiling can
-  // sit above the 84th percentile. Widen to include it.
-  const point = bands[mleIdx].value;
-  return { band: point, low: Math.min(low, point), high: Math.max(high, point), atCeiling };
+  return {
+    band: bands[mleIdx].value,
+    low,
+    high,
+    atCeiling,
+    wide: high - low >= WIDE_INTERVAL_ELO,
+  };
 }
 
 function finishSide(
@@ -363,15 +399,25 @@ function finishSide(
   const acpl = Math.round(acc.loss / acc.scored);
 
   if (fit) {
-    const est = bandLikelihood(acc.obs, fit);
+    // Only trust the clock dimension if this side's [%clk] stream behaves like a
+    // live remaining-clock (see clocksLookLikeRemaining); otherwise score it
+    // clock-neutral so a daily/correspondence game isn't read as time-pressure.
+    const useClocks = clocksLookLikeRemaining(acc.obs.map((o) => o.clockSeconds));
+    const est = bandLikelihood(acc.obs, fit, useClocks);
     if (est) {
-      // At the top usable band the corpus can't resolve higher — report an
-      // open-ended floor ("~2700+") rather than a false-precision point/CI.
-      const point = est.atCeiling ? `~${est.band}+` : `~${est.band}`;
+      // Let the presentation follow the information content:
+      //  - too little signal (wide interval) -> lead with the RANGE, not a point;
+      //  - a clean top-band win -> open-ended floor "~X+";
+      //  - otherwise a confident point.
+      const label = est.wide
+        ? `performed somewhere in ~${est.low}–${est.high} — single game, low signal`
+        : est.atCeiling
+          ? `performed like ~${est.band}+ — single game, wide range`
+          : `performed like ~${est.band} — single game, wide range`;
       return {
         band: est.band,
         method: "error-model",
-        label: `performed like ${point} — single game, wide range`,
+        label,
         low: est.low,
         high: est.high,
         acpl,
@@ -441,9 +487,12 @@ export function estimatePerformance(
     acc.scored += 1;
 
     if (pos) {
-      const phase = phaseFor(pos.phaseWeight, node.ply - 1);
-      const key = `${phase}|${evalBucketLabel(beforeMover)}|${clockBucketLabel(node.clock)}`;
-      acc.obs.push({ key, mistake: drop >= MISTAKE_DROP_CP });
+      acc.obs.push({
+        phase: phaseFor(pos.phaseWeight, node.ply - 1),
+        ev: evalBucketLabel(beforeMover),
+        clockSeconds: node.clock,
+        mistake: drop >= MISTAKE_DROP_CP,
+      });
     }
 
     // Prefer the engine's stored judgment NAG (written by Analyze Game); fall
