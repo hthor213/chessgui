@@ -85,6 +85,9 @@ interface PositionEditorDialogProps {
   /** The OPEN game's active flag, when set: it carries over to the edited
    *  position and cannot be unchecked here (spec 219 B "no bypass"). */
   currentActiveGame?: ActiveGameMeta | null;
+  /** Current board orientation — seeds the "I'm playing" selector so a user
+   *  who already flipped the board isn't silently defaulted to White. */
+  boardOrientation?: "white" | "black";
 }
 
 export function PositionEditorDialog({
@@ -95,6 +98,7 @@ export function PositionEditorDialog({
   onImagePaste,
   defaultChesscomUsername = "",
   currentActiveGame = null,
+  boardOrientation = "white",
 }: PositionEditorDialogProps) {
   const [pieces, setPieces] = useState<PieceMap>(new Map());
   const [turn, setTurn] = useState<Color>("white");
@@ -146,8 +150,8 @@ export function PositionEditorDialog({
     });
     setTool({ kind: "pointer" });
     setChess960(false);
-    setActiveGameSetup(emptyActiveGameSetup(defaultChesscomUsername));
-  }, [open, currentFen, applyState, defaultChesscomUsername]);
+    setActiveGameSetup(emptyActiveGameSetup(defaultChesscomUsername, boardOrientation));
+  }, [open, currentFen, applyState, defaultChesscomUsername, boardOrientation]);
 
   // Derived Chess960 state: what the user has placed on rank 1, whether it is a
   // legal 960 back rank, and (when legal) the full auto-completed start FEN.

@@ -50,6 +50,7 @@ function renderList(records: Parameters<typeof ActiveGamesList>[0]["records"]) {
       onArchivePgn: ok,
       onDelete: noop,
       onRemoveArchived: noop,
+      onSetMyColor: noop,
     }),
   )
 }
@@ -88,6 +89,20 @@ describe("ActiveGameSetupSection (spec 219 A)", () => {
     expect(html).toContain('value="thjaltason"')
   })
 
+  it("offers the 'I'm playing' White/Black selector when checked, defaulting White", () => {
+    const html = renderToStaticMarkup(
+      createElement(ActiveGameSetupSection, {
+        value: { ...emptyActiveGameSetup("hjaltth"), checked: true },
+        onChange: noop,
+      }),
+    )
+    expect(html).toContain('data-testid="active-game-mycolor"')
+    expect(html).toContain('data-testid="active-game-mycolor-white"')
+    expect(html).toContain('data-testid="active-game-mycolor-black"')
+    // White is the default → its button reads pressed.
+    expect(html).toMatch(/active-game-mycolor-white"[^>]*aria-pressed="true"/)
+  })
+
   it("locked mode (already-flagged game) offers no checkbox — spec 219 B no-bypass", () => {
     const html = renderToStaticMarkup(
       createElement(ActiveGameSetupSection, {
@@ -114,6 +129,7 @@ describe("activeGameMetaFromSetup", () => {
         opponent: " dad ",
         chesscomUsername: " hjaltth ",
         gameUrl: "  ",
+        myColor: "white",
       },
       12345,
     )
@@ -122,7 +138,16 @@ describe("activeGameMetaFromSetup", () => {
       chesscomUsername: "hjaltth",
       gameUrl: null,
       flaggedAt: 12345,
+      myColor: "white",
     })
+  })
+
+  it("carries the chosen side through as myColor (spec 219 orientation)", () => {
+    const m = activeGameMetaFromSetup(
+      { ...emptyActiveGameSetup("hjaltth"), checked: true, myColor: "black" },
+      1,
+    )
+    expect(m?.myColor).toBe("black")
   })
 })
 
@@ -154,6 +179,23 @@ describe("ActiveGamesList (spec 219 D)", () => {
     expect(html).toContain("Resume")
     expect(html).toContain("Game finished")
     expect(html).toContain('data-testid="active-game-delete-ag-1"')
+  })
+
+  it("offers the per-game White/Black control, reflecting the stored myColor", () => {
+    const tree = GameTree.fromMoves(["e4", "e5"])
+    const rec = newActiveGameRecord("ag-c", tree.toJSON(), meta({ myColor: "black" }), Date.now())
+    const html = renderList([rec])
+    expect(html).toContain('data-testid="active-game-mycolor-ag-c"')
+    expect(html).toContain('data-testid="active-game-mycolor-ag-c-white"')
+    expect(html).toMatch(/active-game-mycolor-ag-c-black[^>]*aria-pressed="true"|aria-pressed="true"[^>]*active-game-mycolor-ag-c-black/)
+  })
+
+  it("does not show the color control on an archived record", () => {
+    const rec = markActiveGameArchived(
+      newActiveGameRecord("ag-arch", GameTree.create().toJSON(), meta({ myColor: "white" }), Date.now()),
+      Date.now(),
+    )
+    expect(renderList([rec])).not.toContain('data-testid="active-game-mycolor-ag-arch"')
   })
 
   it("renders an archived record as unlocked, with Remove instead of the fair-play actions", () => {

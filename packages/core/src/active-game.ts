@@ -28,6 +28,11 @@ export interface ActiveGameMeta {
   gameUrl: string | null
   /** Epoch ms when the game was flagged. */
   flaggedAt: number
+  /** Which side the USER is playing — drives board orientation on resume so
+   *  the user's pieces sit at the bottom. Optional: games flagged before this
+   *  field existed carry none, and the active-games panel offers a per-game
+   *  control to set it. */
+  myColor?: "white" | "black"
 }
 
 // ---- guard predicate (spec 219 B, layer 1) ----

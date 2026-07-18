@@ -196,6 +196,11 @@ export async function runGameAnalysis(opts: {
       }
       callbacks.onProgress(i + 1, targets.length)
     }
+    // A game swapped in during the final position's engine await would leave
+    // the loop's top-of-iteration cancel check stale; re-check here so a run
+    // that outlived its tree never reports completion (its evals landed on a
+    // replaced tree). The hook re-checks tree identity too.
+    if (opts.isCancelled()) return { completed: false, error: null }
     return { completed: true, error: null }
   } catch (e) {
     return { completed: false, error: e instanceof Error ? e.message : String(e) }

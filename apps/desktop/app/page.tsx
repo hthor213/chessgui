@@ -42,6 +42,10 @@ import { TrainingTab } from "@chessgui/ui/training-tab"
 import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
 import { RepertoireTab } from "@chessgui/ui/repertoire-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
+import type { GameTree } from "@chessgui/core/game-tree"
+import { isNamedPlayer, matchMyColor } from "@chessgui/core/identity"
+import { loadIdentityNames, saveIdentityNames } from "@/lib/identity"
+import { MyNamesEditor } from "@chessgui/ui/my-names-editor"
 import {
   newActiveGameRecord,
   type ActiveGameMeta,
@@ -53,6 +57,7 @@ import {
   loadDefaultChesscomUsername,
   saveActiveGame,
   saveDefaultChesscomUsername,
+  setActiveGameMyColor,
 } from "@/lib/active-games"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine, type PlayerColor } from "@/hooks/use-engine"
@@ -68,7 +73,7 @@ import { walkPv, type PvStep } from "@/lib/pv-preview"
 import { ecoLabel } from "@chessgui/core/eco"
 import type { LiveGame, ViewerControls } from "@chessgui/core/tournament"
 import { MOVE_DELAY_OPTIONS } from "@chessgui/core/tournament"
-import { hasEngineCompare, hasTournamentRunner } from "@/lib/capabilities"
+import { hasEngineCompare, hasGameDatabase, hasTournamentRunner } from "@/lib/capabilities"
 import { sansFromUci, numberMoves } from "@chessgui/core/game-replay"
 import type { Key } from "@lichess-org/chessground/types"
 import type { DrawShape } from "@lichess-org/chessground/draw"
@@ -86,6 +91,40 @@ const Board = dynamic(
 
 export default function Home() {
   const game = useChessGame()
+
+  // Transient status line for save/export/paste actions. One ref-cancelled
+  // timer backs every message so overlapping notices don't wipe each other
+  // early (a 5s error can't be cleared by a stale 3s timer).
+  const [pasteStatus, setPasteStatus] = useState<string | null>(null)
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // `ms = null` keeps the message up until the next showStatus call (e.g. a
+  // "working…" notice cleared on completion).
+  const showStatus = useCallback((message: string | null, ms: number | null = 3000) => {
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+    setPasteStatus(message)
+    if (message && ms !== null) {
+      statusTimerRef.current = setTimeout(() => setPasteStatus(null), ms)
+    }
+  }, [])
+  useEffect(() => () => clearTimeout(statusTimerRef.current), [])
+
+  // Save the current game — annotations and all, via treeToPgn — into the game
+  // database (spec 202). Upsert on the dup-hash: re-saving after more
+  // annotation updates the stored copy instead of piling up duplicates. The
+  // single source of truth for both the manual Save button and the analysis
+  // auto-save. Resolves true on success.
+  const saveCurrentGameToDb = useCallback(async (): Promise<boolean> => {
+    try {
+      const report = await saveGame({ pgn: game.exportPgn() })
+      showStatus(report.updated ? "Game updated in database" : "Game saved to database")
+      return true
+    } catch (e) {
+      showStatus(
+        `Save failed: ${typeof e === "string" ? e : e instanceof Error ? e.message : "unknown error"}`,
+      )
+      return false
+    }
+  }, [game.exportPgn, showStatus])
 
   // Local play clock (spec 011, 000:81): keyed to the game's live TIP —
   // moves.length + side-to-move-at-tip — so review navigation never switches
@@ -132,18 +171,58 @@ export default function Home() {
     activeGame: game.activeGame,
     setEval: game.setEval,
     setNags: game.setNags,
+    // Auto-save to the database when a full run completes (spec 202): the
+    // fresh evals/NAGs ride the PGN through the same upsert as manual Save.
+    // Desktop-only (writable DB) and non-fatal. Gated on real player headers —
+    // the dup-hash only dedupes identical mainlines, so auto-saving every
+    // scratch line would pollute the DB with headerless rows; a scratch game
+    // gets a nudge to Save explicitly instead.
+    onCompleted: () => {
+      if (!hasGameDatabase()) return
+      const headers = game.tree.headers
+      if (isNamedPlayer(headers.White) && isNamedPlayer(headers.Black)) {
+        void saveCurrentGameToDb()
+      } else {
+        showStatus("Analysis complete — use Save to keep it")
+      }
+    },
   })
+
+  // The user's own names/aliases (spec 225 follow-on): orient a loaded game to
+  // the user's side when its headers name them. Kept in a ref so the load
+  // handlers read the latest list without being re-created.
+  const [identityNames, setIdentityNames] = useState<string[]>([])
+  const identityNamesRef = useRef<string[]>([])
+  identityNamesRef.current = identityNames
+  useEffect(() => {
+    setIdentityNames(loadIdentityNames())
+  }, [])
+  const handleIdentityNamesChange = useCallback((names: string[]) => {
+    setIdentityNames(saveIdentityNames(names))
+  }, [])
+
+  // Load a fully-built tree onto the board, orienting to the user's side when
+  // exactly one header names them (spec 225) — a deliberate manual flip
+  // afterwards is never overridden, since this only runs on load.
+  const loadTreeOriented = useCallback(
+    (tree: GameTree) => {
+      const side = matchMyColor(tree.headers, identityNamesRef.current)
+      if (side) game.setOrientation(side)
+      game.loadTree(tree)
+    },
+    [game.loadTree, game.setOrientation],
+  )
 
   // Load a game from the database onto the board and switch to analysis.
   const handleLoadFromDatabase = useCallback(
     (pgn: string) => {
       const trees = parsePgnToTrees(pgn)
       if (trees.length === 0) return
-      game.loadTree(trees[0])
+      loadTreeOriented(trees[0])
       setView("board")
       engine.setPlayMode(false)
     },
-    [game.loadTree, engine.setPlayMode],
+    [loadTreeOriented, engine.setPlayMode],
   )
 
   // Load a bare position from the calibration results onto the analyze board.
@@ -230,11 +309,10 @@ export default function Home() {
         await engine.setPlayMode(true, color)
         playClock.start(preset, tipTurn)
       } catch (err) {
-        setPasteStatus(err instanceof Error ? err.message : String(err))
-        setTimeout(() => setPasteStatus(null), 5000)
+        showStatus(err instanceof Error ? err.message : String(err), 5000)
       }
     },
-    [engine.setPlayMode, playClock.start, tipTurn],
+    [engine.setPlayMode, playClock.start, tipTurn, showStatus],
   )
 
   // Leaving play mode by ANY path (analyze toggle, engine disconnect,
@@ -319,7 +397,6 @@ export default function Home() {
   // <input type="file"> works in both the Tauri webview and a plain browser.
   const pgnFileInputRef = useRef<HTMLInputElement>(null)
   const [editorOpen, setEditorOpen] = useState(false)
-  const [pasteStatus, setPasteStatus] = useState<string | null>(null)
 
   // ---- Active game mode (spec 219) ----
   // The user's own chess.com username, prefilled in the setup dialog's
@@ -355,6 +432,8 @@ export default function Home() {
       game.loadFen(fen)
       if (!activeGame) return
       game.setActiveGame(activeGame)
+      // Orient to the user's side the moment they flag it (spec 219).
+      if (activeGame.myColor) game.setOrientation(activeGame.myColor)
       if (activeGame.chesscomUsername) {
         saveDefaultChesscomUsername(activeGame.chesscomUsername)
         setDefaultChesscomUsername(activeGame.chesscomUsername)
@@ -365,7 +444,7 @@ export default function Home() {
         .then(() => setActiveGamesNonce((n) => n + 1))
         .catch((e) => console.error("[active-games] save on flag failed:", e))
     },
-    [game.loadFen, game.setActiveGame, game.getSnapshot],
+    [game.loadFen, game.setActiveGame, game.getSnapshot, game.setOrientation],
   )
 
   // "Continue later" (spec 219 C): save tree + metadata to the store, clear
@@ -388,9 +467,12 @@ export default function Home() {
   const handleResumeActiveGame = useCallback(
     (record: ActiveGameRecord) => {
       game.restoreSnapshot(record.tree)
+      // Orient the board to the user's side (spec 219) — their pieces at the
+      // bottom, matching how they see the game on chess.com.
+      if (record.meta.myColor) game.setOrientation(record.meta.myColor)
       setView("board")
     },
-    [game.restoreSnapshot],
+    [game.restoreSnapshot, game.setOrientation],
   )
 
   // Archived: the game is over and saved to the database, so if it backs the
@@ -403,6 +485,26 @@ export default function Home() {
       setActiveGamesNonce((n) => n + 1) // keep the header bell count honest
     },
     [game.activeGame, game.setActiveGame],
+  )
+
+  // Panel migration control: set which side the user plays. Persist to the
+  // store, and — when the changed record is the game currently on the board —
+  // update the in-memory flag (game.setActiveGame bumps the version, so the
+  // current-game localStorage and a restart's hydration both follow) and
+  // reorient live. Without the in-memory sync, "Continue later" would re-save
+  // from the stale meta and erase the change.
+  const handleSetActiveGameColor = useCallback(
+    (record: ActiveGameRecord, color: "white" | "black") => {
+      setActiveGameMyColor(record, color)
+        .then(() => setActiveGamesNonce((n) => n + 1))
+        .catch((e) => console.error("[active-games] set color failed:", e))
+      const meta = game.activeGame
+      if (meta && activeGameIdFor(meta) === record.id) {
+        game.setActiveGame({ ...meta, myColor: color })
+        game.setOrientation(color)
+      }
+    },
+    [game.activeGame, game.setActiveGame, game.setOrientation],
   )
 
   // Deleted: the record is discarded, not finished. If it backs the game on
@@ -531,8 +633,7 @@ export default function Home() {
       // Analysis mode start; the fulfill effect fires once lines arrive.
       engine.startEngine().catch((err) => {
         setHintPending(false)
-        setPasteStatus(err instanceof Error ? err.message : String(err))
-        setTimeout(() => setPasteStatus(null), 5000)
+        showStatus(err instanceof Error ? err.message : String(err), 5000)
       })
     } else if (
       !engine.state.isAnalyzing &&
@@ -544,7 +645,7 @@ export default function Home() {
       // when its reply lands and the position moves on.
       engine.toggleAnalysis()
     }
-  }, [engine.engineLocked, engine.state.isRunning, engine.state.isAnalyzing, engine.state.isThinking, engine.state.mode, engine.startEngine, engine.toggleAnalysis, pvPreview])
+  }, [engine.engineLocked, engine.state.isRunning, engine.state.isAnalyzing, engine.state.isThinking, engine.state.mode, engine.startEngine, engine.toggleAnalysis, pvPreview, showStatus])
 
   // Fulfill a pending hint once the engine has a credible line (depth >= 10)
   // for the CURRENT position — analysisFen gates out lines computed for a
@@ -662,17 +763,16 @@ export default function Home() {
   // and by image pastes inside the Import and Set-up dialogs.
   const recognizeImage = useCallback(
     async (image: ClipboardImage) => {
-      setPasteStatus("Reading position from image…")
+      showStatus("Reading position from image…", null)
       try {
         const fen = await imageToFen(image)
-        setPasteStatus(null)
+        showStatus(null)
         await enterThinkingMode(fen)
       } catch (err) {
-        setPasteStatus(err instanceof Error ? err.message : "Couldn't read a position from the image")
-        setTimeout(() => setPasteStatus(null), 5000)
+        showStatus(err instanceof Error ? err.message : "Couldn't read a position from the image", 5000)
       }
     },
-    [enterThinkingMode],
+    [enterThinkingMode, showStatus],
   )
 
   // ⌘V outside inputs: image on the clipboard → recognition (thinking mode);
@@ -715,29 +815,19 @@ export default function Home() {
         text: pgn,
       })
       if (!result.saved) return // cancelled the native save dialog
-      setPasteStatus(copied ? "PGN exported (copied to clipboard)" : "PGN exported")
+      showStatus(copied ? "PGN exported (copied to clipboard)" : "PGN exported")
     } catch (e) {
-      setPasteStatus(
+      showStatus(
         `Export failed: ${typeof e === "string" ? e : e instanceof Error ? e.message : "unknown error"}`,
       )
     }
-    setTimeout(() => setPasteStatus(null), 3000)
-  }, [game.exportPgn, game.headers])
+  }, [game.exportPgn, game.headers, showStatus])
 
-  // Save the current game — annotations and all, via treeToPgn — into the
-  // game database (spec 202). Upsert: re-saving the same game after further
-  // annotation updates the stored copy instead of piling up duplicates.
-  const handleSaveToDb = useCallback(async () => {
-    try {
-      const report = await saveGame({ pgn: game.exportPgn() })
-      setPasteStatus(report.updated ? "Game updated in database" : "Game saved to database")
-    } catch (e) {
-      setPasteStatus(
-        `Save failed: ${typeof e === "string" ? e : e instanceof Error ? e.message : "unknown error"}`,
-      )
-    }
-    setTimeout(() => setPasteStatus(null), 3000)
-  }, [game.exportPgn])
+  // Manual Save button — always persists (the user asked), unlike the
+  // header-gated analysis auto-save; both go through saveCurrentGameToDb.
+  const handleSaveToDb = useCallback(() => {
+    void saveCurrentGameToDb()
+  }, [saveCurrentGameToDb])
 
   // Test hook for headless UI verification (see .claude/skills/verify) —
   // paste can't be driven through Tauri from Playwright.
@@ -1067,8 +1157,15 @@ export default function Home() {
                 onResume={handleResumeActiveGame}
                 onArchived={handleActiveGameArchived}
                 onDeleted={handleActiveGameDeleted}
+                onSetMyColor={handleSetActiveGameColor}
                 refreshNonce={activeGamesNonce}
               />
+            </div>
+            {/* "My names" (spec 225) — identity used to orient loaded games to
+                the user's side. Lives with the database because that is where
+                games are loaded from. */}
+            <div className="shrink-0 px-6 pt-4">
+              <MyNamesEditor names={identityNames} onChange={handleIdentityNamesChange} />
             </div>
             {/* overflow-x containment below lg (spec 223): anything wide
                 inside a tab scrolls in this box, never the page. */}
@@ -1789,7 +1886,7 @@ export default function Home() {
       <PgnImportDialog
         open={pgnDialogOpen}
         onOpenChange={setPgnDialogOpen}
-        onLoadTree={game.loadTree}
+        onLoadTree={loadTreeOriented}
         initialText={pgnInitialText}
         onImagePaste={recognizeImage}
       />
@@ -1808,6 +1905,7 @@ export default function Home() {
         onImagePaste={recognizeImage}
         defaultChesscomUsername={defaultChesscomUsername}
         currentActiveGame={game.activeGame ?? null}
+        boardOrientation={game.orientation}
       />
     </TooltipProvider>
     </ErrorBoundary>

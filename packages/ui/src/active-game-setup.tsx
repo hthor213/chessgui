@@ -12,16 +12,23 @@
 //   mint an unflagged copy and hand the engine back mid-game.
 
 import type { ActiveGameMeta } from "@chessgui/core/active-game"
+import { SideToggle } from "@chessgui/ui/side-toggle"
 
 export interface ActiveGameSetupValue {
   checked: boolean
   opponent: string
   chesscomUsername: string
   gameUrl: string
+  /** Which side the user plays — seeded from the current board orientation,
+   *  drives resume orientation. Always emitted. */
+  myColor: "white" | "black"
 }
 
-export function emptyActiveGameSetup(chesscomUsername = ""): ActiveGameSetupValue {
-  return { checked: false, opponent: "", chesscomUsername, gameUrl: "" }
+export function emptyActiveGameSetup(
+  chesscomUsername = "",
+  myColor: "white" | "black" = "white",
+): ActiveGameSetupValue {
+  return { checked: false, opponent: "", chesscomUsername, gameUrl: "", myColor }
 }
 
 /** The metadata the dialog hands back on confirm; null when not flagged. */
@@ -35,6 +42,7 @@ export function activeGameMetaFromSetup(
     chesscomUsername: value.chesscomUsername.trim(),
     gameUrl: value.gameUrl.trim() || null,
     flaggedAt: now,
+    myColor: value.myColor,
   }
 }
 
@@ -132,6 +140,18 @@ export function ActiveGameSetupSection({
           </span>
         </span>
       </label>
+
+      {value.checked && (
+        <div className="mt-3 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">I&rsquo;m playing</span>
+          <SideToggle
+            value={value.myColor}
+            onChange={(myColor) => onChange({ ...value, myColor })}
+            testId="active-game-mycolor"
+            size="md"
+          />
+        </div>
+      )}
 
       {value.checked && (
         <div

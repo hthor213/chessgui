@@ -65,11 +65,17 @@ export function useChessGame() {
   const [hydrated, setHydrated] = useState(false);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
+  const [orientation, setOrientation] = useState<"white" | "black">("white");
+
   // Hydrate from localStorage after mount (avoids SSR mismatch).
   useEffect(() => {
     const saved = loadSavedTree();
     if (saved) {
       treeRef.current = saved;
+      // Spec 219: a persisted active game remembers which side the user plays;
+      // restore the board orientation so their pieces are at the bottom.
+      const myColor = saved.activeGame?.myColor;
+      if (myColor) setOrientation(myColor);
       setVersion((v) => v + 1);
     }
     setHydrated(true);
@@ -82,7 +88,6 @@ export function useChessGame() {
     }
   }, [version, hydrated]);
 
-  const [orientation, setOrientation] = useState<"white" | "black">("white");
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
 
   // Derived view of the tree at the current cursor. Recomputed whenever a

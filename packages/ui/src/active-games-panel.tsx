@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Button } from "@chessgui/ui/ui/button"
 import { Textarea } from "@chessgui/ui/ui/textarea"
+import { SideToggle } from "@chessgui/ui/side-toggle"
 import type { ActiveGameRecord } from "@chessgui/core/active-game"
 import type { ChesscomGame } from "@chessgui/core/chesscom"
 import type { SerializedTree } from "@chessgui/core/game-tree"
@@ -92,9 +93,32 @@ export interface ActiveGamesListProps {
   /** Remove an already-archived record from the list (no fair-play gate —
    *  the lockout is long lifted). */
   onRemoveArchived: (record: ActiveGameRecord) => void
+  /** Set which side the user plays — the per-game migration control for games
+   *  flagged before myColor existed. */
+  onSetMyColor: (record: ActiveGameRecord, color: "white" | "black") => void
 }
 
 const ROW_BTN = "h-7 px-2.5 text-xs"
+
+/** Compact "which side am I" toggle — the per-game myColor migration control. */
+function MyColorControl({
+  record,
+  onSetMyColor,
+}: {
+  record: ActiveGameRecord
+  onSetMyColor: (record: ActiveGameRecord, color: "white" | "black") => void
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-xs text-muted-foreground">I&rsquo;m</span>
+      <SideToggle
+        value={record.meta.myColor ?? "white"}
+        onChange={(color) => onSetMyColor(record, color)}
+        testId={`active-game-mycolor-${record.id}`}
+      />
+    </span>
+  )
+}
 
 function CandidateRow({
   game,
@@ -166,6 +190,7 @@ export function ActiveGamesList({
   onArchivePgn,
   onDelete,
   onRemoveArchived,
+  onSetMyColor,
 }: ActiveGamesListProps) {
   const [statuses, setStatuses] = useState<Record<string, RowStatus>>({})
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
@@ -247,6 +272,11 @@ export function ActiveGamesList({
                     </>
                   )}
                 </p>
+                {!record.archived && (
+                  <div className="mt-1.5">
+                    <MyColorControl record={record} onSetMyColor={onSetMyColor} />
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {record.archived ? (
@@ -396,6 +426,7 @@ export function ActiveGamesPanel({
   onResume,
   onArchived,
   onDeleted,
+  onSetMyColor,
   refreshNonce = 0,
 }: {
   onResume: (record: ActiveGameRecord) => void
@@ -403,6 +434,10 @@ export function ActiveGamesPanel({
    *  is the same one. */
   onArchived?: (record: ActiveGameRecord) => void
   onDeleted?: (record: ActiveGameRecord) => void
+  /** Set which side the user plays. The host owns persistence AND syncing the
+   *  live board when the changed record is the one currently open, then bumps
+   *  `refreshNonce` so this list re-reads. */
+  onSetMyColor: (record: ActiveGameRecord, color: "white" | "black") => void
   refreshNonce?: number
 }) {
   const [records, setRecords] = useState<ActiveGameRecord[]>([])
@@ -478,6 +513,7 @@ export function ActiveGamesPanel({
       onArchivePgn={archivePgn}
       onDelete={handleDelete}
       onRemoveArchived={handleDelete}
+      onSetMyColor={onSetMyColor}
     />
   )
 }

@@ -65,6 +65,7 @@ import {
   type BandRecord,
 } from "@/lib/puzzle-results"
 import { eloEstimateLine, estimateElo } from "@chessgui/core/elo-estimate"
+import { PuzzlesSummary } from "@chessgui/ui/puzzles-summary"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -152,6 +153,17 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
   const item = deck && idx < deck.length ? deck[idx] : null
   const itemFen = item ? deckItemFen(item) : ""
   const sessionOver = deck !== null && idx >= deck.length
+
+  // Rolling Elo (spec 224) recomputed for the deck-done report — by now the
+  // store holds this session's answers, so the report shows where the deck
+  // left the estimate. Recomputed here because `record.eloLine` is only
+  // refreshed on mount/exit, and a Training-tab launch (initialDeck) never
+  // shows the setup screen at all. In an effect (not render) so the
+  // static-export prerender stays empty, same as the setup-screen line.
+  const [summaryEloLine, setSummaryEloLine] = useState<string | null>(null)
+  useEffect(() => {
+    setSummaryEloLine(sessionOver ? eloEstimateLine(estimateElo(loadPuzzleResults())) : null)
+  }, [sessionOver])
 
   // Replay bookkeeping: the queue of refutation plies still to play, and the
   // live timer. Refs, not state — the timer callback owns the sequencing.
@@ -386,29 +398,15 @@ export function PuzzlesTab({ initialDeck, onExit }: PuzzlesTabProps) {
   if (sessionOver) {
     const sum = summarize(results)
     return (
-      <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6" data-testid="puzzles-summary">
-        <div className="max-w-md w-full space-y-4 text-center">
-          <h1 className="text-2xl font-bold">Deck done</h1>
-          <p className="text-4xl font-bold tabular-nums" data-testid="puzzles-summary-score">
-            {sum.correct}/{sum.total}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {sum.rakes === 0
-              ? "No rakes stepped on."
-              : `${sum.rakes} rake${sum.rakes === 1 ? "" : "s"} stepped on — each one was replayed, and each comes back for review (1d, then 3d, then 7d).`}
-            {sum.unverified > 0 &&
-              ` ${sum.unverified} answer${sum.unverified === 1 ? "" : "s"} unverified (no engine here).`}
-          </p>
-          <div className="flex gap-2 justify-center">
-            <Button onClick={() => loadDeck(deckRequest())} data-testid="puzzles-again">
-              Another deck
-            </Button>
-            <Button variant="outline" onClick={exitSession} data-testid="puzzles-exit">
-              Done
-            </Button>
-          </div>
-        </div>
-      </div>
+      <PuzzlesSummary
+        correct={sum.correct}
+        total={sum.total}
+        rakes={sum.rakes}
+        unverified={sum.unverified}
+        eloLine={summaryEloLine}
+        onAgain={() => loadDeck(deckRequest())}
+        onDone={exitSession}
+      />
     )
   }
 

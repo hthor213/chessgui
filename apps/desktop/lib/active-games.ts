@@ -15,6 +15,7 @@ import {
   parseActiveGamesStore,
   removeActiveGame,
   upsertActiveGame,
+  withActiveGameFlag,
   type ActiveGameMeta,
   type ActiveGameRecord,
   type ActiveGamesStore,
@@ -24,6 +25,7 @@ import {
   type ChesscomGame,
   type FetchLike,
 } from "@chessgui/core/chesscom"
+import { ensurePlayerHeaders } from "@chessgui/core/identity"
 import type { ImportReport } from "@chessgui/core/database-types"
 import { getProviders } from "@/lib/platform"
 import { importPgn } from "@/lib/database"
@@ -82,6 +84,20 @@ export async function saveActiveGame(record: ActiveGameRecord): Promise<ActiveGa
 }
 
 /**
+ * Set (or change) which side the user plays on a saved game — the migration
+ * path for games flagged before `myColor` existed. Writes it to both the list
+ * metadata and the embedded tree's flag so resume orientation follows either
+ * source.
+ */
+export async function setActiveGameMyColor(
+  record: ActiveGameRecord,
+  myColor: "white" | "black",
+): Promise<ActiveGameRecord> {
+  const meta: ActiveGameMeta = { ...record.meta, myColor }
+  return saveActiveGame({ ...record, meta, tree: withActiveGameFlag(record.tree, meta) })
+}
+
+/**
  * Explicit deletion — the ONLY exit besides archiving (spec 219 B). The UI
  * must gate this behind the fair-play confirmation dialog; nothing here
  * softens that, deletion just removes the record.
@@ -104,8 +120,22 @@ export async function archiveActiveGamePgn(
   pgn: string,
 ): Promise<{ record: ActiveGameRecord; report: ImportReport }> {
   if (!pgn.trim()) throw new Error("no PGN to archive")
-  const source = record.meta.gameUrl ?? `chess.com daily vs ${record.meta.opponent || "?"}`
-  const report = await importPgn({ source, text: pgn })
+  const meta = record.meta
+  // Give the archived game sensible White/Black names when the PGN lacks them,
+  // so a later load can orient the board to the user's side by identity (spec
+  // 225). Fetched chess.com PGNs already carry real usernames — this only
+  // rescues a header-less pasted game.
+  let text = pgn
+  if (meta.myColor && (meta.chesscomUsername || meta.opponent)) {
+    const me = meta.chesscomUsername || undefined
+    const them = meta.opponent || undefined
+    text = ensurePlayerHeaders(pgn, {
+      white: meta.myColor === "white" ? me : them,
+      black: meta.myColor === "white" ? them : me,
+    })
+  }
+  const source = meta.gameUrl ?? `chess.com daily vs ${meta.opponent || "?"}`
+  const report = await importPgn({ source, text })
   if (report.imported < 1 && report.dups_skipped < 1) {
     throw new Error(
       `archive import wrote nothing (${report.errors} error${report.errors === 1 ? "" : "s"}) — game stays active and locked`,

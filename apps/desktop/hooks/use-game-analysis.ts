@@ -32,6 +32,9 @@ export function useGameAnalysis(game: {
   activeGame: ActiveGameMeta | null | undefined
   setEval: (id: string, ev: NodeEval) => void
   setNags: (id: string, nags: number[]) => void
+  /** Fired once a run finishes with every position visited (not on
+   *  cancel/error) — the auto-save-to-database hook (spec 202). */
+  onCompleted?: () => void
 }) {
   const [state, setState] = useState<GameAnalysisState>(IDLE)
 
@@ -42,10 +45,12 @@ export function useGameAnalysis(game: {
   const activeGameRef = useRef(game.activeGame)
   const setEvalRef = useRef(game.setEval)
   const setNagsRef = useRef(game.setNags)
+  const onCompletedRef = useRef(game.onCompleted)
   treeRef.current = game.tree
   activeGameRef.current = game.activeGame
   setEvalRef.current = game.setEval
   setNagsRef.current = game.setNags
+  onCompletedRef.current = game.onCompleted
 
   const runningRef = useRef(false)
   const cancelledRef = useRef(false)
@@ -105,6 +110,14 @@ export function useGameAnalysis(game: {
 
     runningRef.current = false
     setState((s) => ({ ...s, running: false, error: result.error }))
+    // A completed run has fresh evals/NAGs on the tree — let the host persist
+    // them. A cancelled/errored run leaves partial data, so it stays unsaved.
+    // The tree-identity guard closes the completion race: if a different game
+    // loaded during the final search, the host's exportPgn would serialize the
+    // WRONG tree, so a run that outlived its tree never triggers a save.
+    if (result.completed && !result.error && treeRef.current === tree) {
+      onCompletedRef.current?.()
+    }
   }, [])
 
   // Spec 219: if the game on the board becomes an active game mid-run

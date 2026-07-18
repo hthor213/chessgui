@@ -21,3 +21,12 @@ export function hasTournamentRunner(): boolean {
 export function hasEngineCompare(): boolean {
   return getProviders().engine.hasNativeEngine
 }
+
+/**
+ * A persistent, writable game database (spec 200): the desktop shell's SQLite
+ * store. The web shell's database provider is read-only (lichess explorer /
+ * mock), so game-saving paths — including the analysis auto-save — gate on this.
+ */
+export function hasGameDatabase(): boolean {
+  return isTauri()
+}
