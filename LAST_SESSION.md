@@ -1,5 +1,96 @@
 # Last Session
 
+**Date:** 2026-07-20 → 21 (started ~13:00, ran into the night on /loop + workflows)
+**Focus:** Fair-play games learned where they actually are (spec 219 F), then spec 226 —
+"the Notebook" — was designed with the user and built end to end: minimax with a person as
+the evaluation function. 6 commits, app rebuilt+installed ~10×, 1371 tests (from 1101).
+NOT PUSHED — all 6 commits are local on main.
+
+## What shipped
+
+- **219 F — the live position.** Chess.com publishes ongoing daily games, so the app stops
+  asking the user where the game is: sync replays the real move list, pins a `liveNodeId`,
+  prunes dead branches behind it, and derives `myColor` so the board opens on their side.
+  Moves are refused behind the live position; stepping back is framed as REPLAY, not a
+  refusal. Fair-play games dropped to chess.com's two-column shape (board + tabbed panel),
+  affordable only there because the third column holds engine surfaces the lockout hides.
+- **226 A-D, F, I — the Notebook.** Seven-point assessments as NAGs (one keystroke each),
+  strict minimax backup, coverage against the user's OWN candidate list, opponent-reply
+  likelihood, lexicographic ordering (objective → practical → Copeland → exploration),
+  pairwise head-to-heads with recorded reasons, and compare mode with two full boards.
+- **226 J — two artifacts.** The game archives PURE (the PGN chess.com served, byte-
+  comparable with the opponent's copy); the notebook extracts to its own training store
+  pointing at it. That store is the most dangerous in the app — engine verdicts joined to
+  positions — so its position query is gated at two layers with an INVERTED default
+  (absent/unknown context refuses), and the Rust layer redacts positions out of a bulk load.
+- **226 H — post-game diagnosis.** Splits "played badly" into blind spot / misjudgement /
+  selection error / opponent-model error. Every threshold is a named constant with its
+  reasoning; the aggregate refuses to name a pattern below 5 games / 30 decisions / 8
+  observations and says which gate it failed.
+- **226 E — sharpness**, which is silent more often than it speaks (single candidate, thin
+  coverage) because "only one move works" and "I only judged one move" are indistinguishable.
+- **226 Candidates table** — Kotov's list as a sortable table, no default sort.
+- **202 correctness fix** — `judgeMove` and performance Elo took the mover's colour from
+  `node.ply % 2`, which inverts for any position set up with Black to move: blunders scored
+  as brilliancies. Now derived from each node's FEN. Also fixed 4 tournament move-number
+  sites (spec 210) that mislabelled games starting from a book FEN.
+- **219 D fix** — chess.com fetches route through Rust; a webview fetch fails cross-origin
+  with WebKit's opaque "Load failed", which had silently broken "Game finished" too.
+
+## The design decisions worth not re-litigating
+
+All in specs 219 F and 226 with reasoning attached. The load-bearing ones:
+
+- **The axiom (user's word):** *"If I'm bad at chess, I need to train and get better and I
+  deserve to lose."* The app may DISPLAY state; it may never RECOMMEND. No legal-move list
+  or count, no suggested move, no "look here next". Coverage is measured against the user's
+  own candidate list precisely so the gap between what they saw and what mattered survives —
+  that gap is the training signal, and filling it destroys it.
+- **The Notebook Doctrine:** no engine verdict reachable at machine speed. Content can be
+  anything (Stockfish's verdict written down after a game is just studying); it is RETRIEVAL
+  that is constrained. Linear reading over anything; position-indexed query only over
+  corpora with no engine evaluation in them. The friction is load-bearing.
+- **Two co-equal goals:** think better now, and produce a diagnosable record. Neither
+  subordinate; the axiom overrides both.
+- **Nothing renders over the chess board.** Rejected twice in person (status pill, replay
+  bar). No UI text below 13px.
+
+## What the adversarial audits caught that the tests did not
+
+Worth knowing because they were all "quietly wrong", not "visibly broken":
+hope-chess leaking through the practical axis (a line the user would never play winning a
+tie-break); the practical tie-break inverted for a Black player; imported NAGs counting as
+the user's own judgement (a post-game engine review re-entering the live ranking); a second
+door into the games table via `db.saveGame`; the purity guard missing variations and NAGs;
+sync-appended moves looking like the user's own candidates; and the Candidates table letting
+itself sort on branch width via a self-granted exemption in a comment.
+
+## NOT VERIFIED BY THE USER'S EYE
+
+Everything from spec 226 was built while they were away. They verified 17/19 of the 219 F
+checklist in person and confirmed "the features work", with one open complaint that drove
+the legibility work: *"I have no idea how to read the ratings/options/tree"*. The Notebook
+panel, compare mode, the post-game review and the Candidates table have NEVER been looked
+at on screen. Treat green tests as evidence of logic, not of legibility — this session's
+record is that agents cannot judge a UI.
+
+Checklist artifact (tickable, persists): https://claude.ai/code/artifact/d4e05050-4062-4550-ac9d-845b4647be18
+
+## Next session
+
+1. **Look at it.** Open the fair-play game vs painterdenny, work through the artifact
+   checklist. Keys: 1-7 assess, 0/Backspace clear, l/p/u likelihood on his replies.
+2. `git push origin main` — 6 commits waiting.
+3. Deferred, specified, unbuilt: spec 226 D's "I'm worse, play for chances" mode; a conjoint
+   fit over the preference log once it is long enough (the tags ARE conjoint attributes);
+   sharpness into the training record (derivable from what it already stores).
+4. Known unknown, reported not fixed: calibration's standard-start invariant is enforced by
+   replay failure rather than a predicate (`AND start_fen = ''` is the one-line hardening).
+5. Older backlog untouched: TournamentRunner/EngineProvider refactor (220), anti_line_drill
+   (215), ResultsExplorer port, mobile triage (223), 19 user decisions from 2026-07-17.
+
+---
+
 **Date:** 2026-07-17 (overnight marathon: /start ~22:00 → checkpoint ~05:00; diagnose → /loop + workflows)
 **Focus:** User-reported hangs diagnosed and fixed; then "/loop all remaining specs" — four
 parallel implementation batches (20 items) + a session-wide adversarial review (11 verified

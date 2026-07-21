@@ -494,39 +494,39 @@ layout chess.com has, which people are very used to."
 
 #### Section F — the live position
 
-- [ ] `liveNodeId` rides the active-game flag and survives a save/load round
+- [x] `liveNodeId` rides the active-game flag and survives a save/load round
       trip: flag a game, explore, "Continue later", resume — the pointer still
       names the same node
-- [ ] Sync against the live ongoing-games endpoint pins `liveNodeId` to the
+- [x] Sync against the live ongoing-games endpoint pins `liveNodeId` to the
       tip of chess.com's move list, and re-syncing after the opponent moves
       advances it by the real plies (no user input involved)
-- [ ] Reconciliation preserves exploration: a user variation that diverges from
+- [x] Reconciliation preserves exploration: a user variation that diverges from
       chess.com's line survives as a variation, and chess.com's line ends up in
       the mainline slot
-- [ ] A game with no stored `gameUrl` gets one auto-discovered from the
+- [x] A game with no stored `gameUrl` gets one auto-discovered from the
       ongoing-games response; a game absent from that response reports "this
       game has ended — use Game finished" rather than silently keeping a stale
       pointer
-- [ ] Board is view-only strictly behind `liveNodeId`, with the inline message
+- [x] Board is view-only strictly behind `liveNodeId`, with the inline message
       and the return button; at or ahead of it, moves branch freely
-- [ ] "Back to current position" returns from arbitrary depth in one click,
+- [x] "Back to current position" returns from arbitrary depth in one click,
       including from inside a variation
-- [ ] The badge is an overlay: board pixel dimensions are identical with the
+- [x] The badge is an overlay: board pixel dimensions are identical with the
       badge showing and hidden (no reflow)
-- [ ] Chess960 round-trips: the live `hjaltth` game (`1000687368`) syncs its
+- [x] Chess960 round-trips: the live `hjaltth` game (`1000687368`) syncs its
       full move list rather than importing 0 plies
-- [ ] Advancing the pointer prunes dead branches: a variation hanging off a
+- [x] Advancing the pointer prunes dead branches: a variation hanging off a
       position before the new live node is gone after sync, one hanging off the
       live node or after it survives, and the played path is intact
-- [ ] Fair-play games render two columns (board + tabbed panel); analysis and
+- [x] Fair-play games render two columns (board + tabbed panel); analysis and
       play modes still render three
-- [ ] Moves tab shows the three-column table with per-move times; Openings tab
+- [x] Moves tab shows the three-column table with per-move times; Openings tab
       hosts the explorer; the explorer is mounted ONCE (not also hidden in the
       left column, which would double its position queries)
-- [ ] Exploration past the live node renders dimmed beneath the "exploring"
+- [x] Exploration past the live node renders dimmed beneath the "exploring"
       divider, and a row split across the boundary dims only its Black cell
-- [ ] A game set up with Black to move files its moves in the Black column
-- [ ] Sync derives `myColor` from the ongoing-games response and backfills it
+- [x] A game set up with Black to move files its moves in the Black column
+- [x] Sync derives `myColor` from the ongoing-games response and backfills it
       on records that lack it; opening the `hjaltth` game (where the user is
       Black) puts Black at the bottom with no manual flip, and Flip still works
 

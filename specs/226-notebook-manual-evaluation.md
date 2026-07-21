@@ -460,25 +460,25 @@ data is not narrowed in the meantime.
 
 ### Agent-verifiable
 
-- [ ] Assessing a node with a single keystroke stores the matching NAG and the
+- [x] Assessing a node with a single keystroke stores the matching NAG and the
       value appears in the move list
-- [ ] Backed-up value is max at the user's nodes and min at the opponent's,
+- [x] Backed-up value is max at the user's nodes and min at the opponent's,
       verified on a hand-built tree including the "9 bad, 1 brilliant" case —
       the node takes the brilliant value
-- [ ] Coverage counts examined-vs-named-candidates, and NO surface anywhere
+- [x] Coverage counts examined-vs-named-candidates, and NO surface anywhere
       exposes a legal-move list, a legal-move count, or a count of unexamined
       replies — grep-verifiable, and the phrase "fully examined" appears
       nowhere
-- [ ] Post-game review classifies each divergence as blind spot / misjudgement
+- [x] Post-game review classifies each divergence as blind spot / misjudgement
       / opponent-model error, on a fixture game with one of each
-- [ ] Exploring one more losing opponent reply LOWERS a line's backed-up value;
+- [x] Exploring one more losing opponent reply LOWERS a line's backed-up value;
       exploring one more good move for the user RAISES it — the decay property
       holds in both directions
-- [ ] Likelihood buckets normalise across assessed siblings and never alter the
+- [x] Likelihood buckets normalise across assessed siblings and never alter the
       objective ordering — an objectively worse move is never sorted above a
       better one, whatever its likelihood
-- [ ] Assessments and likelihoods survive a PGN export/import round trip
-- [ ] Display sorting changes render order only: the serialized tree, the
+- [x] Assessments and likelihoods survive a PGN export/import round trip
+- [x] Display sorting changes render order only: the serialized tree, the
       mainline, and the exported PGN are byte-identical before and after
 - [ ] The notebook store rejects a by-FEN query originating from a fair-play
       context, at the query layer, with a Rust-side refusal as the second line
@@ -489,31 +489,31 @@ data is not narrowed in the meantime.
 
 #### Section I — width and the head-to-head
 
-- [ ] Each candidate reports how many replies the user marked likely, beside
+- [x] Each candidate reports how many replies the user marked likely, beside
       its coverage — and nothing anywhere sorts on that count
-- [ ] The representative position walks most-likely at the opponent's nodes and
+- [x] The representative position walks most-likely at the opponent's nodes and
       best-assessed at the user's own, stops when the line ends, and is bounded
       against a runaway walk
-- [ ] Compare mode shows two full-size boards with the panel stepped aside;
+- [x] Compare mode shows two full-size boards with the panel stepped aside;
       leaving it restores the previous view and cursor exactly
-- [ ] A recorded preference orders objectively-tied siblings by Copeland score,
+- [x] A recorded preference orders objectively-tied siblings by Copeland score,
       and an intransitive 3-cycle (A>B, B>C, C>A) produces a stable order
       rather than one that depends on the order the comparisons were made in
-- [ ] A preference never promotes a candidate above one with a better objective
+- [x] A preference never promotes a candidate above one with a better objective
       value, whatever the reason recorded
-- [ ] Preference reason + tags survive a save/load round trip through the
+- [x] Preference reason + tags survive a save/load round trip through the
       active-games store
 
 #### Section J — the two artifacts
 
-- [ ] Archiving a finished game writes the real PGN to the spec 200 database
+- [x] Archiving a finished game writes the real PGN to the spec 200 database
       with NO notebook content: no assessment NAGs the user added, no
       likelihood tags, no preferences, no coverage. Byte-comparable with the
       PGN chess.com served.
-- [ ] The training record is written to its own store, carries a pointer to the
+- [x] The training record is written to its own store, carries a pointer to the
       archived game, and holds the candidate sets including the moves that were
       never considered
-- [ ] The training store rejects a position-indexed query originating from a
+- [x] The training store rejects a position-indexed query originating from a
       fair-play context, at the query layer, exactly as the notebook store does
       — it is the more dangerous of the two, since it holds engine verdicts
       joined to positions
