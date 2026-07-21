@@ -15,6 +15,10 @@
 // the shells (apps/desktop/lib/active-games.ts).
 
 import type { SerializedTree } from "./game-tree"
+// Type-only, so this stays a one-directional dependency like the rest of the
+// module: active-game describes the store, training-record describes what the
+// store now has to carry (spec 226 J).
+import type { DecisionRecord } from "./training-record"
 
 /** Metadata captured when a game is flagged active (spec 219 A). */
 export interface ActiveGameMeta {
@@ -145,6 +149,20 @@ export interface ActiveGameRecord {
   lastUpdated: number
   archived: boolean
   archivedAt: number | null
+  /**
+   * Decisions captured at sync time, BEFORE the spec 219 F prune runs
+   * (spec 226 J; user-reported data loss 2026-07-21).
+   *
+   * The tree alone cannot carry the training record, because pruning behind
+   * the live position deletes the candidate sets as the game advances — which
+   * is correct for the move list and fatal for the record of what the player
+   * considered. So each sync snapshots the decisions first and accumulates
+   * them here, and the archive builds the training record from this log rather
+   * than from whatever the tree still happens to hold.
+   *
+   * Optional: absent on every record written before this existed.
+   */
+  decisionLog?: DecisionRecord[]
 }
 
 /** The store file's shape (one small JSON document, spec 219 How). */

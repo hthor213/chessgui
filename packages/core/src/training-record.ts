@@ -338,6 +338,40 @@ function preferenceOf(tree: GameTree, p: Preference): PreferenceRecord {
   };
 }
 
+/**
+ * Merge freshly captured decisions into the running log, keyed by node id.
+ *
+ * WHY THIS EXISTS (user-reported 2026-07-21, data loss observed on disk).
+ *
+ * Spec 219 F prunes exploration behind the live position every time the game
+ * advances — the user asked for it and it is right, because dead lines bury
+ * the move list within a few moves. But those same branches ARE the candidate
+ * sets spec 226 H reads: the record of what the player considered before they
+ * moved. Extraction ran at archive time, by which point the prune had been
+ * deleting the evidence for days. Measured on the real painterdenny game: the
+ * board held 131 nodes / 17 assessments / 9 branch points, and the store, one
+ * sync later, held 36 / 0 / 0.
+ *
+ * So the capture moves to sync time, before the prune, and accumulates here.
+ *
+ * The merge rule matters: a capture is NEVER replaced by one naming fewer
+ * candidates. Once a node has been pruned, every later sync would re-extract
+ * it holding only the move that was played, and a naive last-write-wins would
+ * overwrite the good snapshot with that — reintroducing the same loss through
+ * the mechanism meant to prevent it.
+ */
+export function mergeDecisionLog(
+  existing: readonly DecisionRecord[],
+  captured: readonly DecisionRecord[],
+): DecisionRecord[] {
+  const byId = new Map(existing.map((d) => [d.nodeId, d]));
+  for (const d of captured) {
+    const prev = byId.get(d.nodeId);
+    if (!prev || d.candidates.length >= prev.candidates.length) byId.set(d.nodeId, d);
+  }
+  return [...byId.values()].sort((a, b) => a.ply - b.ply);
+}
+
 export interface ExtractOptions {
   id: string;
   game: ArchivedGameRef;

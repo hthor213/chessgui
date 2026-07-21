@@ -435,6 +435,32 @@ It also keeps the compliance story simple: the archived game is unremarkable and
 identical to the opponent's copy, and everything personal sits somewhere it can
 be inspected on its own terms.
 
+**Capture happens at SYNC time, before the prune — not at archive.**
+
+Spec 219 F prunes exploration behind the live position every time the game
+advances. The user asked for it and it is right: dead lines bury the move list
+within a few moves. But those branches ARE the candidate sets this record is
+made of, so extracting at archive time reads a tree the prune has been emptying
+for days.
+
+Measured on the real painterdenny game (2026-07-21), after the user asked
+whether they had ever ranked b6:
+
+| | nodes | assessments | branch points |
+|---|---|---|---|
+| board, 10:07 | 131 | 17 | 9 |
+| store, 12:14 (one sync later) | 36 | 0 | 0 |
+
+So each sync snapshots the decisions FIRST and accumulates them on the
+active-game record; the prune then runs purely for readability, and the archive
+builds the record from the log merged with whatever the tree still holds.
+
+The merge rule is load-bearing: **a capture is never replaced by one naming
+fewer candidates.** Once a node has been pruned every later sync re-extracts it
+holding only the move that was played, and last-write-wins would overwrite the
+good snapshot with that — reintroducing the loss through the very mechanism
+meant to prevent it.
+
 **The doctrine still binds it.** During a live game the training store is
 subject to the same rule as the notebooks: no position-indexed retrieval, ever
 (section G) — and it is the store most dangerous to expose, since it will hold

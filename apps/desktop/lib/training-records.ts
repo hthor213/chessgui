@@ -23,6 +23,7 @@ import { GameTree } from "@chessgui/core/game-tree"
 import { syncLiveLine } from "@chessgui/core/live-sync"
 import {
   extractTrainingRecord,
+  mergeDecisionLog,
   findTrainingRecord,
   findTrainingRecordForGame,
   parseTrainingRecordsStore,
@@ -152,7 +153,19 @@ export async function recordTrainingForArchivedGame(
     player: playerRefFrom(meta),
     liveNodeId,
   })
-  return saveTrainingRecord(extracted)
+  // Merge in everything captured at sync time (spec 226 J). The tree at
+  // archive is NOT the tree the player thought in: the spec 219 F prune has
+  // been deleting branches behind the live position for the whole game, and
+  // those branches are the candidate sets. Extracting only from what survives
+  // yields a record of the moves that were played and almost nothing about
+  // what was considered — the exact loss measured on disk 2026-07-21.
+  //
+  // Order matters: the log is the base and the fresh extraction is merged ON
+  // TOP, so a decision still standing in the tree (anything at or ahead of the
+  // live position, where nothing was ever pruned) wins if it names more
+  // candidates, while pruned decisions survive from the log.
+  const decisions = mergeDecisionLog(record.decisionLog ?? [], extracted.decisions)
+  return saveTrainingRecord({ ...extracted, decisions })
 }
 
 // ---- the doctrine gate, at the call site (spec 226 G/J) ----

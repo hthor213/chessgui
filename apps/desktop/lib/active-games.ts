@@ -39,11 +39,16 @@ import {
 } from "@chessgui/core/chesscom"
 import { archivePgnImpurity } from "@chessgui/core/annotations"
 import { GameTree } from "@chessgui/core/game-tree"
-import { syncLiveLine } from "@chessgui/core/live-sync"
+import { pruneBehindLive, syncLiveLine } from "@chessgui/core/live-sync"
 import { ensurePlayerHeaders } from "@chessgui/core/identity"
 import type { ImportReport } from "@chessgui/core/database-types"
 import { getProviders } from "@/lib/platform"
 import { importPgn } from "@/lib/database"
+import {
+  extractTrainingRecord,
+  mergeDecisionLog,
+  playerRefFrom,
+} from "@chessgui/core/training-record"
 import { recordTrainingForArchivedGame } from "@/lib/training-records"
 
 /**
@@ -357,7 +362,9 @@ export async function syncActiveGameLivePosition(
     return { status: "error", message: `chess.com returned ${game.url} with no PGN` }
   }
 
-  const synced = syncLiveLine(GameTree.fromJSON(record.tree), game.pgn)
+  // Replay WITHOUT pruning, so the candidate sets are still standing when the
+  // decisions are captured below. The prune runs afterwards, by hand.
+  const synced = syncLiveLine(GameTree.fromJSON(record.tree), game.pgn, { prune: false })
   if (synced.status === "error") return { status: "error", message: synced.message }
   // Use the tree the sync returns — it may have adopted the real game's start
   // position wholesale rather than mutating the one passed in.
@@ -370,9 +377,48 @@ export async function syncActiveGameLivePosition(
     gameUrl: record.meta.gameUrl ?? game.url,
     myColor: ongoingGameColorFor(game, username) ?? record.meta.myColor,
   }
+
+  // CAPTURE BEFORE PRUNE (spec 226 J; user-reported data loss 2026-07-21).
+  //
+  // The prune below is right for the move list and fatal for the record: it
+  // deletes exactly the branches that ARE the candidate sets — what the player
+  // considered before they moved. Extraction used to run at archive time, by
+  // which point days of it were gone. Measured on the real game: the board held
+  // 131 nodes / 17 assessments / 9 branch points; the store, one sync later,
+  // held 36 / 0 / 0.
+  //
+  // Best-effort: a capture failure must never cost the user their sync, and
+  // the tree is still on disk either way.
+  let decisionLog = record.decisionLog ?? []
+  try {
+    const snapshot = extractTrainingRecord(tree, {
+      id: record.id,
+      // Only `snapshot.decisions` is kept. The game reference is unknowable
+      // mid-game — nothing has been archived — and is filled in properly when
+      // the real record is built at archive time, so it is a placeholder here
+      // rather than a half-truth worth persisting.
+      game: {
+        databaseGameId: null,
+        gameUrl: meta.gameUrl,
+        activeGameId: record.id,
+        importSource: "",
+        archivedAt: 0,
+      },
+      player: playerRefFrom(meta),
+      liveNodeId: meta.liveNodeId,
+    })
+    decisionLog = mergeDecisionLog(decisionLog, snapshot.decisions)
+  } catch (e) {
+    console.error("[active-games] decision capture failed; the tree is unchanged:", e)
+  }
+
+  // Now the prune, purely for readability of the move list (spec 219 F).
+  const pruned = pruneBehindLive(tree, synced.report.liveNodeId)
+
   const saved = await saveActiveGame({
     ...record,
     meta,
+    decisionLog,
     tree: withActiveGameFlag(tree.toJSON(), meta),
   })
   return {
@@ -380,7 +426,7 @@ export async function syncActiveGameLivePosition(
     record: saved,
     plies: synced.report.plies,
     added: synced.report.added,
-    pruned: synced.report.pruned,
+    pruned,
     turn: game.turn ?? null,
   }
 }
