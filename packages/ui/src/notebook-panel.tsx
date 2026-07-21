@@ -32,7 +32,7 @@ import {
   assessmentGlyph,
   assessmentOf,
   coverageLabel,
-  formatValue,
+  formatPoint,
   sharpnessLabel,
   sortedChildren,
   valueWords,
@@ -41,7 +41,7 @@ import {
 import type { Assessment, NodeValue } from "@chessgui/core/notebook";
 import { moveNumberPrefix, moverIsWhite } from "@chessgui/core/game-tree";
 import type { GameTree, Likelihood, MoveNode } from "@chessgui/core/game-tree";
-import { NotebookBadge } from "@chessgui/ui/notebook-value";
+import { Confidence, NotebookBadge } from "@chessgui/ui/notebook-value";
 
 /**
  * The seven-point scale in reading order — Black-winning on the left, exactly
@@ -88,6 +88,15 @@ export interface NotebookPanelProps {
   onCompare?: (aId: string, bId: string) => void;
   /** Keyboard shortcuts only fire while the board view is frontmost. */
   active: boolean;
+  /**
+   * Whether the strip draws the candidate list itself. False on the Candidates
+   * tab, where the table below is the same list in full — printing both would
+   * be the panel and the table stating one fact twice, which is a named cause
+   * of the illegibility complaint. The strip stays mounted either way, because
+   * it owns the assessment keystrokes and they must not die when the reader
+   * changes tab.
+   */
+  showCandidates?: boolean;
   /** Bumped on every tree mutation — `tree` is a stable instance reference. */
   version?: number;
 }
@@ -151,6 +160,7 @@ export function NotebookPanel({
   onToggleSort,
   onCompare,
   active,
+  showCandidates = true,
 }: NotebookPanelProps) {
   // Latest props in refs so the document-level key handler stays stable —
   // same idiom as the annotation bar, and for the same reason: the handler
@@ -218,14 +228,28 @@ export function NotebookPanel({
   // property of the list rendered below this line, and it is only readable
   // against the coverage fraction printed next to it (spec 226 E/I).
   const sharpness = value ? sharpnessLabel(value) : "";
-  const backed = value ? formatValue(value) : "";
+  // The POINT, not the range. A range like "∓ … +−" only got that wide because
+  // few candidates had been examined, so printed next to the coverage fraction
+  // on this same line it silently restated it — "truly confusing" in the user's
+  // words (2026-07-21). One reading of the value, the words beside it are that
+  // same number read aloud, and how settled it is, is the coverage fraction and
+  // nothing else. No provisional "?" here for the same reason: the fraction is
+  // already on the line.
+  const backed = value ? formatPoint(value) : "";
   // Children ARE the candidate list: the user played every one of them.
   const candidates = sortByRank ? sortedChildren(tree, values, node.id) : node.children;
+  // A move the app handed over — clicked out of the book, or appended because
+  // it was played — is on the board and belongs on the page, but it is not one
+  // of "my candidates" and must never be ranked as one (spec 226 C, the same
+  // line `isOwnCandidate` draws for coverage and sharpness). So it leaves the
+  // ranked list entirely and gets its own group below it.
+  const mine = candidates.filter((id) => tree.get(id)?.src === undefined);
+  const supplied = candidates.filter((id) => tree.get(id)?.src !== undefined);
   // Split so a move that has actually been judged never competes for attention
   // with one the user merely named — the flat list gave them equal weight,
   // which is a large part of why it could not be read.
-  const judged = candidates.filter((id) => values.get(id)?.objective != null);
-  const unjudged = candidates.filter((id) => values.get(id)?.objective == null);
+  const judged = mine.filter((id) => values.get(id)?.objective != null);
+  const unjudged = mine.filter((id) => values.get(id)?.objective == null);
 
   return (
     <div className="flex flex-col gap-1.5 px-2 py-2 border-b border-white/10 shrink-0 text-[13px]">
@@ -317,7 +341,7 @@ export function NotebookPanel({
           we have the tree below that's feeding into the best next move").
           The list ends where the user's list ends; the app has nothing to add
           to it. */}
-      {candidates.length > 0 && (
+      {showCandidates && candidates.length > 0 && (
         <div className="flex flex-col gap-1 pt-1" data-testid="notebook-candidates">
           <div className="text-[13px] uppercase tracking-wider text-muted-foreground/80">
             Best next move — my candidates
@@ -347,25 +371,12 @@ export function NotebookPanel({
                 {/* No NAG glyph appended here: the value badge already carries
                     it, and printing both read as two different claims. */}
                 <span className="font-mono text-[15px] text-[#e8e4dd]">{child.san}</span>
-                <NotebookBadge value={cv} />
+                {/* No "?" — the confidence dots at the end of this same row are
+                    the coverage statement, and two drawings of one number is
+                    how the panel became unreadable. */}
+                <NotebookBadge value={cv} marker={false} />
                 <span className="text-[13px] text-muted-foreground truncate">
                   {words}
-                  {child.src && (
-                    // Not found at the board: clicked out of the book, or
-                    // appended by the sync because it was played. Either counts
-                    // in the backup but never as one of "my candidates"
-                    // (spec 226 C).
-                    <span
-                      className="ml-1.5 text-[13px] text-muted-foreground/60"
-                      title={
-                        child.src === "played"
-                          ? "Played in the game — not a move I named"
-                          : "From the book, not my own list"
-                      }
-                    >
-                      {child.src === "played" ? "played" : "book"}
-                    </span>
-                  )}
                   {child.lik && (
                     <span className="ml-1.5 text-[13px] text-amber-300/70">
                       he'd {LIKELIHOOD_KEYS.find((k) => k.value === child.lik)?.label} play it
@@ -447,37 +458,50 @@ export function NotebookPanel({
               })}
             </div>
           )}
+
+          {/* Below the hairline, and never under a heading that says "my":
+              these are moves the app put on the board. They still carry the
+              user's judgement and still feed the backup, but they are not the
+              user's candidates and are not ranked among them (spec 226 C). */}
+          {supplied.length > 0 && (
+            <div
+              className="flex flex-col gap-1 pt-1 mt-1 border-t border-white/10"
+              data-testid="notebook-supplied"
+            >
+              <div className="text-[13px] uppercase tracking-wider text-muted-foreground/60">
+                Also on the board — not my own list
+              </div>
+              {supplied.map((id) => {
+                const child = tree.get(id)!;
+                const cv = values.get(id);
+                return (
+                  <div
+                    key={id}
+                    onClick={() => onGoToNode(id)}
+                    data-san={child.san}
+                    data-testid="notebook-candidate-supplied"
+                    className="flex items-baseline gap-2 px-1 py-1 rounded-sm cursor-pointer hover:bg-white/5"
+                  >
+                    <span className="font-mono text-[13px] text-muted-foreground">{child.san}</span>
+                    <NotebookBadge value={cv} />
+                    <span
+                      className="text-[13px] text-muted-foreground/60"
+                      title={
+                        child.src === "played"
+                          ? "Played in the game — not a move I named"
+                          : "From the book, not my own list"
+                      }
+                    >
+                      {child.src === "played" ? "played" : "book"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * How settled a candidate is, as three dots rather than a fraction.
- *
- * The fraction it replaces ("1/7") was a second, noisier copy of what the
- * value range already said — a barely-examined branch got a range spanning
- * four bands precisely because it was barely examined, so the two numbers
- * restated each other and neither said what the player concluded (user
- * 2026-07-21). Confidence is a property you glance at; the value is the thing
- * you read.
- *
- * 13px floor on the dots: they sit beside the width label now, and anything
- * smaller was reported unreadable (user 2026-07-21).
- */
-function Confidence({ value }: { value: NodeValue | undefined }) {
-  if (!value || value.named <= 1) return <span />;
-  const filled = Math.round((value.examined / value.named) * 3);
-  return (
-    <span
-      className="font-mono text-[13px] tracking-tight text-muted-foreground/70 shrink-0"
-      title={`${value.examined} of my ${value.named} candidates examined here`}
-      data-testid="notebook-confidence"
-    >
-      {"●".repeat(filled)}
-      {"○".repeat(Math.max(0, 3 - filled))}
-    </span>
   );
 }
 

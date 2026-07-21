@@ -38,13 +38,54 @@ export function notebookBadgeVisible(v: NodeValue | undefined): boolean {
 }
 
 /**
+ * How settled a candidate is, as three dots rather than a fraction.
+ *
+ * The fraction it replaces ("1/7") was a second, noisier copy of what the
+ * value range already said — a barely-examined branch got a range spanning
+ * four bands precisely because it was barely examined, so the two numbers
+ * restated each other and neither said what the player concluded (user
+ * 2026-07-21). Confidence is a property you glance at; the value is the thing
+ * you read.
+ *
+ * Lives here rather than in the panel because the candidates table reads the
+ * same fact, and two drawings of one number is how a second visual language
+ * starts. 13px floor on the dots, like everything else the user reads mid-think.
+ */
+export function Confidence({ value }: { value: NodeValue | undefined }) {
+  if (!value || value.named <= 1) return <span />;
+  const filled = Math.round((value.examined / value.named) * 3);
+  return (
+    <span
+      className="font-mono text-[13px] tracking-tight text-muted-foreground/70 shrink-0"
+      title={`${value.examined} of my ${value.named} candidates examined here`}
+      data-testid="notebook-confidence"
+    >
+      {"●".repeat(filled)}
+      {"○".repeat(Math.max(0, 3 - filled))}
+    </span>
+  );
+}
+
+/**
  * Backed-up value + coverage, side by side and never mixed: the value is what
  * the user judged, the coverage is how much of their own candidate list it
  * rests on. Under-examined branches read as a RANGE rather than a point,
  * because the honest statement is "somewhere between these, as far as I could
  * see" (spec 226 C).
  */
-export function NotebookBadge({ value }: { value: NodeValue | undefined }) {
+export function NotebookBadge({
+  value,
+  // The "?" is a coverage statement: it is true exactly when unexamined
+  // candidates of the user's own remain, which is exactly what a fraction
+  // ("1/3") or the confidence dots beside it already say. Where one of those is
+  // on the same line, the marker is off — one drawing of one number (user
+  // 2026-07-21). The quieter colour stays either way: that is a texture, not a
+  // second symbol to parse.
+  marker = true,
+}: {
+  value: NodeValue | undefined;
+  marker?: boolean;
+}) {
   if (!notebookBadgeVisible(value)) return null;
   const v = value as NodeValue;
   const val = formatPoint(v);
@@ -66,7 +107,7 @@ export function NotebookBadge({ value }: { value: NodeValue | undefined }) {
       }
     >
       {val}
-      {provisional && <span className="ml-px opacity-70">?</span>}
+      {provisional && marker && <span className="ml-px opacity-70">?</span>}
     </span>
   );
 }

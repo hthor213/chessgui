@@ -1,5 +1,12 @@
 "use client"
 
+// The flowing move list — the annotator's view of the tree.
+//
+// `renderLine` is also what draws the variations inside the fair-play move
+// table, so this file is on the wrong side of a panel the user reads beside a
+// board: 13px floor throughout (spec 226, user 2026-07-21), held by a
+// source-level guard in notebook-ui.test.ts.
+
 import { Card } from "@chessgui/ui/ui/card"
 import { ScrollArea } from "@chessgui/ui/ui/scroll-area"
 import { formatEval, nagsToGlyphs, nodeEval, splitComment } from "@chessgui/core/annotations"
@@ -50,7 +57,7 @@ function MoveToken({
   return (
     <span className="inline-flex items-baseline">
       {label && (
-        <span className="text-xs text-muted-foreground font-mono mr-1 select-none">{label}</span>
+        <span className="text-[13px] text-muted-foreground font-mono mr-1 select-none">{label}</span>
       )}
       <span
         className={`text-sm font-mono px-1 py-px rounded-sm cursor-pointer ${
@@ -65,7 +72,7 @@ function MoveToken({
       </span>
       {evalBadge && (
         <span
-          className="text-[10px] font-mono text-[#8a8783] bg-white/5 rounded-sm px-1 mr-1 select-none"
+          className="text-[13px] font-mono text-[#8a8783] bg-white/5 rounded-sm px-1 mr-1 select-none"
           data-testid="move-eval-badge"
         >
           {evalBadge}
@@ -79,7 +86,7 @@ function MoveToken({
 function CommentSpan({ comment }: { comment: string }) {
   const { text } = splitComment(comment);
   if (!text) return null;
-  return <span className="text-xs italic text-[#8a8783] mr-1 break-words">{text}</span>;
+  return <span className="text-[13px] italic text-[#8a8783] mr-1 break-words">{text}</span>;
 }
 
 // Render one line: follow children[0], emitting each move and, after it, any
@@ -160,7 +167,7 @@ export function renderLine(
             className="my-0.5 text-[#9a9a9a] border-l border-[#3a3835]"
             style={{ paddingLeft: 8, marginLeft: depth * 6 }}
           >
-            <span className="text-xs mr-0.5 select-none">(</span>
+            <span className="text-[13px] mr-0.5 select-none">(</span>
             {renderLine(
               tree,
               varId,
@@ -171,7 +178,7 @@ export function renderLine(
               notebook,
               true,
             )}
-            <span className="text-xs ml-0.5 select-none">)</span>
+            <span className="text-[13px] ml-0.5 select-none">)</span>
           </div>,
         );
       }
@@ -194,7 +201,7 @@ export function MoveList({ tree, currentId, onGoToNode, showEvals = false }: Mov
     // squeeze the column on short windows — without it flex-1 collapses
     // to zero and the list becomes unclickable under its siblings.
     <Card className="bg-card/50 backdrop-blur-sm border-white/10 p-3 flex-1 min-h-40 overflow-hidden">
-      <span className="text-xs font-semibold text-[#bababa] mb-2 block">Moves</span>
+      <span className="text-[13px] font-semibold text-[#bababa] mb-2 block">Moves</span>
       <ScrollArea className="h-[calc(100%-28px)]">
         {!hasMoves ? (
           <span className="text-sm text-muted-foreground">Play a move to begin...</span>

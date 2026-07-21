@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { GameTree } from "@chessgui/core/game-tree";
-import { backupTree } from "@chessgui/core/notebook";
+import { backupTree, sortedChildren } from "@chessgui/core/notebook";
 import { treeToPgn } from "@chessgui/core/pgn";
 import { MoveTable } from "@chessgui/ui/move-table";
 import {
@@ -156,7 +156,13 @@ describe("notebook panel", () => {
 });
 
 describe("notebook display in the move table", () => {
-  it("shows a range, not a point, while candidates are unexamined", () => {
+  it("states the value ONCE on the header line, as a point and never as a range", () => {
+    // The rejected pair, verbatim: a range spanning four bands beside a
+    // coverage fraction that is the REASON the range is wide, with the words
+    // glossing a third number. The range only ever got wide because candidates
+    // were unexamined, so it restated the fraction — "that is truly confusing"
+    // (user 2026-07-21). The header now reads one point, its words, and the
+    // fraction that says how settled it is.
     const t = GameTree.create();
     const e4 = t.addMoveSan("e4")!;
     const e5 = t.addMoveSan("e5")!;
@@ -164,9 +170,16 @@ describe("notebook display in the move table", () => {
     t.addMoveSan("c5"); // named but unjudged: Black may yet do better
     t.setAssessment(e5, 1, "human-live", 1000);
     const html = panelHtml(t, e4);
-    expect(html).toContain("…"); // "⩲ … −+", bounded by vision, not by chess
-    const settled = panelHtml(candidateTree(), t.rootId);
-    expect(settled).not.toContain("…");
+    const backed = html.match(
+      /data-testid="notebook-backed-value"[^>]*>([^<]*)</,
+    );
+    expect(backed).not.toBeNull();
+    expect(backed![1]).not.toContain("…");
+    expect(backed![1].trim().length).toBeLessThanOrEqual(2); // one glyph
+    // Coverage still sits beside it — spec 226 C wants it prominent — and it
+    // is now the ONLY statement of how settled the value is.
+    expect(html).toContain('data-testid="notebook-coverage-label"');
+    expect(html).toContain("1 of my 2 candidates");
   });
 
   it("reorders variations without touching the tree or the PGN", () => {
@@ -213,6 +226,8 @@ describe("the notebook UI supplies no chess of its own", () => {
   const files = [
     "packages/ui/src/notebook-panel.tsx",
     "packages/ui/src/notebook-value.tsx",
+    "packages/ui/src/notebook-table.tsx",
+    "packages/core/src/notebook-table.ts",
   ];
 
   it("never generates, counts or names a move", () => {
@@ -436,12 +451,257 @@ describe("compare mode supplies no chess of its own", () => {
   });
 });
 
+// ---- The Candidates table: the "excel" reading surface ----
+
+const { NotebookTable, CANDIDATE_COLUMNS } = await import("@chessgui/ui/notebook-table");
+const { FairPlayPanel } = await import("@chessgui/ui/fair-play-panel");
+
+function candidateTableHtml(t: GameTree, nodeId: string): string {
+  const values = backupTree(t, "white");
+  return renderToStaticMarkup(
+    createElement(NotebookTable, {
+      tree: t,
+      node: t.get(nodeId)!,
+      values,
+      myColor: "white",
+      order: t.get(nodeId)!.children,
+      onGoToNode: () => {},
+    }),
+  );
+}
+
+describe("the candidates table", () => {
+  it("gives every named move one row and invents none", () => {
+    const t = candidateTree();
+    t.goTo(t.rootId);
+    t.addMoveSan("Nf3"); // named, never judged
+    const html = candidateTableHtml(t, t.rootId);
+    const rows = html.match(/data-testid="notebook-table-row(-unjudged)?"/g) ?? [];
+    expect(rows).toHaveLength(4);
+    for (const san of ["e4", "d4", "c4", "Nf3"]) expect(html).toContain(`data-san="${san}"`);
+    // Twenty first moves are legal; the table knows about the four on the board.
+    expect(html).not.toContain('data-san="a3"');
+  });
+
+  it("renders in the order it was handed — no sort of its own", () => {
+    const t = candidateTree();
+    const html = candidateTableHtml(t, t.rootId);
+    const at = (san: string) => html.indexOf(`data-san="${san}"`);
+    // c4 is the best move here and stays third, because exploration order is
+    // what came in. The reader ranks; the app does not.
+    expect(at("e4")).toBeLessThan(at("d4"));
+    expect(at("d4")).toBeLessThan(at("c4"));
+  });
+
+  it("offers a sort control on every column and marks none of them active", () => {
+    const t = candidateTree();
+    const html = candidateTableHtml(t, t.rootId);
+    for (const c of CANDIDATE_COLUMNS) {
+      expect(html).toContain(`data-testid="notebook-table-sort-${c.key}"`);
+    }
+    // No arrow on first paint: nothing is sorted until the reader says so.
+    expect(html).not.toContain("▼");
+    expect(html).not.toContain("▲");
+  });
+
+  it("gives width no control to click — it is displayed, never ranked on", () => {
+    // Spec 226 I is unconditional: width is "displayed beside coverage and
+    // never ranked on", and the Done-When is "nothing anywhere sorts on that
+    // count". A header the reader can click would still be the app building
+    // the ordering out of their own likelihood labels, so there is no header
+    // button and no key.
+    const t = widthTree();
+    const html = candidateTableHtml(t, t.rootId);
+    expect(html).toContain('data-testid="notebook-table-width-header"');
+    expect(html).not.toContain("notebook-table-sort-width");
+    expect(CANDIDATE_COLUMNS.map((c) => c.key)).not.toContain("width");
+    const src = readFileSync(path.join(ROOT, "packages/core/src/notebook-table.ts"), "utf8");
+    expect(src).not.toMatch(/case "width"/);
+  });
+
+  it("keeps a move the app supplied out of the user's ranked list", () => {
+    // A book move is on the board and carries the user's judgement, so it has
+    // a row — but it is not one of "my candidates" and can never be rendered
+    // as the user's own best next move (spec 226 C).
+    const t = candidateTree();
+    const c4 = t.root().children.find((id) => t.get(id)!.san === "c4")!;
+    t.get(c4)!.src = "database";
+    const values = backupTree(t, "white");
+    const html = renderToStaticMarkup(
+      createElement(NotebookTable, {
+        tree: t,
+        node: t.root(),
+        values,
+        myColor: "white",
+        // c4 is the best move here, so the ranking hands it in FIRST — and it
+        // still may not lead the list.
+        order: sortedChildren(t, values, t.rootId),
+        onGoToNode: () => {},
+      }),
+    );
+    const at = (san: string) => html.indexOf(`data-san="${san}"`);
+    expect(at("c4")).toBeGreaterThan(at("e4"));
+    expect(at("c4")).toBeGreaterThan(at("d4"));
+    expect(html).toContain('data-testid="notebook-table-group-2"');
+    expect(html).toContain("not my own list");
+  });
+
+  it("marks a never-judged move as the quiet kind of row", () => {
+    const t = candidateTree();
+    t.goTo(t.rootId);
+    t.addMoveSan("Nf3");
+    const html = candidateTableHtml(t, t.rootId);
+    expect(html.match(/data-testid="notebook-table-row-unjudged"/g)).toHaveLength(1);
+    // And it is the last row, whatever else is on the page.
+    expect(html.lastIndexOf('data-san="Nf3"')).toBeGreaterThan(html.lastIndexOf('data-san="c4"'));
+  });
+
+  it("reports coverage, width and source in the user's own handwriting", () => {
+    const t = widthTree();
+    const html = candidateTableHtml(t, t.rootId);
+    expect(html).toContain("2 likely"); // e4's branch width
+    expect(html).toContain("3/3"); // e4's coverage, as a fraction and once
+    // Provenance speaks only when the app put the move there. Nothing here was
+    // handed over, so the whole column stays silent rather than printing
+    // "mine" down a page whose heading already says so.
+    expect(html).not.toContain("From the book, not my own list");
+    expect(html).not.toContain(">mine<");
+  });
+
+  it("spends no column on a fact it does not have", () => {
+    // The panel is clamp(320px, 30vw, 460px). A column that only speaks on
+    // some nodes is rendered only on those nodes, because a table the reader
+    // has to scroll sideways cannot show a move and its coverage at once.
+    const t = candidateTree();
+    const html = candidateTableHtml(t, t.rootId);
+    const headers = html.match(/<th\b/g) ?? [];
+    expect(headers.length).toBeLessThanOrEqual(4);
+    // Nothing at the root carries a likelihood bucket, and no reply is marked
+    // likely, so neither column is drawn at all.
+    expect(html).not.toContain("He plays it");
+    expect(html).not.toContain("notebook-table-width-header");
+    // Every candidate here is childless, so "Mine" would print the identical
+    // glyph the value column already carries — "d4 | ⩱ | ⩱ worse".
+    expect(html).not.toContain("notebook-table-sort-mine");
+  });
+
+  it("caps what it draws even when every column has something to say", () => {
+    // The worst case on the screen: the user's own symbol disagrees with the
+    // backed-up value, replies are bucketed, replies are marked likely, and the
+    // head-to-head is on offer. Seven nowrap columns did not fit a 320px panel
+    // and scrolled sideways at every real width — the illegibility complaint
+    // arriving through a different door.
+    const t = widthTree();
+    const e4 = t.root().children[0];
+    const html = renderToStaticMarkup(
+      createElement(NotebookTable, {
+        tree: t,
+        node: t.get(e4)!,
+        values: backupTree(t, "white"),
+        myColor: "white",
+        order: t.get(e4)!.children,
+        onGoToNode: () => {},
+        onCompare: () => {},
+      }),
+    );
+    expect((html.match(/<th\b/g) ?? []).length).toBeLessThanOrEqual(6);
+  });
+
+  it("states coverage once — the fraction, not the fraction and a marker", () => {
+    // The badge's "?" is true exactly when examined < named, which is exactly
+    // what the Seen column says. Two drawings of one number is the value /
+    // coverage restatement in miniature.
+    const t = candidateTree();
+    const e4 = t.root().children[0];
+    t.goTo(e4);
+    const e5 = t.addMoveSan("e5")!;
+    t.goTo(e4);
+    t.addMoveSan("c5"); // named, unjudged — e4's value is provisional
+    t.setAssessment(e5, 0, "human-live", 1000);
+    const html = candidateTableHtml(t, t.rootId);
+    expect(html).toContain("1/2"); // the coverage story, in the Seen column
+    expect(html).not.toContain("?</span>");
+  });
+
+  it("claims no completeness it cannot support, and hints at no move", () => {
+    const t = widthTree();
+    const html = candidateTableHtml(t, t.rootId);
+    expect(html).not.toMatch(/fully\s+examined/i);
+    expect(html).not.toMatch(/legal/i);
+    expect(html).not.toMatch(/remain/i);
+    // No recommendation vocabulary anywhere on the surface.
+    expect(html).not.toMatch(/\b(best move|try |should|recommend|suggest)\b/i);
+  });
+});
+
+describe("the candidates tab in the fair-play panel", () => {
+  const panel = (notebook: boolean) => {
+    const t = candidateTree();
+    const values = backupTree(t, "white");
+    return renderToStaticMarkup(
+      createElement(FairPlayPanel, {
+        meta: null,
+        tree: t,
+        currentId: t.rootId,
+        onGoToNode: () => {},
+        livePosition: { relation: "unknown", distance: 0, canMove: false },
+        onSync: () => {},
+        onBackToLive: () => {},
+        onContinueLater: () => {},
+        onShowList: () => {},
+        onStart: () => {},
+        onBack: () => {},
+        onForward: () => {},
+        onEnd: () => {},
+        canBack: false,
+        canForward: false,
+        ...(notebook
+          ? {
+              notebookValues: values,
+              currentNode: t.root(),
+              onSetAssessment: () => {},
+              onSetLikelihood: () => {},
+            }
+          : {}),
+      }),
+    );
+  };
+
+  it("appears beside Moves and Openings only when the notebook is on", () => {
+    expect(panel(true)).toContain('data-testid="fair-play-tab-candidates"');
+    expect(panel(false)).not.toContain('data-testid="fair-play-tab-candidates"');
+  });
+
+  it("takes no space from the board — it is a tab, not a pane or an overlay", () => {
+    const src = readFileSync(path.join(ROOT, "packages/ui/src/notebook-table.tsx"), "utf8");
+    // Nothing may render over the board (user-rejected twice, 2026-07-20).
+    for (const token of ["fixed", "absolute", "z-50", "Board"]) {
+      expect(src.includes(token), `notebook-table uses ${token}`).toBe(false);
+    }
+  });
+});
+
 describe("the notebook's 13px floor", () => {
   // The panel is read at a glance mid-think, next to a board, and anything
   // smaller was reported unreadable (user 2026-07-21). It kept regressing one
   // row at a time — each new label copied the size of the one above it — so the
   // floor is asserted over the source rather than over one rendered fixture.
-  const files = ["notebook-panel", "notebook-compare", "notebook-review", "notebook-value"];
+  const files = [
+    "notebook-panel",
+    "notebook-compare",
+    "notebook-review",
+    "notebook-value",
+    "notebook-table",
+    // The panel that hosts all of the above, including the status line that
+    // was moved off the board and had to stay readable where it landed.
+    "fair-play-panel",
+    // The Moves tab and the variations it renders through renderLine — the
+    // body of the very panel the strip sits on top of, and the default tab.
+    // It was outside the list, which is exactly how the regression the guard
+    // exists to prevent survived in the place the reader looks at most.
+    "move-table",
+    "move-list",
+  ];
 
   it.each(files)("%s.tsx uses no text size below 13px", (name) => {
     const src = readFileSync(path.join(ROOT, `packages/ui/src/${name}.tsx`), "utf8");

@@ -13,6 +13,12 @@
 // node are the real game; everything after is exploration, and it is rendered
 // dimmed beneath a divider so the two can never be confused. That confusion is
 // the entire reason spec 219 F exists.
+//
+// 13px floor, like everything else in this panel (spec 226, user 2026-07-21).
+// This is the tab the notebook strip sits on top of and the one the reader
+// looks at most; the floor was raised around it first and it read as the one
+// illegible thing left in the panel. Subordinate labels — move numbers, clocks,
+// the "exploring" divider — earn their place with colour and case, never size.
 
 import { ScrollArea } from "@chessgui/ui/ui/scroll-area";
 import { nagsToGlyphs } from "@chessgui/core/annotations";
@@ -202,13 +208,13 @@ export function MoveTable({
                 data-testid="exploring-divider"
               >
                 <span className="h-px flex-1 bg-amber-800/50" />
-                <span className="text-[10px] uppercase tracking-wider text-amber-600/90">
+                <span className="text-[13px] uppercase tracking-wider text-amber-600/90">
                   exploring
                 </span>
                 <span className="h-px flex-1 bg-amber-800/50" />
               </div>
             )}
-            <span className="text-xs font-mono text-muted-foreground select-none text-right pr-1">
+            <span className="text-[13px] font-mono text-muted-foreground select-none text-right pr-1">
               {row.moveNo}.
             </span>
             <Cell
@@ -226,7 +232,7 @@ export function MoveTable({
               notebook={notebook}
             />
             {showTimes && (
-              <span className="text-[10px] font-mono text-muted-foreground/70 text-right select-none leading-tight">
+              <span className="text-[13px] font-mono text-muted-foreground/70 text-right select-none leading-tight">
                 {row.white?.clock != null && <>{formatMoveTime(row.white.clock)}</>}
                 {row.white?.clock != null && row.black?.clock != null && <br />}
                 {row.black?.clock != null && <>{formatMoveTime(row.black.clock)}</>}
@@ -240,11 +246,11 @@ export function MoveTable({
                   key={`var-${headId}`}
                   className="col-span-full my-0.5 ml-6 pl-2 border-l border-[#3a3835] text-[#9a9a9a] leading-6"
                 >
-                  <span className="text-xs mr-0.5 select-none">(</span>
+                  <span className="text-[13px] mr-0.5 select-none">(</span>
                   {/* This loop is the one placing the branches off this move,
                       so the head must not emit its siblings a second time. */}
                   {renderLine(tree, headId, currentId, onGoToNode, 1, false, notebook, true)}
-                  <span className="text-xs ml-0.5 select-none">)</span>
+                  <span className="text-[13px] ml-0.5 select-none">)</span>
                 </div>
               )),
             )}

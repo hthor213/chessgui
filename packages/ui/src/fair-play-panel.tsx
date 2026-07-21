@@ -17,6 +17,8 @@ import { useState } from "react";
 import { Card } from "@chessgui/ui/ui/card";
 import { MoveTable } from "@chessgui/ui/move-table";
 import { NotebookPanel } from "@chessgui/ui/notebook-panel";
+import { NotebookTable } from "@chessgui/ui/notebook-table";
+import { sortedChildren } from "@chessgui/core/notebook";
 import type { ActiveGameMeta, LivePositionState } from "@chessgui/core/active-game";
 import type { GameTree, Likelihood, MoveNode } from "@chessgui/core/game-tree";
 import type { Assessment, NodeValue } from "@chessgui/core/notebook";
@@ -82,7 +84,11 @@ export function syncAge(syncedAt: number | null | undefined, now: number): strin
   return `${Math.round(hours / 24)}d ago`;
 }
 
-type Tab = "moves" | "openings";
+// "candidates" is the Notebook's reading surface (spec 226): the same tree the
+// Moves tab draws, read as one table per decision instead of as branches. It is
+// a tab rather than a new pane for one reason — the board is the star and this
+// takes none of its space (user 2026-07-21).
+type Tab = "moves" | "openings" | "candidates";
 
 function NavButton({
   onClick,
@@ -182,7 +188,10 @@ export function FairPlayPanel({
       {/* One-line status. The lock glyph carries the fair-play meaning that
           used to need a whole card; the tooltip carries the detail. */}
       <div
-        className="flex items-center gap-2 px-3 py-1.5 border-b border-white/10 text-xs shrink-0"
+        // 13px floor: this line is the one that used to sit over the board and
+        // was moved here instead (user 2026-07-20). Moving it was only worth
+        // doing if it stayed readable where it landed.
+        className="flex items-center gap-2 px-3 py-1.5 border-b border-white/10 text-[13px] shrink-0"
         data-testid="fair-play-status"
       >
         <span
@@ -224,7 +233,7 @@ export function FairPlayPanel({
 
       {syncMessage && (
         <div
-          className="px-3 py-1 text-[11px] text-muted-foreground border-b border-white/10 shrink-0"
+          className="px-3 py-1 text-[13px] text-muted-foreground border-b border-white/10 shrink-0"
           data-testid="panel-sync-message"
         >
           {syncMessage}
@@ -234,7 +243,10 @@ export function FairPlayPanel({
       {/* Tabs — "Openings" keeps the explorer reachable, and it is one of the
           few aids chess.com permits in Daily play. */}
       <div className="flex border-b border-white/10 shrink-0">
-        {(["moves", "openings"] as Tab[]).map((t) => (
+        {(notebookOn
+          ? (["moves", "candidates", "openings"] as Tab[])
+          : (["moves", "openings"] as Tab[])
+        ).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -252,7 +264,7 @@ export function FairPlayPanel({
 
       {/* The notebook strip sits above the record, not over the board: the
           judgement is typed while reading the same lines it annotates. */}
-      {tab === "moves" && notebookOn && (
+      {tab !== "openings" && notebookOn && (
         <NotebookPanel
           tree={tree}
           node={currentNode as MoveNode}
@@ -266,11 +278,40 @@ export function FairPlayPanel({
           onCompare={onCompare}
           active={notebookActive}
           version={version}
+          // On the Candidates tab the table below IS the candidate list; the
+          // strip keeps the header line and the entry keys and stops drawing
+          // the list twice.
+          showCandidates={tab === "moves"}
         />
       )}
 
-      <div className="flex-1 min-h-0 overflow-hidden p-2">
-        {tab === "moves" ? (
+      <div className={`flex-1 min-h-0 overflow-hidden ${tab === "candidates" ? "" : "p-2"}`}>
+        {tab === "candidates" && notebookOn ? (
+          <NotebookTable
+            tree={tree}
+            node={currentNode as MoveNode}
+            values={notebookValues as Map<string, NodeValue>}
+            myColor={myColor ?? "white"}
+            // The baseline the table falls back to: the ranking when the strip
+            // says "as I rank", the order they explored in otherwise. The table
+            // never invents one (spec 226 F).
+            order={
+              sortByRank
+                ? sortedChildren(
+                    tree,
+                    notebookValues as Map<string, NodeValue>,
+                    (currentNode as MoveNode).id,
+                  )
+                : (currentNode as MoveNode).children
+            }
+            onGoToNode={onGoToNode}
+            // The same head-to-head entry point the strip offers, so a reader
+            // working in the table never has to change tabs to run the one
+            // comparison spec 226 I calls worth more than more assessment.
+            onCompare={onCompare}
+            version={version}
+          />
+        ) : tab === "moves" ? (
           <MoveTable
             tree={tree}
             currentId={currentId}
