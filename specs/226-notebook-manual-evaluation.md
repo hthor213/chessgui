@@ -395,6 +395,43 @@ comparison sequence. Full key order becomes:
 A preference never crosses an objective-value boundary, for the same reason
 practical chances never do.
 
+### K. No mainline past the live position (user 2026-07-21)
+
+> *"would it not be more natural to say (exploring) … that's just what I tried
+> first, not what I think is best … these are all variations"*
+
+In a game record the mainline is **what was played**. Past the live position
+nothing was played, so the mainline slot there means only *what I typed first* —
+and rendering that branch in the game's own column while its siblings get
+parenthesised states a preference the player never expressed. It is the same
+false hierarchy as the ordering problem in section I, wearing the tree's
+clothes.
+
+So the move table ENDS at the live position. Below the divider, every branch out
+of it is a peer: same indentation, no parentheses, none in the game's column.
+Nesting resumes normally INSIDE each peer, where the player really is following
+a sequence.
+
+Two arguments, and the second is the stronger one:
+
+1. **Honesty.** They are peers, so they look like peers.
+2. **Reordering.** The user's own point: peers can be re-sorted as the ranking
+   changes, the way engine lines trade places in a MultiPV readout. With a
+   privileged mainline a re-rank is a *structural* event — parentheses
+   appearing, indentation shifting, one line dropping out of the game's own
+   column and another climbing into it. *"Would be strange if the mainline
+   jumps down and something else up to mainline."* A flat peer list makes
+   ranking usable rather than jarring, which is what the ranking is for.
+
+Rejected: writing `?` in the empty mainline cell. In chess notation `?` already
+means *mistake*, so `18… ?` would read as a judgement on the move rather than
+as "undecided".
+
+Note for whoever touches this next: the previous behaviour — an in-row divider
+plus dimmed exploration cells — had NO test coverage at all, which is why a
+structural rewrite broke nothing. It has coverage now: rows stop at live, peers
+are equal, and a re-rank is a reorder rather than a promotion.
+
 ### J. Two artifacts — the game is saved pure (user 2026-07-21)
 
 > *"we need a parallel database / different table / pgn++ … that's my training

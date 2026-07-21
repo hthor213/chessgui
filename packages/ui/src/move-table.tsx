@@ -9,10 +9,12 @@
 // game-record view, good for "where are we and how long has this taken" — the
 // question a 3-days-per-move game actually raises.
 //
-// The live pointer is the organising idea. Moves up to and including the live
-// node are the real game; everything after is exploration, and it is rendered
-// dimmed beneath a divider so the two can never be confused. That confusion is
-// the entire reason spec 219 F exists.
+// The live pointer is the organising idea, and it is where the table ENDS.
+// Rows are the game: moves up to and including the live node, the ones that
+// were actually played. Past it nothing was played, so there is no mainline to
+// continue — the branches out of the live position are peers, listed below the
+// divider with none of them privileged (user 2026-07-21, "these are all
+// variations"). Confusing the two is the entire reason spec 219 F exists.
 //
 // 13px floor, like everything else in this panel (spec 226, user 2026-07-21).
 // This is the tab the notebook strip sits on top of and the one the reader
@@ -82,7 +84,7 @@ interface Row {
  * The mainline as rows, with each move's sibling variations attached to the
  * move they branch from.
  */
-export function buildRows(tree: GameTree): Row[] {
+export function buildRows(tree: GameTree, stopAfterPly?: number | null): Row[] {
   const rows: Row[] = [];
   let id: string | undefined = tree.root().children[0];
 
@@ -90,6 +92,10 @@ export function buildRows(tree: GameTree): Row[] {
     const node: MoveNode | undefined = tree.get(id);
     if (!node) break;
     const { isWhite, moveNo } = moveSlot(node);
+    // The table is the GAME. Past the live position nothing was played, so
+    // there is no mainline to continue — the rows stop and the peers below
+    // take over (spec 226, user 2026-07-21).
+    if (stopAfterPly != null && node.ply > stopAfterPly) break;
 
     let row = rows[rows.length - 1];
     if (!row || row.moveNo !== moveNo || (isWhite ? row.white : row.black)) {
@@ -168,32 +174,36 @@ export function MoveTable({
   showTimes = true,
   notebook,
 }: MoveTableProps) {
-  const rows = buildRows(tree);
-  if (rows.length === 0) {
+  const liveNode = liveNodeId ? tree.get(liveNodeId) : undefined;
+  const livePly = liveNode?.ply ?? null;
+  const rows = buildRows(tree, livePly);
+
+  /**
+   * Exploration past the live position, as PEERS — no mainline (user
+   * 2026-07-21: "these are all variations").
+   *
+   * Past the live node nothing was played, so "mainline" there means only
+   * "what I typed first", and rendering one branch in the game's own column
+   * while the rest get parenthesised states a preference the player never
+   * expressed. Two things follow from flattening it. The honest one: the
+   * branches are peers, so they look like peers. The practical one the user
+   * named: peers can be REORDERED as the ranking changes, the way engine lines
+   * trade places in a MultiPV readout, whereas a privileged mainline makes a
+   * re-rank a structural event — parentheses appearing, indentation moving,
+   * one line dropping out of the game's own column.
+   *
+   * Nesting resumes normally INSIDE each peer: there you really are following
+   * a sequence.
+   */
+  const peers = liveNode ? peerLines(tree, liveNode, notebook) : [];
+
+  if (rows.length === 0 && peers.length === 0) {
     return (
       <div className="px-2 py-3 text-sm text-muted-foreground">
         No moves yet — sync to pull the game from chess.com.
       </div>
     );
   }
-
-  // Everything with a higher ply than the live node is exploration. The live
-  // node is always on the mainline after a sync, so a ply comparison is enough
-  // and stays correct when the cursor wanders into a variation.
-  const livePly = liveNodeId ? (tree.get(liveNodeId)?.ply ?? null) : null;
-  const isExploring = (node: MoveNode | undefined): boolean =>
-    !!node && livePly != null && node.ply > livePly;
-
-  // The divider goes before the first row that is entirely exploration; a row
-  // split across the boundary (live is White's move) is handled by dimming the
-  // Black cell alone.
-  const dividerIndex =
-    livePly == null
-      ? -1
-      : rows.findIndex((r) => {
-          const cells = [r.white, r.black].filter(Boolean) as MoveNode[];
-          return cells.length > 0 && cells.every((n) => n.ply > livePly);
-        });
 
   const cols = showTimes ? "grid-cols-[2.5rem_1fr_1fr_4.5rem]" : "grid-cols-[2.5rem_1fr_1fr]";
 
@@ -202,32 +212,20 @@ export function MoveTable({
       <div className={`grid ${cols} items-center gap-x-1 gap-y-0.5 pr-2`}>
         {rows.map((row, i) => (
           <div key={row.moveNo + "-" + i} className="contents">
-            {i === dividerIndex && dividerIndex >= 0 && (
-              <div
-                className="col-span-full flex items-center gap-2 my-1 select-none"
-                data-testid="exploring-divider"
-              >
-                <span className="h-px flex-1 bg-amber-800/50" />
-                <span className="text-[13px] uppercase tracking-wider text-amber-600/90">
-                  exploring
-                </span>
-                <span className="h-px flex-1 bg-amber-800/50" />
-              </div>
-            )}
             <span className="text-[13px] font-mono text-muted-foreground select-none text-right pr-1">
               {row.moveNo}.
             </span>
             <Cell
               node={row.white}
               isCurrent={row.white?.id === currentId}
-              isExploration={isExploring(row.white)}
+              isExploration={false}
               onClick={() => row.white && onGoToNode(row.white.id)}
               notebook={notebook}
             />
             <Cell
               node={row.black}
               isCurrent={row.black?.id === currentId}
-              isExploration={isExploring(row.black)}
+              isExploration={false}
               onClick={() => row.black && onGoToNode(row.black.id)}
               notebook={notebook}
             />
@@ -257,6 +255,51 @@ export function MoveTable({
           </div>
         ))}
       </div>
+
+      {peers.length > 0 && (
+        <div data-testid="exploring-peers">
+          <div className="flex items-center gap-2 my-1 select-none" data-testid="exploring-divider">
+            <span className="h-px flex-1 bg-amber-800/50" />
+            <span className="text-[13px] uppercase tracking-wider text-amber-600/90">
+              exploring
+            </span>
+            <span className="h-px flex-1 bg-amber-800/50" />
+          </div>
+          {peers.map((headId) => (
+            <div
+              key={`peer-${headId}`}
+              data-testid="exploring-peer"
+              data-san={tree.get(headId)?.san}
+              className="flex items-start gap-1.5 px-1 py-0.5 leading-6"
+            >
+              <span className="text-[13px] text-muted-foreground/60 select-none">·</span>
+              <span className="min-w-0">
+                {/* depth 0, no parentheses: a peer is not subordinate to
+                    anything. The head owns its own siblings' rendering here,
+                    so renderLine must not emit them again. */}
+                {renderLine(tree, headId, currentId, onGoToNode, 0, false, notebook, true)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </ScrollArea>
   );
+}
+
+/**
+ * The branches out of the live position, in display order — every child of the
+ * live node, with no mainline privilege. Ordered by the notebook ranking when
+ * the reader asked for that, otherwise in the order they were explored.
+ */
+export function peerLines(
+  tree: GameTree,
+  liveNode: MoveNode,
+  notebook?: NotebookRender,
+): string[] {
+  const kids = liveNode.children;
+  if (kids.length === 0) return [];
+  return notebook?.sortByRank
+    ? sortedChildren(tree, notebook.values, liveNode.id)
+    : kids;
 }

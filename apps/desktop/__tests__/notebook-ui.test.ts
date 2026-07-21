@@ -715,3 +715,78 @@ describe("the notebook's 13px floor", () => {
     expect(src).not.toMatch(/\btext-\[[\d.]+rem\]/);
   });
 });
+
+// ---- the table ends at the live position (user 2026-07-21) ---------------
+//
+// "would it not be more natural to say (exploring) ... that's just what I
+// tried first, not what I think is best ... these are all variations".
+// Past the live node nothing was played, so a mainline there is only typing
+// order — and privileging one branch also makes re-ranking a structural event
+// instead of a reorder.
+
+describe("no mainline past the live position", () => {
+  /** Real game: 1. e4 e5. Then, from e5, three things the user tried. */
+  function liveTree() {
+    const t = GameTree.create();
+    const e4 = t.addMoveSan("e4")!;
+    const e5 = t.addMoveSan("e5")!;
+    const nf3 = t.addMoveSan("Nf3")!; // tried first
+    t.goTo(e5);
+    const bc4 = t.addMoveSan("Bc4")!;
+    t.goTo(e5);
+    const d4 = t.addMoveSan("d4")!;
+    t.setAssessment(nf3, 0, "human-live");
+    t.setAssessment(bc4, 1, "human-live"); // the best of the three
+    t.setAssessment(d4, -1, "human-live");
+    return { t, e4, e5, nf3, bc4, d4 };
+  }
+
+  function html(t: GameTree, live: string, sortByRank = false) {
+    return renderToStaticMarkup(
+      createElement(MoveTable, {
+        tree: t,
+        currentId: t.rootId,
+        onGoToNode: () => {},
+        liveNodeId: live,
+        notebook: { values: backupTree(t, "white"), sortByRank },
+      }),
+    );
+  }
+
+  it("stops the played rows at the live move", () => {
+    const { t, e5 } = liveTree();
+    const h = html(t, e5);
+    // e4 and e5 were played; Nf3 was not, so it must not hold a game cell.
+    expect(h).toContain("e4");
+    expect(h).toContain("e5");
+    expect(h.match(/data-testid="move-cell"/g) ?? []).toHaveLength(2);
+  });
+
+  it("renders every branch out of the live position as a peer", () => {
+    const { t, e5 } = liveTree();
+    const h = html(t, e5);
+    const peers = [...h.matchAll(/data-testid="exploring-peer" data-san="([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(peers.sort()).toEqual(["Bc4", "Nf3", "d4"]);
+    // None of them is subordinate: no parenthesised block wrapping a peer.
+    expect(h).toContain("exploring-divider");
+  });
+
+  it("reorders the peers when the ranking asks, with no structural change", () => {
+    const { t, e5 } = liveTree();
+    const explored = [...html(t, e5, false).matchAll(/exploring-peer" data-san="([^"]+)"/g)].map((m) => m[1]);
+    const ranked = [...html(t, e5, true).matchAll(/exploring-peer" data-san="([^"]+)"/g)].map((m) => m[1]);
+    expect(explored).toEqual(["Nf3", "Bc4", "d4"]); // the order they were tried
+    expect(ranked[0]).toBe("Bc4"); // best-judged first
+    // Same set, same shape — a re-rank is a reorder, not a promotion.
+    expect([...ranked].sort()).toEqual([...explored].sort());
+  });
+
+  it("shows no divider when nothing has been explored past live", () => {
+    const t = GameTree.create();
+    t.addMoveSan("e4");
+    const e5 = t.addMoveSan("e5")!;
+    expect(html(t, e5)).not.toContain("exploring-divider");
+  });
+});
