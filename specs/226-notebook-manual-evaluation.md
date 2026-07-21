@@ -280,6 +280,44 @@ Blind spots suggest calculation and candidate-move training; misjudgements
 suggest positional study, ideally on the specific structure; opponent-model
 errors refine that opponent's profile for the next game.
 
+#### Why the move was played — the assumption that wasn't true
+
+The classification above quietly assumed every played move came out of the
+notebook. It does not, and the user caught it from the live game (2026-07-21):
+
+> *"I made a move b6 because I gave up :-) meaning, I didn't quite understand
+> my notebook - it was a gut feel, so make a note of that so future analysis of
+> the notebook doesn't get wrong info."*
+
+Run the diagnosis over that decision and it sees "rated something else best,
+played b6" and reports a **selection error** — prescribing training for
+choosing badly. The truth is the opposite: nothing was chosen *from*, because
+the analysis was unreadable. The remedy is a UI fix, not chess study, and the
+finding would have sent the player in exactly the wrong direction while
+sounding authoritative.
+
+So `PlayedMove` carries **`chosenBy`**: `notebook` | `gut` | `forced` | `other`.
+Deliberately coarse — this gets answered mid-game, and a taxonomy nobody can be
+bothered to use records nothing.
+
+- **Only `notebook` licenses a selection-error finding.** Unrecorded counts as
+  unknown, not as `notebook` — the conservative default every other gate in
+  this feature uses. The class therefore stays dormant until provenance is
+  actually recorded, which is the right way round: never claiming a selection
+  error beats claiming one wrongly.
+- Blind spots, misjudgements and opponent-model errors are **unaffected**.
+  Those are claims about what the player saw and judged, which stay true
+  whether or not the analysis drove the move.
+- `gut` is not a failure and must never be reported as one. A strong player
+  plays on feel constantly. What it *is* is a signal about the tool: a game
+  full of `gut` at decisions where the notebook held a confident answer is the
+  app failing to be readable, and it belongs in that report rather than in the
+  player's.
+
+Known gap: nothing records `chosenBy` yet — it needs a prompt at the moment the
+real move is committed (a three-way tap, not a form). Until then the field is
+always unknown and selection errors never fire.
+
 Bounded honestly: a single game yields a handful of data points. Aggregate
 across notebooks before claiming a pattern, and label small samples as such —
 the same sample-size gate spec 225 already applies to player profiles.

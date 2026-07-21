@@ -6,7 +6,12 @@ import { describe, it, expect } from "vitest";
 import { GameTree } from "../src/game-tree";
 import type { NodeEval } from "../src/game-tree";
 import { UNRESTRICTED_ENGINE_CONTEXT, ACTIVE_GAME_CONTEXT_PREFIX } from "../src/active-game";
-import { extractTrainingRecord, type ArchivedGameRef, type TrainingRecord } from "../src/training-record";
+import {
+  extractTrainingRecord,
+  type ArchivedGameRef,
+  type MoveChoiceBasis,
+  type TrainingRecord,
+} from "../src/training-record";
 import {
   aggregateDiagnoses,
   bandDistanceCp,
@@ -56,8 +61,26 @@ function evals(pairs: Record<string, number | NodeEval>): EngineEvals {
 
 const OK = { context: UNRESTRICTED_ENGINE_CONTEXT };
 
-function diagnose(tree: GameTree, ev: EngineEvals, live?: string | null, bestMoves?: Map<string, { san: string; uci: string }>) {
-  return diagnoseGame(record(tree, live), ev, { ...OK, bestMoves });
+/** Stamp how the played move was chosen. Nothing records this yet, so the
+ *  fixtures have to say it: an unrecorded basis is UNKNOWN, and only
+ *  "notebook" licenses a selection error (spec 226 H). */
+function withChoice(r: TrainingRecord, chosenBy: MoveChoiceBasis): TrainingRecord {
+  return {
+    ...r,
+    decisions: r.decisions.map((d) =>
+      d.playedMove ? { ...d, playedMove: { ...d.playedMove, chosenBy } } : d,
+    ),
+  };
+}
+
+function diagnose(
+  tree: GameTree,
+  ev: EngineEvals,
+  live?: string | null,
+  bestMoves?: Map<string, { san: string; uci: string }>,
+  chosenBy: MoveChoiceBasis = "notebook",
+) {
+  return diagnoseGame(withChoice(record(tree, live), chosenBy), ev, { ...OK, bestMoves });
 }
 
 /** The one decision a fixture makes — every fixture below has exactly one
@@ -334,6 +357,38 @@ describe("selection error — seen, judged right, and passed over anyway", () =>
     const classes = only(g).failures.map((f) => f.class);
     expect(classes).toContain("misjudgement");
     expect(classes).not.toContain("selection-error");
+  });
+
+  it("does not fire when the move came from the gut, not the notebook", () => {
+    // The user played b6 in a real game having given up on reading their own
+    // panel (2026-07-21). Nothing was chosen FROM, so "you picked the wrong
+    // one" is a claim about an act that never happened — and it would
+    // prescribe chess study for what is a UI failure.
+    const tree = GameTree.create();
+    const root = tree.rootId;
+    const e4 = tree.addMoveSan("e4")!;
+    tree.goTo(root);
+    const d4 = tree.addMoveSan("d4")!;
+    tree.setAssessment(e4, 0, "human-live");
+    tree.setAssessment(d4, 1, "human-live");
+    const ev = evals({ [root]: 130, [e4]: 0, [d4]: 120 });
+    for (const basis of ["gut", "forced", "other"] as MoveChoiceBasis[]) {
+      const classes = only(diagnose(tree, ev, e4, undefined, basis)).failures.map((f) => f.class);
+      expect(classes, basis).not.toContain("selection-error");
+    }
+  });
+
+  it("treats an unrecorded basis as unknown, never as the notebook", () => {
+    const tree = GameTree.create();
+    const root = tree.rootId;
+    const e4 = tree.addMoveSan("e4")!;
+    tree.goTo(root);
+    const d4 = tree.addMoveSan("d4")!;
+    tree.setAssessment(e4, 0, "human-live");
+    tree.setAssessment(d4, 1, "human-live");
+    // record() leaves chosenBy undefined — the conservative default.
+    const g = diagnoseGame(record(tree, e4), evals({ [root]: 130, [e4]: 0, [d4]: 120 }), OK);
+    expect(g.decisions[0].failures.map((f) => f.class)).not.toContain("selection-error");
   });
 });
 

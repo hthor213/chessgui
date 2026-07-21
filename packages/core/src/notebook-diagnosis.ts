@@ -603,7 +603,18 @@ function diagnoseDecision(
   //
   // Judged on their CONCLUSIONS, the same values the notebook ranked on when
   // they made the choice — not on a first impression they had already revised.
-  if (decision.mine && playedId && playedLossCp !== null) {
+  //
+  // And ONLY when the notebook is what decided the move. A selection error
+  // says "you had the answer in front of you and picked something else", which
+  // is a claim about a choice made FROM the analysis. The user played b6 in a
+  // real game having given up on reading their own panel — gut feel, notebook
+  // unused (2026-07-21). Reported as a selection error that would prescribe
+  // training for choosing badly, when nothing was chosen from; the real
+  // finding is that the analysis was unreadable, which is a UI failure and not
+  // a chess one. Unrecorded provenance counts as unknown, not as "notebook":
+  // the conservative default, same as every other gate in this feature.
+  const fromNotebook = decision.playedMove?.chosenBy === "notebook";
+  if (decision.mine && playedId && playedLossCp !== null && fromNotebook) {
     const playedCandidate = own.find((c) => c.nodeId === playedId);
     const playedHuman = playedCandidate ? concluded(playedCandidate) : null;
     const better = scored

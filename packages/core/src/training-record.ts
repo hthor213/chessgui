@@ -174,7 +174,36 @@ export interface PlayedMove {
   wasAssessed: boolean;
   /** The likelihood the user had put on it, when it was an opponent reply. */
   likelihood: Likelihood | null;
+  /**
+   * How the player actually arrived at this move — NOT how the notebook says
+   * they should have (user-reported 2026-07-21).
+   *
+   * The diagnosis silently assumed every played move came out of the analysis.
+   * It does not. The user played b6 in the live game against painterdenny
+   * having given up on reading their own panel: *"I made a move b6 because I
+   * gave up — meaning, I didn't quite understand my notebook, it was a gut
+   * feel."* A pass that assumes otherwise sees "rated something else best,
+   * played b6" and reports a SELECTION ERROR — prescribing training for
+   * choosing badly, when the truth is the analysis went unused. That is the
+   * confidently-wrong answer section H exists to refuse.
+   *
+   * `undefined` means unrecorded, which must be treated as unknown rather than
+   * as "notebook" — the same conservative default the engine and doctrine
+   * gates use. Only `"notebook"` licenses a selection-error finding.
+   */
+  chosenBy?: MoveChoiceBasis;
 }
+
+/**
+ * Why a move got played. Deliberately coarse: this is answered in the middle
+ * of a game, and a taxonomy nobody can be bothered to use records nothing.
+ *
+ * - `notebook`  — the analysis decided it.
+ * - `gut`       — intuition, including "I could not read my own notes".
+ * - `forced`    — no real choice (recapture, only move, time).
+ * - `other`     — recorded as deliberate, but none of the above.
+ */
+export type MoveChoiceBasis = "notebook" | "gut" | "forced" | "other";
 
 /**
  * One decision point: a position where at least one move was on the board.
