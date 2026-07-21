@@ -43,6 +43,7 @@
 // so opening moves are scored (not dropped) and flagged as a known limitation.
 
 import { judgeMove, hasJudgmentNag, nodeEval } from "./annotations";
+import { moverIsWhite as nodeMoverIsWhite } from "./game-tree";
 import type { MoveNode, NodeEval } from "./game-tree";
 import { parseFen } from "chessops/fen";
 import { Chess } from "chessops/chess";
@@ -474,7 +475,10 @@ export function estimatePerformance(
     const pos = positionBefore(prev.fen);
     if (pos && pos.legalMoveCount === 1) continue;
 
-    const moverIsWhite = node.ply % 2 === 1;
+    // Derived from the node's FEN, not ply parity: a game set up with Black
+    // to move would otherwise swap the two players' stats AND flip the sign
+    // of every eval swing, scoring blunders as brilliancies.
+    const moverIsWhite = nodeMoverIsWhite(node);
     const acc = moverIsWhite ? white : black;
     const sign = moverIsWhite ? 1 : -1;
 

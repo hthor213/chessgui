@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import { Card } from "@chessgui/ui/ui/card";
 import { evalToUnit, formatEval, judgeMove, nodeEval, type MoveJudgment } from "@chessgui/core/annotations";
+import { moveNumberPrefix, moverIsWhite } from "@chessgui/core/game-tree"
 import type { GameTree, MoveNode } from "@chessgui/core/game-tree";
 
 interface EvalGraphProps {
@@ -66,7 +67,7 @@ export function EvalGraph({ tree, currentId, onGoToNode, version }: EvalGraphPro
         node,
         index: i + 1,
         unit: ev ? evalToUnit(ev) : null,
-        judgment: ev && before ? judgeMove(before, ev, node.ply % 2 === 1) : null,
+        judgment: ev && before ? judgeMove(before, ev, moverIsWhite(node)) : null,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,7 +129,7 @@ export function EvalGraph({ tree, currentId, onGoToNode, version }: EvalGraphPro
   const hover = hoverIdx !== null ? (points[hoverIdx - 1] ?? null) : null;
   const hoverEval = hover ? nodeEval(hover.node) : null;
   const moveLabel = (p: Point) =>
-    `${Math.ceil(p.node.ply / 2)}${p.node.ply % 2 === 1 ? "." : "..."} ${p.node.san}`;
+    `${moveNumberPrefix(p.node)} ${p.node.san}`;
 
   return (
     <Card className="bg-[#1e1c19] border-[#2a2825] p-3 shrink-0">

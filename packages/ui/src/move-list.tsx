@@ -3,6 +3,7 @@
 import { Card } from "@chessgui/ui/ui/card"
 import { ScrollArea } from "@chessgui/ui/ui/scroll-area"
 import { formatEval, nagsToGlyphs, nodeEval, splitComment } from "@chessgui/core/annotations"
+import { moveSlot } from "@chessgui/core/game-tree"
 import type { GameTree, MoveNode } from "@chessgui/core/game-tree"
 
 interface MoveListProps {
@@ -21,8 +22,9 @@ interface MoveListProps {
 }
 
 function moveNumberLabel(node: MoveNode, forceBlack: boolean): string | null {
-  const isWhite = node.ply % 2 === 1;
-  const moveNo = Math.ceil(node.ply / 2);
+  // Colour and number come from the node's FEN, not ply parity — a position
+  // set up with Black to move otherwise numbers the whole game wrong.
+  const { isWhite, moveNo } = moveSlot(node);
   if (isWhite) return `${moveNo}.`;
   if (forceBlack) return `${moveNo}...`;
   return null;

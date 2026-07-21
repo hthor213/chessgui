@@ -1,0 +1,156 @@
+// The live-position sync (spec 219 F).
+//
+// A fair-play game is an analysis board, so the tree records exploration and
+// reality in exactly the same shape — and after a ten-move idea the user
+// cannot tell which node is the actual game. The fix is to stop asking the
+// user: chess.com publishes its ongoing daily games, so this module replays
+// the real move list into the tree and pins a pointer to its tip.
+//
+// Two invariants shape the reconciliation:
+//   1. Reality outranks exploration. Chess.com's line ends up in the mainline
+//      slot at every branch point it passes through.
+//   2. Exploration is never destroyed. Lines the user played that chess.com
+//      doesn't know about survive as variations, exactly where they were.
+//
+// Pure module: it takes a GameTree and a PGN and returns a report. All I/O
+// (the fetch, the store write) lives in the shells.
+
+import { GameTree } from "./game-tree"
+import { parsePgnToTrees } from "./pgn"
+
+/**
+ * Delete every exploration branch hanging off a position STRICTLY BEFORE the
+ * live one (spec 219 F, user-reported 2026-07-20).
+ *
+ * The game has moved past those positions, so the lines exploring them can no
+ * longer be played — they are dead by construction, and left in place they
+ * bury the actual game under nested parentheses within a few moves. The real
+ * history (the path itself) is never touched; only side branches off it are,
+ * and only behind the live pointer. Everything at or after the live position —
+ * the analysis that still matters — survives untouched.
+ *
+ * Returns the number of branches removed.
+ */
+export function pruneBehindLive(tree: GameTree, liveNodeId: string): number {
+  if (!tree.get(liveNodeId)) return 0
+  const path = tree.pathToNode(liveNodeId)
+  const onPath = new Set(path.map((n) => n.id))
+  let pruned = 0
+  // The live node itself is excluded: branches AT the live position are
+  // current exploration, which is the thing this whole feature exists to let
+  // the user do.
+  for (const node of path) {
+    if (node.id === liveNodeId) continue
+    for (const childId of [...node.children]) {
+      if (onPath.has(childId)) continue
+      if (tree.deleteVariation(childId)) pruned++
+    }
+  }
+  return pruned
+}
+
+export interface LiveSyncReport {
+  /** Tip of chess.com's move list — the new live pointer. */
+  liveNodeId: string
+  /** Plies in the real game. */
+  plies: number
+  /** Plies that were not yet in the tree (i.e. moves played since last sync). */
+  added: number
+  /** Branch points where the real line had to be promoted over a user
+   *  variation — the "I explored this and it turned out to be the game" case. */
+  promoted: number
+  /** Dead exploration branches removed from behind the live position. */
+  pruned: number
+  /** True when the real game replaced an empty board wholesale rather than
+   *  being replayed into it (different start position / variant). */
+  adopted: boolean
+}
+
+export type LiveSyncResult =
+  /** `tree` is the reconciled tree — usually the one passed in, mutated in
+   *  place, but a fresh one when the board had to be adopted wholesale (see
+   *  `adopted`). Callers must persist THIS tree, not their original handle. */
+  | { status: "ok"; tree: GameTree; report: LiveSyncReport }
+  /** The PGN had no playable moves, or diverged from this tree's start
+   *  position. The caller must leave the existing pointer alone — a wrong
+   *  pointer is worse than a stale one. */
+  | { status: "error"; message: string }
+
+/**
+ * Replay the real game's moves into `tree`, promoting them to the mainline as
+ * it goes, and report the node that now holds the live position.
+ *
+ * When the board is still empty (no moves played) the real game is adopted
+ * wholesale instead — start position, variant and all. That covers the case
+ * that would otherwise fail on the very first sync: a game flagged from the
+ * standard start while the real game is Chess960, where replaying move 1 into
+ * the wrong position cannot work. Nothing is lost, because there was nothing
+ * on the board to lose.
+ *
+ * The cursor is left ON the live node — which is where the user wants to be
+ * after a sync; it's the whole point of the button.
+ */
+export function syncLiveLine(tree: GameTree, pgn: string): LiveSyncResult {
+  const parsed = parsePgnToTrees(pgn)
+  if (parsed.length === 0) {
+    return { status: "error", message: "could not parse the game chess.com returned" }
+  }
+  const real = parsed[0]
+  const sans = real.mainlineNodes().slice(1).map((n) => n.san)
+  if (sans.length === 0) {
+    return { status: "error", message: "chess.com returned a game with no moves" }
+  }
+
+  // Empty board, different start position → adopt the real game outright.
+  if (tree.root().children.length === 0 && real.startFen !== tree.startFen) {
+    real.activeGame = tree.activeGame
+    real.goToEnd()
+    return {
+      status: "ok",
+      tree: real,
+      report: {
+        liveNodeId: real.currentId,
+        plies: sans.length,
+        added: sans.length,
+        promoted: 0,
+        pruned: 0,
+        adopted: true,
+      },
+    }
+  }
+
+  tree.goToStart()
+  let liveNodeId = tree.currentId
+  let added = 0
+  let promoted = 0
+
+  for (const [i, san] of sans.entries()) {
+    // Capture the parent before the move: addMoveSan advances the cursor, so
+    // "did this create a node?" has to be asked of the node we moved FROM.
+    const parentId = tree.currentId
+    const before = tree.currentNode().children.length
+    const id = tree.addMoveSan(san)
+    if (!id) {
+      return {
+        status: "error",
+        message: `chess.com's game diverges from this board at move ${
+          Math.floor(i / 2) + 1
+        } (${san}) — the flagged position may not match the real game`,
+      }
+    }
+    if (tree.get(parentId)!.children.length > before) added++
+    if (tree.promoteToMainline(id)) promoted++
+    liveNodeId = id
+  }
+
+  // Committed moves make their alternatives unplayable — clear them out so
+  // the move list keeps showing the game rather than a museum of dead ideas.
+  const pruned = pruneBehindLive(tree, liveNodeId)
+  tree.goTo(liveNodeId)
+
+  return {
+    status: "ok",
+    tree,
+    report: { liveNodeId, plies: sans.length, added, promoted, pruned, adopted: false },
+  }
+}

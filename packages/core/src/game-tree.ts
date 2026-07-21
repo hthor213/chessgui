@@ -11,7 +11,14 @@ import { FILE_NAMES, isNormal, SquareSet, squareFile } from "chessops";
 import type { NormalMove, Setup } from "chessops";
 import { makeEngineUci, parseEngineUci } from "./uci-parser";
 import { castlingFieldHasFileLetters } from "./fen";
-import type { ActiveGameMeta } from "./active-game";
+// Value import is safe: active-game.ts only imports TYPES from this module,
+// so the runtime dependency is one-directional (no cycle).
+import { livePositionCanMove } from "./active-game";
+import type {
+  ActiveGameMeta,
+  LivePositionRelation,
+  LivePositionState,
+} from "./active-game";
 
 export const INITIAL_FEN =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -108,6 +115,47 @@ export interface SerializedTree {
 export type GameSnapshot = SerializedTree;
 
 // ---- square / uci helpers (shared with the hook) ----
+
+// ---- who played a move, and under what number ----
+//
+// `node.ply` counts half-moves from the start of the TREE, so parity only
+// identifies the mover when the tree starts with White to move. Any game set
+// up from an arbitrary position breaks that: a position entered with Black on
+// move (spec 014's editor — a fair-play game joined mid-stream, or a position
+// copied off a broadcast) files every move under the wrong colour.
+//
+// That was cosmetic in the move list and NOT cosmetic anywhere the mover's
+// colour sets the sign of an evaluation: judgeMove's ?!/?/?? annotations and
+// the per-game performance Elo both inverted, scoring blunders as brilliancies
+// (found 2026-07-20 while building the fair-play move table).
+//
+// The node's own FEN settles both questions exactly, so derive from it.
+
+/** Whether White played the move that produced this node. */
+export function moverIsWhite(node: MoveNode): boolean {
+  // node.fen is the position AFTER the move, so it is the OTHER side's turn.
+  return node.fen.split(" ")[1] === "b";
+}
+
+/** The mover's colour and the move number this move belongs to. */
+export function moveSlot(node: MoveNode): { isWhite: boolean; moveNo: number } {
+  const parts = node.fen.split(" ");
+  const isWhite = parts[1] === "b";
+  const fullmove = Number(parts[5]);
+  if (!Number.isFinite(fullmove)) {
+    // Malformed FEN — fall back to ply arithmetic rather than throwing.
+    return { isWhite, moveNo: Math.ceil(node.ply / 2) };
+  }
+  // White just moved → the counter has not ticked yet. Black just moved → it
+  // has, so this move belongs to the number before it.
+  return { isWhite, moveNo: isWhite ? fullmove : fullmove - 1 };
+}
+
+/** "12." for White, "12..." for Black — the PGN-style prefix for a move. */
+export function moveNumberPrefix(node: MoveNode): string {
+  const { isWhite, moveNo } = moveSlot(node);
+  return `${moveNo}${isWhite ? "." : "..."}`;
+}
 
 export function squareToKey(square: number): string {
   const file = String.fromCharCode(97 + (square & 7));
@@ -302,6 +350,47 @@ export class GameTree {
   }
 
   /**
+   * Where a node sits relative to the live position (spec 219 F). Used to
+   * decide whether the board accepts moves and what the live badge says.
+   * `fromId` defaults to the cursor.
+   */
+  livePositionState(
+    liveId: string | null | undefined,
+    fromId: string = this.currentId,
+  ): LivePositionState {
+    const unknown: LivePositionState = { relation: "unknown", distance: 0, canMove: true };
+    if (!liveId || !this.nodes.has(liveId) || !this.nodes.has(fromId)) return unknown;
+
+    const settle = (relation: LivePositionRelation, distance: number): LivePositionState => ({
+      relation,
+      distance,
+      canMove: livePositionCanMove(relation),
+    });
+    if (fromId === liveId) return settle("live", 0);
+
+    const live = this.nodes.get(liveId)!;
+    const from = this.nodes.get(fromId)!;
+
+    // Ancestors of the cursor: if the live node is among them, the cursor is
+    // exploring forward from reality — the permitted case.
+    const cursorAncestors = new Set(this.pathToNode(fromId).map((n) => n.id));
+    if (cursorAncestors.has(liveId)) return settle("ahead", from.ply - live.ply);
+
+    // Otherwise the cursor is behind the live node (a strict ancestor of it)
+    // or off on a line that left before it. Both are non-branchable; the
+    // distinction only changes the wording shown to the user.
+    const livePath = this.pathToNode(liveId);
+    if (livePath.some((n) => n.id === fromId)) return settle("behind", live.ply - from.ply);
+
+    let divergePly = 0;
+    for (const node of livePath) {
+      if (cursorAncestors.has(node.id)) divergePly = node.ply;
+      else break;
+    }
+    return settle("off-branch", from.ply - divergePly);
+  }
+
+  /**
    * The full line through the current node: the moves played to reach it,
    * followed by its mainline continuation. Excludes the root. This is the
    * flat-array view the UI and engine consume.
@@ -463,6 +552,25 @@ export class GameTree {
     const move = parseEngineUci(chess, uci);
     if (!move || !isNormal(move)) return null;
     return this.addMove(move);
+  }
+
+  /**
+   * Make `id` its parent's mainline continuation outright (slot 0), keeping
+   * the displaced siblings in order behind it. Unlike `promoteVariation`,
+   * which walks a deep sideline up one level per call, this is a single
+   * decisive move at one branch point — what the chess.com sync needs when
+   * reality turns out to be the line the user had left as a variation
+   * (spec 219 F). No-op at the root or when already mainline.
+   */
+  promoteToMainline(id: string): boolean {
+    const node = this.nodes.get(id);
+    if (!node?.parent) return false;
+    const parent = this.nodes.get(node.parent)!;
+    const idx = parent.children.indexOf(id);
+    if (idx <= 0) return false;
+    parent.children.splice(idx, 1);
+    parent.children.unshift(id);
+    return true;
   }
 
   /**

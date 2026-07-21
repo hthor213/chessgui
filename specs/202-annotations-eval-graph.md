@@ -112,6 +112,30 @@ Review, which the user finds natural):
   moves), ACPL→band mapping as fallback. Displayed in the notebook next to
   each player.
 
+## Correctness note: who made the move (2026-07-20)
+
+Everything that judges a move — `judgeMove`'s ?!/?/?? annotations, the eval
+graph's key-move markers, and the per-game performance Elo — needs the mover's
+colour, because it sets the SIGN of the evaluation swing. That colour was being
+derived as `node.ply % 2 === 1`.
+
+`ply` counts half-moves from the start of the TREE, so the parity is only right
+when the tree starts with White to move. Any position set up mid-game with
+Black on move — a broadcast position entered to analyze, or a fair-play game
+joined mid-stream (spec 219) — inverted it: the two players' statistics were
+swapped and every eval drop changed sign, so **blunders scored as
+brilliancies**. Found while building the spec 219 F move table, where the same
+assumption filed Black's moves in the White column.
+
+Fixed by deriving from each node's own FEN (`moverIsWhite` / `moveSlot` in
+`core/game-tree.ts`): the position after the move states whose turn is next,
+and the fullmove counter gives the real move number — so a position set up
+after 9 moves numbers from 9 rather than restarting at 1.
+
+Not changed: the arena, repertoire and calibration paths also use ply parity,
+but those always begin from the standard start position, where it is correct.
+If any of them ever accepts a custom start position, it needs this helper too.
+
 ## Done When
 
 > Status 2026-07-13: annotation UI + eval graph implemented (`lib/annotations.ts`,

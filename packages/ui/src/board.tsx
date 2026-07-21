@@ -40,6 +40,17 @@ interface BoardProps {
    * gutters so the board reclaims the space.
    */
   coordinates?: boolean;
+  /**
+   * Extra pixels held back from the board's height.
+   *
+   * The legacy 48 exists because the three-column layout's control rows are
+   * siblings of the board slot inside a `gap-6` flex column, and the slot's
+   * `flex-1` share rounds up enough to clip them on short windows. Where the
+   * siblings are few and the gap is tight — the fair-play layout (spec 219 F)
+   * — that reserve is pure double-counting, and the board is the point of the
+   * screen, so it passes 0.
+   */
+  reserveBelow?: number;
   children?: React.ReactNode;
 }
 
@@ -49,7 +60,7 @@ const COORD_GUTTER = 26;
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, coordinates = true, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, coordinates = true, reserveBelow = 48, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
@@ -88,12 +99,12 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
 
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
-      // Use the smaller of container width/height, leave room for controls
-      // below and for the coordinate gutters on the left/bottom. Below lg
-      // (spec 223 stacked layout) the board slot is already viewport-capped
-      // and the controls live outside it, so the 48px reserve would only
-      // shrink the board — skip it there.
-      const reserve = window.matchMedia("(min-width: 1024px)").matches ? 48 : 0;
+      // Use the smaller of container width/height, less `reserveBelow` and the
+      // coordinate gutters on the left/bottom. Below lg (spec 223 stacked
+      // layout) the board slot is already viewport-capped and the controls
+      // live outside it, so the reserve would only shrink the board — skip it
+      // there.
+      const reserve = window.matchMedia("(min-width: 1024px)").matches ? reserveBelow : 0;
       const size = Math.min(rect.width - gutter, rect.height - reserve - gutter);
       const snapped = Math.max(160, Math.floor(size / 8) * 8);
       setBoardSize(snapped);
@@ -111,7 +122,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
       ro.disconnect();
       mq.removeEventListener("change", updateSize);
     };
-  }, [gutter]);
+  }, [gutter, reserveBelow]);
 
   useEffect(() => {
     if (!boardRef.current) return;

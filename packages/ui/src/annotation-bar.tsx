@@ -11,6 +11,7 @@ import {
   splitComment,
   joinComment,
 } from "@chessgui/core/annotations";
+import { moveNumberPrefix } from "@chessgui/core/game-tree"
 import type { MoveNode } from "@chessgui/core/game-tree";
 
 interface AnnotationBarProps {
@@ -148,7 +149,7 @@ export function AnnotationBar({ node, onSetNags, onSetComment, active, showNags 
   return (
     <Card className="bg-[#1e1c19] border-[#2a2825] p-3 shrink-0 flex flex-col gap-2">
       <span className="text-xs font-semibold text-[#bababa]">
-        Annotate{isRoot ? "" : ` — ${Math.ceil(node.ply / 2)}${node.ply % 2 === 1 ? "." : "..."} ${node.san}`}
+        Annotate{isRoot ? "" : ` — ${moveNumberPrefix(node)} ${node.san}`}
       </span>
       {/* Move quality is the engine's call (spec 202): the NAG toolbar shows
           only at a key move, letting the human override the engine's mark. */}

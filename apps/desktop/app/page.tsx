@@ -42,6 +42,7 @@ import { TrainingTab } from "@chessgui/ui/training-tab"
 import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
 import { RepertoireTab } from "@chessgui/ui/repertoire-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
+import { moverIsWhite } from "@chessgui/core/game-tree"
 import type { GameTree } from "@chessgui/core/game-tree"
 import { isNamedPlayer, matchMyColor } from "@chessgui/core/identity"
 import { loadIdentityNames, saveIdentityNames } from "@/lib/identity"
@@ -58,7 +59,9 @@ import {
   saveActiveGame,
   saveDefaultChesscomUsername,
   setActiveGameMyColor,
+  syncActiveGameLivePosition,
 } from "@/lib/active-games"
+import { FairPlayPanel } from "@chessgui/ui/fair-play-panel"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine, type PlayerColor } from "@/hooks/use-engine"
 import { useGameAnalysis } from "@/hooks/use-game-analysis"
@@ -273,7 +276,7 @@ export default function Home() {
     if (hasJudgmentNag(node.nags)) return true
     const after = nodeEval(node)
     const before = nodeEval(game.tree.get(node.parent) ?? { comment: "" })
-    return !!(after && before && judgeMove(before, after, node.ply % 2 === 1))
+    return !!(after && before && judgeMove(before, after, moverIsWhite(node)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.currentNode, game.tree, game.treeVersion, game.currentNodeId, engine.engineLocked])
 
@@ -421,6 +424,14 @@ export default function Home() {
   // Bumped after out-of-panel store writes (flagging, "Continue later") so
   // the active-games list re-reads the store.
   const [activeGamesNonce, setActiveGamesNonce] = useState(0)
+  // Live-position sync status (spec 219 F) — pending spinner + last outcome.
+  const [liveSync, setLiveSync] = useState<{ pending: boolean; message: string | null }>({
+    pending: false,
+    message: null,
+  })
+  // Bumped by Resume to trigger one sync AFTER the restored snapshot has
+  // landed — syncing inline would close over the previous game's flag.
+  const [resumeSyncNonce, setResumeSyncNonce] = useState(0)
 
   // Header bell badge (spec 001 §2): the one thing this app has to notify
   // about is unfinished chess.com daily games — count the unarchived records.
@@ -460,6 +471,91 @@ export default function Home() {
     [game.loadFen, game.setActiveGame, game.getSnapshot, game.setOrientation],
   )
 
+  // Live-position sync (spec 219 F). Builds the record from the CURRENT board
+  // — the user may have explored since the last store write — hands it to the
+  // sync (which persists), then restores the reconciled tree. Failure is
+  // reported and otherwise ignored: the old pointer stays, because a wrong
+  // live position is worse than a stale one.
+  const handleSyncLive = useCallback(
+    async () => {
+      const meta = game.activeGame
+      if (!meta) return
+      setLiveSync({ pending: true, message: null })
+      try {
+        const record = newActiveGameRecord(
+          activeGameIdFor(meta),
+          game.getSnapshot(),
+          meta,
+        )
+        const res = await syncActiveGameLivePosition(record)
+        if (res.status === "synced") {
+          game.restoreSnapshot(res.record.tree)
+          if (res.record.meta.myColor) game.setOrientation(res.record.meta.myColor)
+          setActiveGamesNonce((n) => n + 1)
+          const bits: string[] = []
+          if (res.added > 0) bits.push(`+${res.added} new move${res.added === 1 ? "" : "s"}`)
+          if (res.pruned > 0)
+            bits.push(`cleared ${res.pruned} dead line${res.pruned === 1 ? "" : "s"}`)
+          setLiveSync({
+            pending: false,
+            message: bits.length ? `Synced — ${bits.join(", ")}` : "Synced — up to date",
+          })
+        } else if (res.status === "ended") {
+          setLiveSync({
+            pending: false,
+            message: "This game is no longer in progress — use “Game finished”.",
+          })
+        } else if (res.status === "ambiguous") {
+          setLiveSync({
+            pending: false,
+            message: `Couldn't tell which of your ${res.candidates.length} ongoing games this is — set the game URL.`,
+          })
+        } else {
+          setLiveSync({ pending: false, message: `Sync failed: ${res.message}` })
+        }
+      } catch (e) {
+        setLiveSync({
+          pending: false,
+          message: `Sync failed: ${e instanceof Error ? e.message : String(e)}`,
+        })
+      }
+    },
+    [game.activeGame, game.getSnapshot, game.restoreSnapshot, game.setOrientation],
+  )
+
+  // Whose move it is AT the live position — read off that node's FEN rather
+  // than trusting the sync response, so it stays right after the user plays
+  // on chess.com and re-syncs (spec 219 F).
+  const liveTurn = useMemo<"white" | "black" | null>(() => {
+    const id = game.activeGame?.liveNodeId
+    if (!id) return null
+    const node = game.tree.get(id)
+    if (!node) return null
+    return node.fen.split(" ")[1] === "b" ? "black" : "white"
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.activeGame?.liveNodeId, game.treeVersion])
+
+  useEffect(() => {
+    if (resumeSyncNonce === 0) return
+    void handleSyncLive()
+    // handleSyncLive is intentionally not a dep: this fires once per Resume,
+    // not whenever the callback identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeSyncNonce])
+
+  // Sync once on launch when the restored game is a fair-play game (spec 219
+  // F "on open"). Resume is NOT the only way in — reopening the app with the
+  // game already on the board is the common case, and without this it would
+  // show a stale pointer and an unpruned move list.
+  const launchSyncedRef = useRef(false)
+  useEffect(() => {
+    if (!game.hydrated || launchSyncedRef.current) return
+    if (!game.activeGame) return
+    launchSyncedRef.current = true
+    void handleSyncLive()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.hydrated, game.activeGame])
+
   // "Continue later" (spec 219 C): save tree + metadata to the store, clear
   // the board, and land on the list so the save is visible.
   const handleContinueLater = useCallback(() => {
@@ -481,9 +577,14 @@ export default function Home() {
     (record: ActiveGameRecord) => {
       game.restoreSnapshot(record.tree)
       // Orient the board to the user's side (spec 219) — their pieces at the
-      // bottom, matching how they see the game on chess.com.
+      // bottom, matching how they see the game on chess.com. The sync below
+      // settles myColor authoritatively for games that never had it set.
       if (record.meta.myColor) game.setOrientation(record.meta.myColor)
       setView("board")
+      // Refresh the live position on resume (spec 219 F): the opponent has
+      // very likely moved since this game was last open, and the whole point
+      // is that the user never has to work out where the game stands.
+      setResumeSyncNonce((n) => n + 1)
     },
     [game.restoreSnapshot, game.setOrientation],
   )
@@ -584,6 +685,12 @@ export default function Home() {
   }
   const topCard = playerCardModel({ ...cardInput, color: topColor })
   const bottomCard = playerCardModel({ ...cardInput, color: bottomColor })
+
+  // Fair-play games get chess.com's Daily shape: board + one tabbed panel
+  // (spec 219 F). Affordable only here — the third column of the normal
+  // layout carries the eval bar, analysis panel and eval graph, every one of
+  // which the lockout hides anyway. Analysis and play modes are untouched.
+  const fairPlayLayout = engine.engineLocked
 
   // PV preview (spec 011): clicking a move in an engine line shows the line
   // on the board up to that ply — a read-only overlay, never a tree mutation.
@@ -1381,12 +1488,21 @@ export default function Home() {
             Side columns scroll internally instead; their widths breathe with
             the window between a min and max (clamp), per user request. */}
         <main
-          className="flex-1 grid grid-cols-1 lg:grid-cols-[clamp(240px,22vw,320px)_minmax(0,1fr)_clamp(280px,26vw,384px)] lg:grid-rows-[minmax(0,1fr)] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible overflow-x-hidden lg:overflow-x-visible"
+          className={`flex-1 grid grid-cols-1 ${
+            fairPlayLayout
+              ? "lg:grid-cols-[minmax(0,1fr)_clamp(320px,30vw,460px)]"
+              : "lg:grid-cols-[clamp(240px,22vw,320px)_minmax(0,1fr)_clamp(280px,26vw,384px)]"
+          } lg:grid-rows-[minmax(0,1fr)] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible overflow-x-hidden lg:overflow-x-visible`}
           style={view !== "board" || liveViewing ? { display: "none" } : undefined}
         >
           {/* Left column: Player Panel. min-h-0 + internal scroll on lg so
-              the tall notebook never stretches the pinned grid row. */}
-          <div className="flex flex-col gap-6 order-2 lg:order-none lg:min-h-0 lg:overflow-y-auto">
+              the tall notebook never stretches the pinned grid row. Hidden
+              wholesale in the fair-play layout, whose panel carries the moves
+              and whose player strips sit against the board (spec 219 F). */}
+          <div
+            className="flex flex-col gap-6 order-2 lg:order-none lg:min-h-0 lg:overflow-y-auto"
+            style={fairPlayLayout ? { display: "none" } : undefined}
+          >
             {/* Accordion header, stacked mode only. The section wrapper is
                 lg:contents, so at lg+ the cards are direct flex children of
                 the column — byte-identical to the pre-mobile layout. */}
@@ -1571,14 +1687,30 @@ export default function Home() {
             {/* Opening explorer (spec 200): book-class data, no engine — so it
                 belongs in the notebook (fair-play legal, stays up under the
                 spec 219 lockout), pinned at the bottom. Analyze mode only. */}
-            {!isPlayMode && (
+            {/* Not in the fair-play layout — there it lives in the panel's
+                "Openings" tab, and mounting it twice would double every
+                position query it makes. */}
+            {!isPlayMode && !fairPlayLayout && (
               <OpeningExplorerPanel currentFen={game.fen} onPlayMove={game.playUciMove} />
             )}
             </div>
           </div>
 
-          {/* Center column: Board */}
-          <div className="flex flex-col items-center gap-6 min-h-0 overflow-hidden order-1 lg:order-none">
+          {/* Center column: Board. In the fair-play layout the gap tightens and
+              the duplicated nav/status rows are gone (the panel owns them), so
+              the board gets that height back — it is the point of the screen
+              (user 2026-07-20: "the chessboard should be the star"). */}
+          <div
+            className={`flex flex-col items-center ${
+              fairPlayLayout ? "gap-2" : "gap-6"
+            } min-h-0 overflow-hidden order-1 lg:order-none`}
+          >
+            {/* Fair-play layout: opponent's strip sits against the top edge of
+                the board, chess.com-style, since there's no left column to
+                hold a player card (spec 219 F). */}
+            {fairPlayLayout && (
+              <PlayerStrip card={topCard} material={material} color={topColor} testId="strip-top" />
+            )}
             {/* Stacked mode gives the board slot a real height (it is
                 content-driven in a single grid column); square-capped by
                 viewport width so nothing scrolls sideways at 375px. */}
@@ -1588,7 +1720,10 @@ export default function Home() {
                 orientation={game.orientation}
                 movableColor={isPlayMode ? playerColor : "both"}
                 onMove={game.onMove}
-                viewOnly={!!previewStep}
+                // Spec 219 F: behind (or off to the side of) the live position
+                // the board is look-only — the hook refuses the move anyway,
+                // this stops the pieces inviting one.
+                viewOnly={!!previewStep || !game.livePosition.canMove}
                 // Premove while the engine thinks (spec 001) — play mode only
                 // (analysis moves both sides, so there's never a queued turn),
                 // and never once the game is over on time.
@@ -1603,6 +1738,11 @@ export default function Home() {
                 lastMove={previewStep ? (previewStep.lastMove as [Key, Key]) : game.lastMove}
                 onBoardSize={setBoardSize}
                 coordinates={engine.settings.showCoordinates}
+                // Fair play: nav and status moved into the panel, so the only
+                // sibling left below is the control bar, which the flex column
+                // already accounts for. Holding back another 48px just shrank
+                // the board (spec 219 F).
+                reserveBelow={fairPlayLayout ? 0 : 48}
                 autoShapes={previewStep ? [] : boardAutoShapes}
                 userShapes={previewStep ? [] : userShapes}
                 onShapesChange={handleShapesChange}
@@ -1616,8 +1756,22 @@ export default function Home() {
                     onCancel={game.cancelPromotion}
                   />
                 )}
+                {/* Nothing of the live-position UI renders over the board.
+                    Both earlier attempts — the status pill, then the replay
+                    bar — covered pieces to repeat what the panel's header
+                    already says (user 2026-07-20). The panel states the mode
+                    and its foot holds ▶ and ⟲ Current. */}
               </Board>
             </div>
+
+            {fairPlayLayout && (
+              <PlayerStrip
+                card={bottomCard}
+                material={material}
+                color={bottomColor}
+                testId="strip-bottom"
+              />
+            )}
 
             {/* Post-game handoff (spec 011): the engine game ended — on the
                 board or on time — one click flips into analysis with the
@@ -1694,8 +1848,14 @@ export default function Home() {
             {/* Move-navigation bar (spec 202): visible start / back / forward /
                 end, plus "Next" = jump to the next key move (the next mainline
                 move the analysis pass flagged). All wired to the same
-                goToMove / goToNode the keyboard handler uses. */}
-            <div className="flex items-center gap-1.5 justify-center" data-testid="nav-bar">
+                goToMove / goToNode the keyboard handler uses.
+                Hidden in the fair-play layout — the panel's foot carries the
+                same buttons, and two copies just stole board height. */}
+            <div
+              className="flex items-center gap-1.5 justify-center"
+              data-testid="nav-bar"
+              style={fairPlayLayout ? { display: "none" } : undefined}
+            >
               <NavBtn
                 onClick={() => game.goToMove(-1)}
                 disabled={game.currentMoveIndex < 0}
@@ -1728,7 +1888,46 @@ export default function Home() {
                 testId="next-key-move"
                 wide
               />
+              {/* Fair-play live position (spec 219 F). Deliberately inside the
+                  existing nav row: a new row beneath the board would shrink
+                  it. Sync shows for any fair-play game — including one that
+                  has never synced, which is precisely when it's needed most.
+                  "Current" needs a pointer to return to. */}
+              {game.activeGame && (
+                <>
+                  {game.livePosition.relation !== "unknown" && (
+                    <NavBtn
+                      onClick={() => game.goToLive()}
+                      disabled={game.livePosition.relation === "live"}
+                      title="Back to the real game position — however deep you've explored"
+                      label="⟲ Current"
+                      testId="back-to-live"
+                      wide
+                    />
+                  )}
+                  <NavBtn
+                    onClick={() => void handleSyncLive()}
+                    disabled={liveSync.pending}
+                    title="Check chess.com for the opponent's move"
+                    label={liveSync.pending ? "⟳ …" : "⟳ Sync"}
+                    testId="sync-live"
+                    wide
+                  />
+                </>
+              )}
             </div>
+
+            {/* Sync outcome — a one-line status, only while there is one to
+                report. Not in the fair-play layout: the panel header shows it
+                there, and a second copy under the board cost board height. */}
+            {liveSync.message && game.activeGame && !fairPlayLayout && (
+              <div
+                className="px-3 py-1 rounded-md bg-muted/50 border border-border text-xs text-muted-foreground"
+                data-testid="live-sync-status"
+              >
+                {liveSync.message}
+              </div>
+            )}
 
             {/* Control bar (spec 001 §4): ghost Buttons under the board.
                 Wraps below lg so nine buttons never force sideways scroll
@@ -1802,8 +2001,41 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right column: Game Analytics. Scrolls internally on lg like the
-              notebook, so the engine room never stretches the pinned row. */}
+          {/* Right column. In a fair-play game the engine room has nothing to
+              show, so the whole column becomes the chess.com-style panel:
+              move record, openings book, navigation (spec 219 F). */}
+          {fairPlayLayout ? (
+            <div className="flex flex-col min-h-0 overflow-hidden order-3 lg:order-none">
+              <FairPlayPanel
+                meta={game.activeGame ?? null}
+                tree={game.tree}
+                currentId={game.currentNodeId}
+                onGoToNode={game.goToNode}
+                version={game.treeVersion}
+                livePosition={game.livePosition}
+                turn={liveTurn}
+                myColor={game.activeGame?.myColor ?? null}
+                syncPending={liveSync.pending}
+                syncMessage={liveSync.message}
+                onSync={() => void handleSyncLive()}
+                onBackToLive={() => game.goToLive()}
+                onContinueLater={handleContinueLater}
+                onShowList={() => setView("database")}
+                onStart={() => game.goToMove(-1)}
+                onBack={() => game.goToMove(game.currentMoveIndex - 1)}
+                onForward={() => game.goToMove(game.currentMoveIndex + 1)}
+                onEnd={() => game.goToMove(game.moves.length - 1)}
+                canBack={game.currentMoveIndex >= 0}
+                canForward={game.currentMoveIndex < game.moves.length - 1}
+                openingsSlot={
+                  <OpeningExplorerPanel
+                    currentFen={game.fen}
+                    onPlayMove={game.playUciMove}
+                  />
+                }
+              />
+            </div>
+          ) : (
           <div className="flex flex-col gap-6 min-h-0 overflow-hidden order-3 lg:order-none lg:overflow-y-auto">
             {/* Accordion header, stacked mode only (see left column). */}
             <button
@@ -1874,6 +2106,7 @@ export default function Home() {
             )}
             </div>
           </div>
+          )}
         </main>
       </div>
 
@@ -1934,6 +2167,44 @@ function fmtClock(ms: number): string {
   if (t < 10_000) return (t / 1000).toFixed(1)
   const s = Math.floor(t / 1000)
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`
+}
+
+/**
+ * Compact player strip for the fair-play layout (spec 219 F): name, rating
+ * line and captured material in one row against the board's edge, the way
+ * chess.com's Daily board frames its two players. Replaces the tall player
+ * card, which only makes sense when there's a left column to put it in.
+ */
+function PlayerStrip({
+  card,
+  material,
+  color,
+  testId,
+}: {
+  card: ReturnType<typeof playerCardModel>
+  material: ReturnType<typeof computeMaterial>
+  color: "white" | "black"
+  testId: string
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 w-full max-w-full px-1"
+      data-testid={testId}
+    >
+      <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center shrink-0">
+        <span className="text-xs font-medium">{card.avatar}</span>
+      </div>
+      <span className="text-sm font-semibold text-foreground truncate">{card.name}</span>
+      {card.subtitle && (
+        <span className="text-xs text-muted-foreground truncate">{card.subtitle}</span>
+      )}
+      <CapturedPieces
+        testId={`${testId}-captured`}
+        captured={color === "white" ? material.capturedByWhite : material.capturedByBlack}
+        points={material.advantage === color ? material.points : 0}
+      />
+    </div>
+  )
 }
 
 /** Header view-switch entry (spec 001 §2): ghost Button in a NavigationMenuItem. */

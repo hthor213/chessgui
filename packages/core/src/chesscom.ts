@@ -33,10 +33,11 @@ export interface ChesscomGame {
   /** Epoch seconds. */
   end_time?: number
   time_class?: string
-  /** chess.com variant: "chess", "chess960", "kingofthehill", … The app's
-   *  database and board replay only support standard chess today, so import
-   *  callers MUST branch on this — a Chess960 game imports as 0 plies /
-   *  errors silently otherwise (user-reported 2026-07-17). */
+  /** chess.com variant: "chess", "chess960", "kingofthehill", … Import
+   *  callers must branch on this for the exotic variants. Chess960 itself
+   *  now round-trips through the tree — pgn.ts keeps the file-letter castling
+   *  rights that the 2026-07-17 "0 plies" bug dropped, verified against a
+   *  real 27-ply 960 game in live-sync.test.ts. */
   rules?: string
   white: ChesscomPlayer
   black: ChesscomPlayer
@@ -53,6 +54,136 @@ export function chesscomGameUrl(text: string): string | null {
     .match(/^https?:\/\/(?:www\.)?chess\.com\/game\/(daily|live)\/(\d+)(?:[?#]\S*)?$/i)
   if (!m) return null
   return `https://www.chess.com/game/${m[1].toLowerCase()}/${m[2]}`
+}
+
+// ---- ongoing daily games (spec 219 F — the live-position sync) ----
+
+/**
+ * An in-progress daily game from `GET /pub/player/{username}/games`.
+ *
+ * NOTE the shape difference from `ChesscomGame` (the month archive): here
+ * `white`/`black` are player-profile URL STRINGS, not objects with a
+ * `username`. Verified by live call 2026-07-20 — do not "fix" this to match
+ * the archive type; they genuinely differ.
+ */
+export interface ChesscomOngoingGame {
+  url: string
+  /** The game so far, full PGN with headers. */
+  pgn?: string
+  /** Current position — the authority on where the real game stands. */
+  fen?: string
+  /** "white" | "black" — whose move it is right now. */
+  turn?: string
+  /** Epoch seconds by which the side to move must play. */
+  move_by?: number
+  last_activity?: number
+  time_control?: string
+  /** "chess", "chess960", … — the app replays 960 correctly (pgn.ts), but
+   *  callers still surface the variant so a mismatch is visible. */
+  rules?: string
+  /** Player-profile URL, e.g. "https://api.chess.com/pub/player/hjaltth". */
+  white: string
+  black: string
+}
+
+/** Trailing path segment of a player-profile URL, lowercased — the username.
+ *  Tolerates a bare username, so a future API shape change degrades rather
+ *  than crashing. */
+export function playerUrlUsername(url: string | undefined | null): string | null {
+  if (typeof url !== "string") return null
+  const last = url.trim().replace(/\/+$/, "").split("/").pop()
+  return last ? last.toLowerCase() : null
+}
+
+function isOngoingGame(value: unknown): value is ChesscomOngoingGame {
+  const g = value as ChesscomOngoingGame
+  return (
+    typeof g === "object" &&
+    g !== null &&
+    typeof g.url === "string" &&
+    typeof g.white === "string" &&
+    typeof g.black === "string"
+  )
+}
+
+/**
+ * Which side the given account plays in this game — the authoritative answer
+ * to "whose side is the board opened on" (spec 219 F). Null when the account
+ * isn't one of the two players.
+ */
+export function ongoingGameColorFor(
+  game: ChesscomOngoingGame,
+  username: string,
+): "white" | "black" | null {
+  const me = username.trim().toLowerCase()
+  if (!me) return null
+  if (playerUrlUsername(game.white) === me) return "white"
+  if (playerUrlUsername(game.black) === me) return "black"
+  return null
+}
+
+export type OngoingGamesFetchResult =
+  | { status: "ok"; games: ChesscomOngoingGame[] }
+  | { status: "error"; message: string }
+
+/**
+ * Every daily game the account currently has in progress. Public, no auth.
+ * Never throws — failure is a result variant, because a failed sync must
+ * leave the live pointer exactly as it was rather than wedging the board.
+ */
+export async function fetchOngoingGames(query: {
+  username: string
+  fetchFn?: FetchLike
+  userAgent?: string
+}): Promise<OngoingGamesFetchResult> {
+  const { username, userAgent = CHESSCOM_USER_AGENT } = query
+  const fetchFn: FetchLike = query.fetchFn ?? (globalThis.fetch as unknown as FetchLike)
+  if (!fetchFn) return { status: "error", message: "no fetch implementation available" }
+  if (!username.trim()) return { status: "error", message: "no chess.com username stored" }
+
+  try {
+    const user = encodeURIComponent(username.trim().toLowerCase())
+    const res = await fetchFn(`${CHESSCOM_API_BASE}/player/${user}/games`, {
+      headers: { "User-Agent": userAgent, Accept: "application/json" },
+    })
+    if (!res.ok) {
+      const hint =
+        res.status === 429
+          ? " (rate limited — requests must stay serial; retry later)"
+          : ""
+      return {
+        status: "error",
+        message: `chess.com responded ${res.status} for ongoing games${hint}`,
+      }
+    }
+    const body = (await res.json()) as { games?: unknown }
+    const games = Array.isArray(body?.games) ? body.games.filter(isOngoingGame) : []
+    return { status: "ok", games }
+  } catch (e) {
+    return { status: "error", message: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * Pick the ongoing game a saved record refers to: exact `gameUrl` match when
+ * one is stored, else the unique game against that opponent (ambiguity —
+ * two games vs the same person — resolves to null rather than guessing, since
+ * guessing wrong would pin the live pointer to the wrong game).
+ */
+export function matchOngoingGame(
+  games: ChesscomOngoingGame[],
+  opts: { gameUrl?: string | null; opponent?: string | null; username?: string | null },
+): ChesscomOngoingGame | null {
+  const wantedUrl = opts.gameUrl ? urlKey(opts.gameUrl) : null
+  if (wantedUrl) return games.find((g) => urlKey(g.url) === wantedUrl) ?? null
+
+  const opponent = opts.opponent?.trim().toLowerCase() || null
+  if (!opponent) return games.length === 1 ? games[0] : null
+  const hits = games.filter(
+    (g) =>
+      playerUrlUsername(g.white) === opponent || playerUrlUsername(g.black) === opponent,
+  )
+  return hits.length === 1 ? hits[0] : null
 }
 
 interface ArchivesResponse {

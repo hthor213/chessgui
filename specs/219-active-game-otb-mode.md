@@ -116,6 +116,102 @@ unambiguous; if legibility of pieces on the setup board itself remains poor,
 consider the same treatment there. This fix is UNCONDITIONAL — it ships with the
 position editor regardless of the active-game checkbox.
 
+### F. The live position — never lose your place (user need 2026-07-20)
+
+**The problem.** A fair-play game IS an analysis board: the whole point is to
+push the pieces around by hand. But the tree records exploration and reality in
+the same shape, so after playing a ten-move idea the user cannot tell which node
+is the actual game — and ends up opening chess.com to check. Ten undos to get
+back is the symptom; "wait, was this the position, or one after it?" is the
+disease.
+
+**The fix, in one sentence:** the game carries a pointer to the real position,
+that pointer is refreshed from chess.com rather than from memory, and one button
+always returns to it.
+
+- **`liveNodeId`** — a node id on the active-game flag marking the position as
+  it actually stands in the real game. Node ids are stable across save/load
+  (`GameTree.fromJSON` rebuilds them verbatim), so the pointer survives
+  "Continue later", resume, and restart along with everything else on the flag.
+
+- **chess.com is the source of truth, not the user.** Ongoing daily games are
+  public: `GET /pub/player/{username}/games` returns each in-progress game with
+  its full `pgn` so far, current `fen`, and whose `turn` it is (VERIFIED by live
+  call 2026-07-20 — see "Public API" below). On open, on resume, and on an
+  explicit **Sync** button, the app fetches the game, replays its move list, and
+  pins `liveNodeId` to the tip. The user never hand-advances the pointer, so it
+  cannot drift from reality — which is the entire point of the feature.
+
+  - **Cadence: on open/resume + manual Sync only** (user decision 2026-07-20).
+    No background polling. Daily games move on a scale of hours; steady
+    background traffic buys nothing and risks the 429 the etiquette rules warn
+    about.
+  - **Reconciliation rule:** chess.com's line is the mainline. Replaying it
+    descends into existing matching children and promotes them into the mainline
+    slot where the user had branched; non-matching branches are preserved as
+    variations. Exploration is never destroyed, but it never outranks reality
+    either.
+  - **Fair play:** this reads the user's own game's public move list. No engine,
+    no evaluation, no third-party assistance — it shows the user the position
+    they are already looking at on chess.com. The Fair Play Policy bans engines,
+    tablebases, and analysis tools; a read of published game data is none of
+    those. Request etiquette is the existing one: serial, descriptive
+    `User-Agent`.
+  - If the game has no stored `gameUrl`, sync auto-discovers it by matching the
+    ongoing-games response (by opponent), then stores it for exact matching
+    thereafter. If the game is absent from the response, it has ended — the user
+    is pointed at "Game finished" (section D) rather than left with a stale
+    pointer.
+
+- **Sync also settles which side the user is on.** The ongoing-games response
+  names the two sides as player-profile URLs (`"black":
+  ".../pub/player/hjaltth"`), so `myColor` is derivable rather than guessed:
+  sync parses the username out and writes it to the flag, backfilling games
+  that predate the field. This closes a standing annoyance — the orientation
+  mechanism has been in place since 2026-07-17 (`setOrientation(meta.myColor)`
+  on resume), but `myColor` was only ever set by the manual per-game toggle, so
+  in practice games opened White-side-down and the user flipped the board every
+  single time. The manual toggle stays as an override for games the API can't
+  speak to, and Flip stays available everywhere, in every game — this changes
+  the DEFAULT only: *whatever side I am playing is closest to me when the game
+  opens*.
+
+- **Advancing prunes the history behind it.** When sync moves the live pointer
+  forward, every exploration branch hanging off a position STRICTLY BEFORE the
+  new live node is deleted. Those lines explore positions the game has already
+  left — they can never be played, and left in place they bury the actual game
+  under nested parentheses within a handful of moves (user-reported with a
+  screenshot 2026-07-20: a 7-move game whose move list was already mostly dead
+  variations). The real history — the played path itself — is never touched;
+  only side branches off it are. Branches AT or AFTER the live position are
+  current exploration and always survive.
+
+  Noted as a deliberate data loss: analysis (including comments and NAGs) on a
+  dead line is discarded without prompting. That is the user's call — "the
+  explore subtree is only valuable for current/future". If it ever bites, the
+  softening is to spare branches carrying comments/NAGs rather than to stop
+  pruning.
+
+- **Exploring is bounded to the live position and forward.** From `liveNodeId`
+  the user may play anything, as deep as they like — that is the analysis board.
+  Browsing BACK past the live position is always allowed, but the board goes
+  **view-only** there and an inline message says so, offering the return button
+  (user decision 2026-07-20: hard block, no escape hatch). Rationale: branches
+  growing off stale positions are exactly what makes the tree unreadable, and
+  the block costs nothing that browsing plus returning does not already give.
+
+- **The badge must not resize the board.** The live/exploring indicator renders
+  as an overlay positioned INSIDE the board element (the same mechanism the
+  promotion dialog already uses), never as a sibling above or below it. A label
+  in normal flow would shrink the board, which the user explicitly ruled out.
+  States: `● LIVE · <side> to move · synced <n>m ago` / `⑂ EXPLORING · n moves
+  from live` / `⑂ BEHIND the live position · n moves back`.
+
+- **"Back to current position"** joins the existing move-navigation row beneath
+  the board (spec 202's nav bar), so it costs no vertical space either. It is
+  the feature's reason for existing: one click home from any depth, with no
+  counting and no second-guessing.
+
 ## How
 
 - **Flag storage**: the active-game flag + metadata live on the persisted game
@@ -228,7 +324,13 @@ fetched 2026-07-15:
 - `GET /pub/player/{username}/games/to-move` — games awaiting that player's
   move (`url`, `move_by`, `last_activity`).
 - `GET /pub/player/{username}/games` — all ongoing daily games (`fen`, `pgn` so
-  far, `turn`, `move_by`, `time_control`).
+  far, `turn`, `move_by`, `time_control`). **VERIFIED by live call 2026-07-20**
+  against `hjaltth` (returned an in-progress Chess960 daily game with all of
+  `url`, `pgn`, `fen`, `turn`, `move_by`, `last_activity`, `rules`,
+  `time_control`) and `thjaltason` (empty `games` array). Note the shape
+  difference from the month archive: here `white`/`black` are **player-profile
+  URL strings**, not objects with `username`. This is the endpoint section F's
+  sync is built on.
 - `GET /pub/player/{username}/games/archives` — monthly archive URLs.
 - `GET /pub/player/{username}/games/{YYYY}/{MM}` — finished games JSON, each
   with full `pgn`, `fen`, `end_time`, results, optional `eco`/`accuracies`.
@@ -262,6 +364,82 @@ cached/refreshed at most every 12–24 hours (single-source, announcement page).
   lockout in place (the old behavior silently unlocked the engine on the
   still-loaded position). Archive — which saves the finished game to the
   database — is the only path that unlocks analysis on the board copy.
+
+## Decisions (2026-07-20 — section F)
+
+- **Pointer advance**: driven by a chess.com sync, not by the user's clicks.
+  The user's own framing was "if games are public during play then auto-advance
+  is ideal, otherwise I click one ply at a time" — the live call settled it:
+  they are public, so the app syncs and the manual-click fallback is not built.
+- **Behind the live position**: hard block, view-only board, no escape hatch.
+  Considered and rejected: an "explore from here anyway" link for retrospective
+  by-hand study. It can come back if the block ever bites in practice.
+- **Sync cadence**: on open/resume plus a manual Sync button. No background
+  poll, no notifications.
+- **Badge placement**: overlay inside the board element. A label in normal flow
+  above or below the board is explicitly forbidden — it shrinks the board.
+  SUPERSEDED same day, see below: the pill covered the position, so only the
+  view-only block stayed on the board.
+
+## Decisions (2026-07-20 — the fair-play layout)
+
+The user supplied chess.com's own Daily screen as the reference: "this is the
+layout chess.com has, which people are very used to."
+
+- **Two columns in fair-play games, three everywhere else.** Board plus a
+  single tabbed panel. This is affordable *precisely* in fair-play mode: the
+  normal third column exists for the eval bar, analysis panel and eval graph,
+  every one of which the lockout already hides. Analysis and play modes keep
+  the three-column layout untouched.
+- **The panel is tabbed: Moves | Openings.** This answers "do we need the
+  opening explorer?" — yes, and it earns a tab rather than a corner. It is one
+  of the only aids chess.com PERMITS in Daily play (the verified Fair Play
+  Policy quote above), so with the engine structurally off it is the most
+  valuable legal tool on screen. chess.com calls its own tab "Openings" too.
+- **Move record as a three-column table** — number | White | Black — plus the
+  per-move time, which the PGN's `[%clk]` already carries (for chess.com Daily
+  it is time SPENT, not remaining). Variations can't sit in a White|Black grid,
+  so they break out as full-width indented blocks; that stays readable only
+  because the prune above keeps dead lines out of the tree.
+- **Column assignment is derived from each move's own FEN, not from `ply`.**
+  `ply` counts from the tree root, so a game set up with Black to move — normal
+  here, since fair-play games come from the position editor — would file every
+  Black move in the White column. The node FEN carries the side to move and the
+  fullmove counter exactly. Generalized the same day into
+  `core/game-tree.ts`'s `moverIsWhite` / `moveSlot` and applied everywhere the
+  mover's colour mattered — see below.
+- **Fair-play status is ONE LINE**, not a card: a lock glyph, the live/exploring
+  state, whose move it is, and the sync age, with the actions as small buttons
+  on the same row. User: "no need to waste so much space on the fair play
+  banner — that's just a one line notification somewhere."
+- **NOTHING of the live-position UI renders over the board.** Two attempts were
+  made and both were rejected for the same reason: the status pill covered the
+  top-left corner, then the replay bar covered pieces near the bottom edge
+  (user screenshots, 2026-07-20). The argument for keeping an on-board element
+  — "it explains why the pieces won't move, which only reads where the pieces
+  are" — lost to the simpler fact that the panel header is already on screen
+  and already says it. The board shows the position and nothing else.
+
+  Consequence accepted: during replay a piece drag does nothing with no
+  feedback at the point of the gesture. The board's view-only cursor and the
+  panel's "Replay · N moves back" carry it. Revisit only if that actually
+  confuses in use.
+- **Navigation moved to the panel's foot**, chess.com-style, including
+  "⟲ Current".
+- **Going back is REPLAY, not a refusal.** The first version washed the board
+  and said "You can only explore from the current position", which read as an
+  error for what is simply a mode — pressing ⏮ is a normal thing to do. Now:
+  no wash (you went back in order to LOOK at the position), no alarm colour, a
+  compact bar reading "Replay · N moves back", and a ▶ button beside "⟲
+  Current" so stepping forward through the game is offered rather than implied.
+
+  The user's reasoning, worth preserving because it shapes the feature: chess
+  is evaluated as if by a stateless machine, but people are not stateless —
+  they carry memory and feeling, and a mistake made while trying to repair an
+  earlier mistake is a real pattern. Replaying how the position went wrong is
+  how that gets interrupted. The moves stay locked (branches off stale
+  positions are still what makes the tree unreadable), but the tone should
+  invite the review, not scold it.
 
 ## Non-goals
 
@@ -313,6 +491,44 @@ cached/refreshed at most every 12–24 hours (single-source, announcement page).
       present as parsed)
 - [x] Position editor palette renders every piece on a small white backing
       square (unconditional, spec:014) (code-verified 2026-07-15)
+
+#### Section F — the live position
+
+- [ ] `liveNodeId` rides the active-game flag and survives a save/load round
+      trip: flag a game, explore, "Continue later", resume — the pointer still
+      names the same node
+- [ ] Sync against the live ongoing-games endpoint pins `liveNodeId` to the
+      tip of chess.com's move list, and re-syncing after the opponent moves
+      advances it by the real plies (no user input involved)
+- [ ] Reconciliation preserves exploration: a user variation that diverges from
+      chess.com's line survives as a variation, and chess.com's line ends up in
+      the mainline slot
+- [ ] A game with no stored `gameUrl` gets one auto-discovered from the
+      ongoing-games response; a game absent from that response reports "this
+      game has ended — use Game finished" rather than silently keeping a stale
+      pointer
+- [ ] Board is view-only strictly behind `liveNodeId`, with the inline message
+      and the return button; at or ahead of it, moves branch freely
+- [ ] "Back to current position" returns from arbitrary depth in one click,
+      including from inside a variation
+- [ ] The badge is an overlay: board pixel dimensions are identical with the
+      badge showing and hidden (no reflow)
+- [ ] Chess960 round-trips: the live `hjaltth` game (`1000687368`) syncs its
+      full move list rather than importing 0 plies
+- [ ] Advancing the pointer prunes dead branches: a variation hanging off a
+      position before the new live node is gone after sync, one hanging off the
+      live node or after it survives, and the played path is intact
+- [ ] Fair-play games render two columns (board + tabbed panel); analysis and
+      play modes still render three
+- [ ] Moves tab shows the three-column table with per-move times; Openings tab
+      hosts the explorer; the explorer is mounted ONCE (not also hidden in the
+      left column, which would double its position queries)
+- [ ] Exploration past the live node renders dimmed beneath the "exploring"
+      divider, and a row split across the boundary dims only its Black cell
+- [ ] A game set up with Black to move files its moves in the Black column
+- [ ] Sync derives `myColor` from the ongoing-games response and backfills it
+      on records that lack it; opening the `hjaltth` game (where the user is
+      Black) puts Black at the bottom with no manual flip, and Flip still works
 
 ### User-blocked (needs the user's eyeball)
 

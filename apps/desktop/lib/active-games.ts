@@ -21,10 +21,17 @@ import {
   type ActiveGamesStore,
 } from "@chessgui/core/active-game"
 import {
+  CHESSCOM_USER_AGENT,
   fetchFinishedGame,
+  fetchOngoingGames,
+  matchOngoingGame,
+  ongoingGameColorFor,
   type ChesscomGame,
+  type ChesscomOngoingGame,
   type FetchLike,
 } from "@chessgui/core/chesscom"
+import { GameTree } from "@chessgui/core/game-tree"
+import { syncLiveLine } from "@chessgui/core/live-sync"
 import { ensurePlayerHeaders } from "@chessgui/core/identity"
 import type { ImportReport } from "@chessgui/core/database-types"
 import { getProviders } from "@/lib/platform"
@@ -55,6 +62,29 @@ export function loadDefaultChesscomUsername(): string {
 export function saveDefaultChesscomUsername(username: string): void {
   const trimmed = username.trim()
   if (trimmed) getProviders().storage.set(CHESSCOM_USERNAME_KEY, trimmed)
+}
+
+/**
+ * chess.com fetches routed through Rust (spec 219 D/F).
+ *
+ * A direct webview fetch to api.chess.com fails with WebKit's opaque
+ * "Load failed" — it's a cross-origin request from tauri://localhost
+ * (user-reported 2026-07-20). The Rust command also sends the descriptive
+ * User-Agent chess.com asks for, which a browser would strip. This is the
+ * `FetchLike` seam core/chesscom.ts was built around; tests still inject
+ * their own.
+ */
+const tauriChesscomFetch: FetchLike = async (url, init) => {
+  const { invoke } = await import("@tauri-apps/api/core")
+  const res = await invoke<{ ok: boolean; status: number; body: string }>("chesscom_get", {
+    url,
+    userAgent: init.headers["User-Agent"] ?? CHESSCOM_USER_AGENT,
+  })
+  return {
+    ok: res.ok,
+    status: res.status,
+    json: async () => JSON.parse(res.body),
+  }
 }
 
 async function loadStore(): Promise<ActiveGamesStore> {
@@ -146,6 +176,99 @@ export async function archiveActiveGamePgn(
   return { record: archived, report }
 }
 
+// ---- the live-position sync (spec 219 F) ----
+
+export type SyncActiveGameResult =
+  /** Pointer refreshed. `record` is persisted and carries the updated tree,
+   *  liveNodeId, myColor and gameUrl. */
+  | {
+      status: "synced"
+      record: ActiveGameRecord
+      plies: number
+      /** Real moves that were new to the board since the last sync. */
+      added: number
+      /** Dead exploration branches cleared from behind the live position. */
+      pruned: number
+      turn: string | null
+    }
+  /** The game is no longer among the account's ongoing games — it ended.
+   *  The pointer is left untouched; the user is pointed at "Game finished". */
+  | { status: "ended" }
+  /** Couldn't identify which ongoing game this record refers to (no stored
+   *  URL and an ambiguous or absent opponent match). */
+  | { status: "ambiguous"; candidates: ChesscomOngoingGame[] }
+  /** Fetch or replay failed. Record untouched — a wrong live pointer is
+   *  worse than a stale one. */
+  | { status: "error"; message: string }
+
+/**
+ * Refresh a fair-play game against chess.com (spec 219 F): fetch the account's
+ * ongoing daily games, find this one, replay its real move list into the saved
+ * tree, and pin `liveNodeId` to the tip.
+ *
+ * Also settles two things the user should never have to state by hand:
+ * `myColor` (so the board opens on their side) and `gameUrl` (so every later
+ * sync and the eventual "Game finished" fetch match exactly). Persists through
+ * the same reload/apply/persist path as every other mutator — the store is not
+ * reactive, so nothing here can rely on an in-memory write reaching disk.
+ */
+export async function syncActiveGameLivePosition(
+  record: ActiveGameRecord,
+  opts: { fetchFn?: FetchLike } = {},
+): Promise<SyncActiveGameResult> {
+  const username = record.meta.chesscomUsername
+  const fetched = await fetchOngoingGames({
+    username,
+    fetchFn: opts.fetchFn ?? tauriChesscomFetch,
+  })
+  if (fetched.status === "error") return { status: "error", message: fetched.message }
+
+  const game = matchOngoingGame(fetched.games, {
+    gameUrl: record.meta.gameUrl,
+    opponent: record.meta.opponent,
+    username,
+  })
+  if (!game) {
+    // A stored URL that's absent from the ongoing list means the game is over.
+    // Without a URL we can't distinguish "ended" from "couldn't tell which" —
+    // so only claim it ended when we had an exact key to look for.
+    if (record.meta.gameUrl) return { status: "ended" }
+    return fetched.games.length === 0
+      ? { status: "ended" }
+      : { status: "ambiguous", candidates: fetched.games }
+  }
+  if (!game.pgn) {
+    return { status: "error", message: `chess.com returned ${game.url} with no PGN` }
+  }
+
+  const synced = syncLiveLine(GameTree.fromJSON(record.tree), game.pgn)
+  if (synced.status === "error") return { status: "error", message: synced.message }
+  // Use the tree the sync returns — it may have adopted the real game's start
+  // position wholesale rather than mutating the one passed in.
+  const tree = synced.tree
+
+  const meta: ActiveGameMeta = {
+    ...record.meta,
+    liveNodeId: synced.report.liveNodeId,
+    liveSyncedAt: Date.now(),
+    gameUrl: record.meta.gameUrl ?? game.url,
+    myColor: ongoingGameColorFor(game, username) ?? record.meta.myColor,
+  }
+  const saved = await saveActiveGame({
+    ...record,
+    meta,
+    tree: withActiveGameFlag(tree.toJSON(), meta),
+  })
+  return {
+    status: "synced",
+    record: saved,
+    plies: synced.report.plies,
+    added: synced.report.added,
+    pruned: synced.report.pruned,
+    turn: game.turn ?? null,
+  }
+}
+
 export type FinishActiveGameResult =
   /** Fetched, imported, lockout lifted. */
   | { status: "archived"; record: ActiveGameRecord; report: ImportReport }
@@ -174,7 +297,10 @@ export async function finishActiveGame(
     gameUrl: record.meta.gameUrl,
     opponent: record.meta.opponent || null,
     since: record.meta.flaggedAt,
-    fetchFn: opts.fetchFn,
+    // Same webview cross-origin problem as the live sync — this path would
+    // have failed with "Load failed" too (never caught because the spec's
+    // smoke test was a curl, not an in-app run).
+    fetchFn: opts.fetchFn ?? tauriChesscomFetch,
   })
   if (result.status !== "matched") return result
   try {

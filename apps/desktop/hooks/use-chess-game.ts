@@ -108,6 +108,9 @@ export function useChessGame() {
       // Spec 219: the active-game flag rides the tree, so every load path
       // (hydration, loadTree, restoreSnapshot) re-applies the lockout.
       activeGame: tree.activeGame,
+      // Spec 219 F: where the cursor sits relative to the real game position.
+      // "unknown" (and so fully movable) for every non-fair-play game.
+      livePosition: tree.livePositionState(tree.activeGame?.liveNodeId, current.id),
       // Chess960 (spec 011): rides the tree the same way, so every load
       // path re-applies the engine's UCI_Chess960 wiring.
       variant: tree.variant,
@@ -142,6 +145,12 @@ export function useChessGame() {
   const playMove = useCallback(
     (from: Key, to: Key, promotion?: PromotionRole) => {
       const tree = treeRef.current;
+      // Spec 219 F: in a fair-play game the tree may only grow at or ahead of
+      // the live position. Gated here rather than in the UI so every input
+      // path (board drag, promotion confirm, keyboard) is covered by one
+      // check — the same reasoning as the engine lockout's invocation-layer
+      // gate. Games with no live pointer are unaffected.
+      if (!tree.livePositionState(tree.activeGame?.liveNodeId).canMove) return;
       const setup = parseFen(tree.currentNode().fen);
       if (setup.isErr) return;
       const pos = Chess.fromSetup(setup.unwrap());
@@ -360,6 +369,16 @@ export function useChessGame() {
     [bump],
   );
 
+  /** Jump to the real game position (spec 219 F) — the one-click way home
+   *  from any exploration depth, however deep and whatever branch. No-op for
+   *  games with no live pointer. */
+  const goToLive = useCallback((): boolean => {
+    const liveId = treeRef.current.activeGame?.liveNodeId;
+    if (!liveId || !treeRef.current.goTo(liveId)) return false;
+    bump();
+    return true;
+  }, [bump]);
+
   const newGame = useCallback(() => {
     getProviders().storage.remove(STORAGE_KEY);
     treeRef.current = GameTree.create();
@@ -426,6 +445,12 @@ export function useChessGame() {
     playUciMove,
     // Active game mode (spec 219)
     activeGame: view.activeGame,
+    /** False until the localStorage restore has run — callers that act on the
+     *  restored game (spec 219 F's launch sync) must wait for it. */
+    hydrated,
+    // Live position (spec 219 F)
+    livePosition: view.livePosition,
+    goToLive,
     variant: view.variant,
     setActiveGame,
     setOrientation,

@@ -31,8 +31,54 @@ export interface ActiveGameMeta {
   /** Which side the USER is playing — drives board orientation on resume so
    *  the user's pieces sit at the bottom. Optional: games flagged before this
    *  field existed carry none, and the active-games panel offers a per-game
-   *  control to set it. */
+   *  control to set it. Since spec 219 F the chess.com sync derives it
+   *  authoritatively, so the manual control is only a fallback. */
   myColor?: "white" | "black"
+  /**
+   * The node holding the position as the game ACTUALLY stands (spec 219 F).
+   * Everything at or after it is exploration; everything before it is
+   * history the user may browse but not branch from. Node ids survive
+   * save/load verbatim (GameTree.fromJSON), so this pointer persists with
+   * the game. Absent/null = never synced — the board behaves as a plain
+   * analysis board until the first sync.
+   */
+  liveNodeId?: string | null
+  /** Epoch ms of the last successful chess.com sync — drives the badge's
+   *  "synced Nm ago" and tells the user how stale the pointer might be. */
+  liveSyncedAt?: number | null
+}
+
+// ---- the live position (spec 219 F) ----
+
+/**
+ * Where the browsing cursor sits relative to the live position.
+ * - `live`       — on the real game position.
+ * - `ahead`      — a descendant of it: this is exploration, and it's allowed.
+ * - `behind`     — an ancestor: real history, browsable but not branchable.
+ * - `off-branch` — in a variation that diverged BEFORE the live position;
+ *                  also not branchable, for the same reason as `behind`.
+ * - `unknown`    — no pointer yet (never synced), or it names a node that
+ *                  isn't in this tree. The board stays fully usable.
+ */
+export type LivePositionRelation = "live" | "ahead" | "behind" | "off-branch" | "unknown"
+
+export interface LivePositionState {
+  relation: LivePositionRelation
+  /** Plies between the cursor and the live position — for `off-branch`, plies
+   *  back to where this line diverged. Zero when `live` or `unknown`. */
+  distance: number
+  /**
+   * Whether a move may be played from here. True at or ahead of the live
+   * position (that IS the analysis board), and true when unknown — the block
+   * exists to stop branches growing off stale positions, not to freeze a
+   * board we have no pointer for. Engine access is governed separately and
+   * far more strictly by `engineAllowedForGame`.
+   */
+  canMove: boolean
+}
+
+export function livePositionCanMove(relation: LivePositionRelation): boolean {
+  return relation === "live" || relation === "ahead" || relation === "unknown"
 }
 
 // ---- guard predicate (spec 219 B, layer 1) ----

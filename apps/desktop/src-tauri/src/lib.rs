@@ -105,6 +105,7 @@ pub fn run() {
             verify::eval_played_move,
             active_games::active_games_load,
             active_games::active_games_save,
+            active_games::chesscom_get,
             measure::measure_monthly_run, measure::measure_monthly_cancel,
             player_profile::player_profile_run, player_profile::player_profile_cancel, player_profile::rival_profiles, player_profile::save_beat_plan,
         ])
