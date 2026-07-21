@@ -29,6 +29,7 @@ import {
   type NodeEval,
 } from "./game-tree";
 import { castlingFieldHasFileLetters } from "./fen";
+import { makeNotebookTags, parseNotebookTags, type NotebookTags } from "./annotations";
 
 const SHAPE_COLORS: ReadonlySet<string> = new Set(["green", "red", "yellow", "blue"]);
 
@@ -81,9 +82,18 @@ function applyPgnData(tree: GameTree, id: string, data: PgnNodeData): void {
   let evaluation: Evaluation | undefined;
   let clock: number | undefined;
 
+  const notebook: NotebookTags[] = [];
+
   for (const s of strings) {
     const c = parseComment(s);
-    if (c.text) texts.push(c.text);
+    if (c.text) {
+      // The notebook's [%lik]/[%prov] tags (spec 226) are not part of chessops'
+      // grammar, so they survive inside .text — lift them into typed fields
+      // here, at the one boundary that is allowed to know the tag syntax.
+      const n = parseNotebookTags(c.text);
+      notebook.push(n);
+      if (n.rest) texts.push(n.rest);
+    }
     for (const shape of c.shapes) {
       // Circles ([%csl], from === to) are stored dest-less — the same
       // convention the board's user-drawn shapes use.
@@ -98,6 +108,12 @@ function applyPgnData(tree: GameTree, id: string, data: PgnNodeData): void {
   }
 
   node.comment = texts.join(" ");
+  for (const n of notebook) {
+    if (n.lik !== undefined) node.lik = n.lik;
+    if (n.assessedBy !== undefined) node.assessedBy = n.assessedBy;
+    if (n.assessedAt !== undefined) node.assessedAt = n.assessedAt;
+    if (n.src !== undefined) node.src = n.src;
+  }
   // makeComment always writes [%csl] (single-square circles) before [%cal]
   // (arrows), so canonicalize to that order on import too — otherwise the
   // arrow order would flip on the first round-trip.
@@ -168,8 +184,14 @@ function nodeToData(node: MoveNode): PgnNodeData {
     shapes.push({ color: brushToColor(a.brush), from, to });
   }
 
+  // Human text, then [%lik], then [%prov], then [%src] — makeComment writes the text field
+  // first and appends its own tags after, so this fixed order on both sides is
+  // what makes import→export→import byte-identical.
+  const tags = makeNotebookTags(node);
+  const text = [node.comment, tags].filter(Boolean).join(" ");
+
   const comment = makeComment({
-    text: node.comment || undefined,
+    text: text || undefined,
     shapes,
     evaluation: node.eval ? nodeToEval(node.eval) : undefined,
     clock: node.clock,

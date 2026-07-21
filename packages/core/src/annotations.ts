@@ -1,7 +1,7 @@
 // NAG codes, comment-tag handling and [%eval] parsing — pure helpers shared by
 // the move list, the annotation bar and the eval graph (spec 202).
 
-import type { NodeEval } from "./game-tree";
+import type { AssessmentOrigin, Likelihood, MoveSource, NodeEval } from "./game-tree";
 
 /** NAG code → display glyph (PGN standard subset). */
 export const NAG_GLYPHS: Record<number, string> = {
@@ -77,6 +77,73 @@ export function splitComment(comment: string): { text: string; tags: string[] } 
 /** Recombine edited text with the tags preserved by splitComment. */
 export function joinComment(text: string, tags: string[]): string {
   return [text.trim(), ...tags].filter(Boolean).join(" ");
+}
+
+// ---- notebook tags (spec 226) -------------------------------------------
+//
+// Three comment tags on the [%clk]/[%eval] convention, so the notebook needs
+// no schema change and rides PGN anywhere: [%lik n] for opponent-reply
+// likelihood, [%prov origin,unixseconds] for the provenance of an assessment,
+// and [%src db] for a move that came out of a position-indexed corpus rather
+// than the player's own head. chessops leaves unknown [%…] tags verbatim in
+// the comment text, and TAG_RE above already hides them from the annotation
+// editor.
+//
+// [%src] rides along for the same reason [%prov] does: an export/import round
+// trip that forgot it would quietly turn book chess back into "my candidates"
+// and inflate the coverage the blind-spot record depends on (spec 226 C).
+
+const LIK_RE = /\[%lik\s+([123])\s*\]/;
+const PROV_RE = /\[%prov\s+(human-live|human)(?:\s*,\s*(\d+))?\s*\]/;
+const SRC_RE = /\[%src\s+(db)\s*\]/;
+
+export interface NotebookTags {
+  lik?: Likelihood;
+  assessedBy?: AssessmentOrigin;
+  assessedAt?: number;
+  src?: MoveSource;
+  /** The comment with every notebook tag removed and whitespace collapsed. */
+  rest: string;
+}
+
+/** Lift [%lik] / [%prov] / [%src] out of a comment string into typed fields. */
+export function parseNotebookTags(comment: string): NotebookTags {
+  const out: NotebookTags = { rest: "" };
+  const lik = comment.match(LIK_RE);
+  if (lik) out.lik = Number(lik[1]) as Likelihood;
+  const prov = comment.match(PROV_RE);
+  if (prov) {
+    out.assessedBy = prov[1] as AssessmentOrigin;
+    if (prov[2]) out.assessedAt = Number(prov[2]);
+  }
+  if (SRC_RE.test(comment)) out.src = "database";
+  out.rest = comment
+    .replace(LIK_RE, "")
+    .replace(PROV_RE, "")
+    .replace(SRC_RE, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return out;
+}
+
+/**
+ * Emit the notebook tags for a node, in a fixed order so export is
+ * byte-stable across import→export→import.
+ */
+export function makeNotebookTags(node: {
+  lik?: Likelihood;
+  assessedBy?: AssessmentOrigin;
+  assessedAt?: number;
+  src?: MoveSource;
+}): string {
+  const parts: string[] = [];
+  if (node.lik !== undefined) parts.push(`[%lik ${node.lik}]`);
+  if (node.assessedBy !== undefined) {
+    const at = node.assessedAt !== undefined ? `,${node.assessedAt}` : "";
+    parts.push(`[%prov ${node.assessedBy}${at}]`);
+  }
+  if (node.src !== undefined) parts.push("[%src db]");
+  return parts.join(" ");
 }
 
 /**

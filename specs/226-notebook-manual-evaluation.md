@@ -284,6 +284,136 @@ Bounded honestly: a single game yields a handful of data points. Aggregate
 across notebooks before claiming a pattern, and label small samples as such —
 the same sample-size gate spec 225 already applies to player profiles.
 
+### I. What the tree reveals — width, and the head-to-head (user 2026-07-21)
+
+Assessments answer "how good is this position". They do not answer the question
+the player is actually asking, which is "which of these do I want to play". Two
+candidates that back up to the same value are not therefore equal, and this
+section is about what separates them.
+
+#### Branch width, reported but never ranked on
+
+Alongside coverage, each candidate reports how many of the opponent's replies
+the user has marked **likely**: *"3 likely · 5 of my 7 examined"*.
+
+The user's observation is sound chess — a narrower branch is worth something
+because a human has fewer chances to go wrong in it, which is a practical fact
+no engine will ever tell you, since engines do not tire or miscalculate.
+
+But width is **displayed beside coverage and never ranked on**, because it is
+drawn from the user's own labels and therefore inherits their effort: three
+likely replies rather than four may mean the position is narrower, or may mean
+they looked harder at the other one. Width is only comparable at equal
+coverage — the same non-uniform-depth problem as section C, wearing a different
+hat. Ranking on it would let an under-explored branch win for being
+under-explored, and would also be the app passing judgement on the shape of the
+tree, which section "The app may display state" forbids.
+
+#### The head-to-head — pairwise preference with a recorded reason
+
+When two candidates tie, the user compares them directly:
+
+- **The representative position** of a branch is found by walking the
+  most-likely path to its end: at the opponent's nodes take the reply the user
+  marked most likely, at the user's own nodes take their best-assessed move,
+  until the line runs out (bounded, so a long line cannot run away). That is
+  the position they would most probably actually reach, which is the one worth
+  looking at.
+- **Compare mode** puts both positions on screen as two full boards, with the
+  panel stepping aside. Looking hard at two positions IS the task at that
+  moment, and small boards are exactly what makes a position hard to judge.
+- The user picks one and says **why** — free text, with optional one-tap tags
+  (safer king, clearer plan, fewer ways to go wrong, …).
+
+Why this is worth more than more assessment:
+
+1. **It asks a question a human can answer reliably.** "Is this ⩲ or ±?" is
+   hard and the answers will be inconsistent between Tuesday and Friday.
+   "Which of these two would I rather have?" is answered instantly and
+   consistently. People compare far better than they score.
+2. **The reason is the training data.** Accumulated over a season, those
+   recorded whys — and the cases where the engine later disagrees — describe
+   the player's taste and locate where it is systematically wrong. That is
+   goal 2 paying off in a way assessments alone cannot deliver.
+
+It stays inside the axiom: the app selects nothing and evaluates nothing. It
+puts two of the user's own positions side by side and writes down what they say.
+
+#### How a preference affects the order
+
+Preferences are pairwise, and pairwise preferences from a human are **not
+guaranteed to be transitive** — A over B, B over C, C over A is a perfectly
+ordinary thing for a person to feel. So the ranking must not assume a total
+order it cannot have.
+
+Among objectively-tied siblings, order by **Copeland score**: the number of
+recorded head-to-head wins against the others in that tie group. It degrades
+gracefully under intransitivity (a 3-cycle simply scores 1-1-1 and falls
+through to the next key) rather than producing an order that depends on
+comparison sequence. Full key order becomes:
+
+    objective value → practical chances → Copeland score → exploration order
+
+A preference never crosses an objective-value boundary, for the same reason
+practical chances never do.
+
+### J. Two artifacts — the game is saved pure (user 2026-07-21)
+
+> *"we need a parallel database / different table / pgn++ … that's my training
+> database with a pointer to this game, but not saved in this game … when
+> concluded this game is saved pure = as played"*
+
+The notebook produces two things with different owners, different lifetimes and
+different homes, and conflating them is a mistake worth naming up front.
+
+**The game** is a historical fact. Two people played it; it belongs to both of
+them and to the record. On conclusion it is archived to the spec 200 database
+**exactly as played** — the real PGN from chess.com, no assessments, no
+likelihoods, no preferences, no coverage. It is exportable, importable
+elsewhere, comparable with anyone else's copy, and identical to what the
+opponent has. Nothing about the user's thinking is welded into it.
+
+**The training record** is about the player, not the game. It is private, it is
+the interesting half, and it lives in its own store with a **pointer to the
+archived game** — never inside it. It holds:
+
+- the candidate set at every decision, *including what was never considered*
+- assessments with their provenance stamps
+- likelihood labels, and afterwards what the opponent actually played
+- preferences: winner, loser, reason, tags
+- coverage and width at each decision — how hard they looked, how wide it was
+- joined in after the game: the engine's verdicts, and the three failure classes
+  from section H (blind spot / misjudgement / opponent-model error)
+
+**Why the separation earns its keep.** The questions worth asking are
+cross-game, not within-game — *"when a piece is inactive I tend to lose sight of
+it and leave it out of my evaluations"* is a pattern over dozens of games, found
+by characterising the moves that never made it onto a candidate list. That needs
+a store shaped for query across games, joined to engine verdicts, with the
+player as the unit of analysis. A game file is shaped for none of that, and
+stuffing it in would corrupt the archive for no gain.
+
+It also keeps the compliance story simple: the archived game is unremarkable and
+identical to the opponent's copy, and everything personal sits somewhere it can
+be inspected on its own terms.
+
+**The doctrine still binds it.** During a live game the training store is
+subject to the same rule as the notebooks: no position-indexed retrieval, ever
+(section G) — and it is the store most dangerous to expose, since it will hold
+engine verdicts joined to positions. It is a post-game instrument. Feature
+extraction and pattern finding belong to the spec 215 pipeline; this section
+fixes only where the data lives and what shape it has.
+
+**On the ranking maths.** Copeland is what the user can compute with a pencil
+and a matrix today, so it is what ships. But the tags recorded with each
+preference are, structurally, **conjoint attributes** — every head-to-head
+carrying `[safer king] [clearer plan]` is one row of a design matrix. So the
+preference log is already the raw data for a conjoint fit, yielding part-worth
+utilities per attribute ("how much do I actually pay for king safety versus a
+clear plan") rather than one undifferentiated preference order. That is the
+natural evolution once the log is long enough; recorded here so the shape of the
+data is not narrowed in the meantime.
+
 ## How
 
 - **Assessments**: position-assessment NAGs on the node (spec 202 storage,
@@ -299,6 +429,12 @@ the same sample-size gate spec 225 already applies to player profiles.
 - **Engine separation**: human assessment and engine eval occupy different
   fields on the node; the ranking reads only the human one. This is what makes
   the feature safe to run inside the lockout.
+- **Preferences** (section I) are pairwise and belong to no single node, so
+  while the game is being played they ride the working tree as their own list —
+  `{parentId, winnerId, loserId, reason, tags, at}` — persisted through
+  localStorage and the active-games store. PGN has nowhere to put them, and
+  that is correct rather than a gap: on conclusion they move to the training
+  record, not into the archived game (section J).
 
 ## Non-goals
 
@@ -350,6 +486,37 @@ the same sample-size gate spec 225 already applies to player profiles.
       game (frequencies and results only)
 - [ ] A post-game engine review writes to the engine field and leaves the
       human assessment and its provenance stamp untouched
+
+#### Section I — width and the head-to-head
+
+- [ ] Each candidate reports how many replies the user marked likely, beside
+      its coverage — and nothing anywhere sorts on that count
+- [ ] The representative position walks most-likely at the opponent's nodes and
+      best-assessed at the user's own, stops when the line ends, and is bounded
+      against a runaway walk
+- [ ] Compare mode shows two full-size boards with the panel stepped aside;
+      leaving it restores the previous view and cursor exactly
+- [ ] A recorded preference orders objectively-tied siblings by Copeland score,
+      and an intransitive 3-cycle (A>B, B>C, C>A) produces a stable order
+      rather than one that depends on the order the comparisons were made in
+- [ ] A preference never promotes a candidate above one with a better objective
+      value, whatever the reason recorded
+- [ ] Preference reason + tags survive a save/load round trip through the
+      active-games store
+
+#### Section J — the two artifacts
+
+- [ ] Archiving a finished game writes the real PGN to the spec 200 database
+      with NO notebook content: no assessment NAGs the user added, no
+      likelihood tags, no preferences, no coverage. Byte-comparable with the
+      PGN chess.com served.
+- [ ] The training record is written to its own store, carries a pointer to the
+      archived game, and holds the candidate sets including the moves that were
+      never considered
+- [ ] The training store rejects a position-indexed query originating from a
+      fair-play context, at the query layer, exactly as the notebook store does
+      — it is the more dangerous of the two, since it holds engine verdicts
+      joined to positions
 
 ### User-blocked (needs the user's eyeball)
 

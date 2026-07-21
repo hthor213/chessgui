@@ -62,6 +62,8 @@ import {
   syncActiveGameLivePosition,
 } from "@/lib/active-games"
 import { FairPlayPanel } from "@chessgui/ui/fair-play-panel"
+import { NotebookCompare } from "@chessgui/ui/notebook-compare"
+import { backupTree } from "@chessgui/core/notebook"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine, type PlayerColor } from "@/hooks/use-engine"
 import { useGameAnalysis } from "@/hooks/use-game-analysis"
@@ -692,6 +694,45 @@ export default function Home() {
   // which the lockout hides anyway. Analysis and play modes are untouched.
   const fairPlayLayout = engine.engineLocked
 
+  // The Notebook's backed-up values (spec 226). Derived on read — the tree is
+  // small enough that recomputing it on every keystroke is free, and nothing
+  // persisted means nothing to invalidate. Reads the human assessments only;
+  // node.eval is not part of this computation at all, which is what makes it
+  // legal inside the lockout.
+  const notebookValues = useMemo(
+    () => backupTree(game.tree, game.activeGame?.myColor ?? "white"),
+    [game.tree, game.treeVersion, game.activeGame?.myColor],
+  )
+
+  // Compare mode (spec 226 I). It replaces the whole board+panel layout with
+  // two full boards, so the state belongs here rather than in the panel.
+  // `returnTo` is the cursor at the moment of entry: leaving compare mode puts
+  // the user back exactly where they were, because the comparison is a detour
+  // from a train of thought and losing their place would cost more than the
+  // comparison was worth. The layout below is HIDDEN rather than unmounted,
+  // so the board, its scroll positions and the panel's tab all survive intact.
+  const [compare, setCompare] = useState<{ aId: string; bId: string; returnTo: string } | null>(
+    null,
+  )
+  const exitCompare = useCallback(() => {
+    setCompare((c) => {
+      if (c) game.goToNode(c.returnTo)
+      return null
+    })
+  }, [game])
+  // One predicate for "the two boards are up", used by both the hide of the
+  // normal layout and the compare render, so the two can never disagree and
+  // leave a frame with neither on screen.
+  const compareOpen = compare !== null && view === "board" && !liveViewing && fairPlayLayout
+  // Leaving by ANY route exits compare mode — the header nav, a live game
+  // opening, or the lockout lifting when the game concludes. Without this the
+  // state survives the departure: the cursor is never put back, and returning
+  // to the board silently re-enters a comparison against a stale `returnTo`
+  // and a tree that has since moved on.
+  useEffect(() => {
+    if (compare && !compareOpen) exitCompare()
+  }, [compare, compareOpen, exitCompare])
+
   // PV preview (spec 011): clicking a move in an engine line shows the line
   // on the board up to that ply — a read-only overlay, never a tree mutation.
   // Exits on Esc, on the banner's button, or automatically when the game's
@@ -1014,6 +1055,14 @@ export default function Home() {
         return
       }
 
+      // Compare mode (spec 226 I) hides the board+panel grid rather than
+      // unmounting it, so every shortcut below would otherwise act on a board
+      // nobody can see: arrows would move the cursor compare mode promised to
+      // restore, `f` would flip the orientation permanently, and Cmd+N or a
+      // paste-import would replace the very tree the two boards are reading.
+      // NotebookCompare owns Esc and its own ← Back button; nothing else.
+      if (compare) return
+
       // Cmd+O anywhere: open a .pgn file into the Import dialog (spec 001).
       if (meta && (e.key === "o" || e.key === "O")) {
         e.preventDefault()
@@ -1124,7 +1173,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view, pvPreview])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view, pvPreview, compare])
 
   return (
     <ErrorBoundary>
@@ -1293,7 +1342,7 @@ export default function Home() {
               <DatabaseTab
                 currentFen={game.fen}
                 onLoadGame={handleLoadFromDatabase}
-                onPlayMove={game.playUciMove}
+                onPlayMove={game.playDatabaseMove}
               />
             </div>
           </main>
@@ -1493,7 +1542,7 @@ export default function Home() {
               ? "lg:grid-cols-[minmax(0,1fr)_clamp(320px,30vw,460px)]"
               : "lg:grid-cols-[clamp(240px,22vw,320px)_minmax(0,1fr)_clamp(280px,26vw,384px)]"
           } lg:grid-rows-[minmax(0,1fr)] gap-4 lg:gap-6 p-3 lg:p-6 min-h-0 overflow-y-auto lg:overflow-y-visible overflow-x-hidden lg:overflow-x-visible`}
-          style={view !== "board" || liveViewing ? { display: "none" } : undefined}
+          style={view !== "board" || liveViewing || compareOpen ? { display: "none" } : undefined}
         >
           {/* Left column: Player Panel. min-h-0 + internal scroll on lg so
               the tall notebook never stretches the pinned grid row. Hidden
@@ -1691,7 +1740,7 @@ export default function Home() {
                 "Openings" tab, and mounting it twice would double every
                 position query it makes. */}
             {!isPlayMode && !fairPlayLayout && (
-              <OpeningExplorerPanel currentFen={game.fen} onPlayMove={game.playUciMove} />
+              <OpeningExplorerPanel currentFen={game.fen} onPlayMove={game.playDatabaseMove} />
             )}
             </div>
           </div>
@@ -2030,8 +2079,18 @@ export default function Home() {
                 openingsSlot={
                   <OpeningExplorerPanel
                     currentFen={game.fen}
-                    onPlayMove={game.playUciMove}
+                    onPlayMove={game.playDatabaseMove}
                   />
+                }
+                notebookValues={notebookValues}
+                currentNode={game.currentNode}
+                onSetAssessment={game.setAssessment}
+                onSetLikelihood={game.setLikelihood}
+                notebookActive={
+                  view === "board" && !liveViewing && !pgnDialogOpen && !editorOpen && !compare
+                }
+                onCompare={(aId, bId) =>
+                  setCompare({ aId, bId, returnTo: game.currentNodeId })
                 }
               />
             </div>
@@ -2108,6 +2167,28 @@ export default function Home() {
           </div>
           )}
         </main>
+
+        {/* Compare mode: the panel steps aside and both candidates get a full
+            board, because looking hard at two positions IS the task at that
+            moment and a small board is what makes a position hard to judge
+            (spec 226 I). Nothing renders over either board. */}
+        {compare && compareOpen && (
+          <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <NotebookCompare
+              tree={game.tree}
+              values={notebookValues}
+              myColor={game.activeGame?.myColor ?? "white"}
+              aId={compare.aId}
+              bId={compare.bId}
+              coordinates={engine.settings.showCoordinates}
+              onCancel={exitCompare}
+              onRecord={(winnerId, loserId, reason, tags) => {
+                game.recordPreference(winnerId, loserId, reason, tags)
+                exitCompare()
+              }}
+            />
+          </main>
+        )}
       </div>
 
       {/* Hidden picker behind Cmd+O — reads the chosen .pgn and opens the

@@ -147,6 +147,27 @@ launch real app features), **progress tracking** (check-offs + measured metrics)
 Why the December match matters beyond the scoreboard:
 docs/research/iceland-chess-culture.md (the 1972 Reykjavik inheritance).
 
+## Input: the training record (spec 226 J)
+
+The richest curriculum signal this pipeline will get does not come from results
+or from engine analysis of played moves. It comes from the notebook's training
+record: what the player *considered* before they moved, what they judged it to
+be, and what they expected the opponent to do — joined afterwards to the
+engine's verdict.
+
+That decomposes "played badly" into three separately trainable failures (spec
+226 H): **blind spots** (the move was never on their list — candidate
+generation), **misjudgements** (listed but scored wrong — positional
+evaluation), and **opponent-model errors** (predicted the wrong reply — reading
+this opponent). Different skills, different remedies.
+
+It lives in its own store keyed to the archived game, never inside the game
+(spec 226 J), and the cross-game questions are the point: *"when a piece is
+inactive I lose sight of it and leave it out of my evaluations"* is found by
+characterising the moves that never reached a candidate list, across dozens of
+games. Sample-size gates apply as everywhere else — one game is a handful of
+data points, not a pattern.
+
 ## Non-goals
 - Cloud sync, social features, coach-marketplace anything.
 - Motivational-app theatrics. The user is an adult with a bet to win.

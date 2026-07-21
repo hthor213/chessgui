@@ -5,6 +5,9 @@ import { ScrollArea } from "@chessgui/ui/ui/scroll-area"
 import { formatEval, nagsToGlyphs, nodeEval, splitComment } from "@chessgui/core/annotations"
 import { moveSlot } from "@chessgui/core/game-tree"
 import type { GameTree, MoveNode } from "@chessgui/core/game-tree"
+import { sortedChildren } from "@chessgui/core/notebook"
+import { NotebookBadge } from "@chessgui/ui/notebook-value"
+import type { NotebookRender } from "@chessgui/ui/notebook-value"
 
 interface MoveListProps {
   tree: GameTree;
@@ -82,6 +85,11 @@ function CommentSpan({ comment }: { comment: string }) {
 // Render one line: follow children[0], emitting each move and, after it, any
 // variations that branch from the same point (its siblings). Variations recurse
 // as indented parenthesized blocks.
+//
+// `notebook` re-orders what is rendered and nothing else (spec 226 F): the
+// tree, the mainline and the exported PGN are untouched, because the order the
+// user explored in is real history and their later conclusions do not get to
+// overwrite it.
 export function renderLine(
   tree: GameTree,
   firstId: string,
@@ -89,10 +97,23 @@ export function renderLine(
   onGoToNode: (id: string) => void,
   depth: number,
   showEvals = false,
+  notebook?: NotebookRender,
+  // True when the caller has already emitted every variation branching from
+  // firstId's parent — it enumerated the heads itself, and this line is one of
+  // them. Without it a head whose siblings are re-ordered around it emits them
+  // all a second time, nested inside itself: under "as I explored" the head is
+  // never children[0], but under "as I rank" the top-ranked one is.
+  headSiblingsHandled = false,
 ): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let id: string | undefined = firstId;
   let forceBlackNumber = true; // first move in a line always prints its number
+  let isHead = true; // only the head of the line can be a branch the caller placed
+
+  const childOrder = (parentId: string): string[] =>
+    notebook?.sortByRank
+      ? sortedChildren(tree, notebook.values, parentId)
+      : (tree.get(parentId)?.children ?? []);
 
   while (id) {
     const node = tree.get(id);
@@ -109,6 +130,9 @@ export function renderLine(
         onClick={() => onGoToNode(node.id)}
       />,
     );
+    if (notebook) {
+      out.push(<NotebookBadge key={`nb-${node.id}`} value={notebook.values.get(node.id)} />);
+    }
     forceBlackNumber = false;
 
     if (node.comment) {
@@ -122,9 +146,14 @@ export function renderLine(
     }
 
     // Variations attached to THIS move = its siblings after the mainline slot.
+    // Every node past the first was reached through childOrder(...)[0], so it
+    // legitimately owns its siblings; only the head of the line can be a
+    // branch the caller already placed.
     const parent = node.parent ? tree.get(node.parent) : undefined;
-    if (parent && parent.children[0] === node.id && parent.children.length > 1) {
-      for (const varId of parent.children.slice(1)) {
+    const ownsSiblings = !(isHead && headSiblingsHandled);
+    const siblings: string[] = parent && ownsSiblings ? childOrder(parent.id) : [];
+    if (parent && siblings[0] === node.id && siblings.length > 1) {
+      for (const varId of siblings.slice(1)) {
         out.push(
           <div
             key={`var-${varId}`}
@@ -132,7 +161,16 @@ export function renderLine(
             style={{ paddingLeft: 8, marginLeft: depth * 6 }}
           >
             <span className="text-xs mr-0.5 select-none">(</span>
-            {renderLine(tree, varId, currentId, onGoToNode, depth + 1, showEvals)}
+            {renderLine(
+              tree,
+              varId,
+              currentId,
+              onGoToNode,
+              depth + 1,
+              showEvals,
+              notebook,
+              true,
+            )}
             <span className="text-xs ml-0.5 select-none">)</span>
           </div>,
         );
@@ -141,7 +179,8 @@ export function renderLine(
       // its move number.
       forceBlackNumber = true;
     }
-    id = node.children[0];
+    isHead = false;
+    id = childOrder(node.id)[0];
   }
   return out;
 }

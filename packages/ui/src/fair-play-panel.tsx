@@ -16,8 +16,10 @@
 import { useState } from "react";
 import { Card } from "@chessgui/ui/ui/card";
 import { MoveTable } from "@chessgui/ui/move-table";
+import { NotebookPanel } from "@chessgui/ui/notebook-panel";
 import type { ActiveGameMeta, LivePositionState } from "@chessgui/core/active-game";
-import type { GameTree } from "@chessgui/core/game-tree";
+import type { GameTree, Likelihood, MoveNode } from "@chessgui/core/game-tree";
+import type { Assessment, NodeValue } from "@chessgui/core/notebook";
 
 export interface FairPlayPanelProps {
   meta: ActiveGameMeta | null;
@@ -49,6 +51,23 @@ export interface FairPlayPanelProps {
    *  Daily play (spec 219 "Opening books / databases"), which is exactly why
    *  it gets a tab rather than being cut. */
   openingsSlot?: React.ReactNode;
+  /**
+   * The Notebook (spec 226). Backed-up values are recomputed by the shell on
+   * every tree change and passed in; this package stays derivation-free. Omit
+   * the whole group and the panel is exactly what it was before.
+   */
+  notebookValues?: Map<string, NodeValue>;
+  currentNode?: MoveNode;
+  onSetAssessment?: (id: string, a: Assessment | null) => void;
+  onSetLikelihood?: (id: string, lik: Likelihood | null) => void;
+  /** Notebook keystrokes only fire while the board view is frontmost. */
+  notebookActive?: boolean;
+  /**
+   * Open the head-to-head (spec 226 I). Compare mode replaces the whole
+   * board+panel layout with two full boards, so the shell owns that state —
+   * this panel only forwards the pair the user picked.
+   */
+  onCompare?: (aId: string, bId: string) => void;
 }
 
 /** Compact relative age: "just now", "6m ago", "3h ago", "2d ago". */
@@ -138,8 +157,18 @@ export function FairPlayPanel({
   canBack,
   canForward,
   openingsSlot,
+  notebookValues,
+  currentNode,
+  onSetAssessment,
+  onSetLikelihood,
+  notebookActive = false,
+  onCompare,
 }: FairPlayPanelProps) {
   const [tab, setTab] = useState<Tab>("moves");
+  // Display order, not stored order (spec 226 F) — hence local state here
+  // rather than anything that could reach the tree.
+  const [sortByRank, setSortByRank] = useState(false);
+  const notebookOn = !!notebookValues && !!currentNode && !!onSetAssessment && !!onSetLikelihood;
   const live = livePosition.relation === "live";
   const status = fairPlayStatusText(
     livePosition,
@@ -221,6 +250,25 @@ export function FairPlayPanel({
         ))}
       </div>
 
+      {/* The notebook strip sits above the record, not over the board: the
+          judgement is typed while reading the same lines it annotates. */}
+      {tab === "moves" && notebookOn && (
+        <NotebookPanel
+          tree={tree}
+          node={currentNode as MoveNode}
+          values={notebookValues as Map<string, NodeValue>}
+          myColor={myColor ?? "white"}
+          onSetAssessment={onSetAssessment as (id: string, a: Assessment | null) => void}
+          onSetLikelihood={onSetLikelihood as (id: string, lik: Likelihood | null) => void}
+          onGoToNode={onGoToNode}
+          sortByRank={sortByRank}
+          onToggleSort={() => setSortByRank((s) => !s)}
+          onCompare={onCompare}
+          active={notebookActive}
+          version={version}
+        />
+      )}
+
       <div className="flex-1 min-h-0 overflow-hidden p-2">
         {tab === "moves" ? (
           <MoveTable
@@ -229,6 +277,11 @@ export function FairPlayPanel({
             onGoToNode={onGoToNode}
             version={version}
             liveNodeId={meta?.liveNodeId}
+            notebook={
+              notebookOn
+                ? { values: notebookValues as Map<string, NodeValue>, sortByRank }
+                : undefined
+            }
           />
         ) : (
           <div className="h-full overflow-y-auto">{openingsSlot}</div>

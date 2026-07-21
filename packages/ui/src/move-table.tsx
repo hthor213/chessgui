@@ -19,6 +19,9 @@ import { nagsToGlyphs } from "@chessgui/core/annotations";
 import { moveSlot } from "@chessgui/core/game-tree";
 import type { GameTree, MoveNode } from "@chessgui/core/game-tree";
 import { renderLine } from "@chessgui/ui/move-list";
+import { sortedChildren } from "@chessgui/core/notebook";
+import { NotebookBadge } from "@chessgui/ui/notebook-value";
+import type { NotebookRender } from "@chessgui/ui/notebook-value";
 
 export interface MoveTableProps {
   tree: GameTree;
@@ -30,6 +33,13 @@ export interface MoveTableProps {
   liveNodeId?: string | null;
   /** Show the per-move time column (chess.com daily `[%clk]` = time spent). */
   showTimes?: boolean;
+  /**
+   * The Notebook reading of the same tree (spec 226): backed-up values beside
+   * the moves, and the user's alternatives ranked instead of chronological.
+   * The played game itself keeps its order in every case — it is what
+   * happened, not a candidate list.
+   */
+  notebook?: NotebookRender;
 }
 
 /**
@@ -92,33 +102,54 @@ export function buildRows(tree: GameTree): Row[] {
   return rows;
 }
 
+/**
+ * The alternatives hanging off one played move, ranked when the notebook asks
+ * for it. The played move keeps its column — it is what actually happened —
+ * so only its siblings are re-ordered against each other.
+ */
+export function variationHeads(
+  tree: GameTree,
+  v: { afterId: string; headIds: string[] },
+  notebook?: NotebookRender,
+): string[] {
+  if (!notebook?.sortByRank) return v.headIds;
+  const parentId = tree.get(v.afterId)?.parent;
+  if (!parentId) return v.headIds;
+  return sortedChildren(tree, notebook.values, parentId).filter((id) => id !== v.afterId);
+}
+
 function Cell({
   node,
   isCurrent,
   isExploration,
   onClick,
+  notebook,
 }: {
   node: MoveNode | undefined;
   isCurrent: boolean;
   isExploration: boolean;
   onClick: () => void;
+  notebook?: NotebookRender;
 }) {
   if (!node) return <span />;
   return (
-    <span
-      className={[
-        "font-mono text-sm px-1.5 py-0.5 rounded-sm cursor-pointer truncate",
-        isCurrent
-          ? "font-bold text-white bg-[rgba(155,199,0,0.25)]"
-          : isExploration
-            ? "italic text-[#7a7875] hover:bg-white/5"
-            : "text-[#dcdcdc] hover:bg-white/5",
-      ].join(" ")}
-      onClick={onClick}
-      data-testid={isExploration ? "move-cell-exploring" : "move-cell"}
-    >
-      {node.san}
-      {node.nags.length ? nagsToGlyphs(node.nags) : ""}
+    <span className="inline-flex items-baseline min-w-0">
+      <span
+        className={[
+          "font-mono text-sm px-1.5 py-0.5 rounded-sm cursor-pointer truncate",
+          isCurrent
+            ? "font-bold text-white bg-[rgba(155,199,0,0.25)]"
+            : isExploration
+              ? "italic text-[#7a7875] hover:bg-white/5"
+              : "text-[#dcdcdc] hover:bg-white/5",
+        ].join(" ")}
+        onClick={onClick}
+        data-testid={isExploration ? "move-cell-exploring" : "move-cell"}
+      >
+        {node.san}
+        {node.nags.length ? nagsToGlyphs(node.nags) : ""}
+      </span>
+      {notebook && <NotebookBadge value={notebook.values.get(node.id)} />}
     </span>
   );
 }
@@ -129,6 +160,7 @@ export function MoveTable({
   onGoToNode,
   liveNodeId,
   showTimes = true,
+  notebook,
 }: MoveTableProps) {
   const rows = buildRows(tree);
   if (rows.length === 0) {
@@ -184,12 +216,14 @@ export function MoveTable({
               isCurrent={row.white?.id === currentId}
               isExploration={isExploring(row.white)}
               onClick={() => row.white && onGoToNode(row.white.id)}
+              notebook={notebook}
             />
             <Cell
               node={row.black}
               isCurrent={row.black?.id === currentId}
               isExploration={isExploring(row.black)}
               onClick={() => row.black && onGoToNode(row.black.id)}
+              notebook={notebook}
             />
             {showTimes && (
               <span className="text-[10px] font-mono text-muted-foreground/70 text-right select-none leading-tight">
@@ -201,13 +235,15 @@ export function MoveTable({
             {/* Variations span the full width — a White|Black grid can't hold
                 a branching line, so they break out as indented blocks. */}
             {row.variations.map((v) =>
-              v.headIds.map((headId) => (
+              variationHeads(tree, v, notebook).map((headId) => (
                 <div
                   key={`var-${headId}`}
                   className="col-span-full my-0.5 ml-6 pl-2 border-l border-[#3a3835] text-[#9a9a9a] leading-6"
                 >
                   <span className="text-xs mr-0.5 select-none">(</span>
-                  {renderLine(tree, headId, currentId, onGoToNode, 1, false)}
+                  {/* This loop is the one placing the branches off this move,
+                      so the head must not emit its siblings a second time. */}
+                  {renderLine(tree, headId, currentId, onGoToNode, 1, false, notebook, true)}
                   <span className="text-xs ml-0.5 select-none">)</span>
                 </div>
               )),

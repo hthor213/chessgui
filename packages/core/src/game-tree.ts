@@ -11,6 +11,10 @@ import { FILE_NAMES, isNormal, SquareSet, squareFile } from "chessops";
 import type { NormalMove, Setup } from "chessops";
 import { makeEngineUci, parseEngineUci } from "./uci-parser";
 import { castlingFieldHasFileLetters } from "./fen";
+import { toggleNag } from "./annotations";
+// Same one-directional shape as active-game below: notebook.ts imports only
+// TYPES from this module, so the assessment scale can be a value import.
+import { ASSESSMENT_NAGS, ASSESSMENT_NAG_BY_VALUE, type Assessment } from "./notebook";
 // Value import is safe: active-game.ts only imports TYPES from this module,
 // so the runtime dependency is one-directional (no cycle).
 import { livePositionCanMove } from "./active-game";
@@ -90,6 +94,60 @@ export interface MoveNode {
   arrows: ArrowAnnotation[];
   eval?: NodeEval; // [%eval]/engine — optional so pre-0.2 saves load unchanged
   clock?: number; // [%clk] — clock time in seconds after this move
+  // Spec 226 notebook. These are typed fields rather than text inside
+  // `comment` for the same reason `eval` and `clock` are: the UI must never
+  // parse comment strings, and localStorage then carries them natively. The
+  // [%lik]/[%prov] tag text exists only at the pgn.ts boundary. Keeping the
+  // human judgement here, structurally apart from `eval`, is what lets the
+  // ranking read only the human axis (spec 226 G).
+  lik?: Likelihood; // opponent-reply likelihood, 1 = unlikely … 3 = likely
+  assessedBy?: AssessmentOrigin; // who judged, never an engine
+  assessedAt?: number; // unix seconds the assessment was stamped
+  // Absent = the user played this move themselves, which is the only kind of
+  // move the notebook counts as one of their candidates (spec 226 C).
+  src?: MoveSource;
+}
+
+/**
+ * Where a move that is NOT the user's own came from. The opening explorer and
+ * the database's move rows serve moves out of a position-indexed corpus: a
+ * legitimate thing to click, but the app naming a move rather than the player
+ * finding it. Marking them keeps "2 of my 6 candidates" true and preserves the
+ * blind-spot record spec 226 H depends on.
+ */
+export type MoveSource = "database";
+
+/** Relative weight of an opponent reply: 1 unlikely, 2 possible, 3 likely. */
+export type Likelihood = 1 | 2 | 3;
+
+/**
+ * Provenance of a position assessment. "human-live" means it was entered while
+ * the game was active — provably under the spec 219 engine lockout. There is
+ * deliberately no engine value: engine verdicts live in `eval`.
+ */
+export type AssessmentOrigin = "human-live" | "human";
+
+/**
+ * One head-to-head: the user looked at two sibling candidates side by side and
+ * said which they would rather have, and why (spec 226 I).
+ *
+ * It belongs to no single node — it is a statement about a PAIR — so it cannot
+ * live on a MoveNode and rides the serialized tree as its own list instead.
+ * `parentId` is redundant with the two ids but is stored anyway: the Copeland
+ * grouping is per-branch-point, and keeping the branch point explicit means a
+ * record survives even if a sibling is later deleted.
+ *
+ * `reason` is the payload. The winner alone would rank the list; the reason is
+ * what accumulates into a description of the player's taste (spec 226 goal 2).
+ */
+export interface Preference {
+  parentId: string;
+  winnerId: string;
+  loserId: string;
+  reason: string;
+  tags: string[];
+  /** Unix seconds — when the comparison was made, not when it was loaded. */
+  at: number;
 }
 
 // Serialized shape for localStorage / snapshots. A plain object graph so it
@@ -109,6 +167,12 @@ export interface SerializedTree {
   // serialized game so EVERY load path re-applies the engine lockout.
   // Optional so pre-219 saves load unchanged (absent = not an active game).
   activeGame?: ActiveGameMeta | null;
+  // Spec 226 I. Optional so every pre-226 save loads unchanged. KNOWN GAP:
+  // PGN has nowhere to put these, so an export/import round trip keeps the
+  // assessments and likelihoods and loses the head-to-head log. Acceptable
+  // only while its consumer (spec 215) reads the stored game rather than
+  // exported PGN — do not invent a PGN tag for it here.
+  preferences?: Preference[];
 }
 
 // Backwards-compatible alias: page.tsx snapshots the game as an opaque blob.
@@ -169,6 +233,15 @@ export function keyToSquare(key: string): number {
   return rank * 8 + file;
 }
 
+// A head-to-head is an unordered pair with a direction recorded on it: the
+// same two candidates compared again is the SAME comparison, however it came
+// out this time.
+function samePair(p: Preference, a: string, b: string): boolean {
+  return (
+    (p.winnerId === a && p.loserId === b) || (p.winnerId === b && p.loserId === a)
+  );
+}
+
 function chessFromFen(fen: string): Chess {
   const setup = parseFen(fen);
   if (setup.isErr) throw new Error(`invalid FEN: ${fen}`);
@@ -194,6 +267,8 @@ export class GameTree {
   // engine lockout key. Serialized with the tree; cleared only by the
   // archive step (or explicit deletion behind the fair-play confirmation).
   activeGame: ActiveGameMeta | null = null;
+  /** Spec 226 I head-to-heads, newest last. Read through the helpers below. */
+  preferences: Preference[] = [];
   private seq: number;
 
   private constructor(
@@ -555,6 +630,26 @@ export class GameTree {
   }
 
   /**
+   * Play a move the user picked out of a position-indexed corpus (the opening
+   * explorer, the database's move rows) rather than finding it themselves. It
+   * enters the tree like any other move and can be judged like any other; it
+   * is only marked, so the notebook never counts book chess as one of the
+   * user's own candidates (spec 226 C).
+   *
+   * Only a NEWLY created node is marked: if the user had already played this
+   * move themselves, it stays theirs — finding it first is exactly the thing
+   * the record is meant to capture.
+   */
+  addMoveUciFromDatabase(uci: string): string | null {
+    const known = new Set(this.currentNode().children);
+    const id = this.addMoveUci(uci);
+    if (id === null || known.has(id)) return id;
+    const node = this.nodes.get(id);
+    if (node) node.src = "database";
+    return id;
+  }
+
+  /**
    * Make `id` its parent's mainline continuation outright (slot 0), keeping
    * the displaced siblings in order behind it. Unlike `promoteVariation`,
    * which walks a deep sideline up one level per call, this is a single
@@ -617,6 +712,12 @@ export class GameTree {
     // Detach from parent and delete the nodes.
     parent.children = parent.children.filter((cid) => cid !== id);
     for (const d of doomed) this.nodes.delete(d);
+    // A head-to-head against a candidate that no longer exists can never be
+    // read again, and leaving it behind would let a deleted node's id come
+    // back to life if the counter ever reissued it.
+    this.preferences = this.preferences.filter(
+      (p) => !doomedSet.has(p.winnerId) && !doomedSet.has(p.loserId),
+    );
 
     // If the cursor was inside the deleted subtree, retreat to the parent.
     if (doomedSet.has(this.currentId)) this.currentId = parent.id;
@@ -653,7 +754,19 @@ export class GameTree {
 
   setNags(id: string, nags: number[]): void {
     const node = this.nodes.get(id);
-    if (node) node.nags = [...nags];
+    if (!node) return;
+    // A provenance stamp describes one judgement and must not outlive it. This
+    // path (the annotation bar) can change the position symbol without saying
+    // who judged it, so any change inside the assessment group drops the stamp.
+    // The symbol stays visible as an annotation; it simply stops counting in
+    // the notebook backup, which reads stamped judgements only (spec 226 G).
+    const before = ASSESSMENT_NAGS.find((n) => node.nags.includes(n)) ?? null;
+    const after = ASSESSMENT_NAGS.find((n) => nags.includes(n)) ?? null;
+    node.nags = [...nags];
+    if (before !== after) {
+      delete node.assessedBy;
+      delete node.assessedAt;
+    }
   }
 
   setArrows(id: string, arrows: ArrowAnnotation[]): void {
@@ -678,6 +791,101 @@ export class GameTree {
     return true;
   }
 
+  /**
+   * Record (or clear) the human position assessment on a node, spec 226 A.
+   * Routes through toggleNag so the one-per-group exclusivity that the
+   * annotation bar relies on holds here too, and stamps provenance in the same
+   * step — a judgement without a provenance stamp is not a judgement we can
+   * defend afterwards. Returns true when the node changed.
+   */
+  setAssessment(id: string, a: Assessment | null, origin: AssessmentOrigin, at?: number): boolean {
+    const node = this.nodes.get(id);
+    if (!node) return false;
+    const current = ASSESSMENT_NAGS.find((n) => node.nags.includes(n)) ?? null;
+    const wanted = a === null ? null : ASSESSMENT_NAG_BY_VALUE[a];
+    // The stamp is half the state: a symbol that arrived unstamped (from PGN
+    // import, or from the annotation bar) reads as nobody's judgement, so the
+    // user pressing that same symbol is a real change — it is them adopting it
+    // as their own — even though the NAG list ends up identical.
+    const stamped = wanted === null ? node.assessedBy === undefined : node.assessedBy === origin;
+    if (current === wanted && stamped) return false;
+    // Clearing, or replacing: strip whichever assessment NAG is on the node
+    // first, then set the new one. toggleNag handles both directions.
+    let nags = current === null ? node.nags : toggleNag(node.nags, current);
+    if (wanted !== null) nags = toggleNag(nags, wanted);
+    node.nags = nags;
+    if (wanted === null) {
+      delete node.assessedBy;
+      delete node.assessedAt;
+    } else {
+      node.assessedBy = origin;
+      node.assessedAt = at ?? Math.floor(Date.now() / 1000);
+    }
+    return true;
+  }
+
+  /** Record (or clear) how likely the opponent is to play this reply (226 D). */
+  setLikelihood(id: string, lik: Likelihood | null): boolean {
+    const node = this.nodes.get(id);
+    if (!node) return false;
+    if ((node.lik ?? null) === lik) return false;
+    if (lik === null) delete node.lik;
+    else node.lik = lik;
+    return true;
+  }
+
+  // ---- head-to-head preferences (spec 226 I) ----
+
+  /**
+   * Write down that the user would rather have `winnerId` than `loserId`.
+   *
+   * Only siblings can be compared: the question the user answered is "which of
+   * these two do I play", which is only meaningful at one branch point. A pair
+   * is recorded at most once — saying it again, in either direction, replaces
+   * the earlier record rather than stacking a second vote, because a person
+   * changing their mind on Friday has not thereby won twice.
+   *
+   * Returns the stored record, or null when the two are not siblings.
+   */
+  recordPreference(
+    winnerId: string,
+    loserId: string,
+    opts: { reason?: string; tags?: string[]; at?: number } = {},
+  ): Preference | null {
+    const winner = this.nodes.get(winnerId);
+    const loser = this.nodes.get(loserId);
+    if (!winner || !loser || winnerId === loserId) return null;
+    if (!winner.parent || winner.parent !== loser.parent) return null;
+    const pref: Preference = {
+      parentId: winner.parent,
+      winnerId,
+      loserId,
+      reason: opts.reason ?? "",
+      tags: [...(opts.tags ?? [])],
+      at: opts.at ?? Math.floor(Date.now() / 1000),
+    };
+    this.preferences = this.preferences.filter((p) => !samePair(p, winnerId, loserId));
+    this.preferences.push(pref);
+    return pref;
+  }
+
+  /** Forget the head-to-head between two candidates, whichever way it went. */
+  removePreference(a: string, b: string): boolean {
+    const before = this.preferences.length;
+    this.preferences = this.preferences.filter((p) => !samePair(p, a, b));
+    return this.preferences.length !== before;
+  }
+
+  /** The recorded head-to-head between two candidates, or null. */
+  preferenceBetween(a: string, b: string): Preference | null {
+    return this.preferences.find((p) => samePair(p, a, b)) ?? null;
+  }
+
+  /** Every head-to-head recorded at one branch point, in the order made. */
+  preferencesAt(parentId: string): Preference[] {
+    return this.preferences.filter((p) => p.parentId === parentId);
+  }
+
   // ---- serialization ----
 
   toJSON(): SerializedTree {
@@ -696,6 +904,9 @@ export class GameTree {
     // byte-identically (same stance as the pre-219 activeGame field).
     if (this.variant) out.variant = this.variant;
     if (this.activeGame) out.activeGame = this.activeGame;
+    // Same stance: written only when there is something to write, so a game
+    // with no head-to-heads serializes byte-identically to before spec 226 I.
+    if (this.preferences.length) out.preferences = this.preferences.map((p) => ({ ...p }));
     return out;
   }
 
@@ -720,6 +931,9 @@ export class GameTree {
     // game, not an ambiguity. Normalized to null so the guard predicate
     // (engineAllowedForGame) never sees undefined from a loaded tree.
     tree.activeGame = data.activeGame ?? null;
+    // Spec 226 I: absent on every pre-226 save. `tags` is normalized the same
+    // way the annotation arrays are, so nothing downstream sees undefined.
+    tree.preferences = (data.preferences ?? []).map((p) => ({ ...p, tags: [...(p.tags ?? [])] }));
     // Chess960 (spec 011): absent on pre-960 saves = standard chess.
     if (data.variant === "chess960") tree.variant = "chess960";
     // Restore the id counter so freshly added nodes never collide with loaded

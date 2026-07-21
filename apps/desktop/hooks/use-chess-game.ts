@@ -11,10 +11,12 @@ import {
   keyToSquare,
   squareToKey,
   type ArrowAnnotation,
+  type Likelihood,
   type MoveNode,
   type NodeEval,
   type SerializedTree,
 } from "@chessgui/core/game-tree";
+import type { Assessment } from "@chessgui/core/notebook";
 import { treeToPgn } from "@chessgui/core/pgn";
 import type { ActiveGameMeta } from "@chessgui/core/active-game";
 import { getProviders } from "@/lib/platform";
@@ -298,6 +300,35 @@ export function useChessGame() {
     [bump],
   );
 
+  // The Notebook (spec 226). Assessments are stamped "human-live": they are
+  // made with no engine in the room, and a later engine review writes to a
+  // different field rather than over them — that separation is the compliance
+  // guarantee, not a nicety.
+  const setAssessment = useCallback(
+    (id: string, a: Assessment | null) => {
+      if (treeRef.current.setAssessment(id, a, "human-live")) bump();
+    },
+    [bump],
+  );
+
+  const setLikelihood = useCallback(
+    (id: string, lik: Likelihood | null) => {
+      if (treeRef.current.setLikelihood(id, lik)) bump();
+    },
+    [bump],
+  );
+
+  // The head-to-head (spec 226 I). Pairwise, so it belongs to no node and
+  // rides the tree's own list; bump() persists it with everything else. The
+  // tree refuses a non-sibling pair, which is what keeps a preference from
+  // ever crossing an objective-value boundary.
+  const recordPreference = useCallback(
+    (winnerId: string, loserId: string, reason: string, tags: string[]) => {
+      if (treeRef.current.recordPreference(winnerId, loserId, { reason, tags })) bump();
+    },
+    [bump],
+  );
+
   // Live eval capture: the tree refuses shallower-than-stored writes, so this
   // only bumps (re-render + persist) when something actually changed.
   const setEval = useCallback(
@@ -402,6 +433,26 @@ export function useChessGame() {
     [bump],
   );
 
+  /** Play a move clicked in the opening explorer or a database move row. Same
+   *  tree edit, marked as the app's chess rather than the user's, so the
+   *  notebook never counts it among "my candidates" (spec 226 C). */
+  const playDatabaseMove = useCallback(
+    (uci: string): boolean => {
+      try {
+        const id = treeRef.current.addMoveUciFromDatabase(uci);
+        if (id) {
+          bump();
+          return true;
+        }
+        return false;
+      } catch (e) {
+        console.error("[playDatabaseMove] failed:", uci, e);
+        return false;
+      }
+    },
+    [bump],
+  );
+
   // Highlight squares for the last move. Castling highlights the king's
   // destination (not the rook), derived against the position before the move
   // so it stays correct in Chess960 where the stored UCI is king-takes-rook.
@@ -443,6 +494,7 @@ export function useChessGame() {
     getSnapshot,
     restoreSnapshot,
     playUciMove,
+    playDatabaseMove,
     // Active game mode (spec 219)
     activeGame: view.activeGame,
     /** False until the localStorage restore has run — callers that act on the
@@ -468,6 +520,9 @@ export function useChessGame() {
     deleteVariation,
     setComment,
     setNags,
+    setAssessment,
+    setLikelihood,
+    recordPreference,
     setArrows,
     setEval,
     treeVersion: version,
