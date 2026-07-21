@@ -111,6 +111,30 @@ export function numberMoves(startFen: string, sans: string[]): NumberedPly[] {
 }
 
 /**
+ * The fullmove number of the `ply`-th half-move of a game (1-based: ply 1 is
+ * the first move played). `ply <= 0` — nothing played yet — names the half-move
+ * *before* the start, which keeps the familiar "move 0" at a standard start.
+ *
+ * Exists because `Math.floor((ply + 1) / 2)` is only right when the game starts
+ * from the standard position, and tournament games can start from an opening
+ * book FEN (`GameResult.start_fen`, `LiveGame.startFen`) — same class as the
+ * ply-arithmetic bug already fixed in `game-tree.ts`'s `moveSlot`. Numbering
+ * itself is not re-derived here: `numberMoves` is the one place that knows how
+ * a start FEN's fullmove counter and side-to-move become move numbers, and the
+ * SAN text plays no part in that, so a placeholder list of the right length is
+ * all it needs.
+ */
+export function moveNumberAtPly(startFen: string, ply: number): number {
+  const rows = numberMoves(startFen, new Array(Math.max(ply, 1)).fill("-"))
+  if (ply <= 0) {
+    // rows[0] is the first half-move from the start; the one before it shares
+    // its number when Black moves first, and is one lower when White does.
+    return rows[0].white !== undefined ? rows[0].no - 1 : rows[0].no
+  }
+  return rows[rows.length - 1].no
+}
+
+/**
  * Build a PGN string from a game's start FEN + UCI move list + result. SAN is
  * reconstructed by replaying; a non-standard start emits `[SetUp]`/`[FEN]` and
  * correct move numbering (including a Black-to-move start). Round-trips through

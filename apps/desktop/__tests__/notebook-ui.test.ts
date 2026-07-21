@@ -302,6 +302,27 @@ describe("branch width in the candidate list", () => {
   });
 });
 
+describe("sharpness beside coverage (spec 226 E)", () => {
+  it("reports how many of the named candidates reach the value", () => {
+    // candidateTree's three first moves are all judged, and only c4 holds the
+    // max — so the whole list is closed and the count is sayable.
+    const t = candidateTree();
+    const html = panelHtml(t, t.rootId);
+    expect(html).toContain('data-testid="notebook-sharpness"');
+    expect(html).toContain("1 of my 3 reach it");
+    // Bounded by vision like every other number in the panel — the list was
+    // the user's own, so never a phrasing like "only one move works".
+    expect(html).toContain("as far as I could see");
+  });
+
+  it("says nothing while a named candidate is still unjudged", () => {
+    const t = candidateTree();
+    t.goTo(t.rootId);
+    t.addMoveSan("Nf3");
+    expect(panelHtml(t, t.rootId)).not.toContain('data-testid="notebook-sharpness"');
+  });
+});
+
 describe("the head-to-head entry point", () => {
   it("appears only when the shell can host a comparison", () => {
     const t = widthTree();
@@ -412,5 +433,25 @@ describe("compare mode supplies no chess of its own", () => {
 
   it("claims no completeness it cannot support", () => {
     expect(src).not.toMatch(/fully\s+examined/i);
+  });
+});
+
+describe("the notebook's 13px floor", () => {
+  // The panel is read at a glance mid-think, next to a board, and anything
+  // smaller was reported unreadable (user 2026-07-21). It kept regressing one
+  // row at a time — each new label copied the size of the one above it — so the
+  // floor is asserted over the source rather than over one rendered fixture.
+  const files = ["notebook-panel", "notebook-compare", "notebook-review", "notebook-value"];
+
+  it.each(files)("%s.tsx uses no text size below 13px", (name) => {
+    const src = readFileSync(path.join(ROOT, `packages/ui/src/${name}.tsx`), "utf8");
+    // Tailwind's named scale below `text-sm`, plus any arbitrary px value the
+    // regex can read. text-sm is 14px and text-base 16px, so both are fine.
+    const tooSmall = [
+      ...src.matchAll(/text-\[(\d+)px\]/g),
+    ].filter((m) => Number(m[1]) < 13).map((m) => m[0]);
+    expect(tooSmall).toEqual([]);
+    expect(src).not.toMatch(/\btext-xs\b/);
+    expect(src).not.toMatch(/\btext-\[[\d.]+rem\]/);
   });
 });

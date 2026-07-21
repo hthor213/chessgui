@@ -21,6 +21,11 @@
 //  3. No engine, anywhere. The values below read node.nags and node.lik; the
 //     engine's verdict lives in a different field and is not touched here.
 //     That separation is what makes this legal inside the spec 219 lockout.
+//  4. Nothing here goes below 13px. The panel is read at a glance mid-think,
+//     beside a board, and smaller type was reported unreadable (user
+//     2026-07-21). Subordinate labels earn their place with colour and case,
+//     never with size; a source-level guard in notebook-ui.test.ts holds the
+//     floor, because it had been eroding one new row at a time.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -28,6 +33,7 @@ import {
   assessmentOf,
   coverageLabel,
   formatValue,
+  sharpnessLabel,
   sortedChildren,
   valueWords,
   widthLabel,
@@ -208,6 +214,10 @@ export function NotebookPanel({
   const own = isRoot ? null : assessmentOf(node);
   const opponentReply = isOpponentReply(node, myColor);
   const coverage = value ? coverageLabel(value) : "";
+  // Sharpness sits beside coverage rather than in the candidate rows: it is a
+  // property of the list rendered below this line, and it is only readable
+  // against the coverage fraction printed next to it (spec 226 E/I).
+  const sharpness = value ? sharpnessLabel(value) : "";
   const backed = value ? formatValue(value) : "";
   // Children ARE the candidate list: the user played every one of them.
   const candidates = sortByRank ? sortedChildren(tree, values, node.id) : node.children;
@@ -232,8 +242,19 @@ export function NotebookPanel({
           <span className="text-[13px] text-muted-foreground">{valueWords(value, myColor)}</span>
         )}
         {coverage && (
-          <span className="text-[11px] text-muted-foreground/70" data-testid="notebook-coverage-label">
+          <span className="text-[13px] text-muted-foreground/70" data-testid="notebook-coverage-label">
             {coverage}
+          </span>
+        )}
+        {sharpness && (
+          <span
+            className="text-[13px] text-muted-foreground/70 shrink-0"
+            data-testid="notebook-sharpness"
+            // Bounded by vision, like every other number here: the list was the
+            // user's own. Never "only one move works".
+            title="How many of the candidates I named reach this value — as far as I could see"
+          >
+            {sharpness}
           </span>
         )}
         <span className="flex-1" />
@@ -275,7 +296,7 @@ export function NotebookPanel({
           about him, not about the position. */}
       {opponentReply && (
         <div className="flex items-center gap-0.5" data-testid="notebook-likelihood">
-          <span className="text-[11px] text-muted-foreground mr-1">He plays this:</span>
+          <span className="text-[13px] text-muted-foreground mr-1">He plays this:</span>
           {LIKELIHOOD_KEYS.map((k) => (
             <Chip
               key={k.key}
@@ -284,7 +305,7 @@ export function NotebookPanel({
               testId={`notebook-lik-${k.value}`}
               onClick={() => onSetLikelihood(node.id, node.lik === k.value ? null : k.value)}
             >
-              <span className="text-xs">{k.label}</span>
+              <span className="text-[13px]">{k.label}</span>
             </Chip>
           ))}
         </div>
@@ -298,7 +319,7 @@ export function NotebookPanel({
           to it. */}
       {candidates.length > 0 && (
         <div className="flex flex-col gap-1 pt-1" data-testid="notebook-candidates">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80">
+          <div className="text-[13px] uppercase tracking-wider text-muted-foreground/80">
             Best next move — my candidates
           </div>
 
@@ -320,7 +341,7 @@ export function NotebookPanel({
                 data-testid="notebook-candidate"
                 className="grid grid-cols-[1.25rem_4.5rem_auto_1fr_auto] items-baseline gap-2 px-1 py-1 rounded-sm cursor-pointer hover:bg-white/5"
               >
-                <span className="font-mono text-xs text-muted-foreground/70 text-right">
+                <span className="font-mono text-[13px] text-muted-foreground/70 text-right">
                   {sortByRank ? `${i + 1}.` : ""}
                 </span>
                 {/* No NAG glyph appended here: the value badge already carries
@@ -346,7 +367,7 @@ export function NotebookPanel({
                     </span>
                   )}
                   {child.lik && (
-                    <span className="ml-1.5 text-[11px] text-amber-300/70">
+                    <span className="ml-1.5 text-[13px] text-amber-300/70">
                       he'd {LIKELIHOOD_KEYS.find((k) => k.value === child.lik)?.label} play it
                     </span>
                   )}
@@ -409,7 +430,7 @@ export function NotebookPanel({
               weight to a judged line is what made the list unreadable. */}
           {unjudged.length > 0 && (
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 px-1 pt-1">
-              <span className="text-[11px] text-muted-foreground/70">not looked at:</span>
+              <span className="text-[13px] text-muted-foreground/70">not looked at:</span>
               {unjudged.map((id) => {
                 const child = tree.get(id)!;
                 return (

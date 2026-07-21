@@ -126,6 +126,25 @@ export interface NodeValue {
    * tree, which it does not do.
    */
   likelyReplies: number;
+  /**
+   * Sharpness: how many of the user's own judged candidates reach this node's
+   * backed-up value. Null when it cannot mean anything yet — see `sharpnessOf`.
+   */
+  sharpness: Sharpness | null;
+}
+
+/**
+ * "9 bad and 1 brilliant" and "10 good" back up to the SAME value and have
+ * opposite practical character: the first is where a human goes wrong over the
+ * board, because it works only if you find the one move. Minimax deliberately
+ * throws that difference away (spec 226 B) — the other nine contribute nothing
+ * to the value — so it is carried on its own axis here.
+ */
+export interface Sharpness {
+  /** Candidates of the user's own that achieve the node's backed-up value. */
+  reaching: number;
+  /** The population they are counted out of — see `sharpnessOf` on which. */
+  of: number;
 }
 
 // Same idiom as the move-numbering helpers: the FEN's side-to-move field, not
@@ -179,6 +198,69 @@ function boundedRange(
   return { lo, hi };
 }
 
+/**
+ * Sharpness at a node, or null when it cannot yet mean anything.
+ *
+ * MEASURED OVER THE USER'S OWN CANDIDATES, exactly the population coverage
+ * uses, and not over every judged child. Three reasons, in order of weight:
+ *
+ *  1. It has to be read against coverage, so it must be counted out of the same
+ *     denominator. "1 of my 6 reach it" beside "6 of my 6 candidates" is one
+ *     coherent sentence; counting a book move or the move the sync appended
+ *     into the numerator while coverage excludes it from the denominator
+ *     produces fractions that cannot be compared with each other at all.
+ *  2. Sharpness is a claim about the player's own position over the board —
+ *     how many of the moves THEY produced work. A move the app handed them out
+ *     of a position-indexed corpus is the app's chess (see `isOwnCandidate`);
+ *     letting it count would have the app's contribution quietly widen or
+ *     narrow the reading of how sharp the player's own thinking found this.
+ *  3. It keeps the blind-spot record intact. A node whose value is reached only
+ *     by a src-marked child reads "0 of my 4 reach it" — which is the honest
+ *     and, for spec 226 H, the most valuable thing this number ever says.
+ *
+ * SILENT UNLESS EVERY COUNTED CANDIDATE'S VALUE HAS STOPPED MOVING, and silent
+ * on a single candidate:
+ *
+ *  - One judged candidate would emit "1 of 1", which reads as maximally sharp
+ *    when the truth is only that they judged one move. That is a statement
+ *    about their effort dressed as a statement about the position, so nothing
+ *    is emitted instead.
+ *  - With candidates named but not yet judged the count is provisional in a way
+ *    the reader cannot see: judging the sixth may double the number that reach
+ *    the value, or may raise the value and drop every one of them off it.
+ *    Sharpness inherits the same confound branch width has (spec 226 I) —
+ *    "only one move works" and "I only judged one move" are indistinguishable
+ *    without coverage — and staying quiet until the user's own list is closed
+ *    is the only reading of it that is not misleading.
+ *  - Closing the list AT THIS NODE is not enough, and that was the subtle bug:
+ *    a candidate whose own value is still open drags the same confound up one
+ *    ply, invisibly. Six candidates all judged, each explored one reply deep,
+ *    emits a settled-looking "1 of my 6 reach it" that a single further reply
+ *    under the leading branch moves to a different candidate. Worse, it errs
+ *    towards breadth — a candidate whose "+−" rests on one of nine named
+ *    replies is counted as reaching the value — so it reads as the forgiving
+ *    position when the notes support the sharp one. So a candidate counts only
+ *    once its whole subtree is closed AND its range has collapsed to a point:
+ *    that is exactly the condition under which its objective can no longer
+ *    move, which is what the number is silently asserting about all of them.
+ *
+ * Even then the number is bounded by vision, not by chess: the named list was
+ * the user's and may have been incomplete. Hence "N of my M reach it" and never
+ * a phrasing like "only one move works", which would be the app vouching for a
+ * claim about the position that it cannot support.
+ *
+ * NOTHING SORTS ON IT. Same correctness requirement as width, for the same
+ * reason: a sharp branch is not thereby better or worse, and ranking on a
+ * number drawn from the user's own effort would let the shape of their notes
+ * decide the order of their moves.
+ */
+function sharpnessOf(mine: Kid[], objective: number, examined: number, named: number): Sharpness | null {
+  if (examined < 2 || examined !== named) return null;
+  if (mine.some((k) => !k.value.allCandidatesExamined || isProvisional(k.value))) return null;
+  const reaching = mine.filter((k) => k.value.objective === objective).length;
+  return { reaching, of: examined };
+}
+
 function valueOf(node: MoveNode, kids: Kid[], myColor: "white" | "black"): NodeValue {
   const own = assessmentOf(node);
   const judged = kids.filter((k) => k.value.objective !== null);
@@ -211,6 +293,9 @@ function valueOf(node: MoveNode, kids: Kid[], myColor: "white" | "black"): NodeV
       named,
       allCandidatesExamined,
       likelyReplies,
+      // No judged candidate, so there is nothing for one to reach: the value
+      // here is the user's reading of this node itself, not a backed-up choice.
+      sharpness: null,
     };
   }
 
@@ -259,7 +344,16 @@ function valueOf(node: MoveNode, kids: Kid[], myColor: "white" | "black"): NodeV
     practical = weighted / total;
   }
 
-  return { objective, range, practical, examined, named, allCandidatesExamined, likelyReplies };
+  return {
+    objective,
+    range,
+    practical,
+    examined,
+    named,
+    allCandidatesExamined,
+    likelyReplies,
+    sharpness: sharpnessOf(mine, objective, examined, named),
+  };
 }
 
 /**
@@ -579,6 +673,22 @@ export function coverageLabel(v: NodeValue): string {
  */
 export function widthLabel(v: NodeValue): string {
   return v.likelyReplies > 0 ? `${v.likelyReplies} likely` : "";
+}
+
+/**
+ * Sharpness in the user's own handwriting: "1 of my 6 reach it". Empty
+ * whenever `sharpness` is null, which is most of the time — see `sharpnessOf`
+ * for when the number is allowed to exist at all.
+ *
+ * Deliberately a bare count and no adjective. "Sharp" would be the app
+ * characterising the position, and a colour or an emphasis on the sharp case
+ * would be it pointing — both forbidden by "may display state, may never
+ * recommend". The reader draws the conclusion; the page just says what they
+ * wrote.
+ */
+export function sharpnessLabel(v: NodeValue): string {
+  if (!v.sharpness) return "";
+  return `${v.sharpness.reaching} of my ${v.sharpness.of} reach it`;
 }
 
 /** Compact form of coverageLabel for a table cell: "2/6". */

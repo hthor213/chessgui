@@ -535,7 +535,7 @@ describe("notebook — lexicographic ordering", () => {
   });
 
   it("compareSiblings puts unjudged last in both directions", () => {
-    const judged = { objective: 0, range: null, practical: 0, examined: 0, named: 0, allCandidatesExamined: true, likelyReplies: 0 };
+    const judged = { objective: 0, range: null, practical: 0, examined: 0, named: 0, allCandidatesExamined: true, likelyReplies: 0, sharpness: null };
     expect(compareSiblings(judged, undefined, true)).toBeLessThan(0);
     expect(compareSiblings(undefined, judged, false)).toBeGreaterThan(0);
   });

@@ -3,7 +3,14 @@
 // existing replay/PGN helpers it's factored out of.
 
 import { describe, it, expect } from "vitest"
-import { replayFens, movesToPgn, gamesToPgn, sansFromUci, numberMoves } from "@chessgui/core/game-replay"
+import {
+  replayFens,
+  movesToPgn,
+  gamesToPgn,
+  sansFromUci,
+  numberMoves,
+  moveNumberAtPly,
+} from "@chessgui/core/game-replay"
 
 const STANDARD_START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 // 1.e4 e5 2.Nf3
@@ -43,6 +50,53 @@ describe("numberMoves", () => {
 
   it("is empty for an empty SAN list", () => {
     expect(numberMoves(STANDARD_START, [])).toEqual([])
+  })
+})
+
+// The tournament/live viewers label a cursor with "move N" / "decided mN".
+// Those labels used to be Math.floor((ply + 1) / 2), which is only right from
+// the standard start — a game seeded with an opening-book FEN (match_runner's
+// start_fen, LiveGame.startFen) was mislabelled by the whole opening.
+describe("moveNumberAtPly", () => {
+  // An opening-book seed's shape: a real middlegame FEN whose fullmove counter
+  // is 24, in both side-to-move flavours.
+  const BOOK_FEN_W24 = "r1bqkb1r/pp3ppp/2n1pn2/3p4/3P4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 24"
+  const BOOK_FEN_B24 = "r1bqkb1r/pp3ppp/2n1pn2/3p4/3P4/2N1PN2/PP3PPP/R1BQKB1R b KQkq - 0 24"
+
+  it("matches the old ply arithmetic from a standard start", () => {
+    for (const ply of [0, 1, 2, 3, 4, 17, 40]) {
+      expect(moveNumberAtPly(STANDARD_START, ply)).toBe(Math.floor((ply + 1) / 2))
+    }
+  })
+
+  it("treats an empty start FEN as the standard start", () => {
+    expect(moveNumberAtPly("", 3)).toBe(2)
+  })
+
+  it("counts from a White-to-move opening-book start FEN", () => {
+    expect(moveNumberAtPly(BOOK_FEN_W24, 1)).toBe(24) // 24.<white's move>
+    expect(moveNumberAtPly(BOOK_FEN_W24, 2)).toBe(24) // 24...<black's reply>
+    expect(moveNumberAtPly(BOOK_FEN_W24, 3)).toBe(25)
+    expect(moveNumberAtPly(BOOK_FEN_W24, 0)).toBe(23) // nothing played yet
+  })
+
+  it("counts from a Black-to-move opening-book start FEN", () => {
+    expect(moveNumberAtPly(BOOK_FEN_B24, 1)).toBe(24) // 24...<black's move>
+    expect(moveNumberAtPly(BOOK_FEN_B24, 2)).toBe(25)
+    expect(moveNumberAtPly(BOOK_FEN_B24, 0)).toBe(24) // 24.<white> already played
+  })
+
+  it("agrees with the move list the same viewer renders beside it", () => {
+    // Same guarantee the viewer needs: the label under the board names the row
+    // the move list shows, whatever the start FEN.
+    const cases: [string, string[]][] = [
+      [STANDARD_START, ["g1f3", "b8c6", "e2e3"]],
+      [BLACK_TO_MOVE_FEN, ["b8c6", "g1f3", "g8f6"]],
+    ]
+    for (const [fen, uci] of cases) {
+      const rows = numberMoves(fen, sansFromUci(fen, uci))
+      expect(moveNumberAtPly(fen, uci.length)).toBe(rows[rows.length - 1].no)
+    }
   })
 })
 

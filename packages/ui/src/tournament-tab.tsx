@@ -65,7 +65,7 @@ import {
   type PairCell,
 } from "@chessgui/core/tournament"
 import { matchesEcoQuery } from "@chessgui/core/eco"
-import { replayFens, movesToPgn, gamesToPgn, sansFromUci, numberMoves, type NumberedPly, type PgnGameInput } from "@chessgui/core/game-replay"
+import { replayFens, movesToPgn, gamesToPgn, sansFromUci, numberMoves, moveNumberAtPly, type NumberedPly, type PgnGameInput } from "@chessgui/core/game-replay"
 import { deriveWinProbCurve, type MoveSwing, type WinProbCurve } from "@chessgui/core/win-prob"
 import {
   analyzeGame,
@@ -3237,7 +3237,9 @@ export function ResultsExplorer({
   const fen = fens[ply] ?? gr?.start_fen ?? ""
   const lastMove =
     gr && ply > 0 && gr.moves[ply - 1] ? uciSquares(gr.moves[ply - 1]) : undefined
-  const moveNo = Math.floor((ply + 1) / 2)
+  // Not ply arithmetic: a tournament game can start from an opening-book FEN,
+  // so the move number has to start from that FEN's fullmove counter.
+  const moveNo = moveNumberAtPly(gr?.start_fen ?? "", ply)
 
   return (
     <section className="bg-secondary/40 border border-white/10 rounded-lg p-4 flex flex-col gap-4">
@@ -3293,7 +3295,7 @@ export function ResultsExplorer({
                   <span className="flex items-center gap-2 pl-10 text-[10px] font-mono">
                     {dec && (
                       <span className="text-muted-foreground">
-                        decided m{Math.floor((dec.ply + 1) / 2)} ·{" "}
+                        decided m{moveNumberAtPly(g.start_fen, dec.ply)} ·{" "}
                         <span className={dec.engine === "a" ? "text-green-400" : "text-sky-400"}>
                           {dec.engine === "a" ? labelA : labelB}
                         </span>
@@ -3409,7 +3411,7 @@ export function ResultsExplorer({
               const an = analyses.get(selected.id)
               if (!an || an.labeled.length === 0) return null
               const engineName = (e: "a" | "b") => (e === "a" ? labelA : labelB)
-              const moveNoOf = (p: number) => Math.floor((p + 1) / 2)
+              const moveNoOf = (p: number) => moveNumberAtPly(gr.start_fen, p)
               const glyph = { blunder: "??", mistake: "?", inaccuracy: "?!" } as const
               const tint = {
                 blunder: "text-red-400 border-red-400/40",

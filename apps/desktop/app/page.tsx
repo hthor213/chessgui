@@ -81,7 +81,7 @@ import { ecoLabel } from "@chessgui/core/eco"
 import type { LiveGame, ViewerControls } from "@chessgui/core/tournament"
 import { MOVE_DELAY_OPTIONS } from "@chessgui/core/tournament"
 import { hasEngineCompare, hasGameDatabase, hasTournamentRunner } from "@/lib/capabilities"
-import { sansFromUci, numberMoves } from "@chessgui/core/game-replay"
+import { sansFromUci, numberMoves, moveNumberAtPly } from "@chessgui/core/game-replay"
 import type { Key } from "@lichess-org/chessground/types"
 import type { DrawShape } from "@lichess-org/chessground/draw"
 
@@ -2540,7 +2540,10 @@ function LiveGameView({
   const bMs = frame?.blackTimeMs ?? live.blackTimeMs
   const ev = frame ? frame.eval : live.eval
   const ply = frame?.ply ?? live.ply
-  const moveNo = Math.floor((ply + 1) / 2)
+  // Not ply arithmetic: a live game can start from an opening-book FEN, whose
+  // fullmove counter the move number has to start from (same source as the
+  // move list above).
+  const moveNo = moveNumberAtPly(live.startFen ?? "", ply)
 
   // The neutral evaluator's score is already White-POV (turn="white").
   const evalScore = ev
