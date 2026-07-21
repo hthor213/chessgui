@@ -2025,13 +2025,21 @@ export default function Home() {
               <ControlBtn onClick={handleExport} title="Export game as PGN">
                 Export
               </ControlBtn>
-              <ControlBtn
-                onClick={handleSaveToDb}
-                title="Save game (with annotations) to the database"
-                testId="save-to-db"
-              >
-                Save
-              </ControlBtn>
+              {/* Save: hidden — not merely disabled — while a chess.com daily
+                  game is flagged (spec 226 J). It serializes the WORKING TREE
+                  into the games table, which is where the game as played is
+                  archived; the notebook's assessments and lines go to the
+                  training record instead. Same treatment as the Hint button:
+                  an action that cannot be correct here should not be offered. */}
+              {!game.activeGame && (
+                <ControlBtn
+                  onClick={handleSaveToDb}
+                  title="Save game (with annotations) to the database"
+                  testId="save-to-db"
+                >
+                  Save
+                </ControlBtn>
+              )}
               <ControlBtn onClick={() => setEditorOpen(true)} title="Set up position (⌘E)">
                 Set up
               </ControlBtn>

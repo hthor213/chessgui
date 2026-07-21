@@ -12,6 +12,7 @@ pub mod measure;
 pub mod persona;
 pub mod player_profile;
 pub mod puzzles;
+pub mod training_records;
 pub mod verify;
 mod uci;
 mod vision;
@@ -106,6 +107,10 @@ pub fn run() {
             active_games::active_games_load,
             active_games::active_games_save,
             active_games::chesscom_get,
+            training_records::training_records_load,
+            training_records::training_records_upsert,
+            training_records::training_records_remove,
+            training_records::training_records_query_by_position,
             measure::measure_monthly_run, measure::measure_monthly_cancel,
             player_profile::player_profile_run, player_profile::player_profile_cancel, player_profile::rival_profiles, player_profile::save_beat_plan,
         ])

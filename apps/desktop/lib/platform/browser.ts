@@ -64,6 +64,9 @@ function noEngine(what: string): Promise<never> {
 /** localStorage key backing the browser-fallback active-games store. */
 const ACTIVE_GAMES_BROWSER_KEY = "chessgui-active-games"
 
+/** localStorage key backing the browser-fallback training-record store. */
+const TRAINING_RECORDS_BROWSER_KEY = "chessgui-training-records"
+
 export const browserProviders: PlatformProviders = {
   engine: {
     hasNativeEngine: false,
@@ -328,6 +331,53 @@ export const browserProviders: PlatformProviders = {
     },
     async save(json: string): Promise<void> {
       localStorageKV.set(ACTIVE_GAMES_BROWSER_KEY, json)
+    },
+  },
+
+  // Training-record store (spec 226 J): same contract, localStorage instead of
+  // a file. The by-position query still refuses — there is no Rust here, so
+  // the core guard IS the whole gate in this shell, and it has to run before
+  // the document is even read. A browser fallback that quietly allowed what
+  // the desktop refuses would be the hole the two-layer design exists to close.
+  trainingRecords: {
+    async load(context: string): Promise<string | null> {
+      const raw = localStorageKV.get(TRAINING_RECORDS_BROWSER_KEY)
+      if (raw === null) return null
+      const { parseTrainingRecordsStore, readTrainingRecordsStore } = await import(
+        "@chessgui/core/training-record"
+      )
+      // Redacted here, not in the caller: the document is a position index, so
+      // in a fair-play context the FENs must not cross the seam at all — the
+      // same thing Rust does for the desktop shell.
+      return JSON.stringify(readTrainingRecordsStore(parseTrainingRecordsStore(raw), context))
+    },
+    async upsert(recordJson: string): Promise<void> {
+      const { parseTrainingRecordsStore, upsertTrainingRecord } = await import(
+        "@chessgui/core/training-record"
+      )
+      // Read-modify-write on the RAW stored document, never on anything the
+      // frontend was handed — that is what keeps a redacted read from being
+      // persisted back over the real positions.
+      const store = parseTrainingRecordsStore(localStorageKV.get(TRAINING_RECORDS_BROWSER_KEY))
+      const next = upsertTrainingRecord(store, JSON.parse(recordJson))
+      localStorageKV.set(TRAINING_RECORDS_BROWSER_KEY, JSON.stringify(next))
+    },
+    async remove(id: string): Promise<void> {
+      const { parseTrainingRecordsStore, removeTrainingRecord } = await import(
+        "@chessgui/core/training-record"
+      )
+      const store = parseTrainingRecordsStore(localStorageKV.get(TRAINING_RECORDS_BROWSER_KEY))
+      localStorageKV.set(
+        TRAINING_RECORDS_BROWSER_KEY,
+        JSON.stringify(removeTrainingRecord(store, id)),
+      )
+    },
+    async queryByPosition(fen: string, context: string): Promise<string> {
+      const { parseTrainingRecordsStore, queryDecisionsByPosition } = await import(
+        "@chessgui/core/training-record"
+      )
+      const store = parseTrainingRecordsStore(localStorageKV.get(TRAINING_RECORDS_BROWSER_KEY))
+      return JSON.stringify(queryDecisionsByPosition(store, fen, context))
     },
   },
 }

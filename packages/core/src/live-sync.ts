@@ -90,7 +90,26 @@ export type LiveSyncResult =
  * The cursor is left ON the live node — which is where the user wants to be
  * after a sync; it's the whole point of the button.
  */
-export function syncLiveLine(tree: GameTree, pgn: string): LiveSyncResult {
+export interface SyncLiveLineOptions {
+  /**
+   * Clear dead exploration branches from behind the live position (default
+   * true — it is what keeps the move list readable during a game).
+   *
+   * Set false when the reconciliation exists to READ the tree rather than to
+   * put it back on the board: the training record (spec 226 J) is extracted by
+   * replaying the archived PGN into a copy of the working tree, and the
+   * branches behind the final moves are precisely the candidate sets that
+   * record exists to preserve. Pruning them there would delete the evidence
+   * while reconciling it.
+   */
+  prune?: boolean;
+}
+
+export function syncLiveLine(
+  tree: GameTree,
+  pgn: string,
+  opts: SyncLiveLineOptions = {},
+): LiveSyncResult {
   const parsed = parsePgnToTrees(pgn)
   if (parsed.length === 0) {
     return { status: "error", message: "could not parse the game chess.com returned" }
@@ -145,7 +164,7 @@ export function syncLiveLine(tree: GameTree, pgn: string): LiveSyncResult {
 
   // Committed moves make their alternatives unplayable — clear them out so
   // the move list keeps showing the game rather than a museum of dead ideas.
-  const pruned = pruneBehindLive(tree, liveNodeId)
+  const pruned = opts.prune === false ? 0 : pruneBehindLive(tree, liveNodeId)
   tree.goTo(liveNodeId)
 
   return {

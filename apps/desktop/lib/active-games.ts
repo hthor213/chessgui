@@ -8,6 +8,13 @@
 // PGN has actually been written to the game database. Every failure path
 // (fetch miss, 12–24h archive cache, import error) leaves the record active
 // and locked, with retry or manual-PGN paste as the ways forward.
+//
+// Spec 226 J adds the second invariant: what gets archived is the PGN
+// chess.com SERVED, never a re-serialization of the user's working tree. The
+// game is a historical fact shared with the opponent and must stay
+// byte-comparable with his copy. Everything the user thought goes to the
+// training record instead (lib/training-records.ts), which points at the
+// archived game and never lives inside it.
 
 import {
   findActiveGame,
@@ -30,12 +37,14 @@ import {
   type ChesscomOngoingGame,
   type FetchLike,
 } from "@chessgui/core/chesscom"
+import { archivePgnImpurity } from "@chessgui/core/annotations"
 import { GameTree } from "@chessgui/core/game-tree"
 import { syncLiveLine } from "@chessgui/core/live-sync"
 import { ensurePlayerHeaders } from "@chessgui/core/identity"
 import type { ImportReport } from "@chessgui/core/database-types"
 import { getProviders } from "@/lib/platform"
 import { importPgn } from "@/lib/database"
+import { recordTrainingForArchivedGame } from "@/lib/training-records"
 
 /**
  * Store id for the record backing an open flagged game. Derived from the
@@ -131,10 +140,37 @@ export async function setActiveGameMyColor(
  * Explicit deletion — the ONLY exit besides archiving (spec 219 B). The UI
  * must gate this behind the fair-play confirmation dialog; nothing here
  * softens that, deletion just removes the record.
+ *
+ * It deliberately does NOT touch the training store (spec 226 J), and that is
+ * a judgement call rather than an oversight, so here is the argument. The two
+ * artifacts have different owners: the game belongs to both players, the
+ * training record belongs only to this one. Deleting an active-game row says
+ * something about the GAME — "this was never real", or "it is archived and I
+ * want it out of my list" — and neither of those is a statement about how the
+ * player thought. The record also points at the archived game rather than at
+ * this row, so it is not orphaned by the row going away; cascading would
+ * silently destroy cross-game evidence (spec 226 J's whole reason for a
+ * separate store) as a side effect of tidying a list. The reverse mistake is
+ * cheap to fix: an unwanted record is one explicit `deleteTrainingRecord`
+ * away, while a deleted one is gone for good.
+ *
+ * In practice the discard path finds nothing to cascade anyway — a training
+ * record only exists once a game has archived — so the rule bites exactly
+ * where it should: "Remove" on an already-archived row keeps the notes.
  */
 export async function deleteActiveGame(id: string): Promise<void> {
   await persistStore(removeActiveGame(await loadStore(), id))
 }
+
+/**
+ * What became of the second artifact during an archive (spec 226 J). Reported
+ * rather than thrown, because it must never look like the archive failed:
+ * a `failed` here still means the game reached the database and the lockout
+ * lifted lawfully.
+ */
+export type TrainingRecordOutcome =
+  | { status: "written"; id: string; decisions: number }
+  | { status: "failed"; message: string }
 
 /**
  * The archive step (spec 219 D): write the finished game's PGN into the
@@ -144,11 +180,42 @@ export async function deleteActiveGame(id: string): Promise<void> {
  * one. Throws (record untouched, lockout intact) when the import fails or
  * imports nothing new; a duplicate counts as success — the game IS in the
  * database, which is all the lockout exit requires.
+ *
+ * `pgn` is the game as played and is passed through UNCHANGED apart from
+ * rescuing missing player headers — the tree is never serialized here, which
+ * is what makes spec 226 J's purity guarantee structural rather than a thing
+ * to remember.
+ *
+ * ORDER AND FAILURE SEMANTICS, spelled out because both artifacts are written
+ * here and the wrong order would weaken the lockout:
+ *
+ *   1. import the served PGN  → fails: throw. Nothing archived, nothing
+ *      recorded, record stays active and LOCKED. Retry or paste.
+ *   2. mark the record archived (this is what lifts the lockout) → fails:
+ *      throw. The game is now in the database but the record stays locked,
+ *      which is the safe side of that error; retrying archives again and the
+ *      duplicate counts as success.
+ *   3. extract and write the training record → fails: REPORTED, not thrown.
+ *      The archive stands.
+ *
+ * Step 3 is last and non-fatal on purpose. The lockout may only ever be lifted
+ * by the game genuinely reaching the database, and it must never be *withheld*
+ * for an unrelated reason either — re-locking a user whose game is demonstrably
+ * archived, because a notes file could not be written, would be absurd and
+ * would teach them to distrust the lockout. Nothing is lost when it fails: the
+ * pre-archive record (working tree, assessments, likelihoods, preferences) is
+ * still in the active-games store until the user removes the row, so the write
+ * can be retried. The inverse order — training record first — is rejected
+ * outright: it would leave a record pointing at a game that never got archived.
  */
 export async function archiveActiveGamePgn(
   record: ActiveGameRecord,
   pgn: string,
-): Promise<{ record: ActiveGameRecord; report: ImportReport }> {
+): Promise<{
+  record: ActiveGameRecord
+  report: ImportReport
+  training: TrainingRecordOutcome
+}> {
   if (!pgn.trim()) throw new Error("no PGN to archive")
   const meta = record.meta
   // Give the archived game sensible White/Black names when the PGN lacks them,
@@ -164,6 +231,28 @@ export async function archiveActiveGamePgn(
       black: meta.myColor === "white" ? them : me,
     })
   }
+  // The archive-purity backstop (spec 226 J). Nothing above can produce
+  // notebook content today — the served PGN goes through untouched — so this
+  // is here for the day someone "helpfully" swaps in treeToPgn, and for the
+  // paste box, which takes arbitrary text and is reachable by pasting the
+  // app's own Export output.
+  //
+  // It checks more than the three notebook tags, because `treeToPgn` leaks the
+  // notebook three ways and only one of them is tagged: the analysis
+  // VARIATIONS are the bulk of it and carry no tag at all, and an assessment
+  // set through the spec 202 annotation bar is a bare NAG with no [%prov]
+  // stamp. A chess.com daily PGN has neither, so refusing both costs a real
+  // archive nothing. Refuses rather than strips, for the same reason as ever:
+  // a silently laundered archive is worse than a failed one, and stripping
+  // would hide the bug that produced it.
+  const impurity = archivePgnImpurity(text)
+  if (impurity) {
+    throw new Error(
+      `refusing to archive: this PGN carries ${impurity}. The archived game must be ` +
+        "the game as played (spec 226 J), byte-comparable with the opponent's copy — " +
+        "the user's thinking belongs in the training record, not in the game.",
+    )
+  }
   const source = meta.gameUrl ?? `chess.com daily vs ${meta.opponent || "?"}`
   const report = await importPgn({ source, text })
   if (report.imported < 1 && report.dups_skipped < 1) {
@@ -173,7 +262,34 @@ export async function archiveActiveGamePgn(
   }
   const archived = markActiveGameArchived(record)
   await persistStore(upsertActiveGame(await loadStore(), archived, archived.lastUpdated))
-  return { record: archived, report }
+  // The second artifact (spec 226 J), step 3. Extracted from the PRE-archive
+  // record, whose working tree still carries every assessment, likelihood and
+  // preference — the archive never touched it. Reported, never thrown: see the
+  // failure semantics above.
+  //
+  // The archived text goes with it so the record describes the game AS PLAYED:
+  // the working tree is only current as of the last successful live sync, and
+  // the decisions it would otherwise be missing are the ones at the final
+  // moves. It is read there, never written — the archive is already in the
+  // database by this line and nothing below can reach it.
+  let training: TrainingRecordOutcome
+  try {
+    const written = await recordTrainingForArchivedGame(
+      record,
+      {
+        databaseGameId: null,
+        gameUrl: meta.gameUrl,
+        importSource: source,
+      },
+      { archivedPgn: text },
+    )
+    training = { status: "written", id: written.id, decisions: written.decisions.length }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.warn("training record not written for", record.id, e)
+    training = { status: "failed", message }
+  }
+  return { record: archived, report, training }
 }
 
 // ---- the live-position sync (spec 219 F) ----
@@ -270,8 +386,14 @@ export async function syncActiveGameLivePosition(
 }
 
 export type FinishActiveGameResult =
-  /** Fetched, imported, lockout lifted. */
-  | { status: "archived"; record: ActiveGameRecord; report: ImportReport }
+  /** Fetched, imported, lockout lifted. `training` says whether the second
+   *  artifact landed — it never gates this status (spec 226 J). */
+  | {
+      status: "archived"
+      record: ActiveGameRecord
+      report: ImportReport
+      training: TrainingRecordOutcome
+    }
   /** Heuristic candidates — user must confirm one (then call
    *  archiveActiveGamePgn with the chosen candidate's pgn). */
   | { status: "needs-confirmation"; candidates: ChesscomGame[] }
@@ -304,8 +426,8 @@ export async function finishActiveGame(
   })
   if (result.status !== "matched") return result
   try {
-    const { record: archived, report } = await archiveActiveGamePgn(record, result.pgn)
-    return { status: "archived", record: archived, report }
+    const { record: archived, report, training } = await archiveActiveGamePgn(record, result.pgn)
+    return { status: "archived", record: archived, report, training }
   } catch (e) {
     return { status: "error", message: e instanceof Error ? e.message : String(e) }
   }

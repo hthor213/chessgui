@@ -9,6 +9,7 @@
 // `window.__TAURI_INTERNALS__` is absent, so it does not ship in the Tauri
 // bundle. State is a module-level singleton that persists for the session.
 
+import { containsNotebookTags } from "@chessgui/core/annotations"
 import { parsePgnToTrees, treeToPgn } from "@chessgui/core/pgn"
 import { GameTree } from "@chessgui/core/game-tree"
 import {
@@ -341,6 +342,16 @@ class MockDb implements DatabaseApi {
    * a new mainline inserts. Rejects on unparseable/empty PGN like the backend.
    */
   async saveGame(args: { pgn: string; source?: string }): Promise<SaveReport> {
+    // The backend's spec 226 J refusal, mirrored: the games table holds games
+    // as played, and this path upserts over an archived one. A mock that
+    // accepted what Rust refuses would let a browser-shell bug through and
+    // make the desktop tests lie about it.
+    if (containsNotebookTags(args.pgn)) {
+      throw new Error(
+        "refusing to save: this PGN carries notebook content ([%lik]/[%prov]/[%src]), " +
+          "which belongs in the training record, not in the game database (spec 226 J)",
+      )
+    }
     const trees = parsePgnToTrees(args.pgn)
     const tree = trees[0]
     if (!tree) throw new Error("no game found in the PGN")

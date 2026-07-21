@@ -10,6 +10,7 @@
 // browser (`pnpm dev` under Playwright, or unit tests) so the whole Database
 // tab stays drivable headless.
 
+import { containsNotebookTags } from "@chessgui/core/annotations"
 import { getProviders } from "@/lib/platform"
 
 // ---------------------------------------------------------------------------
@@ -232,6 +233,29 @@ export function saveGame(args: {
   source?: string
   dbPath?: string
 }): Promise<SaveReport> {
+  // The second door into the games table, guarded like the first (spec 226 J).
+  //
+  // `archiveActiveGamePgn` protects the archive path, but Save serializes the
+  // WORKING TREE — notebook tags, analysis variations and all — and it upserts:
+  // once the tree carries the finished mainline and result it hashes to the
+  // same row as the archived game and overwrites its movetext in place. So the
+  // purity guarantee has to be a property of the table, not of one writer.
+  //
+  // Only the notebook TAGS are refused here, not variations or NAGs: saving an
+  // annotated game with variations is what this function is FOR (spec 202), and
+  // refusing those would break the feature rather than protect anything. The
+  // three tags are ours alone and belong in the training record.
+  // Rejected rather than thrown: this returns a promise, and a caller that
+  // only has a .catch() must not miss the refusal.
+  if (containsNotebookTags(args.pgn)) {
+    return Promise.reject(
+      new Error(
+        "refusing to save: this game carries notebook content ([%lik]/[%prov]/[%src]). " +
+          "The game database holds games as played (spec 226 J) — assessments, " +
+          "likelihoods and preferences live in the training record beside it.",
+      ),
+    )
+  }
   return getProviders().database.saveGame(args)
 }
 

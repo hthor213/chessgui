@@ -519,4 +519,30 @@ export const tauriProviders: PlatformProviders = {
       await invoke("active_games_save", { json })
     },
   },
+
+  // Training-record store (spec 226 J): raw JSON at
+  // <app_data_dir>/training_records.json (src-tauri/src/training_records.rs).
+  // queryByPosition goes to Rust rather than filtering a loaded document here
+  // BECAUSE the refusal has to live somewhere the frontend cannot reach — a
+  // guard that only exists in TypeScript is a guard that can be edited away in
+  // a component (spec 226 G, layer 2). `load` carries the tag for the same
+  // reason: Rust drops the FENs before the document crosses the seam, so what
+  // arrives in a fair-play context is not a position index at all.
+  //
+  // Writes are per-record and Rust does the read-modify-write — atomically,
+  // and refusing to overwrite a store it could not parse.
+  trainingRecords: {
+    load(context: string): Promise<string | null> {
+      return invoke<string | null>("training_records_load", { context })
+    },
+    async upsert(recordJson: string): Promise<void> {
+      await invoke("training_records_upsert", { record: recordJson })
+    },
+    async remove(id: string): Promise<void> {
+      await invoke("training_records_remove", { id })
+    },
+    queryByPosition(fen: string, context: string): Promise<string> {
+      return invoke<string>("training_records_query_by_position", { fen, context })
+    },
+  },
 }

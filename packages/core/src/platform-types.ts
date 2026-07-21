@@ -405,6 +405,42 @@ export interface ActiveGamesProvider {
   save(json: string): Promise<void>
 }
 
+/**
+ * The persisted training-record store (spec 226 J): the private half of what
+ * a notebook produces — candidate sets, assessments with provenance,
+ * likelihoods, coverage, preferences — pointing AT an archived game and never
+ * living inside one. Desktop keeps it in the app data dir
+ * (`training_records.json`); the browser fallback uses localStorage.
+ *
+ * `queryByPosition` is separated from the bulk load on purpose. It is the one
+ * dangerous entry point — the store will hold engine verdicts joined to
+ * positions — so it goes to the shell as its own call, carrying the caller's
+ * context tag, and the shell refuses it a second time (spec 226 G, layer 2).
+ * A shell with no Rust behind it still refuses, using the same core guard.
+ *
+ * `load` carries a context tag for the same reason: the document IS a position
+ * index, so outside an unrestricted context the shell hands it back with the
+ * FENs redacted (core/training-record.ts `redactPositionIndex`).
+ *
+ * There is deliberately NO whole-document `save`. Writes are per-record and
+ * the read-modify-write happens in the shell, because a frontend that had to
+ * load the store to write it would sooner or later persist a REDACTED copy
+ * over the real one and destroy every position in it.
+ */
+export interface TrainingRecordsProvider {
+  /** The stored JSON document, or null when nothing has been saved yet.
+   *  Redacted unless `context` proves the caller is outside a fair-play game. */
+  load(context: string): Promise<string | null>
+  /** Insert-or-replace one record (by `id`), leaving the rest of the store
+   *  alone. `recordJson` is one serialized `TrainingRecord`. */
+  upsert(recordJson: string): Promise<void>
+  /** Delete one record by id. Absent id is a no-op. */
+  remove(id: string): Promise<void>
+  /** Position-indexed read. Rejects unless `context` proves the caller is
+   *  outside a fair-play game. Returns the matching decisions as JSON. */
+  queryByPosition(fen: string, context: string): Promise<string>
+}
+
 /** The full set a shell registers at boot. */
 export interface PlatformProviders {
   engine: EngineProvider
@@ -412,4 +448,5 @@ export interface PlatformProviders {
   dialog: DialogProvider
   storage: StorageProvider
   activeGames: ActiveGamesProvider
+  trainingRecords: TrainingRecordsProvider
 }

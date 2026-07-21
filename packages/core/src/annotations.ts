@@ -147,6 +147,73 @@ export function makeNotebookTags(node: {
 }
 
 /**
+ * Does this PGN carry notebook content (spec 226 J)?
+ *
+ * The archive is supposed to hold the game EXACTLY AS PLAYED — byte-comparable
+ * with the copy the opponent has — so a `[%lik]`, `[%prov]` or `[%src]` tag in
+ * text on its way to the spec 200 database means someone re-serialized the
+ * user's working tree instead of archiving the PGN chess.com served. The
+ * archive path (apps/desktop/lib/active-games.ts) refuses on this rather than
+ * stripping: a contaminated archive is worse than a failed one, and stripping
+ * would hide the bug that produced it.
+ *
+ * Deliberately limited to the three notebook tags. Position NAGs are NOT
+ * checked — the same symbols arrive legitimately in an annotated PGN someone
+ * downloaded, and refusing those would reject honest games. These three tags
+ * are ours alone and can only come from our own serializer.
+ */
+const NOTEBOOK_TAG_RE = /\[%(?:lik|prov|src)\b/;
+
+export function containsNotebookTags(pgn: string): boolean {
+  return NOTEBOOK_TAG_RE.test(pgn);
+}
+
+/**
+ * The movetext alone: header pairs and comments removed.
+ *
+ * Both have to go before anything is looked for, because both legitimately
+ * carry the characters that mean something in the movetext — `[Event "Match
+ * (2)"]` has a bracket and a paren, and a comment can say anything at all.
+ */
+function movetextOnly(pgn: string): string {
+  return pgn
+    .replace(/^\s*\[[^\]]*\]\s*$/gm, "") // tag pairs
+    .replace(/\{[^}]*\}/g, "") // brace comments (where [%clk] lives)
+    .replace(/;[^\n]*/g, ""); // rest-of-line comments
+}
+
+/**
+ * Why this PGN may not be archived as the game as played, or null if it may
+ * (spec 226 J).
+ *
+ * `containsNotebookTags` is the general helper and stays deliberately narrow —
+ * position NAGs arrive legitimately in an annotated game somebody downloaded,
+ * so a shared helper cannot refuse them. The ARCHIVE entry point is a
+ * different question: what goes in there is supposed to be the text chess.com
+ * served for one daily game, which has no variations and no NAGs at all. So it
+ * gets the strict check, and the two extra classes it adds are exactly the
+ * ones `treeToPgn` emits without a single `[%lik]` in sight:
+ *
+ *  - a RAV — the user's whole analysis tree, which is the bulk of the
+ *    contamination and carries no notebook tag of its own;
+ *  - a NAG — including the assessments the spec 202 annotation bar writes
+ *    directly, which never get a `[%prov]` stamp and would otherwise sail
+ *    through the tag check.
+ *
+ * Refuses rather than strips, same reasoning as the tag check: a silently
+ * laundered archive is worse than a failed one, and stripping would hide the
+ * bug that produced it. The way forward for a user who hits this is to paste
+ * the game as played — which is the only thing that belongs here anyway.
+ */
+export function archivePgnImpurity(pgn: string): string | null {
+  if (containsNotebookTags(pgn)) return "notebook tags ([%lik]/[%prov]/[%src])";
+  const moves = movetextOnly(pgn);
+  if (moves.includes("(")) return "analysis variations";
+  if (/\$\d/.test(moves)) return "annotation NAGs";
+  return null;
+}
+
+/**
  * Parse a [%eval …] tag out of a comment: "0.25" (pawns, white-perspective)
  * or "#-3" / "#5" (mate in N). Depth is unknown from PGN, recorded as 0 so a
  * live engine eval always outranks it.

@@ -23,6 +23,7 @@ import {
   ACTIVE_GAME_DELETE_WARNING,
   ActiveGamesList,
   agoLabel,
+  archiveNote,
   mainlineMoveCount,
 } from "@chessgui/ui/active-games-panel"
 
@@ -36,8 +37,9 @@ function meta(overrides: Partial<ActiveGameMeta> = {}): ActiveGameMeta {
   }
 }
 
-const ok = async () => ({ ok: true })
-const finished = async () => ({ status: "archived" as const })
+const written = { status: "written" as const, id: "tr-g1", decisions: 3 }
+const ok = async () => ({ ok: true as const, training: written })
+const finished = async () => ({ status: "archived" as const, training: written })
 const noop = () => {}
 
 function renderList(records: Parameters<typeof ActiveGamesList>[0]["records"]) {
@@ -216,6 +218,26 @@ describe("ActiveGamesList (spec 219 D)", () => {
     expect(ACTIVE_GAME_DELETE_WARNING).toContain("discards the saved game")
     expect(ACTIVE_GAME_DELETE_WARNING).toContain("the board is cleared")
     expect(ACTIVE_GAME_DELETE_WARNING).not.toContain("re-enables engine analysis")
+  })
+})
+
+describe("the archive confirmation line (spec 226 J)", () => {
+  it("says the game went in as played and the notes went elsewhere", () => {
+    const line = archiveNote({ status: "written", id: "tr-ag-1", decisions: 7 })
+    expect(line).toContain("as played")
+    expect(line).toContain("none of your notes in it")
+    expect(line).toContain("7 decisions")
+    // It states what happened; it never tells the user what to do next.
+    expect(line).not.toMatch(/you should|try |recommend/i)
+  })
+
+  it("singularises, and reports a failed record without calling the archive failed", () => {
+    expect(archiveNote({ status: "written", id: "t", decisions: 1 })).toContain("1 decision.")
+    const failed = archiveNote({ status: "failed", message: "disk full" })
+    expect(failed).toContain("as played")
+    expect(failed).toContain("disk full")
+    // The game IS archived — the wording must not suggest otherwise.
+    expect(failed).not.toMatch(/stays locked|not archived/i)
   })
 })
 

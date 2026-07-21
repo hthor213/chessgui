@@ -24,6 +24,7 @@ import {
   deleteActiveGame,
   finishActiveGame,
   loadActiveGames,
+  type TrainingRecordOutcome,
 } from "@/lib/active-games"
 
 /** Fair-play wording for the deletion confirmation (spec 219 B). */
@@ -62,7 +63,7 @@ export function agoLabel(ms: number, now: number = Date.now()): string {
 /** What a "Game finished" attempt came back as (mirrors lib/active-games'
  *  FinishActiveGameResult, minus the record payloads the list doesn't need). */
 export type FinishOutcome =
-  | { status: "archived" }
+  | { status: "archived"; training: TrainingRecordOutcome }
   | { status: "needs-confirmation"; candidates: ChesscomGame[] }
   | { status: "not-found" }
   | { status: "error"; message: string }
@@ -73,6 +74,32 @@ type RowStatus =
   | { kind: "not-found" }
   | { kind: "needs-confirmation"; candidates: ChesscomGame[] }
   | { kind: "error"; message: string }
+  /** Archived, with the one line saying where each of the two artifacts went
+   *  (spec 226 J). Distinct from `idle` only so the note has somewhere to live. */
+  | { kind: "archived"; training: TrainingRecordOutcome }
+
+/**
+ * The one-line confirmation after an archive (spec 226 J). It exists because
+ * the split is invisible otherwise — the user needs to know the game went to
+ * the database as played and their thinking went somewhere else, once, in
+ * plain words. It states state; it recommends nothing.
+ */
+export function archiveNote(training: TrainingRecordOutcome): string {
+  const kept =
+    training.status === "written"
+      ? `Training record kept separately — ${training.decisions} ${
+          training.decisions === 1 ? "decision" : "decisions"
+        }.`
+      : `Training record NOT saved (${training.message}) — your notes are still in the row below until you remove it.`
+  return `Archived to the database as played, with none of your notes in it. ${kept}`
+}
+
+/** Result of an archive attempt driven from this panel (pasted PGN or a
+ *  confirmed candidate). `training` rides along on success only — a missing
+ *  training record never makes the archive itself a failure (spec 226 J). */
+export type ArchiveOutcome =
+  | { ok: true; training: TrainingRecordOutcome }
+  | { ok: false; message?: string }
 
 export interface ActiveGamesListProps {
   records: ActiveGameRecord[]
@@ -82,16 +109,14 @@ export interface ActiveGamesListProps {
   onConfirmCandidate: (
     record: ActiveGameRecord,
     game: ChesscomGame,
-  ) => Promise<{ ok: boolean; message?: string }>
-  /** Manual fallback: archive a pasted PGN. */
-  onArchivePgn: (
-    record: ActiveGameRecord,
-    pgn: string,
-  ) => Promise<{ ok: boolean; message?: string }>
+  ) => Promise<ArchiveOutcome>
+  /** Manual fallback: archive a pasted PGN. Same path, same two artifacts. */
+  onArchivePgn: (record: ActiveGameRecord, pgn: string) => Promise<ArchiveOutcome>
   /** Called only after the fair-play confirmation. */
   onDelete: (record: ActiveGameRecord) => void
   /** Remove an already-archived record from the list (no fair-play gate —
-   *  the lockout is long lifted). */
+   *  the lockout is long lifted). The archived game and the training record
+   *  both survive it; this only clears the row (spec 226 J). */
   onRemoveArchived: (record: ActiveGameRecord) => void
   /** Set which side the user plays — the per-game migration control for games
    *  flagged before myColor existed. */
@@ -201,7 +226,8 @@ export function ActiveGamesList({
   const handleFinish = async (record: ActiveGameRecord) => {
     setStatus(record.id, { kind: "busy" })
     const outcome = await onFinish(record)
-    if (outcome.status === "archived") setStatus(record.id, { kind: "idle" })
+    if (outcome.status === "archived")
+      setStatus(record.id, { kind: "archived", training: outcome.training })
     else if (outcome.status === "needs-confirmation")
       setStatus(record.id, { kind: "needs-confirmation", candidates: outcome.candidates })
     else if (outcome.status === "not-found") setStatus(record.id, { kind: "not-found" })
@@ -210,11 +236,11 @@ export function ActiveGamesList({
 
   const handleArchive = async (
     record: ActiveGameRecord,
-    run: () => Promise<{ ok: boolean; message?: string }>,
+    run: () => Promise<ArchiveOutcome>,
   ) => {
     setStatus(record.id, { kind: "busy" })
     const res = await run()
-    if (res.ok) setStatus(record.id, { kind: "idle" })
+    if (res.ok) setStatus(record.id, { kind: "archived", training: res.training })
     else
       setStatus(record.id, {
         kind: "error",
@@ -329,6 +355,17 @@ export function ActiveGamesList({
                 )}
               </div>
             </div>
+
+            {/* The two artifacts, said once (spec 226 J). One line, below the
+                row, never over the board, never smaller than the body text. */}
+            {status.kind === "archived" && (
+              <p
+                className="mt-2 text-sm text-muted-foreground"
+                data-testid={`active-game-archive-note-${record.id}`}
+              >
+                {archiveNote(status.training)}
+              </p>
+            )}
 
             {/* Fetch outcomes. Every non-archived outcome states that the
                 game STAYS locked (spec 219 D failure UX). */}
@@ -458,7 +495,7 @@ export function ActiveGamesPanel({
       if (result.status === "archived") {
         reload()
         onArchived?.(result.record)
-        return { status: "archived" }
+        return { status: "archived", training: result.training }
       }
       if (result.status === "needs-confirmation")
         return { status: "needs-confirmation", candidates: result.candidates }
@@ -469,12 +506,14 @@ export function ActiveGamesPanel({
   )
 
   const archivePgn = useCallback(
-    async (record: ActiveGameRecord, pgn: string) => {
+    async (record: ActiveGameRecord, pgn: string): Promise<ArchiveOutcome> => {
       try {
-        const { record: archived } = await archiveActiveGamePgn(record, pgn)
+        // The manual-paste path is the SAME archive path (spec 226 J): pure
+        // game to the database, training record beside it, same ordering.
+        const { record: archived, training } = await archiveActiveGamePgn(record, pgn)
         reload()
         onArchived?.(archived)
-        return { ok: true }
+        return { ok: true, training }
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : String(e) }
       }
@@ -483,7 +522,7 @@ export function ActiveGamesPanel({
   )
 
   const handleConfirmCandidate = useCallback(
-    async (record: ActiveGameRecord, game: ChesscomGame) => {
+    async (record: ActiveGameRecord, game: ChesscomGame): Promise<ArchiveOutcome> => {
       if (!game.pgn) return { ok: false, message: "candidate has no PGN" }
       return archivePgn(record, game.pgn)
     },

@@ -1087,6 +1087,20 @@ impl Db {
     /// refreshes that game's headers + movetext in place rather than being
     /// skipped as a duplicate. Returns the row id and whether it was an update.
     pub fn save_game(&mut self, pgn: &str, source: &str) -> rusqlite::Result<SaveReport> {
+        // Layer 2 of the archive-purity guard (spec 226 J), mirroring
+        // lib/database.ts `saveGame`. This path UPSERTS on the mainline hash,
+        // so a working tree carrying the finished game would overwrite the
+        // movetext of the pure archived copy in place — the games table holds
+        // games as played, and the player's thinking lives in the training
+        // record beside it. Refuses rather than strips, like every other
+        // purity check in this feature.
+        if carries_notebook_tags(pgn) {
+            return Err(save_err(
+                "refusing to save: this PGN carries notebook content \
+                 ([%lik]/[%prov]/[%src]), which belongs in the training record, \
+                 not in the game database (spec 226 J)",
+            ));
+        }
         let mut visitor = ImportVisitor {
             ply_cap: DEFAULT_PLY_CAP,
         };
@@ -1981,6 +1995,14 @@ impl GameForPgn {
 /// merge source) in a rusqlite error so `save_game`/`merge_from` share the
 /// `DbManager::with` plumbing, which maps all errors to display strings for
 /// the frontend.
+/// The three notebook comment tags (spec 226): opponent-reply likelihood, the
+/// provenance stamp on an assessment, and the marker for a move that came out
+/// of a position-indexed corpus. TS mirror: core/annotations.ts
+/// `containsNotebookTags` — keep the two in sync.
+fn carries_notebook_tags(pgn: &str) -> bool {
+    pgn.contains("[%lik") || pgn.contains("[%prov") || pgn.contains("[%src")
+}
+
 fn save_err(msg: &str) -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
         std::io::ErrorKind::InvalidData,
@@ -3353,6 +3375,27 @@ mod tests {
         assert!(out.contains("Club Championship"), "headers refreshed: {out}");
         assert!(out.contains("Develops with tempo."), "annotations refreshed: {out}");
         assert!(out.contains("[%eval 0.3]"), "eval tag refreshed: {out}");
+    }
+
+    /// Layer 2 of the archive-purity guard (spec 226 J): this path upserts on
+    /// the mainline hash, so a working tree carrying the finished game would
+    /// overwrite the pure archived movetext in place. The games table holds
+    /// games as played; the notebook goes to the training record.
+    #[test]
+    fn save_game_refuses_notebook_content() {
+        let mut db = Db::open_in_memory().unwrap();
+        let clean = "[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 1-0\n";
+        let archived = db.save_game(clean, "chess.com daily").unwrap();
+
+        let notebook = "[Result \"1-0\"]\n\n\
+1. e4 $14 {[%prov human-live,1750000100]} e5 {[%lik 3]} 2. Nf3 1-0\n";
+        assert!(db.save_game(notebook, "saved").is_err());
+
+        // And the archived row still reads as the game as played.
+        let out = db.get_game_pgn(archived.id).unwrap().unwrap();
+        assert!(!out.contains("[%lik"), "{out}");
+        assert!(!out.contains("[%prov"), "{out}");
+        assert!(!out.contains("$14"), "{out}");
     }
 
     /// A different mainline (or result) is a new game, not an update.
