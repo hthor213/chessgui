@@ -330,11 +330,19 @@ export function NotebookPanel({
                 <span className="text-[13px] text-muted-foreground truncate">
                   {words}
                   {child.src && (
-                    // Clicked out of the book, not found at the board. It
-                    // counts in the backup but never as one of "my
-                    // candidates" (spec 226 C).
-                    <span className="ml-1.5 text-[11px] text-muted-foreground/60" title="From the book, not my own list">
-                      book
+                    // Not found at the board: clicked out of the book, or
+                    // appended by the sync because it was played. Either counts
+                    // in the backup but never as one of "my candidates"
+                    // (spec 226 C).
+                    <span
+                      className="ml-1.5 text-[13px] text-muted-foreground/60"
+                      title={
+                        child.src === "played"
+                          ? "Played in the game — not a move I named"
+                          : "From the book, not my own list"
+                      }
+                    >
+                      {child.src === "played" ? "played" : "book"}
                     </span>
                   )}
                   {child.lik && (

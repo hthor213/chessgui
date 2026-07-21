@@ -80,6 +80,24 @@ describe("notebook — PGN round trip", () => {
     expect(backupTree(again, "white").get(again.rootId)!.named).toBe(1);
   });
 
+  it("keeps a move the sync appended from becoming one of mine on re-import", () => {
+    // Same argument as the book move above, and the same tag: a round trip
+    // that forgot it would hand the player credit for having named every move
+    // of the game (spec 226 C).
+    const t = GameTree.create();
+    const e4 = t.addMoveSan("e4")!;
+    t.setAssessment(e4, 1, "human", 1_784_505_600);
+    const c5 = t.addMoveSanAsPlayed("c5")!;
+    expect(t.get(c5)!.src).toBe("played");
+
+    const { pgn, again } = roundTrip(t);
+    expect(pgn).toContain("[%src live]");
+    const reply = again.get(again.get(again.root().children[0])!.children[0])!;
+    expect(reply.san).toBe("c5");
+    expect(reply.src).toBe("played");
+    expect(backupTree(again, "white").get(again.root().children[0])!.named).toBe(0);
+  });
+
   it("shares a comment with text, arrows, a clock and an engine eval", () => {
     const t = GameTree.create();
     const e4 = t.addMoveSan("e4")!;

@@ -60,6 +60,16 @@ export interface GameAnalysisCallbacks {
   onJudgment(id: string, judgment: MoveJudgment): void
   /** After each position: positions finished so far / total. */
   onProgress(done: number, total: number): void
+  /**
+   * The engine's own move from this position, as raw UCI (spec 226 H).
+   *
+   * The runner has always thrown this line away, because labelling a mainline
+   * needs the eval and nothing else. The post-game diagnosis needs it to NAME a
+   * blind spot: the arithmetic can prove that something better than anything
+   * the player named existed, but "Nd5 existed" is the difference between a
+   * statistic and a training exercise.
+   */
+  onBestMove?(id: string, uci: string): void
 }
 
 export interface GameAnalysisResult {
@@ -106,6 +116,22 @@ export async function runGameAnalysis(opts: {
   movetimeMs?: number
   threads?: number
   hash?: number
+  /**
+   * Evaluate each target from its OWN fen instead of replaying a move chain
+   * (spec 226 H).
+   *
+   * The default walks `position … moves …` because the targets are a mainline
+   * and that is both cheaper and how a game is actually analysed. The notebook
+   * review's targets are not a line at all — they are scattered decision
+   * positions and the candidate moves branching off them — so there is no chain
+   * to replay. No judgments are emitted in this mode: a "swing" between two
+   * positions that never followed one another would be a fabricated number.
+   */
+  independent?: boolean
+  /** Engine slot. Defaults to the batch-analysis session; a second batch
+   *  consumer passes its own so the two can run without stealing each other's
+   *  engine (the notebook review is one). */
+  sessionId?: string
   /** Chess960 game (spec 011): assert UCI_Chess960 before any position/go —
    *  the mainline's castling moves are king-takes-rook UCI, which the
    *  engine only parses with the option set. Fresh session per run, so
@@ -121,16 +147,19 @@ export async function runGameAnalysis(opts: {
   if (targets.length === 0) return { completed: true, error: null }
 
   const context = engineContextTag(opts.activeGame())
-  const send = (cmd: string) => engine.sendCommand(cmd, context, GAME_ANALYSIS_SESSION)
+  const session = opts.sessionId ?? GAME_ANALYSIS_SESSION
+  const send = (cmd: string) => engine.sendCommand(cmd, context, session)
 
   // Last multipv-1 score seen for the position in flight, plus the bestmove
   // gate the loop awaits. A single listener serves the whole run.
   let last: { score: UciScore; depth: number } | null = null
+  let bestUci: string | null = null
   let resolveBest: (() => void) | null = null
   let unlisten: (() => void) | null = null
 
   const startFen = targets[0].fen
   const positionCmd = (index: number): string => {
+    if (opts.independent) return `position fen ${targets[index].fen}`
     const base = startFen === INITIAL_FEN ? "position startpos" : `position fen ${startFen}`
     if (index === 0) return base
     const moves = targets.slice(1, index + 1).map((t) => t.uci)
@@ -138,9 +167,14 @@ export async function runGameAnalysis(opts: {
   }
 
   try {
-    await engine.startEngine(opts.enginePath, context, GAME_ANALYSIS_SESSION)
+    await engine.startEngine(opts.enginePath, context, session)
     unlisten = await engine.onEngineLine((line) => {
       if (line.startsWith("bestmove")) {
+        const move = line.split(/\s+/)[1]
+        // "(none)" is Stockfish's answer in a position with no legal move —
+        // not a move, and reporting it as one would put a fake SAN in front of
+        // the user.
+        bestUci = move && move !== "(none)" ? move : null
         const r = resolveBest
         resolveBest = null
         r?.()
@@ -148,7 +182,7 @@ export async function runGameAnalysis(opts: {
       }
       const info = parseUciInfo(line)
       if (info && (info.multipv ?? 1) === 1) last = { score: info.score, depth: info.depth }
-    }, GAME_ANALYSIS_SESSION)
+    }, session)
 
     if (opts.threads) await send(`setoption name Threads value ${opts.threads}`)
     if (opts.hash) await send(`setoption name Hash value ${opts.hash}`)
@@ -166,6 +200,7 @@ export async function runGameAnalysis(opts: {
       let ev: NodeEval | null = null
       if (!isTerminal(target.fen)) {
         last = null
+        bestUci = null
         const done = new Promise<void>((resolve) => {
           resolveBest = resolve
         })
@@ -184,12 +219,16 @@ export async function runGameAnalysis(opts: {
           ev = whitePovEval(captured.score, turnOf(target.fen), captured.depth)
           callbacks.onEval(target.id, ev)
         }
+        // Same cast, same reason: the listener wrote it across the await.
+        const best = bestUci as string | null
+        if (best) callbacks.onBestMove?.(target.id, best)
       }
       evals.push(ev)
 
       // Judge the move that LED here (needs both sides of the swing). The
-      // mover is whoever was to move in the previous position.
-      const before = i > 0 ? evals[i - 1] : null
+      // mover is whoever was to move in the previous position — which only
+      // means anything when the targets are a chain (see `independent`).
+      const before = opts.independent ? null : i > 0 ? evals[i - 1] : null
       if (ev && before) {
         const judgment = judgeMove(before, ev, turnOf(targets[i - 1].fen) === "white")
         if (judgment) callbacks.onJudgment(target.id, judgment)
@@ -206,6 +245,6 @@ export async function runGameAnalysis(opts: {
     return { completed: false, error: e instanceof Error ? e.message : String(e) }
   } finally {
     unlisten?.()
-    await engine.stopEngine(GAME_ANALYSIS_SESSION).catch(() => {})
+    await engine.stopEngine(session).catch(() => {})
   }
 }

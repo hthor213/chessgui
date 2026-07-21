@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import { GameTree } from "../src/game-tree";
+import { syncLiveLine } from "../src/live-sync";
 import { archivePgnImpurity, containsNotebookTags } from "../src/annotations";
 import {
   TRAINING_RECORD_VERSION,
@@ -94,6 +95,28 @@ describe("extraction (spec 226 J)", () => {
     expect(bySan.get("e4")!.own).toBe(true);
     expect(bySan.get("c4")!.own).toBe(false);
     expect(bySan.get("c4")!.src).toBe("database");
+  });
+
+  it("does not count a move the sync appended as one of my candidates", () => {
+    // The failure this closes: `syncLiveLine` appends what was PLAYED, so
+    // without a mark every reply the opponent actually made — including ones
+    // the player never considered for a second — reads as a named candidate.
+    // The decision then shows full coverage and no blind spot at a position
+    // where no work was done at all, which is the gap spec 226 calls fatal.
+    const tree = GameTree.create();
+    tree.addMoveSan("e4"); // the player's own move, on their own board
+    const synced = syncLiveLine(tree, "1. e4 c5 *");
+    expect(synced.status).toBe("ok");
+    if (synced.status !== "ok") return;
+    const rec = extract(synced.tree, synced.report.liveNodeId);
+    const his = rec.decisions.find((d) => d.line.join(" ") === "e4")!;
+    const c5 = his.candidates.find((c) => c.san === "c5")!;
+    expect(c5.own).toBe(false);
+    expect(c5.src).toBe("played");
+    expect(his.coverage.named).toBe(0);
+    // …and the player's own e4 is still theirs.
+    const start = rec.decisions.find((d) => d.line.length === 0)!;
+    expect(start.candidates.find((c) => c.san === "e4")!.own).toBe(true);
   });
 
   it("keeps assessments with their provenance stamp", () => {

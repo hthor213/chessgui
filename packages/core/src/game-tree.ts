@@ -109,13 +109,22 @@ export interface MoveNode {
 }
 
 /**
- * Where a move that is NOT the user's own came from. The opening explorer and
- * the database's move rows serve moves out of a position-indexed corpus: a
- * legitimate thing to click, but the app naming a move rather than the player
- * finding it. Marking them keeps "2 of my 6 candidates" true and preserves the
- * blind-spot record spec 226 H depends on.
+ * Where a move that is NOT the user's own came from.
+ *
+ * - "database" — the opening explorer and the database's move rows serve moves
+ *   out of a position-indexed corpus: a legitimate thing to click, but the app
+ *   naming a move rather than the player finding it.
+ * - "played" — the live sync (spec 219 F) appended it because it happened on
+ *   chess.com. Reality is not a candidate: a move the player never put on the
+ *   board is not something they saw, and the opponent's replies arrive this way
+ *   whether or not the player considered a single one of them. Left unmarked it
+ *   would top the candidate list up with the answer, and every decision where
+ *   the player did no work at all would read as covered.
+ *
+ * Marking both keeps "2 of my 6 candidates" true and preserves the blind-spot
+ * record spec 226 H depends on.
  */
-export type MoveSource = "database";
+export type MoveSource = "database" | "played";
 
 /** Relative weight of an opponent reply: 1 unlikely, 2 possible, 3 likely. */
 export type Likelihood = 1 | 2 | 3;
@@ -647,6 +656,37 @@ export class GameTree {
     const node = this.nodes.get(id);
     if (node) node.src = "database";
     return id;
+  }
+
+  /**
+   * Append a move because it was PLAYED in the real game (the spec 219 F live
+   * sync), rather than because the user put it on the board.
+   *
+   * Same rule as `addMoveUciFromDatabase` and for a sharper reason: only a
+   * NEWLY created node is marked. If the user had already played this move
+   * themselves it stays theirs — having foreseen it is precisely the thing the
+   * record exists to capture, and reality arriving later must not take the
+   * credit. But a node the sync CREATED is a move the player never considered,
+   * and counting it as one of their candidates would quietly repair the
+   * blind-spot record with the answer key (spec 226 C/H).
+   */
+  addMoveSanAsPlayed(san: string): string | null {
+    const known = new Set(this.currentNode().children);
+    const id = this.addMoveSan(san);
+    if (id === null || known.has(id)) return id;
+    const node = this.nodes.get(id);
+    if (node) node.src = "played";
+    return id;
+  }
+
+  /**
+   * Mark an existing node as one the real game supplied rather than the user.
+   * Only ever fills an ABSENT source, so a move the user had already found (or
+   * clicked out of the book) keeps the provenance it earned.
+   */
+  markPlayed(id: string): void {
+    const node = this.nodes.get(id);
+    if (node && node.src === undefined) node.src = "played";
   }
 
   /**

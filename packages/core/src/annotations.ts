@@ -95,7 +95,13 @@ export function joinComment(text: string, tags: string[]): string {
 
 const LIK_RE = /\[%lik\s+([123])\s*\]/;
 const PROV_RE = /\[%prov\s+(human-live|human)(?:\s*,\s*(\d+))?\s*\]/;
-const SRC_RE = /\[%src\s+(db)\s*\]/;
+const SRC_RE = /\[%src\s+(db|live)\s*\]/;
+
+/** The two directions of the `[%src]` tag. "db" is a move the app served out
+ *  of a position-indexed corpus; "live" is one the chess.com sync appended
+ *  because it was played. Neither is one of the user's own candidates. */
+const SRC_TAGS: Record<MoveSource, string> = { database: "db", played: "live" };
+const SRC_VALUES: Record<string, MoveSource> = { db: "database", live: "played" };
 
 export interface NotebookTags {
   lik?: Likelihood;
@@ -116,7 +122,8 @@ export function parseNotebookTags(comment: string): NotebookTags {
     out.assessedBy = prov[1] as AssessmentOrigin;
     if (prov[2]) out.assessedAt = Number(prov[2]);
   }
-  if (SRC_RE.test(comment)) out.src = "database";
+  const src = comment.match(SRC_RE);
+  if (src) out.src = SRC_VALUES[src[1]];
   out.rest = comment
     .replace(LIK_RE, "")
     .replace(PROV_RE, "")
@@ -142,7 +149,7 @@ export function makeNotebookTags(node: {
     const at = node.assessedAt !== undefined ? `,${node.assessedAt}` : "";
     parts.push(`[%prov ${node.assessedBy}${at}]`);
   }
-  if (node.src !== undefined) parts.push("[%src db]");
+  if (node.src !== undefined) parts.push(`[%src ${SRC_TAGS[node.src]}]`);
   return parts.join(" ");
 }
 
@@ -261,7 +268,11 @@ export type MoveJudgment = "inaccuracy" | "mistake" | "blunder";
 // maximal one, and swings between already-decisive evals don't re-register.
 const JUDGMENT_CAP_CP = 1000;
 
-function judgmentCp(ev: NodeEval): number {
+// Exported because the spec 226 H diagnosis grades the same kind of miss and
+// must use the SAME cap: two modules with two caps would disagree about how
+// bad a thrown mate was, and the diagnosis is supposed to agree with the ?!/?/??
+// the move list already shows.
+export function judgmentCp(ev: NodeEval): number {
   if (ev.mate !== undefined) return ev.mate > 0 ? JUDGMENT_CAP_CP : -JUDGMENT_CAP_CP;
   return Math.max(-JUDGMENT_CAP_CP, Math.min(JUDGMENT_CAP_CP, ev.cp ?? 0));
 }

@@ -63,6 +63,8 @@ import {
 } from "@/lib/active-games"
 import { FairPlayPanel } from "@chessgui/ui/fair-play-panel"
 import { NotebookCompare } from "@chessgui/ui/notebook-compare"
+import { NotebookReview } from "@chessgui/ui/notebook-review"
+import { useNotebookReview } from "@/hooks/use-notebook-review"
 import { backupTree } from "@chessgui/core/notebook"
 import { useChessGame, type GameState } from "@/hooks/use-chess-game"
 import { useEngine, type PlayerColor } from "@/hooks/use-engine"
@@ -603,6 +605,13 @@ export default function Home() {
     [game.activeGame, game.setActiveGame],
   )
 
+  // Post-game review (spec 226 H). The button only appears on archived rows,
+  // but the guard that matters is in lib/notebook-review: `reviewAllowed`
+  // refuses any record that is not archived AND free of the active-game flag,
+  // so opening this screen for a live game yields a refusal, not a review.
+  const [reviewGame, setReviewGame] = useState<ActiveGameRecord | null>(null)
+  const review = useNotebookReview(reviewGame)
+
   // Panel migration control: set which side the user plays. Persist to the
   // store, and — when the changed record is the game currently on the board —
   // update the in-memory flag (game.setActiveGame bumps the version, so the
@@ -732,6 +741,13 @@ export default function Home() {
   useEffect(() => {
     if (compare && !compareOpen) exitCompare()
   }, [compare, compareOpen, exitCompare])
+
+  // Same argument for the post-game review: leaving the database view closes
+  // it, so its engine run is abandoned and a stale diagnosis can never be
+  // waiting under a heading the user has moved on from.
+  useEffect(() => {
+    if (reviewGame && view !== "database") setReviewGame(null)
+  }, [reviewGame, view])
 
   // PV preview (spec 011): clicking a move in an engine line shows the line
   // on the board up to that ply — a read-only overlay, never a tree mutation.
@@ -1074,6 +1090,14 @@ export default function Home() {
       // shortcuts must not act on the hidden board behind it.
       if (view === "learn") return
 
+      // The post-game review (spec 226 H) is the third full-view surface that
+      // hides the board rather than unmounting it, and it owns no keys at all.
+      // Left unguarded, ArrowLeft/Right move the cursor on the game behind it,
+      // `f` flips its orientation permanently, and Cmd+N replaces the working
+      // tree — which for a resumed daily game is where every assessment,
+      // likelihood and preference lives until archive.
+      if (reviewGame) return
+
       // While watching a live tournament game, the live viewer owns the arrow
       // keys (ply nav); don't also drive the hidden analyze board.
       if (liveViewing && !meta) return
@@ -1173,7 +1197,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view, pvPreview, compare])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view, pvPreview, compare, reviewGame])
 
   return (
     <ErrorBoundary>
@@ -1316,7 +1340,38 @@ export default function Home() {
         {/* Database view — game list, filters, position search. Mounted only
             when active; it re-fetches on mount, which is cheap. The explorer
             panel plays moves straight onto the board's current game. */}
-        {view === "database" && (
+        {view === "database" && reviewGame && (
+          <main className="flex-1 min-h-0 flex flex-col">
+            {/* The review takes the whole view rather than sitting under the
+                list: reading a diagnosis is the task at that moment, and the
+                board it needs is a real board (spec 226 H). */}
+            <NotebookReview
+              title={`vs ${reviewGame.meta.opponent || "unknown"}${
+                reviewGame.meta.chesscomUsername
+                  ? ` · as ${reviewGame.meta.chesscomUsername}`
+                  : ""
+              }`}
+              myColor={
+                reviewGame.meta.myColor ?? review.state.training?.player.myColor ?? "white"
+              }
+              training={review.state.training}
+              diagnosis={review.state.diagnosis}
+              loading={review.state.loading}
+              running={review.state.running}
+              done={review.state.done}
+              total={review.state.total}
+              evaluated={review.state.evaluated}
+              targeted={review.state.targeted}
+              error={review.state.error}
+              onRun={review.run}
+              onStop={review.cancel}
+              onClose={() => setReviewGame(null)}
+              coordinates={engine.settings.showCoordinates}
+            />
+          </main>
+        )}
+
+        {view === "database" && !reviewGame && (
           <main className="flex-1 min-h-0 flex flex-col">
             {/* Active chess.com daily games (spec 219 D) — lives with the
                 database because "Game finished" archives into it. Renders
@@ -1326,6 +1381,7 @@ export default function Home() {
                 onResume={handleResumeActiveGame}
                 onArchived={handleActiveGameArchived}
                 onDeleted={handleActiveGameDeleted}
+                onReview={setReviewGame}
                 onSetMyColor={handleSetActiveGameColor}
                 refreshNonce={activeGamesNonce}
               />

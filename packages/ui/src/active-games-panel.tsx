@@ -118,6 +118,12 @@ export interface ActiveGamesListProps {
    *  the lockout is long lifted). The archived game and the training record
    *  both survive it; this only clears the row (spec 226 J). */
   onRemoveArchived: (record: ActiveGameRecord) => void
+  /**
+   * Open the post-game review (spec 226 H). Archived rows only — and that is
+   * enforced below the button, in lib/notebook-review's gate, because a review
+   * is engine-derived by construction and a hidden button is not a lockout.
+   */
+  onReview?: (record: ActiveGameRecord) => void
   /** Set which side the user plays — the per-game migration control for games
    *  flagged before myColor existed. */
   onSetMyColor: (record: ActiveGameRecord, color: "white" | "black") => void
@@ -215,6 +221,7 @@ export function ActiveGamesList({
   onArchivePgn,
   onDelete,
   onRemoveArchived,
+  onReview,
   onSetMyColor,
 }: ActiveGamesListProps) {
   const [statuses, setStatuses] = useState<Record<string, RowStatus>>({})
@@ -310,6 +317,21 @@ export function ActiveGamesList({
                     <span className="text-xs text-green-400">
                       Archived — engine analysis unlocked
                     </span>
+                    {onReview && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        // Not ROW_BTN: the review is the one control on this
+                        // row that leads into a reading surface, and nothing on
+                        // that surface is below 13px (spec 226 H).
+                        className="h-7 px-2.5 text-[13px] border-[#9bc700] text-[#c9d99a] hover:bg-[rgba(155,199,0,0.15)]"
+                        onClick={() => onReview(record)}
+                        data-testid={`active-game-review-${record.id}`}
+                        title="What I was thinking, against what the engine says"
+                      >
+                        Review my thinking
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -463,6 +485,7 @@ export function ActiveGamesPanel({
   onResume,
   onArchived,
   onDeleted,
+  onReview,
   onSetMyColor,
   refreshNonce = 0,
 }: {
@@ -471,6 +494,8 @@ export function ActiveGamesPanel({
    *  is the same one. */
   onArchived?: (record: ActiveGameRecord) => void
   onDeleted?: (record: ActiveGameRecord) => void
+  /** Open the post-game review for an archived game (spec 226 H). */
+  onReview?: (record: ActiveGameRecord) => void
   /** Set which side the user plays. The host owns persistence AND syncing the
    *  live board when the changed record is the one currently open, then bumps
    *  `refreshNonce` so this list re-reads. */
@@ -552,6 +577,7 @@ export function ActiveGamesPanel({
       onArchivePgn={archivePgn}
       onDelete={handleDelete}
       onRemoveArchived={handleDelete}
+      onReview={onReview}
       onSetMyColor={onSetMyColor}
     />
   )

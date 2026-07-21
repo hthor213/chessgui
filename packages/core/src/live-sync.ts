@@ -123,6 +123,10 @@ export function syncLiveLine(
   // Empty board, different start position → adopt the real game outright.
   if (tree.root().children.length === 0 && real.startFen !== tree.startFen) {
     real.activeGame = tree.activeGame
+    // Wholesale adoption replaces an EMPTY board, so not one of these moves was
+    // ever a candidate the user named — mark them all, or the record would
+    // credit the player with having foreseen the entire game.
+    for (const n of real.mainlineNodes().slice(1)) real.markPlayed(n.id)
     real.goToEnd()
     return {
       status: "ok",
@@ -148,7 +152,12 @@ export function syncLiveLine(
     // "did this create a node?" has to be asked of the node we moved FROM.
     const parentId = tree.currentId
     const before = tree.currentNode().children.length
-    const id = tree.addMoveSan(san)
+    // Marked "played" when this call CREATES the node: reality is not one of
+    // the user's candidates. A move they had already put on the board keeps its
+    // own provenance — `addMoveSanAsPlayed` only marks what it appends — so
+    // "I saw this coming" survives and "he played something I never looked at"
+    // stays visible as the blind spot it is (spec 226 C/H).
+    const id = tree.addMoveSanAsPlayed(san)
     if (!id) {
       return {
         status: "error",

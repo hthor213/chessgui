@@ -53,8 +53,19 @@ import { assessmentOf, backupTree, type Assessment, type NodeValue } from "./not
  * `parseTrainingRecordsStore` drops anything it does not recognise rather than
  * guessing, because a half-migrated record of how someone thought is worse
  * than no record at all.
+ *
+ * v2: `own` used to be true for every move with no `src`, which included the
+ * moves the live sync appended because they were PLAYED. So a v1 record credits
+ * the player with having named every move of the game — including the
+ * opponent's replies they never once considered — which inflates
+ * `coverage.named` and, worse, makes a decision where they did no work at all
+ * read as free of blind spots (the played move's own loss is 0 whenever they
+ * played well). A v1 record cannot be repaired, because nothing in it records
+ * which nodes the sync created. It is dropped rather than diagnosed: this
+ * feature tells a person what is wrong with their chess, and a confident wrong
+ * answer is worse than no answer.
  */
-export const TRAINING_RECORD_VERSION = 1;
+export const TRAINING_RECORD_VERSION = 2;
 
 // ---- the pointer to the archived game (spec 226 J) ----
 
@@ -93,11 +104,14 @@ export interface TrainingPlayerRef {
  * A move the user had on the board at a decision point, with everything they
  * said about it.
  *
- * `own` is the load-bearing field: a move served out of a position-indexed
- * corpus (the opening explorer, the database's move rows) is chess the APP
- * named, not the player. Judging it is still their own work and still feeds
- * the backup, but counting it as one of "my candidates" would overstate what
- * they saw and quietly repair the blind-spot record.
+ * `own` is the load-bearing field: a move the player did not put on the board
+ * themselves is not one of their candidates. Two ways that happens, and both
+ * are marked (`MoveSource`) — served out of a position-indexed corpus (the
+ * opening explorer, the database's move rows), or appended by the live sync
+ * because it was played in the real game. Judging either is still their own
+ * work and still feeds the backup, but counting them as "my candidates" would
+ * overstate what they saw and quietly repair the blind-spot record with the
+ * answer key.
  */
 export interface CandidateRecord {
   nodeId: string;
@@ -268,8 +282,9 @@ function candidateOf(node: MoveNode, value: NodeValue | undefined): CandidateRec
     san: node.san,
     uci: node.uci,
     fen: node.fen,
-    // Absent `src` = the user played this move themselves, which is the only
-    // kind the notebook counts as one of their candidates (spec 226 C).
+    // Absent `src` = the user put this move on the board themselves, which is
+    // the only kind the notebook counts as one of their candidates (spec 226 C).
+    // Book moves and moves the live sync appended both carry one.
     own: node.src === undefined,
     ...(node.src !== undefined ? { src: node.src } : {}),
     assessment: assessmentOf(node),

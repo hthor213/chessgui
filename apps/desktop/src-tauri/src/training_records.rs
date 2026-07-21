@@ -55,7 +55,9 @@ fn store_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// The document version the TypeScript side writes (`TRAINING_RECORD_VERSION`).
-const STORE_VERSION: i64 = 1;
+/// v2 changed what `own` means on a candidate — see the TS constant's comment;
+/// keep the two numbers equal.
+const STORE_VERSION: i64 = 2;
 
 fn empty_store() -> serde_json::Value {
     serde_json::json!({ "v": STORE_VERSION, "records": [] })

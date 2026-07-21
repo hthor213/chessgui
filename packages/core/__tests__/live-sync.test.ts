@@ -127,6 +127,43 @@ describe("syncLiveLine (spec 219 F)", () => {
     expect(res.tree.get(res.report.liveNodeId)!.san).toBe("f4")
   })
 
+  it("marks the moves it appends as played, not as the user's candidates", () => {
+    // Reality is not a candidate (spec 226 C/H). A move the sync put on the
+    // board is one the player never named, and left unmarked it would top the
+    // candidate list up with the answer — which is precisely the gap the
+    // blind-spot record exists to preserve.
+    const res = syncLiveLine(freshBoard(), LIVE_PGN)
+    expect(res.status).toBe("ok")
+    if (res.status !== "ok") return
+    const appended = res.tree.mainlineNodes().slice(1)
+    expect(appended.every((n) => n.src === "played")).toBe(true)
+  })
+
+  it("leaves a move the user had already found as their own", () => {
+    // Having foreseen it is exactly the thing the record is meant to capture,
+    // so reality arriving later must not take the credit.
+    const tree = freshBoard()
+    const first = syncLiveLine(freshBoard(), LIVE_PGN)
+    expect(first.status).toBe("ok")
+    if (first.status !== "ok") return
+    const firstSan = first.tree.mainlineNodes()[1].san
+    tree.goToStart()
+    const mine = tree.addMoveSan(firstSan)!
+    expect(tree.get(mine)!.src).toBeUndefined()
+    const res = syncLiveLine(tree, LIVE_PGN)
+    expect(res.status).toBe("ok")
+    if (res.status !== "ok") return
+    expect(res.tree.get(mine)!.src).toBeUndefined()
+  })
+
+  it("marks an adopted game's moves too — an empty board named nothing", () => {
+    const res = syncLiveLine(GameTree.create(), LIVE_PGN)
+    expect(res.status).toBe("ok")
+    if (res.status !== "ok") return
+    expect(res.report.adopted).toBe(true)
+    expect(res.tree.mainlineNodes().slice(1).every((n) => n.src === "played")).toBe(true)
+  })
+
   it("is idempotent — re-syncing an unchanged game adds nothing", () => {
     const first = syncLiveLine(freshBoard(), LIVE_PGN)
     expect(first.status).toBe("ok")
