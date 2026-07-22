@@ -40,6 +40,12 @@ interface BoardProps {
    * gutters so the board reclaims the space.
    */
   coordinates?: boolean;
+  /** Fade the real piece on ONE square to a shadow (spec 226 L re-walk
+   *  preview): the origin piece dims so the moving ghost reads as the same
+   *  piece lifting off, not a duplicate. A square key like "f8", or null.
+   *  Targeted imperatively because Chessground positions pieces by pixel
+   *  transform, not by any class CSS could select. */
+  dimSquare?: string | null;
   /**
    * Extra pixels held back from the board's height.
    *
@@ -60,7 +66,7 @@ const COORD_GUTTER = 26;
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, coordinates = true, reserveBelow = 48, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, coordinates = true, reserveBelow = 48, dimSquare = null, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
@@ -91,6 +97,38 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
   const handleSelect = useCallback((key: Key) => {
     onSelectRef.current?.(key);
   }, []);
+
+  // Fade one square's piece to a shadow during the re-walk preview (spec 226
+  // L). Chessground positions pieces with `transform: translate(Xpx, Ypx)` and
+  // gives them no per-square class, so the target is found by matching that
+  // transform against the square's expected pixel offset. Imperative, and
+  // restored on cleanup so the board is untouched the rest of the time.
+  useEffect(() => {
+    if (!dimSquare || !boardRef.current) return;
+    const board = boardRef.current.querySelector("cg-board");
+    if (!board) return;
+    const sq = boardSize / 8;
+    const file = dimSquare.charCodeAt(0) - 97;
+    const rank = dimSquare.charCodeAt(1) - 49;
+    const x = orientation === "white" ? file * sq : (7 - file) * sq;
+    const y = orientation === "white" ? (7 - rank) * sq : rank * sq;
+    let target: HTMLElement | null = null;
+    for (const el of Array.from(board.querySelectorAll("piece"))) {
+      const m = (el as HTMLElement).style.transform.match(
+        /translate\(\s*([-\d.]+)px[,\s]+([-\d.]+)px/,
+      );
+      if (m && Math.abs(+m[1] - x) < 2 && Math.abs(+m[2] - y) < 2) {
+        target = el as HTMLElement;
+        break;
+      }
+    }
+    if (!target) return;
+    target.style.transition = "opacity 130ms ease";
+    target.style.opacity = "0.4";
+    return () => {
+      if (target) target.style.opacity = "";
+    };
+  }, [dimSquare, boardSize, orientation]);
 
   useEffect(() => {
     // boardRef -> board square div -> outer wrapper (self-sized) -> layout container
@@ -254,7 +292,11 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
           ))}
         </div>
       )}
-      {/* Board + overlays (promotion dialog, etc.) stay aligned to the board square */}
+      {/* Board + overlays (promotion dialog, etc.) stay aligned to the board
+          square. The dim class lives HERE, on the React-owned wrapper, never on
+          the boardRef div: Chessground adds `cg-wrap` to that div imperatively,
+          and a React className on it clobbers cg-wrap — which drops the piece
+          sprites entirely (the sprites come from `.cg-wrap piece.*`). */}
       <div style={{ position: "absolute", left: gutter, top: 0, width: boardSize, height: boardSize }}>
         <div
           ref={boardRef}

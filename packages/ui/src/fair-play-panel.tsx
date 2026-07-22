@@ -374,7 +374,11 @@ export function FairPlayPanel({
           retreating and re-walking your own lines is the whole point. */}
       {exploring && (
         <div className="flex items-center gap-1 px-2 pb-2 shrink-0">
-          <NavButton onClick={onRetreatBranch ?? (() => {})} title="Back to the head of this line">
+          <NavButton
+            onClick={onRetreatBranch ?? (() => {})}
+            disabled={live}
+            title="Back to the head of this line"
+          >
             ⤒ Branch
           </NavButton>
           <NavButton onClick={onJumpBest ?? (() => {})} title="Jump to my best-ranked line">

@@ -1931,6 +1931,7 @@ export default function Home() {
                 // already accounts for. Holding back another 48px just shrank
                 // the board (spec 219 F).
                 reserveBelow={fairPlayLayout ? 0 : 48}
+                dimSquare={fairPlayLayout && ghost ? ghost.from : null}
                 autoShapes={previewStep ? [] : boardAutoShapes}
                 userShapes={previewStep ? [] : userShapes}
                 onShapesChange={handleShapesChange}
@@ -2232,7 +2233,13 @@ export default function Home() {
                 onRewalk={handleRewalk}
                 rewalkArmed={previewArmed === game.currentNodeId}
                 canRewalk={!!myContinuation(game.tree, game.currentNodeId)}
-                exploring={game.livePosition.relation === "ahead"}
+                exploring={
+                  // At the live position too: re-walking "what I did last" from
+                  // the current game position is the same gesture (user
+                  // 2026-07-21). Retreat is disabled there (no branch above).
+                  game.livePosition.relation === "ahead" ||
+                  game.livePosition.relation === "live"
+                }
                 onContinueLater={handleContinueLater}
                 onShowList={() => setView("database")}
                 onStart={() => game.goToMove(-1)}
