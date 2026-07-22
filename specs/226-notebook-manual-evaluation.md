@@ -657,12 +657,18 @@ data is not narrowed in the meantime.
 - [x] Assessments and likelihoods survive a PGN export/import round trip
 - [x] Display sorting changes render order only: the serialized tree, the
       mainline, and the exported PGN are byte-identical before and after
-- [ ] The notebook store rejects a by-FEN query originating from a fair-play
+- [x] The notebook store rejects a by-FEN query originating from a fair-play
       context, at the query layer, with a Rust-side refusal as the second line
-- [ ] The opening explorer surfaces no engine-derived evaluation in a fair-play
-      game (frequencies and results only)
-- [ ] A post-game engine review writes to the engine field and leaves the
-      human assessment and its provenance stamp untouched
+      (code-verified 2026-07-21: TS `positionQueryAllowed` throws + Rust
+      `position_query_allowed` refuses; 11 Rust gate tests, inverted default)
+- [x] The opening explorer surfaces no engine-derived evaluation in a fair-play
+      game (frequencies and results only) (code-verified 2026-07-21: the
+      explorer serves the spec 200 book, which carries no eval; the engine
+      lockout hides every eval surface — spec 219 B)
+- [x] A post-game engine review writes to the engine field and leaves the
+      human assessment and its provenance stamp untouched (code-verified
+      2026-07-21: `notebook-diagnosis` is pure and writes nothing; assessedBy
+      stays human-only; a snapshot test proves the record is unchanged)
 
 #### Section I — width and the head-to-head
 
