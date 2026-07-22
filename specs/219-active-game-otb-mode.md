@@ -515,6 +515,12 @@ layout chess.com has, which people are very used to."
       badge showing and hidden (no reflow)
 - [x] Chess960 round-trips: the live `hjaltth` game (`1000687368`) syncs its
       full move list rather than importing 0 plies
+- [x] A game whose FOUNDATION disagrees with chess.com (variant or start
+      position — e.g. a 960 game set up as standard, castling rights lost) is
+      rebuilt from reality rather than reporting the opponent's castling as a
+      divergence (user-reported 2026-07-21; the broken board had also been
+      hiding castling from the user's own legal moves the whole game). The
+      rebuild is surfaced, not silent, because it discards exploration.
 - [x] Advancing the pointer prunes dead branches: a variation hanging off a
       position before the new live node is gone after sync, one hanging off the
       live node or after it survives, and the played path is intact

@@ -310,6 +310,11 @@ export type SyncActiveGameResult =
       added: number
       /** Dead exploration branches cleared from behind the live position. */
       pruned: number
+      /** True when the tree was rebuilt from chess.com because its foundation
+       *  (variant / start position) disagreed with reality — e.g. a 960 game
+       *  that had lost its castling rights. Exploration is discarded, so the
+       *  UI must say so rather than let it vanish silently. */
+      rebuilt: boolean
       turn: string | null
     }
   /** The game is no longer among the account's ongoing games — it ended.
@@ -427,6 +432,7 @@ export async function syncActiveGameLivePosition(
     plies: synced.report.plies,
     added: synced.report.added,
     pruned,
+    rebuilt: synced.report.adopted,
     turn: game.turn ?? null,
   }
 }

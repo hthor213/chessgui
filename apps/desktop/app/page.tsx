@@ -42,7 +42,10 @@ import { TrainingTab } from "@chessgui/ui/training-tab"
 import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
 import { RepertoireTab } from "@chessgui/ui/repertoire-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
-import { moverIsWhite } from "@chessgui/core/game-tree"
+import { moverIsWhite, squareToKey } from "@chessgui/core/game-tree"
+import { branchHead, bestPeerHead, myContinuation } from "@chessgui/core/notebook-nav"
+import { GhostMove } from "@chessgui/ui/ghost-move"
+import { parseFen } from "chessops/fen"
 import type { GameTree } from "@chessgui/core/game-tree"
 import { isNamedPlayer, matchMyColor } from "@chessgui/core/identity"
 import { loadIdentityNames, saveIdentityNames } from "@/lib/identity"
@@ -496,14 +499,25 @@ export default function Home() {
           game.restoreSnapshot(res.record.tree)
           if (res.record.meta.myColor) game.setOrientation(res.record.meta.myColor)
           setActiveGamesNonce((n) => n + 1)
-          const bits: string[] = []
-          if (res.added > 0) bits.push(`+${res.added} new move${res.added === 1 ? "" : "s"}`)
-          if (res.pruned > 0)
-            bits.push(`cleared ${res.pruned} dead line${res.pruned === 1 ? "" : "s"}`)
-          setLiveSync({
-            pending: false,
-            message: bits.length ? `Synced — ${bits.join(", ")}` : "Synced — up to date",
-          })
+          if (res.rebuilt) {
+            // The board was on the wrong rules (e.g. a 960 game that had lost
+            // its castling) and got rebuilt from chess.com. Exploration is
+            // gone, so say it plainly rather than let it vanish.
+            setLiveSync({
+              pending: false,
+              message:
+                "Rebuilt from chess.com — this game's board was set up on the wrong rules (castling was missing), so your exploration was cleared. The board is now correct.",
+            })
+          } else {
+            const bits: string[] = []
+            if (res.added > 0) bits.push(`+${res.added} new move${res.added === 1 ? "" : "s"}`)
+            if (res.pruned > 0)
+              bits.push(`cleared ${res.pruned} dead line${res.pruned === 1 ? "" : "s"}`)
+            setLiveSync({
+              pending: false,
+              message: bits.length ? `Synced — ${bits.join(", ")}` : "Synced — up to date",
+            })
+          }
         } else if (res.status === "ended") {
           setLiveSync({
             pending: false,
@@ -712,6 +726,75 @@ export default function Home() {
     () => backupTree(game.tree, game.activeGame?.myColor ?? "white"),
     [game.tree, game.treeVersion, game.activeGame?.myColor],
   )
+
+  // Tree navigation (spec 226 L). `ghost` is the animating preview of the move
+  // played from here last time; `previewArmed` is the node whose continuation
+  // is showing, so a second press commits it.
+  const [ghost, setGhost] = useState<{
+    key: number
+    from: string
+    to: string
+    role: "pawn" | "knight" | "bishop" | "rook" | "queen" | "king"
+    color: "white" | "black"
+  } | null>(null)
+  const [previewArmed, setPreviewArmed] = useState<string | null>(null)
+  const ghostKeyRef = useRef(0)
+
+  // The move played from a node last time, resolved to what the ghost needs:
+  // the piece on the from-square in THIS position, sliding to the to-square.
+  const continuationGhost = useCallback(
+    (nodeId: string) => {
+      const contId = myContinuation(game.tree, nodeId)
+      const node = game.tree.get(nodeId)
+      const cont = contId ? game.tree.get(contId) : null
+      if (!node || !cont?.move) return null
+      const setup = parseFen(node.fen)
+      if (setup.isErr) return null
+      const piece = setup.unwrap().board.get(cont.move.from)
+      if (!piece) return null
+      return {
+        from: squareToKey(cont.move.from),
+        to: squareToKey(cont.move.to),
+        role: piece.role,
+        color: piece.color,
+      }
+    },
+    [game.tree],
+  )
+
+  // Re-walk: first press previews (ghost slides out and back, nothing
+  // committed); a second press at the same node makes the move and advances.
+  const handleRewalk = useCallback(() => {
+    const id = game.currentNodeId
+    if (previewArmed === id) {
+      const contId = myContinuation(game.tree, id)
+      if (contId) game.goToNode(contId)
+      setPreviewArmed(null)
+      setGhost(null)
+      return
+    }
+    const g = continuationGhost(id)
+    if (!g) return
+    ghostKeyRef.current += 1
+    setGhost({ key: ghostKeyRef.current, ...g })
+    setPreviewArmed(id)
+  }, [game.currentNodeId, game.tree, game.goToNode, previewArmed, continuationGhost])
+
+  // Any cursor move disarms a pending preview — it belonged to where you were.
+  useEffect(() => {
+    setPreviewArmed(null)
+    setGhost(null)
+  }, [game.currentNodeId])
+
+  const handleRetreatBranch = useCallback(() => {
+    const id = branchHead(game.tree, game.activeGame?.liveNodeId, game.currentNodeId)
+    if (id) game.goToNode(id)
+  }, [game.tree, game.activeGame?.liveNodeId, game.currentNodeId, game.goToNode])
+
+  const handleJumpBest = useCallback(() => {
+    const id = bestPeerHead(game.tree, notebookValues, game.activeGame?.liveNodeId)
+    if (id) game.goToNode(id)
+  }, [game.tree, notebookValues, game.activeGame?.liveNodeId, game.goToNode])
 
   // Compare mode (spec 226 I). It replaces the whole board+panel layout with
   // two full boards, so the state belongs here rather than in the panel.
@@ -1861,11 +1944,23 @@ export default function Home() {
                     onCancel={game.cancelPromotion}
                   />
                 )}
-                {/* Nothing of the live-position UI renders over the board.
-                    Both earlier attempts — the status pill, then the replay
-                    bar — covered pieces to repeat what the panel's header
-                    already says (user 2026-07-20). The panel states the mode
-                    and its foot holds ▶ and ⟲ Current. */}
+                {/* Nothing STATIC renders over the board (the status pill and
+                    replay bar were removed for covering pieces). The ghost is
+                    different: a transient animation of the user's OWN move,
+                    which they explicitly asked to see on the board (spec 226
+                    L) — the board answering "this is what you played here". */}
+                {fairPlayLayout && ghost && (
+                  <GhostMove
+                    key={ghost.key}
+                    boardSize={boardSize}
+                    orientation={game.orientation}
+                    from={ghost.from}
+                    to={ghost.to}
+                    role={ghost.role}
+                    color={ghost.color}
+                    onDone={() => setGhost(null)}
+                  />
+                )}
               </Board>
             </div>
 
@@ -2132,6 +2227,12 @@ export default function Home() {
                 syncMessage={liveSync.message}
                 onSync={() => void handleSyncLive()}
                 onBackToLive={() => game.goToLive()}
+                onRetreatBranch={handleRetreatBranch}
+                onJumpBest={handleJumpBest}
+                onRewalk={handleRewalk}
+                rewalkArmed={previewArmed === game.currentNodeId}
+                canRewalk={!!myContinuation(game.tree, game.currentNodeId)}
+                exploring={game.livePosition.relation === "ahead"}
                 onContinueLater={handleContinueLater}
                 onShowList={() => setView("database")}
                 onStart={() => game.goToMove(-1)}

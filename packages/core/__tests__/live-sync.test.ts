@@ -205,11 +205,21 @@ describe("syncLiveLine (spec 219 F)", () => {
     expect(res.report.promoted).toBeGreaterThan(0)
   })
 
-  it("refuses a game that diverges from a board with moves on it, leaving the pointer alone", () => {
+  it("rebuilds a board whose foundation disagrees with reality", () => {
+    // A game flagged as standard, whose real chess.com game is 960 (a
+    // different start position). The working tree is on the wrong rules and
+    // cannot be reconciled, so reality wins — it adopts rather than erroring.
+    // Sync is only ever called with the CORRECT game's PGN (matchOngoingGame
+    // upstream), so adopting on a foundation mismatch never grabs a stranger's
+    // game. This is the case the user hit: a 960 game set up as standard, where
+    // the old code reported the opponent's castling as a divergence.
     const tree = GameTree.create() // standard chess, and NOT empty
     tree.addMoveSan("e4")
     const res = syncLiveLine(tree, LIVE_PGN)
-    expect(res.status).toBe("error")
+    expect(res.status).toBe("ok")
+    if (res.status !== "ok") return
+    expect(res.report.adopted).toBe(true)
+    expect(res.tree.variant).toBe("chess960")
   })
 })
 

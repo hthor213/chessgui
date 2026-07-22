@@ -105,6 +105,19 @@ export interface SyncLiveLineOptions {
   prune?: boolean;
 }
 
+/**
+ * Whether two trees are built on the same rules: same variant, and the same
+ * starting position down to piece placement, side to move, castling rights and
+ * en-passant square. The move counters are ignored — they are not part of what
+ * the game IS. A castling-rights mismatch (960 "HBhb" vs a lost "-") is exactly
+ * the kind of foundation difference that must trigger a rebuild.
+ */
+function sameFoundation(a: GameTree, b: GameTree): boolean {
+  if ((a.variant ?? null) !== (b.variant ?? null)) return false;
+  const key = (fen: string) => fen.split(" ").slice(0, 4).join(" ");
+  return key(a.startFen) === key(b.startFen);
+}
+
 export function syncLiveLine(
   tree: GameTree,
   pgn: string,
@@ -120,8 +133,20 @@ export function syncLiveLine(
     return { status: "error", message: "chess.com returned a game with no moves" }
   }
 
-  // Empty board, different start position → adopt the real game outright.
-  if (tree.root().children.length === 0 && real.startFen !== tree.startFen) {
+  // Adopt chess.com's game outright when the FOUNDATIONS disagree — a
+  // different start position or variant means the working tree was built on
+  // the wrong rules and cannot be reconciled: its node FENs were computed
+  // under those rules, and every legal-move set it ever showed was wrong.
+  //
+  // This is not hypothetical. A Chess960 game set up without its variant and
+  // castling rights (piece placement right, castling field "-", variant unset)
+  // replays every non-castling move fine and then reports the opponent's O-O
+  // as a divergence — AND, far worse, hid castling from the user's own legal
+  // moves the whole game, so they dismissed a threat that was always there
+  // (user-reported 2026-07-21). chess.com is the source of truth for what the
+  // game IS (spec 219 F), so reality wins and the broken tree is rebuilt. The
+  // old empty-board case is a subset (its start position differs too).
+  if (!sameFoundation(real, tree)) {
     real.activeGame = tree.activeGame
     // Wholesale adoption replaces an EMPTY board, so not one of these moves was
     // ever a candidate the user named — mark them all, or the record would
