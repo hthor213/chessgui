@@ -322,6 +322,38 @@ Bounded honestly: a single game yields a handful of data points. Aggregate
 across notebooks before claiming a pattern, and label small samples as such —
 the same sample-size gate spec 225 already applies to player profiles.
 
+#### Revealed preference — the played move outranks the typed symbol (user 2026-07-21)
+
+> *"I may not state my top ranked line … I search and search, and when I think
+> I see an opportunity I'll go on chess.com and make a move, so the notebook
+> needs to look at the move I made and consider that top … worth noting the
+> discrepancy in post-game analysis."*
+
+The player reasons in symbols but COMMITS in a move, and the commit is the truer
+statement. Many decisions never get an assessment at all — the search runs, an
+opportunity is felt, a move is played. So the notebook's ranking has two
+sources, and the move wins: an assessment orders the candidates until one is
+played, and from then on the **played move is the top of that decision**,
+whatever the symbols say. It costs no input — sync already reveals it (it is the
+candidate that continues to the next live position) and the decision log already
+records the peers that were ranked, so the two are there to compare for free.
+
+This RE-FRAMES the selection-error class above, which had it backwards. A gap
+between the assessment-top and the played move is not "you chose wrong". It is a
+disagreement between two decision systems — analysis and intuition — and the
+engine breaks the tie three ways:
+
+- ranked X, played Y, engine says **X** → trust the analysis next time (the
+  only case that resembles an error, and it is a trust error, not a chess one)
+- ranked X, played Y, engine says **Y** → intuition beat calculation here; the
+  symbols were miscalibrated for this kind of position
+- engine says neither matters → no signal
+
+The value is telling the player WHICH instrument to believe in WHICH kind of
+position, per opponent and structure over many games. That is a far better
+curriculum signal than a scold, and it is only available because the record
+keeps both the reasoned ranking and the committed move.
+
 ### I. What the tree reveals — width, and the head-to-head (user 2026-07-21)
 
 Assessments answer "how good is this position". They do not answer the question
@@ -431,6 +463,50 @@ Note for whoever touches this next: the previous behaviour — an in-row divider
 plus dimmed exploration cells — had NO test coverage at all, which is why a
 structural rewrite broke nothing. It has coverage now: rows stop at live, peers
 are equal, and a re-rank is a reorder rather than a promotion.
+
+### L. Navigating your own tree — retreat and re-walk (user 2026-07-21)
+
+The problem: you play a move into a line, go eight moves deep, decide it is not
+great — but you cannot remember what you actually played at the start, and ten
+undos leave you unsure whether you are back where you meant to be. Answer with
+the BOARD, not the move list: the board *shows* the move, the list only names it.
+
+**Retreat = jump to the branch head.** From anywhere in a peer line, one key
+lands on its head — the move you first played off the live position. Nothing
+deeper is a well-defined stop, and this is why:
+
+- **A fork is not a decision point, and the app must not treat it as one.** The
+  tempting idea — stop retreat at each node where you had more than one
+  candidate — was rejected, because forks mark where you *flailed*, not where
+  you found the answer. In a closed position you may branch widely out of
+  confusion while the move that decides the game is a single narrow line you
+  stumbled on clean. Stopping retreat at "where I worked hardest" would route
+  you toward the noise and away from the find. This is the same law as sharpness
+  (section E) and width (section I): **effort is not quality**, and the app
+  never navigates by effort.
+- The player asked directly, "do I also need to start marking big moments?" No.
+  The app will not ask for it (the input budget is already spent on symbols and
+  buckets) and will not guess it either, because guessing means judging effort
+  or importance, which it does not do.
+
+**Re-walk = preview-then-commit.** From a node, one tap ghosts the move you
+played from here last time — the piece slides to its square and back, the board
+answering "this is what you did" — with the cursor unmoved and nothing
+committed. Tap again to make it and advance; play anything else to diverge. Your
+own move shown back to you is DISPLAY of your state, not a recommendation: the
+axiom bars the app from supplying chess you did not produce, and this is chess
+you produced.
+
+**Jump to your best line.** One key goes to the head of your top-ranked peer.
+The ranking is your own (section I's key order), so this is navigation to your
+own conclusion, the keyboard twin of clicking the top of the ranked peer list —
+never the app's chess. Once a move has been played from the live position, that
+move is the top (revealed preference, section H), so the key follows the commit
+rather than the symbols.
+
+Two keys — up through your branch head, down through your line with a preview —
+plus a jump to your best. Nothing new to mark, nothing rendered as a suggestion,
+the board carrying every answer it can.
 
 ### J. Two artifacts — the game is saved pure (user 2026-07-21)
 
