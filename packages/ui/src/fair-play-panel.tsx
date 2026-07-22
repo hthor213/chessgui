@@ -39,6 +39,17 @@ export interface FairPlayPanelProps {
   syncMessage?: string | null;
   onSync: () => void;
   onBackToLive: () => void;
+  /** Tree navigation (spec 226 L). */
+  onRetreatBranch?: () => void;
+  onJumpBest?: () => void;
+  onRewalk?: () => void;
+  /** True when a preview is armed at the current node, so re-walk commits. */
+  rewalkArmed?: boolean;
+  /** True when the current node has a continuation to re-walk. */
+  canRewalk?: boolean;
+  /** True when the cursor is ahead of the live position — where re-walk and
+   *  retreat make sense. */
+  exploring?: boolean;
   onContinueLater: () => void;
   onShowList: () => void;
   /** Navigation, mirroring the bar that sits under the board elsewhere. */
@@ -154,6 +165,12 @@ export function FairPlayPanel({
   syncMessage,
   onSync,
   onBackToLive,
+  onRetreatBranch,
+  onJumpBest,
+  onRewalk,
+  rewalkArmed,
+  canRewalk,
+  exploring,
   onContinueLater,
   onShowList,
   onStart,
@@ -352,6 +369,31 @@ export function FairPlayPanel({
           ⟲ Current
         </NavButton>
       </div>
+
+      {/* Exploration navigation (spec 226 L). Only while ahead of live, where
+          retreating and re-walking your own lines is the whole point. */}
+      {exploring && (
+        <div className="flex items-center gap-1 px-2 pb-2 shrink-0">
+          <NavButton onClick={onRetreatBranch ?? (() => {})} title="Back to the head of this line">
+            ⤒ Branch
+          </NavButton>
+          <NavButton onClick={onJumpBest ?? (() => {})} title="Jump to my best-ranked line">
+            ★ Best
+          </NavButton>
+          <NavButton
+            onClick={onRewalk ?? (() => {})}
+            disabled={!canRewalk}
+            title={
+              rewalkArmed
+                ? "Play that move and step forward"
+                : "Show the move I played from here last time"
+            }
+            testId="panel-rewalk"
+          >
+            {rewalkArmed ? "▶ Do it" : "↻ Re-walk"}
+          </NavButton>
+        </div>
+      )}
     </Card>
   );
 }
