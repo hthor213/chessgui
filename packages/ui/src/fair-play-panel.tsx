@@ -42,6 +42,10 @@ export interface FairPlayPanelProps {
   /** Tree navigation (spec 226 L). */
   onRetreatBranch?: () => void;
   onJumpBest?: () => void;
+  /** Toggle the Eval-Map board overlay (spec 226) — my explored moves coloured
+   *  red→green, native move-dots suppressed. */
+  onToggleEvalMap?: () => void;
+  evalMapOn?: boolean;
   onRewalk?: () => void;
   /** True when a preview is armed at the current node, so re-walk commits. */
   rewalkArmed?: boolean;
@@ -107,12 +111,15 @@ function NavButton({
   title,
   children,
   testId,
+  active,
 }: {
   onClick: () => void;
   disabled?: boolean;
   title: string;
   children: React.ReactNode;
   testId?: string;
+  /** Sticky-on look for a toggle button (e.g. the Eval-Map). */
+  active?: boolean;
 }) {
   return (
     <button
@@ -120,7 +127,12 @@ function NavButton({
       disabled={disabled}
       title={title}
       data-testid={testId}
-      className="flex-1 px-2 py-1.5 text-sm rounded-md border border-input bg-background text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+      aria-pressed={active}
+      className={`flex-1 px-2 py-1.5 text-sm rounded-md border transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground ${
+        active
+          ? "border-primary/60 bg-primary/15 text-foreground"
+          : "border-input bg-background text-muted-foreground hover:text-foreground hover:bg-white/5"
+      }`}
     >
       {children}
     </button>
@@ -166,7 +178,8 @@ export function FairPlayPanel({
   onSync,
   onBackToLive,
   onRetreatBranch,
-  onJumpBest,
+  onToggleEvalMap,
+  evalMapOn,
   onRewalk,
   rewalkArmed,
   canRewalk,
@@ -381,8 +394,17 @@ export function FairPlayPanel({
           >
             ⤒ Branch
           </NavButton>
-          <NavButton onClick={onJumpBest ?? (() => {})} title="Jump to my best-ranked line">
-            ★ Best
+          <NavButton
+            onClick={onToggleEvalMap ?? (() => {})}
+            active={evalMapOn}
+            title={
+              evalMapOn
+                ? "Hide the eval map"
+                : "Colour my explored moves on the board — red (bad) to green (good)"
+            }
+            testId="panel-eval-map"
+          >
+            {evalMapOn ? "◉ Eval-Map" : "◎ Eval-Map"}
           </NavButton>
           <NavButton
             onClick={onRewalk ?? (() => {})}

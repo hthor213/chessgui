@@ -44,7 +44,9 @@ import { RepertoireTab } from "@chessgui/ui/repertoire-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
 import { moverIsWhite, squareToKey } from "@chessgui/core/game-tree"
 import { branchHead, bestPeerHead, isAncestor, myContinuation, stepToward } from "@chessgui/core/notebook-nav"
+import { buildEvalMap } from "@chessgui/core/eval-map"
 import { GhostMove } from "@chessgui/ui/ghost-move"
+import { EvalMap } from "@chessgui/ui/eval-map"
 import { parseFen } from "chessops/fen"
 import type { GameTree } from "@chessgui/core/game-tree"
 import { isNamedPlayer, matchMyColor } from "@chessgui/core/identity"
@@ -739,6 +741,21 @@ export default function Home() {
   } | null>(null)
   const [previewArmed, setPreviewArmed] = useState<string | null>(null)
   const ghostKeyRef = useRef(0)
+  // Eval-Map (spec 226): colour my explored moves on the board, red→green, and
+  // suppress the native legal-move dots so untried squares stay blank.
+  const [evalMapOn, setEvalMapOn] = useState(false)
+  const evalMarks = useMemo(
+    () =>
+      evalMapOn
+        ? buildEvalMap(
+            game.tree,
+            notebookValues,
+            game.currentNodeId,
+            game.activeGame?.myColor ?? "white",
+          )
+        : [],
+    [evalMapOn, game.tree, notebookValues, game.currentNodeId, game.activeGame?.myColor],
+  )
   // The tip of the walk to re-trace: the deepest node the cursor reached before
   // stepping back. Re-walk follows the path to THIS, not children[0] (which is
   // the oldest branch, almost never the last line explored — user 2026-07-22).
@@ -1947,7 +1964,11 @@ export default function Home() {
                 // and never once the game is over on time.
                 premovable={isPlayMode && playClock.flagged == null}
                 legalMoves={
-                  previewStep
+                  // Eval-Map replaces the green dots with my own explored
+                  // moves, so the native legal-move hints must go dark — else
+                  // untried legal squares would light up, the exact hint the
+                  // map exists to withhold (fair-play axiom).
+                  previewStep || evalMapOn
                     ? EMPTY_DESTS
                     : isPlayMode && (turn !== playerColor || playClock.flagged != null)
                       ? EMPTY_DESTS
@@ -1990,6 +2011,13 @@ export default function Home() {
                     role={ghost.role}
                     color={ghost.color}
                     onDone={() => setGhost(null)}
+                  />
+                )}
+                {fairPlayLayout && evalMapOn && evalMarks.length > 0 && (
+                  <EvalMap
+                    boardSize={boardSize}
+                    orientation={game.orientation}
+                    marks={evalMarks}
                   />
                 )}
               </Board>
@@ -2260,6 +2288,8 @@ export default function Home() {
                 onBackToLive={() => game.goToLive()}
                 onRetreatBranch={handleRetreatBranch}
                 onJumpBest={handleJumpBest}
+                onToggleEvalMap={() => setEvalMapOn((v) => !v)}
+                evalMapOn={evalMapOn}
                 onRewalk={handleRewalk}
                 rewalkArmed={previewArmed === game.currentNodeId}
                 canRewalk={!!rewalkNext(game.currentNodeId)}
