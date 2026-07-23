@@ -43,16 +43,54 @@ export function branchHead(
 }
 
 /**
- * The move the player made from `fromId` last time — its mainline continuation,
- * `children[0]`. This is what the re-walk previews: the piece slides there and
- * back, the board saying "this is what you did". `null` at a leaf.
+ * The step from `fromId` toward `targetId`: the child of `fromId` that lies on
+ * the path down to it. `null` when `targetId` is not a strict descendant of
+ * `fromId` (behind, off a different branch, or equal), or either id is unknown.
  *
- * `children[0]` and not the ranked best on purpose: re-walking retraces the
- * line as it was explored, and reordering the step you are about to retake
- * would defeat "show me what I actually did here".
+ * This is what the re-walk follows so it retraces the LINE YOU ACTUALLY WALKED,
+ * not `children[0]`. `children[0]` is the FIRST branch ever played off a node,
+ * which is almost never the last line you explored: walk ten moves down a fresh
+ * branch, come back to live, and re-walk would set off down a different, older
+ * branch entirely (user 2026-07-22). The tip of the last walk is remembered by
+ * the caller; this resolves each single step toward it.
+ */
+export function stepToward(
+  tree: GameTree,
+  fromId: string,
+  targetId: string,
+): string | null {
+  if (fromId === targetId || !tree.get(fromId) || !tree.get(targetId)) return null;
+  let node = tree.get(targetId)!;
+  // Climb from the target until its parent is `fromId`; that node is the step.
+  while (node.parent && node.parent !== fromId) {
+    node = tree.get(node.parent)!;
+  }
+  return node.parent === fromId ? node.id : null;
+}
+
+/** True when `ancestorId` is a strict ancestor of `nodeId` (above it on the
+ *  path to the root). False when equal, unrelated, or either id is unknown. */
+export function isAncestor(
+  tree: GameTree,
+  ancestorId: string,
+  nodeId: string,
+): boolean {
+  return stepToward(tree, ancestorId, nodeId) !== null;
+}
+
+/**
+ * The move the player made from `fromId` last time, as a fallback when no live
+ * walk is being retraced: the most RECENTLY added child, `children[at end]`.
+ * `null` at a leaf.
+ *
+ * Insertion order is exploration order, so the last child is the freshest
+ * branch off this node — a strictly better "what I did last" than `children[0]`,
+ * the oldest. The re-walk prefers `stepToward` the remembered tip and only falls
+ * back here (e.g. a cold session that has not walked anything yet).
  */
 export function myContinuation(tree: GameTree, fromId: string): string | null {
-  return tree.get(fromId)?.children[0] ?? null;
+  const kids = tree.get(fromId)?.children;
+  return kids && kids.length ? kids[kids.length - 1] : null;
 }
 
 /**

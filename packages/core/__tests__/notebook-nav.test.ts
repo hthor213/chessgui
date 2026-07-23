@@ -7,7 +7,9 @@ import {
   bestPeerHead,
   branchHead,
   depthPastLive,
+  isAncestor,
   myContinuation,
+  stepToward,
 } from "../src/notebook-nav";
 
 /**
@@ -46,10 +48,38 @@ describe("branchHead — the retreat target", () => {
   });
 });
 
-describe("myContinuation — what I played from here", () => {
-  it("is the mainline child, so re-walk retraces the line as explored", () => {
-    const { t, bc4, bc5 } = tree();
-    expect(myContinuation(t, bc4)).toBe(bc5);
+describe("stepToward — one step down the walk I actually took", () => {
+  it("returns the child of `from` on the path to a deeper target", () => {
+    const { t, live, bc4, bc5, deep } = tree();
+    // From live toward the 3-ply-deep node, the first step is the branch head.
+    expect(stepToward(t, live, deep)).toBe(bc4);
+    // From one node in, the next step continues down the same line.
+    expect(stepToward(t, bc4, deep)).toBe(bc5);
+  });
+  it("is null when the target is not a strict descendant", () => {
+    const { t, live, deep, d4 } = tree();
+    expect(stepToward(t, deep, live)).toBeNull(); // target is behind
+    expect(stepToward(t, live, live)).toBeNull(); // target is self
+    expect(stepToward(t, deep, d4)).toBeNull(); // off a different branch
+  });
+});
+
+describe("isAncestor", () => {
+  it("is true only strictly above on the path to the root", () => {
+    const { t, live, bc4, deep } = tree();
+    expect(isAncestor(t, live, deep)).toBe(true);
+    expect(isAncestor(t, bc4, deep)).toBe(true);
+    expect(isAncestor(t, deep, live)).toBe(false); // below, not above
+    expect(isAncestor(t, deep, deep)).toBe(false); // not itself
+  });
+});
+
+describe("myContinuation — the fallback when no walk is being retraced", () => {
+  it("is the FRESHEST child (last added), not the oldest branch", () => {
+    const { t, live, d4 } = tree();
+    // live's children were added Bc4-first, then d4 — d4 is the freshest, so a
+    // cold re-walk from live retraces the newer branch, not the older one.
+    expect(myContinuation(t, live)).toBe(d4);
   });
   it("is null at a leaf", () => {
     const { t, deep } = tree();

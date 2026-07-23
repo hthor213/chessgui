@@ -43,7 +43,7 @@ import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
 import { RepertoireTab } from "@chessgui/ui/repertoire-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
 import { moverIsWhite, squareToKey } from "@chessgui/core/game-tree"
-import { branchHead, bestPeerHead, myContinuation } from "@chessgui/core/notebook-nav"
+import { branchHead, bestPeerHead, isAncestor, myContinuation, stepToward } from "@chessgui/core/notebook-nav"
 import { GhostMove } from "@chessgui/ui/ghost-move"
 import { parseFen } from "chessops/fen"
 import type { GameTree } from "@chessgui/core/game-tree"
@@ -739,12 +739,32 @@ export default function Home() {
   } | null>(null)
   const [previewArmed, setPreviewArmed] = useState<string | null>(null)
   const ghostKeyRef = useRef(0)
+  // The tip of the walk to re-trace: the deepest node the cursor reached before
+  // stepping back. Re-walk follows the path to THIS, not children[0] (which is
+  // the oldest branch, almost never the last line explored — user 2026-07-22).
+  const excursionTipRef = useRef<string | null>(null)
+
+  // The next step of the re-walk from `fromId`: toward the remembered tip while
+  // the tip is still ahead of here, else the freshest child. `null` only at a
+  // leaf, which is where the walk naturally ends — retrace the tip's line and
+  // you arrive at the tip (a leaf → stop) without any special-casing.
+  const rewalkNext = useCallback(
+    (fromId: string) => {
+      const tip = excursionTipRef.current
+      if (tip && tip !== fromId) {
+        const step = stepToward(game.tree, fromId, tip)
+        if (step) return step
+      }
+      return myContinuation(game.tree, fromId)
+    },
+    [game.tree],
+  )
 
   // The move played from a node last time, resolved to what the ghost needs:
   // the piece on the from-square in THIS position, sliding to the to-square.
   const continuationGhost = useCallback(
     (nodeId: string) => {
-      const contId = myContinuation(game.tree, nodeId)
+      const contId = rewalkNext(nodeId)
       const node = game.tree.get(nodeId)
       const cont = contId ? game.tree.get(contId) : null
       if (!node || !cont?.move) return null
@@ -759,7 +779,7 @@ export default function Home() {
         color: piece.color,
       }
     },
-    [game.tree],
+    [game.tree, rewalkNext],
   )
 
   // Re-walk: first press previews (ghost slides out and back, nothing
@@ -767,7 +787,7 @@ export default function Home() {
   const handleRewalk = useCallback(() => {
     const id = game.currentNodeId
     if (previewArmed === id) {
-      const contId = myContinuation(game.tree, id)
+      const contId = rewalkNext(id)
       if (contId) game.goToNode(contId)
       setPreviewArmed(null)
       setGhost(null)
@@ -778,13 +798,23 @@ export default function Home() {
     ghostKeyRef.current += 1
     setGhost({ key: ghostKeyRef.current, ...g })
     setPreviewArmed(id)
-  }, [game.currentNodeId, game.tree, game.goToNode, previewArmed, continuationGhost])
+  }, [game.currentNodeId, game.goToNode, previewArmed, continuationGhost, rewalkNext])
 
-  // Any cursor move disarms a pending preview — it belonged to where you were.
+  // Track the excursion tip and disarm a pending preview on any cursor move.
+  // The tip stays put while you step back UP the line you just walked (so
+  // re-walk can retrace it), and jumps to the new node the moment you land off
+  // it — a deeper node continuing the walk, or a sibling starting a fresh one.
   useEffect(() => {
+    const id = game.currentNodeId
+    const tip = excursionTipRef.current
+    // Keep the tip only while retreating within the same line (id is at or
+    // above the tip); anything else becomes the new tip.
+    if (!(tip && (id === tip || isAncestor(game.tree, id, tip)))) {
+      excursionTipRef.current = id
+    }
     setPreviewArmed(null)
     setGhost(null)
-  }, [game.currentNodeId])
+  }, [game.currentNodeId, game.tree])
 
   const handleRetreatBranch = useCallback(() => {
     const id = branchHead(game.tree, game.activeGame?.liveNodeId, game.currentNodeId)
@@ -2232,7 +2262,7 @@ export default function Home() {
                 onJumpBest={handleJumpBest}
                 onRewalk={handleRewalk}
                 rewalkArmed={previewArmed === game.currentNodeId}
-                canRewalk={!!myContinuation(game.tree, game.currentNodeId)}
+                canRewalk={!!rewalkNext(game.currentNodeId)}
                 exploring={
                   // At the live position too: re-walking "what I did last" from
                   // the current game position is the same gesture (user
