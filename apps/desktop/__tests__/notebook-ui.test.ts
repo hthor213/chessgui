@@ -13,7 +13,8 @@ import { backupTree, sortedChildren } from "@chessgui/core/notebook";
 import { treeToPgn } from "@chessgui/core/pgn";
 import { MoveTable } from "@chessgui/ui/move-table";
 import {
-  ASSESSMENT_KEYS,
+  ASSESSMENT_KEY_CHARS,
+  assessmentKeys,
   LIKELIHOOD_KEYS,
   NOTEBOOK_SHORTCUTS,
   NotebookPanel,
@@ -88,7 +89,12 @@ describe("notebook keystrokes", () => {
   });
 
   it("binds all seven assessment symbols and all three buckets", () => {
-    expect(ASSESSMENT_KEYS.map((k) => k.value)).toEqual([-3, -2, -1, 0, 1, 2, 3]);
+    // Keys are always 1…7; White keeps the White-positive stored order.
+    expect(ASSESSMENT_KEY_CHARS).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
+    expect(assessmentKeys("white").map((k) => k.value)).toEqual([-3, -2, -1, 0, 1, 2, 3]);
+    // Black's 1…7 is the reader's own perspective: key 7 stores −3 (Black
+    // winning), key 1 stores +3 (White winning) — high always means good for me.
+    expect(assessmentKeys("black").map((k) => k.value)).toEqual([3, 2, 1, 0, -1, -2, -3]);
     expect(LIKELIHOOD_KEYS.map((k) => k.value)).toEqual([3, 2, 1]);
     expect(new Set(NOTEBOOK_SHORTCUTS).size).toBe(NOTEBOOK_SHORTCUTS.length);
   });

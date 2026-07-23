@@ -27,7 +27,7 @@
 //     never with size; a source-level guard in notebook-ui.test.ts holds the
 //     floor, because it had been eroding one new row at a time.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   assessmentGlyph,
   assessmentOf,
@@ -44,20 +44,48 @@ import type { GameTree, Likelihood, MoveNode } from "@chessgui/core/game-tree";
 import { Confidence, NotebookBadge } from "@chessgui/ui/notebook-value";
 
 /**
- * The seven-point scale in reading order — Black-winning on the left, exactly
- * as an eval bar runs — bound to 1…7 so the whole vocabulary is one keystroke
- * away. Entry has to be fast enough to judge WHILE exploring; a form would
+ * The seven-point scale bound to 1…7, ALWAYS from the reader's own side: 7 is
+ * "I'm winning", 1 is "I'm losing", 4 is equal. The moment we picked digits the
+ * brain reads them as a score out of 7, so the score has to mean what a score
+ * means — high is good FOR ME (user 2026-07-22, playing Black and pressing 5 for
+ * "slightly worse" because 5/7 *felt* decent, though 5 was White-better). It no
+ * longer tracks the eval bar (Black on the left) for a Black player — that
+ * consistency loses to "7 always feels great," which is the whole point of using
+ * numbers. Entry has to be fast enough to judge WHILE exploring; a form would
  * defeat the feature (spec 226 A).
+ *
+ * The STORED value stays White-positive (`-3…+3`) — the minimax backup, the
+ * ranking, the diagnosis and the PGN NAG round-trip all read that convention.
+ * Only the key→value binding flips for Black, so `myOrdinal` (high = good for
+ * me) maps to the stored White-positive `value` via the reader's colour.
  */
-export const ASSESSMENT_KEYS: { key: string; value: Assessment; title: string }[] = [
-  { key: "1", value: -3, title: "Black is winning" },
-  { key: "2", value: -2, title: "Black is clearly better" },
-  { key: "3", value: -1, title: "Black is slightly better" },
-  { key: "4", value: 0, title: "Equal" },
-  { key: "5", value: 1, title: "White is slightly better" },
-  { key: "6", value: 2, title: "White is clearly better" },
-  { key: "7", value: 3, title: "White is winning" },
+const MY_SCALE: { key: string; myOrdinal: Assessment; title: string }[] = [
+  { key: "1", myOrdinal: -3, title: "I'm losing" },
+  { key: "2", myOrdinal: -2, title: "I'm clearly worse" },
+  { key: "3", myOrdinal: -1, title: "I'm slightly worse" },
+  { key: "4", myOrdinal: 0, title: "Equal" },
+  { key: "5", myOrdinal: 1, title: "I'm slightly better" },
+  { key: "6", myOrdinal: 2, title: "I'm clearly better" },
+  { key: "7", myOrdinal: 3, title: "I'm winning" },
 ];
+
+/** The 1…7 keys, in order — colour-independent, for the collision test. */
+export const ASSESSMENT_KEY_CHARS: readonly string[] = MY_SCALE.map((s) => s.key);
+
+/**
+ * The 1…7 strip for a given side: each key carries the White-positive stored
+ * `value`, but its position and title are the reader's own perspective.
+ */
+export function assessmentKeys(
+  myColor: "white" | "black",
+): { key: string; value: Assessment; title: string }[] {
+  return MY_SCALE.map(({ key, myOrdinal, title }) => ({
+    key,
+    // `|| 0` normalises the −0 that negating the "equal" bucket would produce.
+    value: ((myColor === "white" ? myOrdinal : -myOrdinal) || 0) as Assessment,
+    title,
+  }));
+}
 
 /** Three buckets, never percentages — the user says which, the maths normalises. */
 export const LIKELIHOOD_KEYS: { key: string; value: Likelihood; label: string }[] = [
@@ -183,7 +211,10 @@ export function NotebookPanel({
       const n = nodeRef.current;
       if (n.parent === null) return; // the starting position gets no judgement
 
-      const a = ASSESSMENT_KEYS.find((k) => k.key === e.key);
+      // Rebuild the binding from the reader's colour on every press: 7 is always
+      // "I'm winning", so the stored White-positive value a key hits flips with
+      // side. myColorRef keeps this stable handler current.
+      const a = assessmentKeys(myColorRef.current).find((k) => k.key === e.key);
       if (a) {
         e.preventDefault();
         // Pressing the same symbol again clears it: a mis-hit costs one more
@@ -222,6 +253,8 @@ export function NotebookPanel({
   const isRoot = node.parent === null;
   const value = values.get(node.id);
   const own = isRoot ? null : assessmentOf(node);
+  // The 1…7 strip, oriented to the reader's side (7 = "I'm winning").
+  const keys = useMemo(() => assessmentKeys(myColor), [myColor]);
   const opponentReply = isOpponentReply(node, myColor);
   const coverage = value ? coverageLabel(value) : "";
   // Sharpness sits beside coverage rather than in the candidate rows: it is a
@@ -293,9 +326,10 @@ export function NotebookPanel({
         </button>
       </div>
 
-      {/* Assessment — the human evaluation function, one keystroke per symbol. */}
+      {/* Assessment — the human evaluation function, one keystroke per symbol.
+          Bound to the reader's own side: 7 = "I'm winning", 1 = "I'm losing". */}
       <div className="flex flex-wrap items-center gap-0.5" data-testid="notebook-assessments">
-        {ASSESSMENT_KEYS.map((k) => (
+        {keys.map((k) => (
           <Chip
             key={k.key}
             on={own === k.value}
@@ -507,7 +541,7 @@ export function NotebookPanel({
 
 /** Every key this panel claims — the collision test reads it. */
 export const NOTEBOOK_SHORTCUTS: string[] = [
-  ...ASSESSMENT_KEYS.map((k) => k.key),
+  ...ASSESSMENT_KEY_CHARS,
   "0",
   "Backspace",
   ...LIKELIHOOD_KEYS.map((k) => k.key),
