@@ -1964,16 +1964,17 @@ export default function Home() {
                 // and never once the game is over on time.
                 premovable={isPlayMode && playClock.flagged == null}
                 legalMoves={
-                  // Eval-Map replaces the green dots with my own explored
-                  // moves, so the native legal-move hints must go dark — else
-                  // untried legal squares would light up, the exact hint the
-                  // map exists to withhold (fair-play axiom).
-                  previewStep || evalMapOn
+                  previewStep
                     ? EMPTY_DESTS
                     : isPlayMode && (turn !== playerColor || playClock.flagged != null)
                       ? EMPTY_DESTS
                       : game.legalMoves
                 }
+                // Eval-Map hides the native green dots (untried squares stay
+                // blank — the fair-play axiom) but leaves dests populated, so a
+                // move ON TOP of the map still works: existing line, or new
+                // variation (spec 226).
+                showDests={!evalMapOn}
                 lastMove={previewStep ? (previewStep.lastMove as [Key, Key]) : game.lastMove}
                 onBoardSize={setBoardSize}
                 coordinates={engine.settings.showCoordinates}
@@ -2013,7 +2014,11 @@ export default function Home() {
                     onDone={() => setGhost(null)}
                   />
                 )}
-                {fairPlayLayout && evalMapOn && evalMarks.length > 0 && (
+                {/* Never over a preview: previewStep walks the board several
+                    moves ahead of the cursor, but the marks belong to the
+                    current node, so they'd draw legal-here discs on a future
+                    position — a move "possible in a later move, not this one". */}
+                {fairPlayLayout && evalMapOn && !previewStep && evalMarks.length > 0 && (
                   <EvalMap
                     boardSize={boardSize}
                     orientation={game.orientation}

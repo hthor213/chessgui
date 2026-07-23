@@ -34,6 +34,8 @@ describe("buildEvalMap", () => {
     // Bc4 lands on c4 with a bishop letter, green-ish (good for White).
     expect(byDest.get("c4")?.letter).toBe("B");
     expect(byDest.get("c4")?.mine).toBe(2);
+    // The disc carries the child node id so a click can navigate into it.
+    expect(byDest.get("c4")?.childId).toBe(bc4);
     // Nf3 lands on f3 with a knight letter, red-ish (bad for White).
     expect(byDest.get("f3")?.letter).toBe("N");
     expect(byDest.get("f3")?.mine).toBe(-2);

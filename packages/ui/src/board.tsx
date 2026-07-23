@@ -47,6 +47,13 @@ interface BoardProps {
    *  transform, not by any class CSS could select. */
   dimSquare?: string | null;
   /**
+   * Show Chessground's green legal-move dots. Default ON. The Eval-Map turns it
+   * OFF (spec 226): moves still work (dests stay populated), but untried legal
+   * squares draw nothing, so the map's own discs are the only marks and no hint
+   * leaks onto a square the player never explored.
+   */
+  showDests?: boolean;
+  /**
    * Extra pixels held back from the board's height.
    *
    * The legacy 48 exists because the three-column layout's control rows are
@@ -66,7 +73,7 @@ const COORD_GUTTER = 26;
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, coordinates = true, reserveBelow = 48, dimSquare = null, children }: BoardProps) {
+export function Board({ fen, orientation, movableColor = "both", onMove, legalMoves, lastMove, onBoardSize, viewOnly = false, premovable = false, freeMove = false, onSelect, autoShapes, userShapes, onShapesChange, coordinates = true, reserveBelow = 48, dimSquare = null, showDests = true, children }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
@@ -192,7 +199,7 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
         color: freeMove ? "both" : viewOnly ? undefined : movableColor,
         free: freeMove,
         dests: freeMove ? undefined : legalMoves,
-        showDests: !freeMove,
+        showDests: showDests && !freeMove,
       },
       highlight: {
         lastMove: !freeMove,
@@ -273,6 +280,12 @@ export function Board({ fen, orientation, movableColor = "both", onMove, legalMo
   useEffect(() => {
     apiRef.current?.setShapes(userShapes ?? []);
   }, [userShapes]);
+
+  // Toggle the legal-move dots in place (Eval-Map on/off) without rebuilding
+  // the whole instance — a rebuild would flash the pieces on every toggle.
+  useEffect(() => {
+    apiRef.current?.set({ movable: { showDests: showDests && !freeMove } });
+  }, [showDests, freeMove]);
 
   const files = orientation === "white" ? FILES : [...FILES].reverse();
   const ranks = orientation === "white" ? [...RANKS].reverse() : RANKS;

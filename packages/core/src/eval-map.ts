@@ -15,6 +15,8 @@ import { squareToKey } from "./game-tree";
 import type { NodeValue } from "./notebook";
 
 export interface EvalMark {
+  /** The child node this disc stands for — clicking it navigates here. */
+  childId: string;
   /** Destination square of the candidate move, e.g. "d5". */
   destKey: string;
   /** hsl(...) fill: red→yellow→green by value, gray when unjudged. */
@@ -76,7 +78,13 @@ export function buildEvalMap(
         : (ROLE_LETTER[piece.role] ?? "");
     const objective = values.get(childId)?.objective ?? null;
     const mine = objective === null ? null : myColor === "white" ? objective : -objective;
-    marks.push({ destKey: squareToKey(child.move.to), color: evalMapColor(mine), letter, mine });
+    marks.push({
+      childId,
+      destKey: squareToKey(child.move.to),
+      color: evalMapColor(mine),
+      letter,
+      mine,
+    });
   }
   return marks;
 }

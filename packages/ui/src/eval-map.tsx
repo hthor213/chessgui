@@ -16,6 +16,10 @@ export interface EvalMapProps {
   boardSize: number;
   orientation: "white" | "black";
   marks: EvalMark[];
+  /** Click a disc to navigate into that explored line (spec 226): the map then
+   *  redraws for the node you land on — the opponent's replies, then my counters.
+   *  Omit and the discs are display-only. */
+  onPick?: (childId: string) => void;
 }
 
 /** Square key ("d5") → top-left pixel of that square, respecting orientation.
@@ -32,7 +36,7 @@ function squareXY(
     : { x: (7 - file) * sq, y: rank * sq };
 }
 
-export function EvalMap({ boardSize, orientation, marks }: EvalMapProps) {
+export function EvalMap({ boardSize, orientation, marks, onPick }: EvalMapProps) {
   const sq = boardSize / 8;
   // Group by square so multiple candidates to one destination lay out together.
   const bySquare = new Map<string, EvalMark[]>();
@@ -72,6 +76,9 @@ export function EvalMap({ boardSize, orientation, marks }: EvalMapProps) {
                 key={i}
                 data-square={key}
                 data-letter={m.letter}
+                role={onPick ? "button" : undefined}
+                title={onPick ? "Go into this line" : undefined}
+                onClick={onPick ? () => onPick(m.childId) : undefined}
                 style={{
                   width: disc,
                   height: disc,
@@ -87,6 +94,11 @@ export function EvalMap({ boardSize, orientation, marks }: EvalMapProps) {
                   lineHeight: 1,
                   boxShadow:
                     "0 0 0 1.5px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.45)",
+                  // Only the discs take pointer events (the wrapper stays
+                  // transparent), so a click drills in while a piece drag on any
+                  // other square passes straight through to the board.
+                  pointerEvents: onPick ? "auto" : "none",
+                  cursor: onPick ? "pointer" : "default",
                 }}
               >
                 {m.letter}
