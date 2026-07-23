@@ -285,8 +285,16 @@ export function NotebookPanel({
   const unjudged = mine.filter((id) => values.get(id)?.objective == null);
 
   return (
-    <div className="flex flex-col gap-1.5 px-2 py-2 border-b border-white/10 shrink-0 text-[13px]">
-      <div className="flex items-baseline gap-2">
+    <div
+      className={`flex flex-col gap-1.5 px-2 py-2 border-b border-white/10 text-[13px] ${
+        // When the strip draws the candidate list (moves tab), it shares the
+        // panel's flex space and scrolls the list internally — a long list must
+        // never push the foot navigation off the bottom (user 2026-07-23).
+        // Elsewhere it is just the header row, so it stays its natural height.
+        showCandidates ? "flex-1 min-h-0 overflow-hidden" : "shrink-0"
+      }`}
+    >
+      <div className="flex items-baseline gap-2 shrink-0">
         <span className="font-semibold text-[15px] text-[#e8e4dd] truncate">
           {isRoot ? "Starting position" : `${moveNumberPrefix(node)} ${node.san}`}
         </span>
@@ -376,8 +384,11 @@ export function NotebookPanel({
           The list ends where the user's list ends; the app has nothing to add
           to it. */}
       {showCandidates && candidates.length > 0 && (
-        <div className="flex flex-col gap-1 pt-1" data-testid="notebook-candidates">
-          <div className="text-[13px] uppercase tracking-wider text-muted-foreground/80">
+        <div
+          className="flex flex-col gap-1 pt-1 flex-1 min-h-0 overflow-y-auto"
+          data-testid="notebook-candidates"
+        >
+          <div className="text-[13px] uppercase tracking-wider text-muted-foreground/80 shrink-0">
             Best next move — my candidates
           </div>
 
