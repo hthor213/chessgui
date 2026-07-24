@@ -546,8 +546,9 @@ fn parse_followup_response(v: &serde_json::Value) -> Result<String, String> {
 // ---------------------------------------------------------------------------
 
 /// POST one Messages API request, returning the parsed JSON body. Shared by
-/// the note, the follow-up, and the line extraction.
-async fn call_api(key: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
+/// the note, the follow-up, and the line extraction — and by lessons_grade.rs
+/// (spec 227 D6), which reuses this thin network I/O rather than reinventing it.
+pub(crate) async fn call_api(key: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
     let resp = client
         .post("https://api.anthropic.com/v1/messages")

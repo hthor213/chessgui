@@ -15,6 +15,8 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { getProviders } from "@/lib/platform"
+import { loadEngineSettings } from "@/lib/engine-settings"
+import { shouldOfferAssist } from "@chessgui/core/lesson-assist"
 import { Card } from "@chessgui/ui/ui/card"
 import { Button } from "@chessgui/ui/ui/button"
 import { Badge } from "@chessgui/ui/ui/badge"
@@ -102,12 +104,24 @@ export function LessonsTab({ initialView = "courses" }: { initialView?: View }) 
   // ── Player ──────────────────────────────────────────────────────────────
   if (view === "player") {
     const module = course.modules[moduleIndex]
+    // OPTIONAL free-text assist grading (spec 227 D6). OFF by default: offered
+    // only when the setting is ON *and* the shell has a native AI host. When
+    // not offered, `assist` stays undefined and the player shows only the D3
+    // self-grade control — the lesson completes without ever calling the model.
+    const providers = getProviders()
+    const assist = shouldOfferAssist(
+      loadEngineSettings().lessonAssistGrade,
+      providers.engine.hasNativeEngine,
+    )
+      ? { gradeFreeText: (prompt: string) => providers.engine.gradeFreeText(prompt) }
+      : undefined
     return (
       <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
         <LessonModulePlayer
           module={module}
           onExit={() => setView("modules")}
           onComplete={(score) => onModuleComplete(module, moduleIndex, score)}
+          assist={assist}
         />
       </div>
     )

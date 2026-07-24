@@ -35,6 +35,12 @@ import {
   moduleScore,
 } from "@chessgui/core/lesson-player"
 import type { GradeResult, SelfGrade, ModuleScore } from "@chessgui/core/lesson-grade"
+import {
+  buildAssistPrompt,
+  parseAssistResponse,
+  assistTierToSelfGrade,
+  type AssistGrade,
+} from "@chessgui/core/lesson-assist"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -146,6 +152,19 @@ function Stepper({ active }: { active: string }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+/** OPTIONAL free-text assist grading (spec 227 D6). Present ONLY when the
+ *  parent has decided the affordance should be offered (setting ON *and* a
+ *  native AI host — `shouldOfferAssist`). Its absence is the off/unavailable
+ *  state: the free_text question then shows only the D3 self-grade control, and
+ *  the lesson completes identically without ever calling the model. The player
+ *  stays provider-free — the parent supplies this thin callback. */
+export interface LessonAssist {
+  /** Send a grader prompt through the existing AI plumbing; resolves the raw
+   *  model text (parsed by the pure core `parseAssistResponse`). Rejects when
+   *  the plumbing is unavailable, which the UI catches into a one-line hint. */
+  gradeFreeText: (prompt: string) => Promise<string>
+}
+
 export interface LessonModulePlayerProps {
   module: Module
   /** Back to the module list. */
@@ -153,9 +172,12 @@ export interface LessonModulePlayerProps {
   /** Fired once when the module's practice beat completes, with the score.
    *  The parent persists a progress entry (spec 227 D2 store). */
   onComplete?: (score: ModuleScore) => void
+  /** OPTIONAL assist grading for free_text questions (spec 227 D6). Omit to
+   *  keep the pure self-graded flow (the default). */
+  assist?: LessonAssist
 }
 
-export function LessonModulePlayer({ module, onExit, onComplete }: LessonModulePlayerProps) {
+export function LessonModulePlayer({ module, onExit, onComplete, assist }: LessonModulePlayerProps) {
   const [state, dispatch] = useReducer(lessonPlayerReducer, module, initLessonPlayer)
   const [freeText, setFreeText] = useState("")
   const [completedFired, setCompletedFired] = useState(false)
@@ -387,6 +409,7 @@ export function LessonModulePlayer({ module, onExit, onComplete }: LessonModuleP
                 dispatch({ type: "NEXT_QUESTION" })
               }}
               lastIndex={state.qIndex === module.questions.length - 1}
+              assist={assist}
             />
           )}
         </div>
@@ -622,6 +645,7 @@ function FreeText({
   onSelfGrade,
   onNext,
   lastIndex,
+  assist,
 }: {
   question: Extract<Module["questions"][number], { kind: "free_text" }>
   revealed: GradeResult | null
@@ -632,6 +656,9 @@ function FreeText({
   onSelfGrade: (g: SelfGrade) => void
   onNext: () => void
   lastIndex: boolean
+  /** OPTIONAL assist grading (spec 227 D6). Undefined = off/unavailable →
+   *  ONLY the self-grade control renders and the model is never called. */
+  assist?: LessonAssist
 }) {
   const revealedNow = revealed !== null && revealed.kind === "free_text"
   const grades: { key: SelfGrade; label: string }[] = [
@@ -639,6 +666,38 @@ function FreeText({
     { key: "partial", label: "Partial" },
     { key: "missed", label: "Missed" },
   ]
+
+  // Assist state — local, so it resets when the question remounts (keyed by
+  // qIndex). Never blocks the self-grade path: a failure sets a hint only.
+  const [assistBusy, setAssistBusy] = useState(false)
+  const [assistResult, setAssistResult] = useState<AssistGrade | null>(null)
+  const [assistError, setAssistError] = useState<string | null>(null)
+
+  const runAssist = useCallback(async () => {
+    if (!assist) return
+    setAssistBusy(true)
+    setAssistError(null)
+    try {
+      const prompt = buildAssistPrompt(value, question.modelAnswer, question.rubric)
+      const raw = await assist.gradeFreeText(prompt)
+      const graded = parseAssistResponse(raw)
+      setAssistResult(graded)
+      // Pre-select the matching self-grade — the user stays free to override,
+      // and the self-grade buttons remain the source of truth for completion.
+      onSelfGrade(assistTierToSelfGrade(graded.tier))
+    } catch {
+      setAssistError("Assist unavailable — grade yourself below.")
+    } finally {
+      setAssistBusy(false)
+    }
+  }, [assist, value, question.modelAnswer, question.rubric, onSelfGrade])
+
+  const tierLabel: Record<SelfGrade, string> = {
+    got_it: "Got it",
+    partial: "Partial",
+    missed: "Missed",
+  }
+
   return (
     <Card className="bg-card/50 border-white/10 p-5 max-w-2xl" data-testid="lesson-question-freetext">
       <p className="text-[15px] text-foreground mb-3">{question.prompt}</p>
@@ -672,6 +731,50 @@ function FreeText({
               </ul>
             )}
           </Card>
+          {/* OPTIONAL assist grading (spec 227 D6). Renders only when the
+              parent supplied the capability (setting ON + native AI host). The
+              self-grade row below is UNCHANGED and remains the source of truth. */}
+          {assist && (
+            <div className="mt-4" data-testid="lesson-assist">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={runAssist}
+                  disabled={assistBusy}
+                  data-testid="lesson-assist-grade"
+                >
+                  {assistBusy ? "Grading…" : assistResult ? "Re-grade with assist" : "Assist grade"}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Optional AI check against the rubric — you still grade yourself.
+                </span>
+              </div>
+              {assistError && (
+                <p className="text-xs text-amber-400 mt-2" data-testid="lesson-assist-error">
+                  {assistError}
+                </p>
+              )}
+              {assistResult && (
+                <Card
+                  className="bg-white/5 border-white/10 p-4 mt-3"
+                  data-testid="lesson-assist-result"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Assist suggests
+                    </span>
+                    <Badge variant="outline" data-testid="lesson-assist-tier">
+                      {tierLabel[assistResult.tier]}
+                    </Badge>
+                  </div>
+                  <p className="text-[15px] text-foreground mt-2 leading-6">
+                    {assistResult.feedback}
+                  </p>
+                </Card>
+              )}
+            </div>
+          )}
           <div className="mt-4">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">
               Grade yourself

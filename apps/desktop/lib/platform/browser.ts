@@ -164,6 +164,10 @@ export const browserProviders: PlatformProviders = {
       return import("@/lib/calibration-mock").then((m) => m.mockVerifyLine(fen, moves))
     },
     recognizeFen: (): Promise<string> => noEngine("Position recognition"),
+    // OPTIONAL lesson assist grading (spec 227 D6) has no browser backend. The
+    // UI gates the affordance off via hasNativeEngine (false here), so this is
+    // only the honest backstop; the lesson always completes via self-grade.
+    gradeFreeText: (): Promise<string> => noEngine("Lesson assist grading"),
 
     // The run button is gated off (hasNativeEngine) — the reject is the
     // honest backstop; the import-file path stays available everywhere.

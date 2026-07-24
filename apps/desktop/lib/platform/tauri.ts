@@ -294,6 +294,12 @@ export const tauriProviders: PlatformProviders = {
     recognizeFen(imageBase64: string, mediaType: string, prompt?: string): Promise<string> {
       return invoke<string>("recognize_fen", { imageBase64, mediaType, prompt })
     },
+    // OPTIONAL lesson assist grading (spec 227 D6): a thin passthrough to the
+    // Rust command, which reuses the coach's Anthropic call. Prompt in, raw
+    // model text out; the core parser structures it.
+    gradeFreeText(prompt: string): Promise<string> {
+      return invoke<string>("grade_free_text", { prompt })
+    },
 
     // Monthly measurement pipeline (spec 215 Tier 2, src-tauri/src/measure.rs).
     measureMonthlyRun(

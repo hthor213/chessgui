@@ -6,6 +6,7 @@ pub mod db;
 pub mod engine_path;
 pub mod files;
 pub mod human_search;
+pub mod lessons_grade;
 pub mod machine;
 pub mod maia;
 pub mod measure;
@@ -102,6 +103,7 @@ pub fn run() {
             persona::rival_personas,
             coach::coach_feedback,
             coach::coach_followup,
+            lessons_grade::grade_free_text,
             verify::verify_line,
             verify::eval_played_move,
             active_games::active_games_load,

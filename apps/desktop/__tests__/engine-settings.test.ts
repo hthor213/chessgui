@@ -102,6 +102,34 @@ describe("board coordinates (spec 001)", () => {
   });
 });
 
+describe("lesson assist grading (spec 227 D6) — OFF by default", () => {
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = installFakeStorage();
+  });
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).window;
+    delete (globalThis as Record<string, unknown>).localStorage;
+  });
+
+  it("defaults OFF, including for blobs saved before the setting existed", () => {
+    expect(defaultEngineSettings().lessonAssistGrade).toBe(false);
+    // Legacy blob without the key → resolves to the OFF default.
+    store.set(
+      "engine-settings",
+      JSON.stringify({ hash: 256, threads: 4, multiPv: 3, showArrows: false, version: 2 }),
+    );
+    expect(loadEngineSettings().lessonAssistGrade).toBe(false);
+  });
+
+  it("round-trips ON once the user opts in", () => {
+    saveEngineSettings({ ...defaultEngineSettings(), lessonAssistGrade: true });
+    expect(loadEngineSettings().lessonAssistGrade).toBe(true);
+  });
+});
+
 describe("analysis limit + contempt + custom UCI options (spec 011)", () => {
   let store: Map<string, string>;
 

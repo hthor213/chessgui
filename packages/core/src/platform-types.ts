@@ -226,6 +226,18 @@ export interface EngineProvider {
   ): Promise<LineVerification>
   recognizeFen(imageBase64: string, mediaType: string, prompt?: string): Promise<string>
 
+  /**
+   * OPTIONAL Concept-Lessons assist grading (spec 227 D6). Sends a
+   * fully-assembled grader prompt (built by the pure core
+   * `buildAssistPrompt` from the study question's model answer/rubric + the
+   * user's prose — never live-game state) through the existing AI plumbing and
+   * resolves the model's raw text for `parseAssistResponse` to structure.
+   * OFF by default and gated on `hasNativeEngine`; engine-less shells reject
+   * (the UI hides the affordance and the lesson still completes via
+   * self-grade). Errors surface as a rejection the caller catches into a hint.
+   */
+  gradeFreeText(prompt: string): Promise<string>
+
   // --- Monthly measurement pipeline (spec 215 Tier 2) ---
   /**
    * Spawn scripts/measure_monthly.py (fetch → profile → Maia estimate) and

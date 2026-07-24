@@ -41,6 +41,13 @@ export interface EngineSettings {
   contempt: number;
   /** Free-form UCI options (spec 011), sent in list order on engine start. */
   customOptions: CustomUciOption[];
+  /** OPTIONAL Concept-Lessons assist grading (spec 227 D6). When ON *and* the
+   *  shell has a native AI host, the free_text lesson question offers an
+   *  "Assist grade" button that sends the user's prose + the question's model
+   *  answer/rubric to Claude for a suggested tier. OFF by default: it is a
+   *  later-tier convenience, never a required path — the lesson always
+   *  completes via the self-grade control. */
+  lessonAssistGrade: boolean;
 }
 
 const STORAGE_KEY = "engine-settings";
@@ -106,6 +113,7 @@ export function defaultEngineSettings(): EngineSettings {
     analysisMoveTimeMs: 5000,
     contempt: 0,
     customOptions: [],
+    lessonAssistGrade: false,
   };
 }
 
@@ -213,6 +221,12 @@ export function loadEngineSettings(): EngineSettings {
         saved.analysisMoveTimeMs, ANALYSIS_MOVETIME_MIN_MS, ANALYSIS_MOVETIME_MAX_MS, defaults.analysisMoveTimeMs),
       contempt: clampInt(saved.contempt, CONTEMPT_MIN, CONTEMPT_MAX, defaults.contempt),
       customOptions: sanitizeCustomOptions(saved.customOptions),
+      // Spec 227 D6 addition: absent in pre-existing blobs → default (OFF),
+      // independent of the showArrows migration above. A stored boolean sticks.
+      lessonAssistGrade:
+        typeof saved.lessonAssistGrade === "boolean"
+          ? saved.lessonAssistGrade
+          : defaults.lessonAssistGrade,
     };
   } catch {
     return defaults;

@@ -262,6 +262,22 @@ export function EngineSettingsDialog({
             />
           </SettingRow>
 
+          {/* OPTIONAL Concept-Lessons assist grading (spec 227 D6). Default
+              OFF. When on (and the desktop AI host is present), a free-text
+              lesson question offers an AI check against the rubric — the lesson
+              still completes via self-grade regardless. */}
+          <SettingRow
+            label="Lesson assist grading"
+            hint="AI check on free-text lesson answers (desktop only; you still self-grade)"
+          >
+            <Switch
+              data-testid="lesson-assist-grade-switch"
+              checked={draft.lessonAssistGrade}
+              onCheckedChange={(checked) => setDraft({ ...draft, lessonAssistGrade: checked })}
+              className="data-[state=checked]:bg-blue-600 data-[state=unchecked]:bg-zinc-600"
+            />
+          </SettingRow>
+
           {/* Free-form UCI options (spec 011) — sent verbatim as
               `setoption name <name> value <value>` on engine start. */}
           <div className="flex flex-col gap-1.5">
