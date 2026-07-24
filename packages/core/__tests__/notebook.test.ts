@@ -14,6 +14,7 @@ import {
   coverageLabel,
   formatValue,
   sortedChildren,
+  valueWords,
   type Assessment,
 } from "@chessgui/core/notebook";
 
@@ -30,6 +31,64 @@ function addAt(t: GameTree, parentId: string, san: string): string {
 function assess(t: GameTree, id: string, a: Assessment | null): void {
   t.setAssessment(id, a, "human", 1_700_000_000);
 }
+
+describe("notebook — firm vs 'maybe' (spec 226, the covered seal)", () => {
+  // A move whose value is backed up from a judged child but which the user has
+  // not assessed directly and has not sealed: 1.e4 e5 2.Nf3 Nc6, with only the
+  // deep reply Nc6 assessed. Nf3's value rests on that reply — and on the
+  // assumption that the replies were covered, which the player has not vouched.
+  function backedButUnvouched() {
+    const t = GameTree.create();
+    const e4 = addAt(t, t.rootId, "e4");
+    const e5 = addAt(t, e4, "e5");
+    const nf3 = addAt(t, e5, "Nf3"); // the move under test — never assessed
+    const nc6 = addAt(t, nf3, "Nc6");
+    assess(t, nc6, 2); // something is judged under Nf3, so Nf3 backs up a value
+    return { t, nf3 };
+  }
+
+  it("reads a backed-up value as provisional until it is vouched for", () => {
+    const { t, nf3 } = backedButUnvouched();
+    const v = backupAt(t, nf3, "white")!;
+    expect(v.objective).not.toBeNull(); // it DID back up a value
+    expect(v.firm).toBe(false); // but the app may not call it firm on its own
+    expect(valueWords(v, "white")).toMatch(/^maybe /);
+  });
+
+  it("goes firm when the user seals it — their 'I've covered the replies'", () => {
+    const { t, nf3 } = backedButUnvouched();
+    expect(t.setSealed(nf3, true)).toBe(true);
+    const v = backupAt(t, nf3, "white")!;
+    expect(v.firm).toBe(true);
+    expect(valueWords(v, "white")).not.toMatch(/^maybe /);
+    // Unsealing drops it back to provisional.
+    expect(t.setSealed(nf3, false)).toBe(true);
+    expect(backupAt(t, nf3, "white")!.firm).toBe(false);
+  });
+
+  it("goes firm when the user assesses that move directly instead", () => {
+    const { t, nf3 } = backedButUnvouched();
+    assess(t, nf3, 1); // a direct symbol on the move itself is a firm ranking
+    expect(backupAt(t, nf3, "white")!.firm).toBe(true);
+  });
+
+  it("treats a bare leaf's own reading as firm — there is no claim to hold open", () => {
+    const t = GameTree.create();
+    const e4 = addAt(t, t.rootId, "e4");
+    assess(t, e4, 2); // a leaf the user judged directly
+    expect(backupAt(t, e4, "white")!.firm).toBe(true);
+  });
+
+  it("round-trips the seal through PGN", async () => {
+    const { treeToPgn, parsePgnToTrees } = await import("@chessgui/core/pgn");
+    const { t, nf3 } = backedButUnvouched();
+    t.setSealed(nf3, true);
+    const back = parsePgnToTrees(treeToPgn(t))[0];
+    const nf3Back = back.mainlineNodes().find((n) => n.san === "Nf3");
+    expect(nf3Back?.sealed).toBe(true);
+    void nf3;
+  });
+});
 
 describe("notebook — the assessment scale", () => {
   it("maps the seven symbols onto position-assessment NAGs", () => {
@@ -535,7 +594,7 @@ describe("notebook — lexicographic ordering", () => {
   });
 
   it("compareSiblings puts unjudged last in both directions", () => {
-    const judged = { objective: 0, range: null, practical: 0, examined: 0, named: 0, allCandidatesExamined: true, likelyReplies: 0, sharpness: null };
+    const judged = { objective: 0, firm: true, range: null, practical: 0, examined: 0, named: 0, allCandidatesExamined: true, likelyReplies: 0, sharpness: null };
     expect(compareSiblings(judged, undefined, true)).toBeLessThan(0);
     expect(compareSiblings(undefined, judged, false)).toBeGreaterThan(0);
   });

@@ -13,7 +13,7 @@
 // The fair-play status is ONE LINE, by explicit instruction: a card announcing
 // "engine disabled" earns its space once, not on every glance.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@chessgui/ui/ui/card";
 import { MoveTable } from "@chessgui/ui/move-table";
 import { NotebookPanel } from "@chessgui/ui/notebook-panel";
@@ -77,6 +77,8 @@ export interface FairPlayPanelProps {
   currentNode?: MoveNode;
   onSetAssessment?: (id: string, a: Assessment | null) => void;
   onSetLikelihood?: (id: string, lik: Likelihood | null) => void;
+  /** Mark a candidate "covered" (spec 226) — turns "maybe better" into firm. */
+  onSetSealed?: (id: string, sealed: boolean) => void;
   /** Notebook keystrokes only fire while the board view is frontmost. */
   notebookActive?: boolean;
   /**
@@ -197,14 +199,22 @@ export function FairPlayPanel({
   currentNode,
   onSetAssessment,
   onSetLikelihood,
+  onSetSealed,
   notebookActive = false,
   onCompare,
 }: FairPlayPanelProps) {
-  const [tab, setTab] = useState<Tab>("moves");
+  // Candidates first (spec 226, user 2026-07-23): fair play is about the move
+  // you are ABOUT to make, so the forward-looking tree opens by default; the
+  // move record is one tab over for when you want to look back.
+  const [tab, setTab] = useState<Tab>("candidates");
   // Display order, not stored order (spec 226 F) — hence local state here
   // rather than anything that could reach the tree.
   const [sortByRank, setSortByRank] = useState(false);
   const notebookOn = !!notebookValues && !!currentNode && !!onSetAssessment && !!onSetLikelihood;
+  // No candidates tab without the notebook — fall back to the record.
+  useEffect(() => {
+    if (!notebookOn && tab === "candidates") setTab("moves");
+  }, [notebookOn, tab]);
   const live = livePosition.relation === "live";
   const status = fairPlayStatusText(
     livePosition,
@@ -274,7 +284,7 @@ export function FairPlayPanel({
           few aids chess.com permits in Daily play. */}
       <div className="flex border-b border-white/10 shrink-0">
         {(notebookOn
-          ? (["moves", "candidates", "openings"] as Tab[])
+          ? (["candidates", "moves", "openings"] as Tab[])
           : (["moves", "openings"] as Tab[])
         ).map((t) => (
           <button
@@ -292,34 +302,50 @@ export function FairPlayPanel({
         ))}
       </div>
 
-      {/* The notebook strip sits above the record, not over the board: the
-          judgement is typed while reading the same lines it annotates. */}
-      {tab !== "openings" && notebookOn && (
-        <NotebookPanel
-          tree={tree}
-          node={currentNode as MoveNode}
-          values={notebookValues as Map<string, NodeValue>}
-          myColor={myColor ?? "white"}
-          onSetAssessment={onSetAssessment as (id: string, a: Assessment | null) => void}
-          onSetLikelihood={onSetLikelihood as (id: string, lik: Likelihood | null) => void}
-          onGoToNode={onGoToNode}
-          sortByRank={sortByRank}
-          onToggleSort={() => setSortByRank((s) => !s)}
-          onCompare={onCompare}
-          active={notebookActive}
-          version={version}
-          // On the Candidates tab the table below IS the candidate list; the
-          // strip keeps the header line and the entry keys and stops drawing
-          // the list twice.
-          showCandidates={tab === "moves"}
-        />
+      {/* The notebook strip lives on the Candidates tab only — the assessment
+          keys for the move under the cursor, above the tree that IS the
+          candidate list. It never draws the list itself (that was the
+          duplication the Moves tab showed), and the Moves tab is left as the
+          plain record for looking back (user 2026-07-23). Kept mounted but
+          hidden elsewhere so switching tabs never re-mounts the key handler;
+          its keys are live only while it is the visible tab. */}
+      {notebookOn && (
+        <div className={tab === "candidates" ? "contents" : "hidden"}>
+          <NotebookPanel
+            tree={tree}
+            node={currentNode as MoveNode}
+            values={notebookValues as Map<string, NodeValue>}
+            myColor={myColor ?? "white"}
+            onSetAssessment={onSetAssessment as (id: string, a: Assessment | null) => void}
+            onSetLikelihood={onSetLikelihood as (id: string, lik: Likelihood | null) => void}
+            onSetSealed={onSetSealed}
+            onGoToNode={onGoToNode}
+            sortByRank={sortByRank}
+            onToggleSort={() => setSortByRank((s) => !s)}
+            onCompare={onCompare}
+            active={notebookActive && tab === "candidates"}
+            version={version}
+            showCandidates={false}
+          />
+        </div>
       )}
 
       <div className={`flex-1 min-h-0 overflow-hidden ${tab === "candidates" ? "" : "p-2"}`}>
         {tab === "candidates" && notebookOn ? (
+          // The tree is rooted at the LIVE position, not the cursor: it is the
+          // whole forward exploration, and it STAYS as you walk into it (user
+          // 2026-07-23 — clicking a move used to re-root and lose the tree). The
+          // cursor becomes a highlight inside it. Falls back to the cursor's own
+          // node before the game has a live pointer.
+          (() => {
+            const rootNode =
+              (meta?.liveNodeId ? tree.get(meta.liveNodeId) : undefined) ??
+              (currentNode as MoveNode);
+            return (
           <NotebookTable
             tree={tree}
-            node={currentNode as MoveNode}
+            node={rootNode}
+            currentId={currentId}
             values={notebookValues as Map<string, NodeValue>}
             myColor={myColor ?? "white"}
             // The baseline the table falls back to: the ranking when the strip
@@ -327,20 +353,19 @@ export function FairPlayPanel({
             // never invents one (spec 226 F).
             order={
               sortByRank
-                ? sortedChildren(
-                    tree,
-                    notebookValues as Map<string, NodeValue>,
-                    (currentNode as MoveNode).id,
-                  )
-                : (currentNode as MoveNode).children
+                ? sortedChildren(tree, notebookValues as Map<string, NodeValue>, rootNode.id)
+                : rootNode.children
             }
             onGoToNode={onGoToNode}
+            onSetSealed={onSetSealed}
             // The same head-to-head entry point the strip offers, so a reader
             // working in the table never has to change tabs to run the one
             // comparison spec 226 I calls worth more than more assessment.
             onCompare={onCompare}
             version={version}
           />
+            );
+          })()
         ) : tab === "moves" ? (
           <MoveTable
             tree={tree}

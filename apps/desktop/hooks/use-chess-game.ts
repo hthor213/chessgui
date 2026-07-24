@@ -318,6 +318,15 @@ export function useChessGame() {
     [bump],
   );
 
+  // The "covered" seal (spec 226): the user vouches that they have looked at
+  // enough of the opponent's replies to trust the value backed up under a move.
+  const setSealed = useCallback(
+    (id: string, sealed: boolean) => {
+      if (treeRef.current.setSealed(id, sealed)) bump();
+    },
+    [bump],
+  );
+
   // The head-to-head (spec 226 I). Pairwise, so it belongs to no node and
   // rides the tree's own list; bump() persists it with everything else. The
   // tree refuses a non-sibling pair, which is what keeps a preference from
@@ -522,6 +531,7 @@ export function useChessGame() {
     setNags,
     setAssessment,
     setLikelihood,
+    setSealed,
     recordPreference,
     setArrows,
     setEval,

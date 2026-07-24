@@ -103,6 +103,13 @@ export interface NotebookPanelProps {
   myColor: "white" | "black";
   onSetAssessment: (id: string, a: Assessment | null) => void;
   onSetLikelihood: (id: string, lik: Likelihood | null) => void;
+  /**
+   * Mark a candidate COVERED (spec 226): the user's declaration that they have
+   * looked at enough of the opponent's replies to trust the value backed up
+   * under it, which is what turns "maybe better" into "better". Omit and the
+   * seal control disappears (the value simply stays provisional).
+   */
+  onSetSealed?: (id: string, sealed: boolean) => void;
   onGoToNode: (id: string) => void;
   sortByRank: boolean;
   onToggleSort: () => void;
@@ -183,6 +190,7 @@ export function NotebookPanel({
   myColor,
   onSetAssessment,
   onSetLikelihood,
+  onSetSealed,
   onGoToNode,
   sortByRank,
   onToggleSort,
@@ -442,6 +450,30 @@ export function NotebookPanel({
                     </>
                   )}
                   <Confidence value={cv} />
+                  {onSetSealed && cv && cv.objective !== null && assessmentOf(child) === null && (
+                    <button
+                      type="button"
+                      // Toggling the seal must not navigate — it is a judgement
+                      // about the line, not a request to walk into it.
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSetSealed(id, !child.sealed);
+                      }}
+                      data-testid="notebook-seal"
+                      title={
+                        child.sealed
+                          ? "Covered — I've looked at enough of his replies here (click to unmark)"
+                          : "Still “maybe”. Mark covered once I've looked at enough of his replies"
+                      }
+                      className={`px-1 rounded-sm text-[13px] leading-none transition-colors ${
+                        child.sealed
+                          ? "text-[#9bc700]"
+                          : "text-muted-foreground/40 hover:text-foreground hover:bg-white/5"
+                      }`}
+                    >
+                      ✓
+                    </button>
+                  )}
                   {onCompare && judged.length > 1 && (
                     <button
                       type="button"

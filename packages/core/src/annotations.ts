@@ -96,6 +96,8 @@ export function joinComment(text: string, tags: string[]): string {
 const LIK_RE = /\[%lik\s+([123])\s*\]/;
 const PROV_RE = /\[%prov\s+(human-live|human)(?:\s*,\s*(\d+))?\s*\]/;
 const SRC_RE = /\[%src\s+(db|live)\s*\]/;
+// A valueless flag: the user's "covered" declaration (spec 226). Presence = on.
+const SEAL_RE = /\[%seal\s*\]/;
 
 /** The two directions of the `[%src]` tag. "db" is a move the app served out
  *  of a position-indexed corpus; "live" is one the chess.com sync appended
@@ -108,6 +110,8 @@ export interface NotebookTags {
   assessedBy?: AssessmentOrigin;
   assessedAt?: number;
   src?: MoveSource;
+  /** The "covered" declaration (spec 226): true when the tag is present. */
+  sealed?: boolean;
   /** The comment with every notebook tag removed and whitespace collapsed. */
   rest: string;
 }
@@ -124,10 +128,12 @@ export function parseNotebookTags(comment: string): NotebookTags {
   }
   const src = comment.match(SRC_RE);
   if (src) out.src = SRC_VALUES[src[1]];
+  if (SEAL_RE.test(comment)) out.sealed = true;
   out.rest = comment
     .replace(LIK_RE, "")
     .replace(PROV_RE, "")
     .replace(SRC_RE, "")
+    .replace(SEAL_RE, "")
     .replace(/\s{2,}/g, " ")
     .trim();
   return out;
@@ -142,6 +148,7 @@ export function makeNotebookTags(node: {
   assessedBy?: AssessmentOrigin;
   assessedAt?: number;
   src?: MoveSource;
+  sealed?: boolean;
 }): string {
   const parts: string[] = [];
   if (node.lik !== undefined) parts.push(`[%lik ${node.lik}]`);
@@ -150,6 +157,7 @@ export function makeNotebookTags(node: {
     parts.push(`[%prov ${node.assessedBy}${at}]`);
   }
   if (node.src !== undefined) parts.push(`[%src ${SRC_TAGS[node.src]}]`);
+  if (node.sealed) parts.push("[%seal]");
   return parts.join(" ");
 }
 
@@ -169,7 +177,7 @@ export function makeNotebookTags(node: {
  * downloaded, and refusing those would reject honest games. These three tags
  * are ours alone and can only come from our own serializer.
  */
-const NOTEBOOK_TAG_RE = /\[%(?:lik|prov|src)\b/;
+const NOTEBOOK_TAG_RE = /\[%(?:lik|prov|src|seal)\b/;
 
 export function containsNotebookTags(pgn: string): boolean {
   return NOTEBOOK_TAG_RE.test(pgn);

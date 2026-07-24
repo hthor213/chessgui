@@ -489,6 +489,21 @@ describe("the candidates table", () => {
     expect(html).not.toContain('data-san="a3"');
   });
 
+  it("gives a folder disclosure only to candidates with explored sub-lines", () => {
+    const t = GameTree.create();
+    t.addMoveSan("e4"); // a candidate with a continuation under it
+    t.addMoveSan("e5"); // e4 → e5, so e4 is an openable folder
+    t.goTo(t.rootId);
+    t.addMoveSan("d4"); // a leaf candidate — nothing explored under it
+    const html = candidateTableHtml(t, t.rootId);
+    // Exactly one disclosure: e4 has a sub-line, the leaf d4 gets none.
+    const toggles = html.match(/data-testid="notebook-tree-toggle"/g) ?? [];
+    expect(toggles).toHaveLength(1);
+    // Collapsed by default — the child move is not drawn until the reader opens
+    // the folder, so the top level still reads as the plain candidate list.
+    expect(html).not.toContain('data-san="e5"');
+  });
+
   it("renders in the order it was handed — no sort of its own", () => {
     const t = candidateTree();
     const html = candidateTableHtml(t, t.rootId);

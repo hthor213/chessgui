@@ -113,6 +113,7 @@ function applyPgnData(tree: GameTree, id: string, data: PgnNodeData): void {
     if (n.assessedBy !== undefined) node.assessedBy = n.assessedBy;
     if (n.assessedAt !== undefined) node.assessedAt = n.assessedAt;
     if (n.src !== undefined) node.src = n.src;
+    if (n.sealed !== undefined) node.sealed = n.sealed;
   }
   // makeComment always writes [%csl] (single-square circles) before [%cal]
   // (arrows), so canonicalize to that order on import too — otherwise the

@@ -103,6 +103,11 @@ export interface MoveNode {
   lik?: Likelihood; // opponent-reply likelihood, 1 = unlikely … 3 = likely
   assessedBy?: AssessmentOrigin; // who judged, never an engine
   assessedAt?: number; // unix seconds the assessment was stamped
+  // The user's "I've covered the opponent's replies here" declaration (spec
+  // 226): promotes the backed-up value from "maybe X" to a firm ranking. Only
+  // the player can set it — the app cannot see the legal replies to know the
+  // search is complete. Absent = not sealed.
+  sealed?: boolean;
   // Absent = the user played this move themselves, which is the only kind of
   // move the notebook counts as one of their candidates (spec 226 C).
   src?: MoveSource;
@@ -871,6 +876,23 @@ export class GameTree {
     if ((node.lik ?? null) === lik) return false;
     if (lik === null) delete node.lik;
     else node.lik = lik;
+    return true;
+  }
+
+  /**
+   * Mark (or unmark) a move as COVERED (spec 226, user 2026-07-23): the user's
+   * declaration that they have looked at enough of the opponent's replies here
+   * to trust the value backed up from below. The app can never set this — it
+   * cannot see the legal replies, so it cannot know the search is complete; only
+   * the player can say so. A backed-up value is "maybe X" until the move is
+   * either sealed here or assessed directly.
+   */
+  setSealed(id: string, sealed: boolean): boolean {
+    const node = this.nodes.get(id);
+    if (!node) return false;
+    if ((node.sealed ?? false) === sealed) return false;
+    if (sealed) node.sealed = true;
+    else delete node.sealed;
     return true;
   }
 

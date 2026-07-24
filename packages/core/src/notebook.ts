@@ -105,6 +105,17 @@ export function assessmentGlyph(a: Assessment): string {
  */
 export interface NodeValue {
   objective: number | null;
+  /**
+   * Whether the objective reading is FIRM or still "maybe" (spec 226, user
+   * 2026-07-23). A value backed up from below is a claim that rests on the
+   * opponent's replies having been covered — which the app cannot verify, since
+   * it has no way to know the reply list is complete. So the value stays
+   * provisional ("maybe better") until the player vouches for it: either by
+   * assessing this move directly, or by sealing it ("I've covered the replies
+   * here"). A move with its own direct assessment is firm; a bare leaf carries
+   * no claim to make firm or otherwise, so it reads firm too.
+   */
+  firm: boolean;
   range: { lo: number; hi: number } | null;
   practical: number | null;
   examined: number;
@@ -263,6 +274,11 @@ function sharpnessOf(mine: Kid[], objective: number, examined: number, named: nu
 
 function valueOf(node: MoveNode, kids: Kid[], myColor: "white" | "black"): NodeValue {
   const own = assessmentOf(node);
+  // Firm when the player has vouched for this move: a direct assessment, or the
+  // "covered" seal. Everything else backed up from below is a "maybe" — the app
+  // may not decide on its own that the opponent's replies were all considered
+  // (spec 226, user 2026-07-23).
+  const firm = own !== null || node.sealed === true;
   const judged = kids.filter((k) => k.value.objective !== null);
   const mine = kids.filter(isOwnCandidate);
   const named = mine.length;
@@ -287,6 +303,9 @@ function valueOf(node: MoveNode, kids: Kid[], myColor: "white" | "black"): NodeV
     // which would be a judgement the user never made.
     return {
       objective: own,
+      // A leaf's value is the user's own reading (or nothing) — no backed-up
+      // claim to hold provisional, so it is firm whenever it says anything.
+      firm: true,
       range: own === null ? null : boundedRange(own, own, own, openUp, openDown),
       practical: own,
       examined,
@@ -346,6 +365,7 @@ function valueOf(node: MoveNode, kids: Kid[], myColor: "white" | "black"): NodeV
 
   return {
     objective,
+    firm,
     range,
     practical,
     examined,
@@ -611,11 +631,18 @@ export function assessmentWords(a: Assessment, myColor: "white" | "black"): stri
   }
 }
 
-/** Rounded plain-word reading of a backed-up value, or "" when unjudged. */
+/**
+ * Rounded plain-word reading of a backed-up value, or "" when unjudged.
+ *
+ * A provisional value (see `NodeValue.firm`) is prefixed "maybe": the branch
+ * backs up to "better", but until the player has vouched that the opponent's
+ * replies were covered, the app may only say it MIGHT be better (spec 226).
+ */
 export function valueWords(v: NodeValue, myColor: "white" | "black"): string {
   if (v.objective === null) return "";
   const clamped = Math.max(-3, Math.min(3, Math.round(v.objective))) as Assessment;
-  return assessmentWords(clamped, myColor);
+  const word = assessmentWords(clamped, myColor);
+  return v.firm ? word : `maybe ${word}`;
 }
 
 /**

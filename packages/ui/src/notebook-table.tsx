@@ -53,8 +53,13 @@ import { LIKELIHOOD_KEYS } from "@chessgui/ui/notebook-panel";
 
 export interface NotebookTableProps {
   tree: GameTree;
-  /** The node whose candidates these are. */
+  /** The ROOT of the tree — its children are the top level. In fair play this
+   *  is the live position, so the tree is the whole forward exploration and
+   *  stays put as the cursor moves through it. */
   node: MoveNode;
+  /** The cursor's node, highlighted inside the tree and auto-revealed (its
+   *  ancestors expand) whenever it changes. Omit to just render the tree. */
+  currentId?: string;
   values: Map<string, NodeValue>;
   myColor: "white" | "black";
   /**
@@ -65,6 +70,8 @@ export interface NotebookTableProps {
    */
   order: readonly string[];
   onGoToNode: (id: string) => void;
+  /** Mark a row "covered" (spec 226): promotes its "maybe X" to a firm ranking. */
+  onSetSealed?: (id: string, sealed: boolean) => void;
   /**
    * Open the head-to-head on two candidates (spec 226 I) — the same affordance
    * the strip offers, so a reader working in the table never has to change tabs
@@ -150,10 +157,12 @@ function likText(row: CandidateRow): string {
 export function NotebookTable({
   tree,
   node,
+  currentId,
   values,
   myColor,
   order,
   onGoToNode,
+  onSetSealed,
   onCompare,
 }: NotebookTableProps) {
   // Null is the default and means "the order I was handed" — see the file
@@ -172,12 +181,79 @@ export function NotebookTable({
       cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id].slice(-2),
     );
 
-  const rows = sortCandidateRows(
-    candidateRows(tree, values, order),
-    sort?.key ?? null,
-    sort?.dir ?? "asc",
-    myColor,
-  );
+  // Folder tree (spec 226, user 2026-07-23): a row whose move has explored
+  // sub-lines under it can open in place, like a folder, rather than only
+  // navigating away. Default collapsed — the top level IS the candidate list,
+  // and a folder opens because the reader asked, not because the app decided.
+  // Reset on a node change: a different position is a different list.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  useEffect(() => setExpanded(new Set()), [node.id]);
+  const toggleExpand = (id: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // Reveal the cursor: open every ancestor between the root and currentId so the
+  // highlighted move is always visible in the tree. Only when currentId is
+  // actually under this root (behind the live position, it is not) — otherwise
+  // it would open unrelated branches. Opens; never closes what the reader opened.
+  useEffect(() => {
+    if (!currentId || currentId === node.id) return;
+    const ancestors: string[] = [];
+    let reached = false;
+    let cur = tree.get(currentId)?.parent ? tree.get(tree.get(currentId)!.parent!) : undefined;
+    while (cur) {
+      if (cur.id === node.id) {
+        reached = true;
+        break;
+      }
+      ancestors.push(cur.id);
+      cur = cur.parent ? tree.get(cur.parent) : undefined;
+    }
+    if (reached && ancestors.length) {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        for (const id of ancestors) next.add(id);
+        return next;
+      });
+    }
+  }, [currentId, node.id, tree]);
+
+  const sortLevel = (ids: readonly string[]) =>
+    sortCandidateRows(
+      candidateRows(tree, values, ids),
+      sort?.key ?? null,
+      sort?.dir ?? "asc",
+      myColor,
+    );
+
+  const rows = sortLevel(order);
+
+  // The visible rows, depth-first: a row, then its children when it is open,
+  // each carrying its indent depth and whether it can open at all. Every level
+  // obeys the same column sort, so sorting sorts the whole tree, not just the
+  // top. The tree the reader explored is finite and small, so the recursion is
+  // cheap and needs no memo.
+  interface VisibleRow {
+    row: CandidateRow;
+    depth: number;
+    hasKids: boolean;
+  }
+  const buildVisible = (ids: readonly string[], depth: number): VisibleRow[] => {
+    const out: VisibleRow[] = [];
+    for (const row of sortLevel(ids)) {
+      const kids = tree.get(row.id)?.children ?? [];
+      out.push({ row, depth, hasKids: kids.length > 0 });
+      if (kids.length > 0 && expanded.has(row.id)) {
+        out.push(...buildVisible(kids, depth + 1));
+      }
+    }
+    return out;
+  };
+  const visible = buildVisible(order, 0);
 
   // Three clicks per column: this way, the other way, and back to the order I
   // arrived in. The third state matters — without it the reader can never get
@@ -202,10 +278,14 @@ export function NotebookTable({
   // Columns that only earn their width on some nodes. "Mine" repeats the
   // backed-up glyph on every childless candidate — three rows in four, in the
   // user's own report — so it appears only where the two actually differ, which
-  // is the only case it was ever for.
-  const showMine = rows.some((r) => r.mine !== null && r.value.objective !== r.mine);
-  const showLik = rows.some((r) => r.lik !== null);
-  const showWidth = rows.some((r) => r.value.likelyReplies > 0);
+  // is the only case it was ever for. Read over the VISIBLE rows, not just the
+  // top level: opening a line of opponent replies brings their likelihoods into
+  // view, so the "He plays it" column has to arrive with them (and leave when
+  // the line collapses again).
+  const visibleRows = visible.map((v) => v.row);
+  const showMine = visibleRows.some((r) => r.mine !== null && r.value.objective !== r.mine);
+  const showLik = visibleRows.some((r) => r.lik !== null);
+  const showWidth = visibleRows.some((r) => r.value.likelyReplies > 0);
   const columns = showMine
     ? [CANDIDATE_COLUMNS[0], MINE_COLUMN, ...CANDIDATE_COLUMNS.slice(1)]
     : CANDIDATE_COLUMNS;
@@ -277,9 +357,18 @@ export function NotebookTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => {
+          {visible.map(({ row, depth, hasKids }, i) => {
             const group = candidateGroup(row);
-            const newGroup = i > 0 && group !== candidateGroup(rows[i - 1]);
+            // A group caption belongs to the TOP level only (my candidates vs
+            // the app's supplied moves). It fires when the previous top-level
+            // row was a different group — expanded children in between do not
+            // reset it, so the hairline still reads as "everything below here is
+            // the next group". Deeper levels get no captions; their nesting is
+            // the structure, not the grouping.
+            const prevTop = [...visible.slice(0, i)].reverse().find((v) => v.depth === 0);
+            const newGroup =
+              depth === 0 && prevTop !== undefined && group !== candidateGroup(prevTop.row);
+            const isOpen = expanded.has(row.id);
             return (
               <Fragment key={row.id}>
                 {newGroup && (
@@ -293,10 +382,19 @@ export function NotebookTable({
                   </tr>
                 )}
                 <tr
-                  onClick={() => onGoToNode(row.id)}
+                  onClick={() => {
+                    // Clicking a move walks the board to it AND reveals its
+                    // lines in place. The tree is rooted at live, so this drills
+                    // in without re-rooting — no more "flip to the next level".
+                    onGoToNode(row.id);
+                    if (hasKids) setExpanded((s) => new Set(s).add(row.id));
+                  }}
                   data-san={row.san}
+                  data-depth={depth}
                   data-testid={row.judged ? "notebook-table-row" : "notebook-table-row-unjudged"}
                   className={`cursor-pointer hover:bg-white/5 ${
+                    row.id === currentId ? "bg-white/10" : ""
+                  } ${
                     // Quiet, not hidden: these are still on the board and the
                     // record of having named them matters, but they have
                     // nothing to report yet and must not compete with a line
@@ -304,7 +402,31 @@ export function NotebookTable({
                     row.judged ? "" : "text-muted-foreground/60"
                   }`}
                 >
-                  <td className="px-1.5 py-1 font-mono whitespace-nowrap">
+                  <td
+                    className="px-1.5 py-1 font-mono whitespace-nowrap"
+                    // Indent by depth so the nesting reads as a folder tree;
+                    // the disclosure triangle sits at the head of each move.
+                    style={{ paddingLeft: 6 + depth * 16 }}
+                  >
+                    {hasKids ? (
+                      <button
+                        type="button"
+                        // The triangle opens the line in place; it must not move
+                        // the board, so it stops the row's navigate click.
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleExpand(row.id);
+                        }}
+                        data-testid="notebook-tree-toggle"
+                        title={isOpen ? "Collapse this line" : "Open the lines I explored under it"}
+                        className="mr-1 inline-block w-3 text-center text-muted-foreground/70 hover:text-foreground transition-colors"
+                      >
+                        {isOpen ? "▾" : "▸"}
+                      </button>
+                    ) : (
+                      // A leaf keeps the same indent as its expandable siblings.
+                      <span className="mr-1 inline-block w-3" aria-hidden />
+                    )}
                     {/* The cream is on the JUDGED rows only — a hardcoded colour
                         here beat the row's mute, and since every other cell of
                         an unjudged row is empty the distinction vanished
@@ -341,6 +463,34 @@ export function NotebookTable({
                         statement, and the marker was a second drawing of it. */}
                     <NotebookBadge value={row.value} marker={false} />
                     <span className="text-muted-foreground">{valueWords(row.value, myColor)}</span>
+                    {/* The seal: only where the value is BACKED UP (not the
+                        user's own direct symbol) — that is the only reading a
+                        "maybe" applies to, and the only one covering the replies
+                        can make firm. row.value.firm here IS the sealed state,
+                        since a row with no direct symbol is firm only when
+                        sealed. */}
+                    {onSetSealed && row.value.objective !== null && row.mine === null && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSetSealed(row.id, !row.value.firm);
+                        }}
+                        data-testid="notebook-seal"
+                        title={
+                          row.value.firm
+                            ? "Covered — I've looked at enough of his replies here (click to unmark)"
+                            : "Still “maybe”. Mark covered once I've looked at enough of his replies"
+                        }
+                        className={`ml-1.5 px-1 rounded-sm text-[13px] leading-none transition-colors ${
+                          row.value.firm
+                            ? "text-[#9bc700]"
+                            : "text-muted-foreground/40 hover:text-foreground hover:bg-white/5"
+                        }`}
+                      >
+                        ✓
+                      </button>
+                    )}
                   </td>
                   <td
                     className="px-1.5 py-1 text-right font-mono text-muted-foreground/80 whitespace-nowrap"
@@ -364,7 +514,7 @@ export function NotebookTable({
                   )}
                   {onCompare && (
                     <td className="px-1 py-1 text-right">
-                      {group === 0 && comparable > 1 && (
+                      {depth === 0 && group === 0 && comparable > 1 && (
                         <button
                           type="button"
                           // The row navigates; marking a candidate for a

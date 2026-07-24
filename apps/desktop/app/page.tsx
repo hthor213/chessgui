@@ -2323,6 +2323,7 @@ export default function Home() {
                 currentNode={game.currentNode}
                 onSetAssessment={game.setAssessment}
                 onSetLikelihood={game.setLikelihood}
+                onSetSealed={game.setSealed}
                 notebookActive={
                   view === "board" && !liveViewing && !pgnDialogOpen && !editorOpen && !compare
                 }
