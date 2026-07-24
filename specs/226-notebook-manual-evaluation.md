@@ -670,6 +670,34 @@ data is not narrowed in the meantime.
       2026-07-21: `notebook-diagnosis` is pure and writes nothing; assessedBy
       stays human-only; a snapshot test proves the record is unchanged)
 
+#### Session 2026-07-22 → 24 additions (live-iterated with the user)
+
+- [x] The 1…7 assessment pad is oriented to the READER's own side — 7 = "I'm
+      winning", 1 = "I'm losing", 4 = equal, whichever colour — while the stored
+      NAG stays White-positive so the backup, ranking, diagnosis and PGN are
+      untouched (code-verified 2026-07-22; `assessmentKeys(myColor)`, user-confirmed)
+- [x] Re-walk retraces the LAST line walked — the path to the remembered
+      excursion tip — not `children[0]` (the oldest branch); the cold-start
+      fallback is the freshest child (code-verified 2026-07-23; `stepToward`,
+      excursion-tip tracking in page.tsx; user-confirmed)
+- [x] The Eval-Map overlay draws a coloured disc on the destination of each of
+      the node's OWN explored candidates — red→yellow→green by the reader-side
+      backed value, gray when unjudged — and NOTHING on a legal square never
+      tried; the native move-dots are suppressed while it is on, but a move can
+      still be played on top of it (existing line or new variation), and it
+      never draws over a `previewStep` position (code-verified 2026-07-23;
+      `buildEvalMap`, `showDests`; user-confirmed "brilliant")
+- [x] A backed-up value reads "maybe X" until the move is either directly
+      assessed OR sealed ("covered") — the app never calls it firm on its own,
+      because it cannot know the reply list is complete; the seal is stored as
+      `node.sealed`, rides PGN as `[%seal]`, and is on the notebook-tag purity
+      guard (code-verified 2026-07-24; `NodeValue.firm`, 5 new tests)
+- [x] The Candidates tab is a folder tree rooted at the LIVE position: it stays
+      as the cursor walks into it (no re-root/flip), the cursor is highlighted,
+      its ancestors auto-expand, and the ▸ arrow folds/unfolds; the candidate
+      list no longer duplicates onto the Moves tab, and Candidates is the
+      default tab (code-verified 2026-07-24; committed `eac3cd3`)
+
 #### Section I — width and the head-to-head
 
 - [x] Each candidate reports how many replies the user marked likely, beside
@@ -703,6 +731,15 @@ data is not narrowed in the meantime.
 
 ### User-blocked (needs the user's eyeball)
 
+- [x] The 1…7 pad, re-walk, Eval-Map, and the seal are confirmed on real live
+      games (user 2026-07-22→24: "brilliant", the seal flow, the re-walk retrace)
+- [ ] The live-rooted Candidates tree (no-flip navigation, current-move
+      highlight, auto-expand) reads right in a real game — built + committed
+      `eac3cd3` 2026-07-24, not yet eyeballed in the final layout
+- [ ] Fold-to-make-room controls for the Candidates tree (minimise the strip /
+      move record) — requested 2026-07-23, NOT yet built
+- [ ] "maybe" everywhere may read as too noisy before anything is sealed —
+      decide whether provisional values need a softer marker than the word
 - [ ] The assessment keystrokes are fast enough to use *while* exploring rather
       than as a separate pass — the feature's whole premise
 - [ ] The coverage warning reads as useful discipline rather than nagging
