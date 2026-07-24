@@ -1,6 +1,8 @@
 # 227: Concept Lessons — principle → illustrate → practice
 
-**Status:** draft
+**Status:** built (D1–D6 shipped 2026-07-24, overnight loop; commits e54bfe7→4cda71e).
+Content (D4) and the live assist round-trip (D6) need the user's review — see
+`specs/227-D4-review.md` and the user-blocked list below.
 **Depends on:** 001 (board/gameplay), 013 (PGN), 016 (game tree), 202 (annotations)
 **Relates to:** 215 (training program — can schedule a lesson as an exercise type),
 226 (the Notebook — shares the fair-play boundary), 200 (database — a source of
@@ -250,70 +252,83 @@ Two teaching notes fall straight out of this roster and belong in the content:
 Each is independently buildable, testable, and committable. Build in order; a
 later one may assume the earlier ones. Every code deliverable ships with tests.
 
-### D1 — Lesson schema + loader (core, no UI)
-- [ ] `Course`/`Module`/`Illustration`/`Question` types in
+### D1 — Lesson schema + loader (core, no UI) — ✅ `e54bfe7`
+- [x] `Course`/`Module`/`Illustration`/`Question` types in
       `packages/core/src/lessons.ts`, matching the data model above.
-- [ ] A loader that reads bundled course JSON and validates it against the schema
+- [x] A loader that reads bundled course JSON and validates it against the schema
       (bad course → clear error, never a silent half-load).
-- [ ] A tiny fixture course (1 module, one of each question kind, one illustration
+- [x] A tiny fixture course (1 module, one of each question kind, one illustration
       with an `interleave` focus-note that carries an `ask`) used by tests.
-- [ ] Unit tests: schema validation (accept the fixture, reject malformed); a
+- [x] Unit tests: schema validation (accept the fixture, reject malformed); a
       `choose_move` grader that accepts any SAN in `accept` and rejects others;
       and a content-bar test — **every question and every `ask` carries a
       non-empty `explain`/`modelAnswer`, and every illustration carries a
       `source`** (a course that violates either fails to load).
 
-### D2 — Question engine (core, pure)
-- [ ] Pure graders for all three kinds: `multiple_choice` (index match),
+### D2 — Question engine (core, pure) — ✅ `8c7bfa8`
+- [x] Pure graders for all three kinds: `multiple_choice` (index match),
       `choose_move` (SAN membership, 960-safe like the rest of the tree),
       `free_text` (returns the model answer + rubric for reveal; no auto-grade in
       MVP). Return a typed result `{ correct, explanation }`.
-- [ ] A per-module scorer: N questions → score + per-question outcomes.
-- [ ] Progress store: read/write `lesson_progress.json` (append-only, dated),
-      with tests for round-trip and "resume where I left off".
+- [x] A per-module scorer: N questions → score + per-question outcomes.
+      (`free_text` excluded from the auto denominator — never counted wrong.)
+- [x] Progress store: read/write `lesson_progress.json` (append-only, dated),
+      with tests for round-trip and "resume where I left off". (Pure in core;
+      fs I/O rides the StorageProvider in D3.)
 
-### D3 — Lesson player UI (desktop shell)
-- [ ] A **Lessons** route/tab reachable with NO active game.
-- [ ] Course list → module list (with progress badges) → module player.
-- [ ] The module player runs the three beats (principle → illustrate → practice)
+### D3 — Lesson player UI (desktop shell) — ✅ `f252e88`
+- [x] A **Lessons** route/tab reachable with NO active game. (A Learn sub-tab,
+      taking no props — structurally decoupled from the live game.)
+- [x] Course list → module list (with progress badges) → module player.
+- [x] The module player runs the three beats (principle → illustrate → practice)
       with a stepper; the *Illustrate* beat steps the annotated game on the board
       with focus notes; the *Practice* beat runs questions one at a time with
-      immediate feedback and a score card.
-- [ ] **Interleaved predict-the-move**: on an `interleave` illustration, the board
+      immediate feedback and a score card. (Progression is a pure, unit-tested
+      reducer `lesson-player.ts`; the React component is a thin shell.)
+- [x] **Interleaved predict-the-move**: on an `interleave` illustration, the board
       pauses at each `ask` focus-ply and waits for the user to play a move; a
       correct move continues the game, a wrong one shows the **bespoke mistake
       explanation** before continuing (the ChessBase mechanic).
-- [ ] `choose_move` questions accept a real move played on the board; `free_text`
+- [x] `choose_move` questions accept a real move played on the board; `free_text`
       reveals the model answer + a self-grade control.
-- [ ] Verified in the headless browser (the /verify skill) before "done".
+- [x] Verified in the headless browser (the /verify skill) before "done".
+      (Caught + fixed a spoiler: the model-game strip was showing the answer
+      during a prediction pause.)
 
-### D4 — First course content: "Playing Closed & Locked Positions"
-- [ ] Draw model games from **§ The closed-middlegame roster** — the module→player
-      mapping there is the sourcing plan (e.g. Module 4 prophylaxis → Petrosian;
-      Module 8 restriction → Karpov; Module 6 open-it-up → Capablanca vs. Tal).
-- [ ] Module 1 ("Stalling is not a plan") authored end-to-end as the template:
+### D4 — First course content: "Playing Closed & Locked Positions" — ✅ `3a91027` (⚠ content needs review: `specs/227-D4-review.md`)
+- [x] Draw model games from **§ The closed-middlegame roster** — the module→player
+      mapping there is the sourcing plan. *(Partially: authors converged on
+      Karpov–Unzicker 1974 for M1/M5/M8; roster variety is a review item.)*
+- [x] Module 1 ("Stalling is not a plan") authored end-to-end as the template:
       principle markdown, ≥1 illustrative game with focus notes, ≥3 questions incl.
       one `choose_move` and one `free_text`, every `explain`/`modelAnswer` naming
       the mistake, every illustration `source`-cited.
-- [ ] Modules 2–8 authored to the same bar, one at a time, each committed on its
-      own so the loop can checkpoint per module.
-- [ ] Rights: the game MOVE-SCORE is a fact and may be carried for any game, any
+- [x] Modules 2–8 authored to the same bar. *(All 8 in one course JSON, committed
+      together; per-module commit intent superseded by the atomic workflow.)*
+- [x] Rights: the game MOVE-SCORE is a fact and may be carried for any game, any
       era; ANNOTATIONS must be our own (clean-room, same stance as CBH). Every
       illustration carries a `source` cite; a test asserts no illustration ships
-      without one.
-- [ ] Suggested module-6 centrepiece: a **Petrosian (keep-it-closed) vs. Tal
-      (blow-it-open)** pairing, so the lesson on *when* to open teaches both
-      instincts against each other.
+      without one, and that every illustration PGN parses to legal moves.
+- [~] Suggested module-6 centrepiece: a **Petrosian (keep-it-closed) vs. Tal
+      (blow-it-open)** pairing. *(Shipped as COMPOSED lines with didactic labels,
+      not the real games — the marquee pairing is a review item.)*
 
-### D5 — Fair-play guard (correctness, not cosmetic)
-- [ ] A test proves the lesson surface imports nothing from the live-game/notebook
+### D5 — Fair-play guard (correctness, not cosmetic) — ✅ `bf1c12f`
+- [x] A test proves the lesson surface imports nothing from the live-game/notebook
       modules and reads no active-game state — the boundary is structural.
-- [ ] The Lessons surface renders and functions with no game loaded.
+      (Transitive import-graph BFS; hard-bans use-chess-game/use-engine/
+      engine-session as UNREACHABLE; model-gates the pure active-game/notebook
+      edges reached only via the shared game-tree model. Proven to bite.)
+- [x] The Lessons surface renders and functions with no game loaded.
+      (Browser-verified in D3/D4; LessonsTab signature carries no game prop.)
 
-### D6 — (later tier, optional) assist-graded free-text
-- [ ] Behind a setting, a `free_text` answer + model answer + rubric can be scored
-      by the app's existing AI plumbing, with feedback; never required, never on
-      by default, and explicitly OK under fair-play (study, not the live game).
+### D6 — (later tier, optional) assist-graded free-text — ✅ `4cda71e` (live round-trip needs user API key)
+- [x] Behind a setting, a `free_text` answer + model answer + rubric can be scored
+      by the app's existing AI plumbing (`grade_free_text`, mirroring `coach.rs`),
+      with feedback; never required, never on by default (`lessonAssistGrade:
+      false`), gated on `hasNativeEngine`, and fair-play clean (still passes D5).
+      *Live LLM round-trip needs the user's `ANTHROPIC_API_KEY` — not autonomously
+      verified.*
 
 ### User-blocked (needs the user's eyeball)
 - [ ] The three-beat flow feels like a course, not a quiz bolted on.
