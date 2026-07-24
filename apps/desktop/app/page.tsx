@@ -41,6 +41,7 @@ import { SparTab } from "@chessgui/ui/spar-tab"
 import { TrainingTab } from "@chessgui/ui/training-tab"
 import { PuzzlesTab } from "@chessgui/ui/puzzles-tab"
 import { RepertoireTab } from "@chessgui/ui/repertoire-tab"
+import { LessonsTab } from "@chessgui/ui/lessons-tab"
 import { parsePgnToTrees } from "@chessgui/core/pgn"
 import { moverIsWhite, squareToKey } from "@chessgui/core/game-tree"
 import { branchHead, bestPeerHead, isAncestor, myContinuation, stepToward } from "@chessgui/core/notebook-nav"
@@ -374,7 +375,7 @@ export default function Home() {
   // avoidance puzzles (spec 211), repertoire drilling (spec 900 backlog), or
   // the training program (spec 215). The program launches into the others.
   const [learnSub, setLearnSub] = useState<
-    "calibrate" | "spar" | "puzzles" | "repertoire" | "training"
+    "calibrate" | "spar" | "puzzles" | "repertoire" | "training" | "lessons"
   >("calibrate")
   // Thinking mode has its own board instance; keep its size separate so the
   // hidden main board (kept mounted) can't clobber it.
@@ -1542,6 +1543,17 @@ export default function Home() {
                 pushing the page wide; taller touch targets on phones. */}
             <div className="px-3 md:px-6 pt-3 flex items-center gap-1 border-b border-white/10 overflow-x-auto md:overflow-x-visible">
               <button
+                data-testid="learn-sub-lessons"
+                onClick={() => setLearnSub("lessons")}
+                className={`shrink-0 whitespace-nowrap px-3 py-2.5 md:py-1.5 text-sm rounded-t-md transition-colors ${
+                  learnSub === "lessons"
+                    ? "text-foreground font-medium border-b-2 border-emerald-500"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Lessons
+              </button>
+              <button
                 data-testid="learn-sub-calibrate"
                 onClick={() => setLearnSub("calibrate")}
                 className={`shrink-0 whitespace-nowrap px-3 py-2.5 md:py-1.5 text-sm rounded-t-md transition-colors ${
@@ -1604,7 +1616,9 @@ export default function Home() {
                 contains horizontal overflow (spec 223): anything wide inside
                 a tab scrolls in this box, never the page. */}
             <div className="flex-1 min-h-0 flex flex-col overflow-x-auto lg:overflow-x-visible">
-              {learnSub === "calibrate" ? (
+              {learnSub === "lessons" ? (
+                <LessonsTab />
+              ) : learnSub === "calibrate" ? (
                 <CalibrationTab onLoadPosition={handleLoadCalibrationPosition} />
               ) : learnSub === "spar" ? (
                 <SparTab />
