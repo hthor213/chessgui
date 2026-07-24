@@ -1,0 +1,74 @@
+{
+  "id": "fixture-closed-positions",
+  "title": "Fixture: Playing Closed Positions",
+  "blurb": "A one-module test course exercising all three question kinds and an interleaved illustration. Not shipped content.",
+  "level": "intermediate",
+  "modules": [
+    {
+      "id": "m1-stalling-is-not-a-plan",
+      "title": "Stalling is not a plan",
+      "principle": {
+        "markdown": "Closed positions are not \"stall and pray\". They have concrete plans: **maneuver** your worst piece to its best square, **restrict** the opponent, create a **second weakness**, and **time the pawn break**. When you feel you can only shuffle, you have stopped naming a plan — not run out of them.",
+        "remember": "A locked position is a plan you haven't named yet, not the absence of one.",
+        "diagramFen": "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4"
+      },
+      "illustrations": [
+        {
+          "title": "Ruy Lopez, Morphy Defence — the slow-build opening",
+          "pgn": "[Event \"Illustration\"]\n[Site \"?\"]\n[Date \"????.??.??\"]\n[White \"White\"]\n[Black \"Black\"]\n[Result \"*\"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 *",
+          "source": "Standard opening theory (Ruy Lopez, Morphy Defence); move-score is public fact, annotations original (clean-room, spec 227).",
+          "startPly": 0,
+          "interleave": true,
+          "focus": [
+            {
+              "ply": 6,
+              "text": "After ...a6 White must decide the fate of the bishop. Retreating keeps the pin's pressure alive rather than trading it off.",
+              "ask": {
+                "prompt": "White to move. Keep the tension in this closed-ish setup — where does the bishop go?",
+                "accept": ["Ba4"],
+                "explain": "Bxc6 hands Black the bishop pair and half-opens the b-file for free; it relieves the very tension you want to keep. Ba4 retains the pin's latent pressure and keeps the plan alive."
+              }
+            },
+            {
+              "ply": 9,
+              "text": "White castles first — safety before the maneuvering begins. No break is timed yet; the pieces come out before the pawns commit."
+            }
+          ]
+        }
+      ],
+      "questions": [
+        {
+          "kind": "multiple_choice",
+          "fen": "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4",
+          "prompt": "You feel you can 'only find moves that stall'. What has actually happened?",
+          "options": [
+            "The position is objectively drawn and there is nothing to do.",
+            "You have stopped naming a concrete plan, not run out of them.",
+            "You must immediately force a pawn break to create chances."
+          ],
+          "correct": 1,
+          "explain": "'Nothing to do' is the feeling, not the position. The mistake is abandoning plan-selection: closed positions still offer maneuver, restriction, a second weakness, and a timed break. Forcing a break now (option 3) is the opposite error — rushing before the pieces are ready."
+        },
+        {
+          "kind": "choose_move",
+          "fen": "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4",
+          "prompt": "Black just played ...a6, attacking the bishop. Keep the tension — play the move.",
+          "accept": ["Ba4", "Bxc6"],
+          "explain": "Ba4 is the mainline: it keeps the pin's pressure and the slow-build plan. Bxc6 (the Exchange Variation) is also playable but concedes the bishop pair — accepted here, but understand you have traded tension for a structural bet, not stalled."
+        },
+        {
+          "kind": "free_text",
+          "fen": "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4",
+          "prompt": "In your own words: name a concrete plan for White in this quiet Ruy Lopez, and say what makes it a plan rather than 'shuffling'.",
+          "modelAnswer": "A plan names a target and a route: e.g. complete development (O-O, Re1, c3, d4), then maneuver the b1-knight via d2-f1-g3 toward the kingside/centre while restricting Black's ...d5 break. The common mistake is treating the quiet as emptiness and pushing a premature break (an early d4 or f4) before the pieces support it — that creates weaknesses instead of pressure.",
+          "rubric": [
+            "Names a concrete target or square, not just 'improve position'.",
+            "Includes a piece route or pawn break, not only defence.",
+            "Distinguishes purposeful maneuvering from aimless shuffling.",
+            "Avoids advocating a premature break before development finishes."
+          ]
+        }
+      ]
+    }
+  ]
+}
