@@ -32,6 +32,7 @@ import {
 } from "@chessgui/core/lesson-progress"
 import type { ModuleScore, SelfGrade } from "@chessgui/core/lesson-grade"
 import { LessonModulePlayer } from "@chessgui/ui/lesson-module-player"
+import { FairPlayAbout } from "@chessgui/ui/fair-play-about"
 import fixtureCourse from "@chessgui/core/lessons/fixture-course.json"
 import closedPositions from "@chessgui/core/lessons/closed-positions.json"
 
@@ -180,7 +181,10 @@ export function LessonsTab({ initialView = "courses" }: { initialView?: View }) 
   // ── Course list ───────────────────────────────────────────────────────────
   return (
     <div className="flex-1 min-h-0 flex flex-col p-4 md:p-6" data-testid="lessons-course-list">
-      <h2 className="text-xl font-semibold">Lessons</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold">Lessons</h2>
+        <FairPlayAbout />
+      </div>
       <p className="text-sm text-muted-foreground mb-4">
         Principle → illustrate → practice. Learn a concept, watch it on a master game, then drill it.
       </p>
