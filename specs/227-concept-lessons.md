@@ -176,12 +176,12 @@ concept-led closed-positions course is exactly what their catalogue lacks. We
 adopt their best mechanic (predict-the-move with bespoke mistake feedback,
 interleaved into real master games) and lead with the principle they bury.
 
-**Illustrative canon for closed/locked/maneuvering play** (for D4 content):
-Petrosian (prophylaxis, the blunting exchange sac), Karpov (restriction, tiny
-edges), Capablanca (simple plans, clean technique), with Nimzowitsch's ideas
-(blockade, overprotection, prophylaxis vocabulary) as the conceptual backbone.
-Structures/breaks: King's Indian / Benoni (closed centre, wing play), Carlsbad
-(minority attack).
+**Illustrative canon for closed/locked/maneuvering play**: see the dedicated
+**§ The closed-middlegame roster** below (the user's picks, 2026-07-24), which
+maps ten teachers to the principles they best illustrate. Nimzowitsch's ideas
+(blockade, overprotection, prophylaxis vocabulary) remain the conceptual
+backbone. Structures/breaks: King's Indian / Benoni (closed centre, wing play),
+Carlsbad (minority attack).
 
 ## First course — "Playing Closed & Locked Positions" (the content deliverable)
 
@@ -203,6 +203,39 @@ Working module list (one principle each; the loop builds them one at a time):
 
 Each module = principle + 1–2 illustrative classic games + 3–5 mixed questions
 (at least one `choose_move` and one `free_text` per module).
+
+## The closed-middlegame roster (the user's picks, 2026-07-24)
+
+The ten teachers for this course, in the user's own characterization, each mapped
+to the module(s) it best illustrates. **This is the sourcing list for D4**: when
+a module needs a model game, draw it from that principle's players below. A note
+on rights: **game move-scores are facts and freely usable** (any era, modern
+included) — it is *annotations* that must be original/clean-room, so any of these
+players' games may be carried as PGN with our OWN commentary and a `source` cite.
+Prefer historical games where a clean public annotation tradition exists; modern
+players (Carlsen, Kramnik, Gukesh) give relatable, contemporary examples.
+
+| Player | What they teach (user) | Best for module(s) |
+|---|---|---|
+| **Petrosian** — "Iron Tigran", ultimate prophylaxis; anticipates and neutralizes the opponent's plan before it forms; improves his own pieces behind locked chains | prophylaxis; the **blunting exchange sacrifice** (a signature to teach on its own) | **4** (prophylaxis), **3** (maneuvering) |
+| **Karpov** — the "boa constrictor"; passive, unassuming maneuvers that suffocate; restricts space until the opponent has no active move | restriction, denying counterplay, the slow squeeze | **8** (space & restriction), **7** (patience) |
+| **Carlsen** — unmatched accuracy in quiet complex middlegames; maneuvers through closed structures, pushes the complexity threshold, grinds deep into the endgame | maneuvering + carrying an edge into the endgame; when *not* to force it | **3**, **6**, **7**; the "grind into a won endgame" thread |
+| **Kramnik** — Karpov-influenced positional depth; technical precision in closed/semi-closed structures; neutralized Kasparov's attack with the solid Berlin | neutralizing the opponent's activity, solidity, the prophylactic exchange into a safe structure | **4** (prophylaxis/neutralize), **2** (structure) |
+| **Botvinnik** — the scientific Soviet-school patriarch; deep strategic planning for closed systems; structure over immediate tactics | **the plan comes from the structure**; long-range planning as a skill | **2** (plan from structure) |
+| **Smyslov** — harmonic piece placement; in positions with no attack, maneuvers his forces onto their absolute optimal squares | improving the worst piece; optimal squares/outposts | **3** (improve your worst piece) |
+| **Capablanca** — legendary intuitive feel for closed middlegames; finds the right pawn break and optimal piece configuration without heavy calculation | reading the position for the correct **break** and configuration; clarity | **6** (timing the break), **2**, **3** |
+| **Gukesh** — modern elite; mature, precise positional play navigating complex closed maneuvering phases | contemporary examples across the closed-play modules (relatability, freshness) | **3**, **7** (modern illustrations) |
+| **Tal** — the counter-case: unparalleled at **calculating sacrifices to break open a locked center** and shatter a closed structure | the *other* side of Module 6 — when the answer to a closed position is to blow it open | **6** (when/how to open — the tactical break) |
+| **Fischer** — supreme clarity; keeps his pieces active even in closed structures; logically prepares breaks to transition into a winning endgame | active piece play in closed positions; preparing the break to reach a won endgame | **6**, **8**, active-piece thread |
+
+Two teaching notes fall straight out of this roster and belong in the content:
+- **Petrosian vs. Tal as a pair** is the module-6 lesson in miniature — the
+  prophylactic "keep it closed and improve" instinct against the "calculate a sac
+  and blow it open" instinct. Teaching them side by side IS the principle of
+  *when* to open.
+- **Karpov → Kramnik → Carlsen → Gukesh** is one lineage (restriction and
+  technical squeeze, updated each generation) — a natural progression to show the
+  same idea across eras, which the player-centric ChessBase courses never do.
 
 ## Non-goals
 
@@ -255,13 +288,22 @@ later one may assume the earlier ones. Every code deliverable ships with tests.
 - [ ] Verified in the headless browser (the /verify skill) before "done".
 
 ### D4 — First course content: "Playing Closed & Locked Positions"
+- [ ] Draw model games from **§ The closed-middlegame roster** — the module→player
+      mapping there is the sourcing plan (e.g. Module 4 prophylaxis → Petrosian;
+      Module 8 restriction → Karpov; Module 6 open-it-up → Capablanca vs. Tal).
 - [ ] Module 1 ("Stalling is not a plan") authored end-to-end as the template:
-      principle markdown, ≥1 illustrative public-domain game with focus notes,
-      ≥3 questions incl. one `choose_move` and one `free_text`, all sourced/cited.
+      principle markdown, ≥1 illustrative game with focus notes, ≥3 questions incl.
+      one `choose_move` and one `free_text`, every `explain`/`modelAnswer` naming
+      the mistake, every illustration `source`-cited.
 - [ ] Modules 2–8 authored to the same bar, one at a time, each committed on its
       own so the loop can checkpoint per module.
-- [ ] Every illustrative game is public-domain or clearly-licensed, with a
-      `source` field; a test asserts no course ships a game without a source.
+- [ ] Rights: the game MOVE-SCORE is a fact and may be carried for any game, any
+      era; ANNOTATIONS must be our own (clean-room, same stance as CBH). Every
+      illustration carries a `source` cite; a test asserts no illustration ships
+      without one.
+- [ ] Suggested module-6 centrepiece: a **Petrosian (keep-it-closed) vs. Tal
+      (blow-it-open)** pairing, so the lesson on *when* to open teaches both
+      instincts against each other.
 
 ### D5 — Fair-play guard (correctness, not cosmetic)
 - [ ] A test proves the lesson surface imports nothing from the live-game/notebook
