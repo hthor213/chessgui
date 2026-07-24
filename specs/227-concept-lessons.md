@@ -42,7 +42,19 @@ free-text** questions. That three-beat loop is the unit of the whole system.
   a known answer. This is the one place in the app where that is fine, because the
   study position is public knowledge, not the game the user is playing for real.
 - Corollary: the lesson library must be reachable **without** an active game, and
-  must never surface a lesson "about" the current position.
+  must never surface a lesson **derived from** the current position — i.e. never
+  feed the live game's tree/FEN/notebook into lesson selection or generation.
+- **The boundary is *derivation*, not *resemblance* (user, 2026-07-24).** The guard
+  forbids the lesson surface from *reading or branching out of* the live game. It
+  does NOT — and must not — try to detect that a bundled lesson position *looks
+  like* the live one. Coincidental overlap is fine (it is like opening a book and
+  finding a similar position); and once trainings expand to **openings**, overlap
+  is *deliberate* — memorized theory is normal study, not cheating. For a real
+  middlegame (say ~4 captures deep, move 23) the odds of a static lesson randomly
+  reproducing the live position are lottery-tier, so a similarity guard would buy
+  nothing and would break exactly when opening prep is added. D5 is therefore a
+  structural **import** guard (no position-matching, by design), which is the axis
+  that scales.
 
 ## What — the three-beat module
 
