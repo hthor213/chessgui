@@ -56,6 +56,33 @@ free-text** questions. That three-beat loop is the unit of the whole system.
   structural **import** guard (no position-matching, by design), which is the axis
   that scales.
 
+### Resolved fair-play stance (user, 2026-07-24)
+
+**Governing principle:** guardrails where a neutral third party or the opponent
+would object, sized to prevent *accidental* breaches — NOT a doomed attempt to
+stop a determined cheater. Correspondence chess gives anyone time to consult an
+engine (a 1400 feeding best moves for 10 plies is undetectable); pretending to
+prevent that would cost more than it earns and steal time from building a good
+app. Keep hard invariants, add guardrails so they can't be broken by accident,
+and make the honest path the default.
+
+- **Engine evaluation IS allowed in training** (lessons, puzzles, openings) —
+  reaffirmed. A study position is public knowledge, not the live game. The earlier
+  "no engine in openings" idea is dropped as over-fitting.
+- **The one real cheat vector is getting your OWN live position into an
+  engine-backed tool** — and the only way to do that is to **manually set up a
+  position.** Curated courses and *playing a line out* (you vs a bot/avatar from a
+  public study position) cannot inject your live game — safe by construction.
+- **The single guardrail (a hard constraint for when position-setup-into-training
+  exists):** on manual position setup in any engine-backed training surface,
+  do an **exact-match** against the user's active fair-play games; if it matches,
+  **block it**. This is exact position equality against a handful of the user's
+  own live games — NOT the fuzzy corpus-wide resemblance matcher rejected above.
+- **Deliverable: an in-app "About Fair Play" page** stating these principles and
+  how the app follows them, in plain language (for the user's dad and others).
+  Draft copy exists (2026-07-24, session notes); wire it once the wording is
+  approved. Not built yet.
+
 ## What — the three-beat module
 
 Every module is one **principle**, and runs the same three beats:
