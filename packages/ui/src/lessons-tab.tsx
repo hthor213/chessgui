@@ -31,14 +31,15 @@ import {
 import type { ModuleScore, SelfGrade } from "@chessgui/core/lesson-grade"
 import { LessonModulePlayer } from "@chessgui/ui/lesson-module-player"
 import fixtureCourse from "@chessgui/core/lessons/fixture-course.json"
+import closedPositions from "@chessgui/core/lessons/closed-positions.json"
 
 const PROGRESS_KEY = "chessgui-lesson-progress"
 
-// Bundled courses. The fixture is the only course until D4 authors "Playing
-// Closed & Locked Positions"; loading it here keeps the surface functional and
-// verifiable now. D4 adds real course JSON to this list — no code change to the
-// player, per the data-driven contract.
-const COURSES: Course[] = [loadCourse(fixtureCourse)]
+// Bundled courses. "Playing Closed & Locked Positions" (D4) is the primary
+// shipped course; the fixture stays loaded (harmless) for the surface's own
+// verification. New courses are added as JSON to this list — no code change to
+// the player, per the data-driven contract.
+const COURSES: Course[] = [loadCourse(closedPositions), loadCourse(fixtureCourse)]
 
 type View = "courses" | "modules" | "player"
 
