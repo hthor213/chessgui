@@ -1295,15 +1295,21 @@ export default function Home() {
         e.preventDefault()
         game.goToMove(game.currentMoveIndex + 1)
       } else if (e.key === "ArrowUp") {
-        // Previous sibling variation; from deeper inside a variation, walk
-        // out to the mainline move at the branch point (spec 001).
+        // ↑ = Re-walk: retrace the last line walked (spec 226), so the notebook
+        // loop — back/forward (←/→), current (↓), re-walk (↑), rating (1-7) —
+        // lives entirely on the keyboard with the mouse on the board (user
+        // 2026-07-24). Shift+↑ keeps the spec-001 variation cycling (previous
+        // sibling / walk out to the branch point).
         e.preventDefault()
-        game.cycleVariation(-1)
+        if (e.shiftKey) game.cycleVariation(-1)
+        else handleRewalk()
       } else if (e.key === "ArrowDown") {
-        // Next sibling variation; with none, walk into the first variation
-        // branching off the next move (spec 001).
+        // ↓ = Current: jump back to the live position (spec 226). Shift+↓ keeps
+        // the spec-001 variation cycling (next sibling / into the first
+        // variation branching off the next move).
         e.preventDefault()
-        game.cycleVariation(1)
+        if (e.shiftKey) game.cycleVariation(1)
+        else game.goToLive()
       } else if (e.key === "Home") {
         e.preventDefault()
         game.goToMove(-1)
@@ -1328,7 +1334,7 @@ export default function Home() {
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view, pvPreview, compare, reviewGame])
+  }, [game.currentMoveIndex, game.moves.length, game.goToMove, game.cycleVariation, game.goToLive, handleRewalk, game.flipBoard, isPlayMode, playerColor, handlePaste, pgnDialogOpen, editorOpen, liveViewing, view, pvPreview, compare, reviewGame])
 
   return (
     <ErrorBoundary>
