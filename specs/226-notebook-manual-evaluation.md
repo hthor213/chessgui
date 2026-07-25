@@ -697,6 +697,13 @@ data is not narrowed in the meantime.
       its ancestors auto-expand, and the ▸ arrow folds/unfolds; the candidate
       list no longer duplicates onto the Moves tab, and Candidates is the
       default tab (code-verified 2026-07-24; committed `eac3cd3`)
+- [x] The notebook loop is entirely on the keyboard so the mouse stays on the
+      board (user 2026-07-24): ←/→ = back/forward, **↓ = current** (`goToLive`),
+      **↑ = re-walk** (`handleRewalk`, the same two-press preview-then-commit as
+      the button), 1-7 = rating. The spec-001 sibling-variation cycling that lived
+      on ↑/↓ moved to **Shift+↑ / Shift+↓** rather than being dropped
+      (code-verified + smoke-tested 2026-07-24, tsc clean, committed `f874020`;
+      behavioral confirmation in a live game is user-blocked below)
 
 #### Section I — width and the head-to-head
 
@@ -735,6 +742,10 @@ data is not narrowed in the meantime.
       games (user 2026-07-22→24: "brilliant", the seal flow, the re-walk retrace)
 - [ ] The live-rooted Candidates tree (no-flip navigation, current-move
       highlight, auto-expand) reads right in a real game — built + committed
+- [ ] The ↓ = current / ↑ = re-walk keyboard bindings (and Shift+↑/↓ variation
+      cycling) feel right in a real live game — built + committed `f874020`,
+      tsc-clean and smoke-tested (no throw), but not yet confirmed in a live
+      notebook session with a walked line
       `eac3cd3` 2026-07-24, not yet eyeballed in the final layout
 - [ ] Fold-to-make-room controls for the Candidates tree (minimise the strip /
       move record) — requested 2026-07-23, NOT yet built

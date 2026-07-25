@@ -80,8 +80,9 @@ and make the honest path the default.
   own live games — NOT the fuzzy corpus-wide resemblance matcher rejected above.
 - **Deliverable: an in-app "About Fair Play" page** stating these principles and
   how the app follows them, in plain language (for the user's dad and others).
-  Draft copy exists (2026-07-24, session notes); wire it once the wording is
-  approved. Not built yet.
+  ✅ Built `b559634` — user's approved copy in `packages/ui/src/fair-play-about.tsx`,
+  a dialog reached from the Lessons header ("About Fair Play"), reachable with no
+  active game, static copy (still passes the D5 guard). Verified headless.
 
 ## What — the three-beat module
 
