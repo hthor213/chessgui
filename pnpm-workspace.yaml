@@ -3,3 +3,9 @@
 packages:
   - packages/*
   - apps/*
+# sharp is a transitive optional dep of next@16, used only by the Next.js
+# image-optimization server. Both shells are `output: 'export'` with
+# `images: { unoptimized: true }`, so it is never invoked — skip its
+# native build step.
+allowBuilds:
+  sharp: false

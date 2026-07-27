@@ -7,7 +7,16 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-source "$HOME/.cargo/env"
+
+# Rust may come from the standalone rustup installer (~/.cargo/env) or from
+# Homebrew's rustup (already on PATH, no env file). Tolerate both.
+if [[ -f "$HOME/.cargo/env" ]]; then
+  source "$HOME/.cargo/env"
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo not found on PATH — install Rust (rustup) before building." >&2
+  exit 1
+fi
 
 MODE="${1:-}"
 DEBUG_APP="apps/desktop/src-tauri/target/debug/bundle/macos/ChessGUI.app"

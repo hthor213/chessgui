@@ -28,9 +28,15 @@ second shell, the web client, could reuse them instead of forking the code).
 ## Development Commands
 All commands run from the repo root (pnpm workspace root scripts fan out to
 the relevant app via `-C`).
+Rust must be on PATH. The standalone rustup installer needs
+`source "$HOME/.cargo/env"` first; Homebrew's rustup (`brew install rustup`)
+puts cargo on PATH already and has **no** `~/.cargo/env` file — sourcing it
+unconditionally under `set -e` kills the script. Use
+`[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"` in scripts.
+
 ```bash
 # Dev mode — desktop shell, hot-reload frontend + Rust backend
-source "$HOME/.cargo/env" && pnpm tauri dev
+pnpm tauri dev   # prefix with `source "$HOME/.cargo/env" &&` if cargo isn't on PATH
 
 # Dev mode — web shell (browser only, no Tauri)
 pnpm dev:web
@@ -43,8 +49,8 @@ scripts/install-app.sh --debug
 scripts/install-app.sh
 
 # Bare builds (no install — bundle stays in apps/desktop/src-tauri/target/*/bundle)
-source "$HOME/.cargo/env" && pnpm tauri build --debug
-source "$HOME/.cargo/env" && pnpm tauri build
+pnpm tauri build --debug
+pnpm tauri build
 
 # Frontend only, desktop shell (no Tauri shell)
 pnpm dev
