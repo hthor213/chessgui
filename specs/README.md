@@ -45,10 +45,11 @@ Feature specs live here. They define **what** we're building and **when it's don
 | 225 | [Any-Player Profiles & "Beat X" Training](225-any-player-profiles.md) | Draft |
 | 226 | [The Notebook — Human Evaluation Tree](226-notebook-manual-evaluation.md) | Draft |
 | 227 | [Concept Lessons — principle → illustrate → practice](227-concept-lessons.md) | Draft |
+| 228 | [Narrow Lines — training the "this move matters" alarm](228-learn-from-last-game.md) | Draft |
 | 900 | [Backlog](900-backlog.md) | Ideas |
 
 (Index gap fixed 2026-07-15: 214–217 existed on disk but were unlisted. Next free
-number: 228. 220–223 are the multi-client platform wave.)
+number: 229. 220–223 are the multi-client platform wave.)
 
 ## Dependency Graph
 
