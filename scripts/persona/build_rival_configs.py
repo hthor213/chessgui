@@ -21,7 +21,8 @@ gitignored (guard against an accidental commit of private data).
 """
 import json, os, subprocess
 
-REPO = "/Users/hjalti/GitHub/chessgui"
+from pathlib import Path
+REPO = os.environ.get("CHESSGUI_REPO", str(Path(__file__).resolve().parents[2]))
 R = os.path.join(REPO, "data", "rivals")
 
 MAIA_BANDS = [1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900]

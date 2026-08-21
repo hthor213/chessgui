@@ -23,7 +23,8 @@ harness_results.json. Prints what it wrote.
 import json, os, hashlib, collections
 import chess.pgn, io
 
-REPO = "/Users/hjalti/GitHub/chessgui"
+from pathlib import Path
+REPO = os.environ.get("CHESSGUI_REPO", str(Path(__file__).resolve().parents[2]))
 P = os.path.join(REPO, "data", "personas")
 
 # persona-engine v1 PersonaParams defaults (serde field names, exact).

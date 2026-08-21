@@ -9,7 +9,8 @@ import sqlite3, os, io, random, collections
 import chess, chess.pgn
 
 DB = os.path.expanduser("~/Library/Application Support/com.hjalti.chessgui/games.db")
-OUT = "/Users/hjalti/GitHub/chessgui/data/personas"
+from pathlib import Path
+OUT = os.path.join(os.environ.get("CHESSGUI_REPO", str(Path(__file__).resolve().parents[2])), "data", "personas")
 SEED = 214
 EVAL_FRAC = 0.20
 NAME = "Sigurjonsson, Gudmundur"
