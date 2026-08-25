@@ -20,4 +20,7 @@ apps/web/tsconfig.tsbuildinfo
 packages/*/node_modules
 !data/personas/*.config.json
 !data/personas/*.book.json
+# performance-elo.ts (spec 202) imports the fitted error model as a
+# build-time static asset — the web build fails module-not-found without it.
+!data/personas/error_model.fit.json
 !server/web/nginx.conf
