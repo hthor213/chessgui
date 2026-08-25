@@ -1,0 +1,368 @@
+{
+  "label": "jon-l-arnason",
+  "status": "ok",
+  "backend": "lc0-bt3",
+  "n_positions": 250,
+  "n_records": 250,
+  "skipped": {
+    "terminal_policy": 0,
+    "eval_failed": 0,
+    "budget_cut": 0
+  },
+  "split": {
+    "tune": 125,
+    "test": 125,
+    "seed": 214214
+  },
+  "default_params": {
+    "alpha": 1.0,
+    "lambda": 0.75,
+    "temperature": 0.5,
+    "schedule": null
+  },
+  "tuned_params": {
+    "alpha": 1.2,
+    "lambda": 0.5,
+    "temperature": 0.8,
+    "schedule": {
+      "opening_mult": 1.0,
+      "middlegame_mult": 1.0,
+      "endgame_mult": 1.3,
+      "low_time_ms": 30000,
+      "low_time_mult": 1.5,
+      "panic_time_ms": 10000,
+      "panic_mult": 2.25
+    }
+  },
+  "style_prior": {
+    "grid_size": 30,
+    "base_match@1_tune": 0.632,
+    "windows_live_tune": {
+      "4": 15,
+      "8": 29
+    },
+    "windows_live_test": {
+      "4": 10,
+      "8": 23
+    },
+    "bar": "+2% absolute argmax move-match@1 on the test half vs the same tuned params without the prior",
+    "prior": {
+      "window_plies": 8,
+      "multiplier": 1.5,
+      "move_types": [
+        "pawn_push"
+      ]
+    },
+    "enabled": false,
+    "match@1_tune_with_prior": 0.64,
+    "match@1_test_without": 0.512,
+    "match@1_test_with": 0.52,
+    "delta_match@1_test": 0.008,
+    "verdict": "measured, below the bar \u2014 stays off"
+  },
+  "error_model": {
+    "band": "1900",
+    "grid": [
+      {
+        "rate_scale": 0.5,
+        "match@1_tune": 0.632
+      },
+      {
+        "rate_scale": 1.0,
+        "match@1_tune": 0.632
+      },
+      {
+        "rate_scale": 1.5,
+        "match@1_tune": 0.632
+      },
+      {
+        "rate_scale": 2.0,
+        "match@1_tune": 0.624
+      }
+    ],
+    "base_match@1_tune": 0.632,
+    "covered_tune": 125,
+    "covered_test": 125,
+    "bar": "+2% absolute argmax move-match@1 on the test half vs the same tuned params without the model",
+    "model": null,
+    "enabled": false,
+    "verdict": "no rate_scale beat the no-model baseline on the tune half",
+    "level": 1900
+  },
+  "tuning_trace": {
+    "stage_a": [
+      {
+        "sweep": 0,
+        "alpha": 0.7,
+        "lambda": 0.5,
+        "match@1": 0.624,
+        "match@3": 0.84
+      },
+      {
+        "sweep": 1,
+        "alpha": 1.2,
+        "lambda": 0.5,
+        "match@1": 0.632,
+        "match@3": 0.84
+      },
+      {
+        "sweep": 2,
+        "alpha": 1.2,
+        "lambda": 0.5,
+        "match@1": 0.632,
+        "match@3": 0.84
+      }
+    ],
+    "stage_b": [
+      {
+        "sweep": 0,
+        "temperature": 0.8,
+        "opening_mult": 1.0,
+        "endgame_mult": 1.3,
+        "nll": 1.5284
+      },
+      {
+        "sweep": 1,
+        "temperature": 0.8,
+        "opening_mult": 1.0,
+        "endgame_mult": 1.3,
+        "nll": 1.5284
+      }
+    ],
+    "sweeps_a": 3,
+    "sweeps_b": 2
+  },
+  "metrics": {
+    "tune_half": {
+      "default": {
+        "n": 125,
+        "match@1": 0.624,
+        "match@3": 0.84,
+        "expected_match@1": 0.5274,
+        "nll": 1.5652,
+        "per_phase": {
+          "opening": {
+            "n": 23,
+            "match@1": 0.6522,
+            "match@3": 0.8261
+          },
+          "middlegame": {
+            "n": 84,
+            "match@1": 0.619,
+            "match@3": 0.8452
+          },
+          "endgame": {
+            "n": 18,
+            "match@1": 0.6111,
+            "match@3": 0.8333
+          }
+        },
+        "real_acpl": {
+          "opening": 6.5,
+          "middlegame": 11.1,
+          "endgame": 24.1
+        },
+        "persona_acpl": {
+          "opening": 4.7,
+          "middlegame": 11.0,
+          "endgame": 6.3
+        },
+        "acpl_shape_similarity": 0.7087,
+        "real_mistakes_total": 2.0,
+        "persona_expected_mistakes_total": 0.62,
+        "error_timing_real": {
+          "40-49": 1.0,
+          "50-60": 1.0
+        },
+        "error_timing_persona": {
+          "10-19": 0.06,
+          "20-29": 0.0,
+          "30-39": 0.21,
+          "40-49": 0.21,
+          "50-60": 0.14
+        },
+        "error_timing_similarity": 0.566,
+        "error_phase_similarity": 0.5474
+      },
+      "tuned": {
+        "n": 125,
+        "match@1": 0.632,
+        "match@3": 0.84,
+        "expected_match@1": 0.4844,
+        "nll": 1.5284,
+        "per_phase": {
+          "opening": {
+            "n": 23,
+            "match@1": 0.6957,
+            "match@3": 0.8261
+          },
+          "middlegame": {
+            "n": 84,
+            "match@1": 0.6071,
+            "match@3": 0.8452
+          },
+          "endgame": {
+            "n": 18,
+            "match@1": 0.6667,
+            "match@3": 0.8333
+          }
+        },
+        "real_acpl": {
+          "opening": 6.5,
+          "middlegame": 11.1,
+          "endgame": 24.1
+        },
+        "persona_acpl": {
+          "opening": 6.3,
+          "middlegame": 15.7,
+          "endgame": 10.5
+        },
+        "acpl_shape_similarity": 0.7445,
+        "real_mistakes_total": 2.0,
+        "persona_expected_mistakes_total": 2.11,
+        "error_timing_real": {
+          "40-49": 1.0,
+          "50-60": 1.0
+        },
+        "error_timing_persona": {
+          "10-19": 0.19,
+          "20-29": 0.01,
+          "30-39": 0.78,
+          "40-49": 0.73,
+          "50-60": 0.4
+        },
+        "error_timing_similarity": 0.5363,
+        "error_phase_similarity": 0.6455
+      }
+    },
+    "test_half": {
+      "default": {
+        "n": 125,
+        "match@1": 0.544,
+        "match@3": 0.816,
+        "expected_match@1": 0.4447,
+        "nll": 1.975,
+        "per_phase": {
+          "opening": {
+            "n": 26,
+            "match@1": 0.4231,
+            "match@3": 0.7692
+          },
+          "middlegame": {
+            "n": 78,
+            "match@1": 0.5769,
+            "match@3": 0.8205
+          },
+          "endgame": {
+            "n": 21,
+            "match@1": 0.5714,
+            "match@3": 0.8571
+          }
+        },
+        "real_acpl": {
+          "opening": 6.0,
+          "middlegame": 21.0,
+          "endgame": 16.4
+        },
+        "persona_acpl": {
+          "opening": 4.2,
+          "middlegame": 12.7,
+          "endgame": 6.9
+        },
+        "acpl_shape_similarity": 0.9121,
+        "real_mistakes_total": 5.0,
+        "persona_expected_mistakes_total": 1.25,
+        "error_timing_real": {
+          "10-19": 1.0,
+          "20-29": 1.0,
+          "50-60": 3.0
+        },
+        "error_timing_persona": {
+          "10-19": 0.03,
+          "20-29": 0.03,
+          "30-39": 0.17,
+          "40-49": 0.4,
+          "50-60": 0.62
+        },
+        "error_timing_similarity": 0.5432,
+        "error_phase_similarity": 0.9617
+      },
+      "tuned": {
+        "n": 125,
+        "match@1": 0.512,
+        "match@3": 0.808,
+        "expected_match@1": 0.4071,
+        "nll": 1.9403,
+        "per_phase": {
+          "opening": {
+            "n": 26,
+            "match@1": 0.3846,
+            "match@3": 0.7308
+          },
+          "middlegame": {
+            "n": 78,
+            "match@1": 0.5256,
+            "match@3": 0.8205
+          },
+          "endgame": {
+            "n": 21,
+            "match@1": 0.619,
+            "match@3": 0.8571
+          }
+        },
+        "real_acpl": {
+          "opening": 6.0,
+          "middlegame": 21.0,
+          "endgame": 16.4
+        },
+        "persona_acpl": {
+          "opening": 5.5,
+          "middlegame": 20.6,
+          "endgame": 9.9
+        },
+        "acpl_shape_similarity": 0.8974,
+        "real_mistakes_total": 5.0,
+        "persona_expected_mistakes_total": 3.64,
+        "error_timing_real": {
+          "10-19": 1.0,
+          "20-29": 1.0,
+          "50-60": 3.0
+        },
+        "error_timing_persona": {
+          "10-19": 0.12,
+          "20-29": 0.14,
+          "30-39": 0.63,
+          "40-49": 1.02,
+          "50-60": 1.73
+        },
+        "error_timing_similarity": 0.5449,
+        "error_phase_similarity": 0.9484
+      }
+    }
+  },
+  "opening_kl": {
+    "default": {
+      "kl_nats": 0.7503,
+      "positions": 305,
+      "covered": 305,
+      "visit_coverage": 1.0,
+      "book_share_of_covered": 0.8479
+    },
+    "tuned": {
+      "kl_nats": 0.7371,
+      "positions": 305,
+      "covered": 305,
+      "visit_coverage": 1.0,
+      "book_share_of_covered": 0.8479
+    },
+    "k_plies": 12,
+    "leak_note": null
+  },
+  "acceptance": {
+    "bar": "+2% absolute argmax move-match@1 on the test half",
+    "delta_match@1_test": -0.032,
+    "met": false
+  },
+  "runtime_s": 107.0,
+  "budget_min": 180.0
+}

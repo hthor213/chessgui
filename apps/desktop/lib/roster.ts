@@ -42,7 +42,7 @@
 import { getProviders } from "@/lib/platform"
 import { BT3_NET_FILE, BT3_WEIGHTS_NAME, MAIA_MAX_NATIVE_BAND } from "@/lib/maia"
 import type { RivalBook } from "@/lib/rival-book"
-import type { ErrorModel } from "@chessgui/core/persona-types"
+import type { ErrorModel, StyleBias, TemperatureSchedule } from "@chessgui/core/persona-types"
 import type { StorageProvider } from "@chessgui/core/platform-types"
 
 // The committed GM persona configs (spec 214 Tier 2 extraction pipeline).
@@ -111,6 +111,13 @@ export interface PersonaConfig {
   /** Corpus error model (spec 214 step 5), from a config whose tuner run
    *  passed the held-out +2% bar; absent = OFF (the default everywhere). */
   errorModel?: ErrorModel
+  /** Post-book style-bias window (spec 214 step 3), same gate as the error
+   *  model: present only when a tuner run measured it over the bar (wave R2
+   *  promoted config). Absent = OFF. */
+  styleBias?: StyleBias
+  /** Tuned temperature schedule from a promoted config; absent = the spar
+   *  loop's default schedule. */
+  schedule?: TemperatureSchedule
   /** Persona snapshot id (spec 214 "Persona snapshots") of the loaded bundle,
    *  computed Rust-side where the persona's files load (`rival_personas`):
    *  config JSON + book file hash + weights reference + sampling params,
@@ -325,6 +332,9 @@ function samplingOverrides(cfg: PersonaConfigFile): Partial<PersonaConfig> {
     ...(s.verify_depth !== undefined ? { verifyDepth: s.verify_depth } : {}),
     // null in the file means measured-and-rejected — same as absent: OFF.
     ...(s.error_model ? { errorModel: s.error_model } : {}),
+    // Same null-means-rejected convention for the tuner-gated style prior.
+    ...(s.style_bias ? { styleBias: s.style_bias } : {}),
+    ...(s.schedule ? { schedule: s.schedule } : {}),
   }
 }
 

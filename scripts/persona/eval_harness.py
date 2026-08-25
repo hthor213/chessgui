@@ -48,9 +48,15 @@ import chess.pgn
 
 REPO = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO / "data" / "personas"
+# Net/engine locations are machine-specific: the defaults are the Mac Studio
+# session's, overridable by env so the same tooling runs on the homeserver
+# (CHESSGUI_NET_SCRATCH=~/chess there: maia/ nets exist, strongnet/ staged).
 SCRATCH = Path(
-    "/private/tmp/claude-501/-Users-hjalti-GitHub-chessgui/"
-    "dd40f6ca-eb35-4fc7-a3cd-6aacb33ad79b/scratchpad"
+    os.environ.get(
+        "CHESSGUI_NET_SCRATCH",
+        "/private/tmp/claude-501/-Users-hjalti-GitHub-chessgui/"
+        "dd40f6ca-eb35-4fc7-a3cd-6aacb33ad79b/scratchpad",
+    )
 )
 MAIA_DIR = SCRATCH / "maia"
 STRONGNET = SCRATCH / "strongnet" / "BT3-768x15x24h-swa-2790000.pb.gz"
@@ -59,8 +65,8 @@ STRONGNET_URL = (
     "BT3-768x15x24h-swa-2790000.pb.gz"
 )
 STRONGNET_SHA = "e3067757d1fc2dfc66947b21d15ace0cedf4c54254fc1de83d77c378a3e8b8e1"
-LC0 = "/opt/homebrew/bin/lc0"
-STOCKFISH = "/opt/homebrew/bin/stockfish"
+LC0 = os.environ.get("CHESSGUI_LC0", "/opt/homebrew/bin/lc0")
+STOCKFISH = os.environ.get("CHESSGUI_STOCKFISH", "/opt/homebrew/bin/stockfish")
 
 CACHE_DIR = DATA_DIR / "_cache"
 SEED = 214214  # recorded for reproducibility

@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "slug": "johann-hjartarson",
-  "display_name": "Jóhann Hjartarson",
+  "display_name": "J\u00f3hann Hjartarson",
   "bio": "Candidates quarterfinalist (beat Korchnoi, 1988)",
   "kind": "public-figure",
   "db_names": [
@@ -25,11 +25,28 @@
   "runnable_note": "persona-engine v1 drives Maia bands only (level 1100-1900); this BT3-backed GM persona awaits the engine's strong-net policy arm (later tier).",
   "sampling": {
     "level": 1900,
-    "temperature": 0.5,
-    "alpha": 1.0,
-    "lambda": 0.75,
+    "temperature": 0.8,
+    "alpha": 0.85,
+    "lambda": 0.25,
     "top_k": 4,
-    "verify_depth": 12
+    "verify_depth": 12,
+    "schedule": {
+      "opening_mult": 1.0,
+      "middlegame_mult": 1.0,
+      "endgame_mult": 0.8,
+      "low_time_ms": 30000,
+      "low_time_mult": 1.5,
+      "panic_time_ms": 10000,
+      "panic_mult": 2.25
+    },
+    "style_bias": {
+      "window_plies": 8,
+      "multiplier": 2.0,
+      "move_types": [
+        "quiet_piece"
+      ]
+    },
+    "error_model": null
   },
   "harness": {
     "backend": "lc0-bt3",
@@ -37,14 +54,60 @@
     "match@3": 0.816,
     "n": 250,
     "date": "2026-07-15",
-    "note": "held-out move-match; BT3 strong-net policy (GM-class backend per spec 214). Maia bands are a floor for 2400+ players — see HARNESS_RESULTS.md."
+    "note": "held-out move-match; BT3 strong-net policy (GM-class backend per spec 214). Maia bands are a floor for 2400+ players \u2014 see HARNESS_RESULTS.md."
   },
   "data": {
     "games": 1097,
     "train": 878,
     "eval": 219,
-    "date_range": "1979.07.??–2026.06.19",
+    "date_range": "1979.07.??\u20132026.06.19",
     "as_white": 522,
     "as_black": 575
+  },
+  "tuning": {
+    "date": "2026-08-25",
+    "script": "scripts/persona/tune_persona.py",
+    "seed": 214214,
+    "objective": "stage A: argmax move-match@1 (alpha/lambda); stage B: held-out NLL (temperature + phase mults)",
+    "split": {
+      "tune": 125,
+      "test": 125,
+      "seed": 214214
+    },
+    "before_test": {
+      "match@1": 0.528,
+      "match@3": 0.792,
+      "expected_match@1": 0.4994,
+      "nll": 1.9251
+    },
+    "after_test": {
+      "match@1": 0.52,
+      "match@3": 0.784,
+      "expected_match@1": 0.4306,
+      "nll": 1.9596
+    },
+    "predecessor": "johann-hjartarson.config.json",
+    "style_prior": {
+      "prior": {
+        "window_plies": 8,
+        "multiplier": 2.0,
+        "move_types": [
+          "quiet_piece"
+        ]
+      },
+      "enabled": true,
+      "delta_match@1_test": 0.024,
+      "bar": "+2% absolute argmax move-match@1 on the test half vs the same tuned params without the prior",
+      "verdict": "ENABLED"
+    },
+    "error_model": {
+      "band": "1900",
+      "rate_scale": null,
+      "enabled": false,
+      "delta_match@1_test": null,
+      "bar": "+2% absolute argmax move-match@1 on the test half vs the same tuned params without the model",
+      "verdict": "no rate_scale beat the no-model baseline on the tune half"
+    },
+    "status": "promoted 2026-08-25 (live slot; predecessor content in git history)"
   }
 }

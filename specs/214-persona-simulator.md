@@ -387,13 +387,29 @@ same contract stays a spec:217 concern, cross-ref'd from here.
       draw + think-time) draws from one mulberry32 stream seeded off
       (gameSeed, ply) — rivalTurnRng in lib/seeded-rng.ts; Math.random is
       gone from the reply path.
-- [ ] R2.1 Error-model enablement: tune_persona.py stage D per band + persona
-      on the corpus; +2% held-out bar or realism-feedback verdict; qualifying
-      configs COMMITTED.
-- [ ] R2.2 Tuner rerun (absorbs the 2026-07-16 "Rerun tune_persona.py" item):
-      per-band/per-persona α/λ/T + schedule multipliers + style-bias gates;
-      wave-6 outputs died untracked — committing tuning_*.json + config +
-      HARNESS_RESULTS.md updates is part of the definition of done.
+- [x] R2.1 Error-model enablement measured (2026-08-25, homeserver run):
+      tune_persona.py stage D ran for all 12 committed GM personas against
+      error_model.fit.json — NO persona's rate_scale beat the no-model
+      baseline on the tune half, so the error model stays OFF everywhere,
+      now as a measured verdict (recorded per persona in HARNESS_RESULTS.md)
+      instead of an unrun gate. Re-measure after the think-time corpus fit
+      and against clock-conditioned spar data (the fit's clock axis finally
+      gets live data now that R1.2 shipped).
+- [x] R2.2 Tuner rerun (2026-08-25, homeserver; absorbs the 2026-07-16
+      "Rerun tune_persona.py" item): stages A–D over the 12 committed GM
+      personas, 250 held-out positions each, seed 214214 — tuning_*.json ×12
+      + HARNESS_RESULTS.md COMMITTED this time. Honest outcome: 11 of 12
+      failed the +2% bar (untuned defaults stay, with evidence); ONE gate
+      passed — johann-hjartarson's style prior (quiet_piece ×2.0, 8 plies
+      post-book, +2.4% held-out) — config.v2 promoted into the live slot,
+      and the config→spar plumbing for style_bias/schedule (roster +
+      samplingParamsFor) shipped with it. Tooling made seat-portable:
+      eval_harness.py paths overridable via CHESSGUI_NET_SCRATCH /
+      CHESSGUI_LC0 / CHESSGUI_STOCKFISH (BT3 net staged at
+      ~/chess/strongnet, sha-verified). STILL OPEN: the private rival ("dad")
+      — his data/rivals dossier exists only on the Mac seat; run
+      `--personas dad` there. R3.1 tilt constants were NOT measured by this
+      run (stage grid doesn't cover them) — still open under R3.1.
 - [x] R3.1 Tilt/momentum state modulating T and λ (2026-08-25):
       lib/spar-tilt.ts, per-game hidden state (recent blunder / worsening
       trend / time trouble), multipliers logged per move. GATING DRIFT,
