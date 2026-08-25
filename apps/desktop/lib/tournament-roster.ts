@@ -37,9 +37,9 @@
 import { getProviders } from "@/lib/platform"
 import { buildRoster, MAIA_ROSTER_BANDS, PRIVATE_RIVAL_ID } from "@/lib/roster"
 import type { RivalBook } from "@/lib/rival-book"
-import { DEFAULT_PERSONA_PARAMS } from "@/lib/persona"
+import { DEFAULT_PERSONA_PARAMS, bandSamplingParams } from "@/lib/persona"
 import { GM_PERSONAS, type GmPersonaManifestEntry } from "@/lib/persona-manifest"
-import type { Participant } from "@chessgui/core/tournament"
+import type { Participant, PersonaConfig } from "@chessgui/core/tournament"
 
 /** One dropdown option: a ready-to-send wire `Participant` plus its exact
  *  decision-5 label ("engine: …" / "bot: …"). */
@@ -90,24 +90,34 @@ function maiaBandEntry(level: number): TournamentRosterEntry {
         temperature: DEFAULT_PERSONA_PARAMS.temperature,
         alpha: DEFAULT_PERSONA_PARAMS.alpha,
         lambda: DEFAULT_PERSONA_PARAMS.lambda,
-        topK: DEFAULT_PERSONA_PARAMS.top_k,
         verifyDepth: DEFAULT_PERSONA_PARAMS.verify_depth,
+        ...bandRunnerSampling(level),
       },
     },
     label: `bot: maia ${level}`,
   }
 }
 
+/** The band-dependent knobs (realism audit R1.3 + R3.3) at the runner's
+ *  camelCase wire shape — same mapping the spar loop applies (lib/persona.ts
+ *  bandSamplingParams), so "Bot 1300" botches endings and widens its
+ *  candidate set identically in tournaments and in Play vs Bot. */
+function bandRunnerSampling(
+  level: number,
+): Pick<PersonaConfig, "topK" | "policyFloor" | "endgame"> {
+  const band = bandSamplingParams(level)
+  return { topK: band.top_k, policyFloor: band.policy_floor, endgame: band.endgame }
+}
+
 /** The private rival ("bot: dad" — generic id/label per spec 214/218's hard
  *  rule that committed text never names him). `level` is his dial-able
  *  strength from lib/roster.ts's own participant, so the two rosters stay in
- *  sync on his default band without duplicating the number. Honest
- *  limitation, recorded rather than hidden: the tournament runner's persona
- *  arm (match_runner.rs `PersonaConfig`) has no `book` field, so this entry
- *  plays Maia-band policy at his level — NOT his real move-by-move opening
- *  book (that stays spar-tab-only, via the separate `rival_book` command).
- */
-function rivalEntry(level: number): TournamentRosterEntry {
+ *  sync on his default band without duplicating the number. `bookPath` (R3.4)
+ *  is the path the `rival_book` command loaded his book from, forwarded so
+ *  runner games open from his real move-by-move book exactly like spar does —
+ *  absent (older stored books predating the field) = bookless, the honest
+ *  pre-R3.4 behavior. */
+function rivalEntry(level: number, bookPath?: string): TournamentRosterEntry {
   return {
     participant: {
       id: PRIVATE_RIVAL_ID,
@@ -118,8 +128,9 @@ function rivalEntry(level: number): TournamentRosterEntry {
         temperature: DEFAULT_PERSONA_PARAMS.temperature,
         alpha: DEFAULT_PERSONA_PARAMS.alpha,
         lambda: DEFAULT_PERSONA_PARAMS.lambda,
-        topK: DEFAULT_PERSONA_PARAMS.top_k,
         verifyDepth: DEFAULT_PERSONA_PARAMS.verify_depth,
+        ...bandRunnerSampling(level),
+        ...(bookPath ? { bookPath } : {}),
       },
     },
     label: "bot: dad",
@@ -128,7 +139,11 @@ function rivalEntry(level: number): TournamentRosterEntry {
 
 /** A BT3-backed GM persona (spec 218 item 1's honesty-gate entries): real
  *  sampling params, `weights: "bt3"`, and the measured harness label —
- *  "bot: kasparov (BT3, 64% move-match)", never level-only. */
+ *  "bot: kasparov (BT3, 64% move-match)", never level-only. No `bookPath`
+ *  here on purpose (R3.4): the frontend doesn't know filesystem paths for
+ *  the committed books, so the runner resolves data/personas/<slug>.book.json
+ *  by this participant id itself (match_runner.rs `resolve_one` →
+ *  persona.rs `persona_book_path`). */
 function gmPersonaEntry(p: GmPersonaManifestEntry): TournamentRosterEntry {
   const pct = Math.round(p.matchAt1 * 100)
   return {
@@ -168,7 +183,7 @@ export function buildTournamentRoster(
 
   const uiRoster = buildRoster(book)
   const rival = uiRoster.find((p) => p.id === PRIVATE_RIVAL_ID)
-  if (rival) roster.push(rivalEntry(rival.personaConfig?.level ?? DEFAULT_RIVAL_LEVEL))
+  if (rival) roster.push(rivalEntry(rival.personaConfig?.level ?? DEFAULT_RIVAL_LEVEL, book?.path))
 
   for (const g of GM_PERSONAS) roster.push(gmPersonaEntry(g))
   for (const level of MAIA_ROSTER_BANDS) roster.push(maiaBandEntry(level))

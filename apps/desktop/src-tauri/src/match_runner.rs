@@ -558,6 +558,8 @@ pub struct PersonaRuntime {
     pub temperature: f64,
     pub top_k: Option<usize>,
     pub top_p: Option<f64>,
+    /// Candidate-width policy floor (R3.3); None = the core's default.
+    pub policy_floor: Option<f64>,
     pub verify_depth: Option<u32>,
     /// Per-game RNG seed (contract step 8): same seed + same snapshot = same game.
     pub seed: u64,
@@ -579,6 +581,213 @@ pub struct PersonaRuntime {
     /// Stamped on every per-move decision and recorded on the game outcome so
     /// a result can always be joined to the exact persona version.
     pub snapshot_id: String,
+    /// Opening book (R3.4), loaded at resolve time; None = bookless, the
+    /// historical behavior. Arc: the runtime is cloned per game, the parsed
+    /// book is shared.
+    pub book: Option<Arc<PersonaBook>>,
+}
+
+// ---------------------------------------------------------------------------
+// Persona opening book (realism audit R3.4)
+// ---------------------------------------------------------------------------
+//
+// The runner's persona arm consumes the same book files
+// scripts/persona/build_rival_book.py writes and the spar frontend reads
+// (apps/desktop/lib/rival-book-lookup.ts). Each entry records a SAN `line`
+// ENDING with the persona's own reply, weighted by how many of the real games
+// reached that node; the lookup key is the position immediately BEFORE that
+// reply — piece placement + side to move + castling + en passant only
+// (rival-book-lookup.ts normalizeFenKey), so a transposition lands on the
+// same node. Both sides' entries share one map: the key's side-to-move field
+// disambiguates, because a "before" position is by construction the persona's
+// turn for entries of the persona's color.
+
+/// One raw book entry as build_rival_book.py writes it. Only the fields the
+/// lookup needs; unknown fields are ignored so book-format additions never
+/// break the runner.
+#[derive(Deserialize)]
+struct PersonaBookEntry {
+    line: String,
+    #[serde(default)]
+    weight: f64,
+}
+
+/// The whole book file. `entries` is all the lookup consumes.
+#[derive(Deserialize)]
+struct PersonaBookFile {
+    #[serde(default)]
+    entries: Vec<PersonaBookEntry>,
+}
+
+/// A persona opening book, indexed for the per-move lookup: normalized
+/// "before" position -> the persona's recorded replies (SAN) with weights
+/// summed across every line through that node. Reply order is first-seen in
+/// file order, so the weighted draw is deterministic for a given book build
+/// (contract step 8).
+#[derive(Clone, Debug, Default)]
+pub struct PersonaBook {
+    map: HashMap<String, Vec<(String, f64)>>,
+}
+
+/// Position identity for the book lookup: the FEN's first four fields (piece
+/// placement, side to move, castling, en passant) — the halfmove clock and
+/// fullmove number are dropped so move-order transpositions land on the same
+/// node (rival-book-lookup.ts normalizeFenKey).
+fn normalize_fen_key(fen: &str) -> String {
+    fen.split_whitespace().take(4).collect::<Vec<_>>().join(" ")
+}
+
+/// Strip build_rival_book.py's move-number prefixes ("1.e4" -> "e4"; Black
+/// tokens are bare already).
+fn strip_move_number(token: &str) -> &str {
+    token.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+}
+
+/// Replay SAN tokens from the standard start; None on the first token that
+/// doesn't parse or apply (a corrupt entry is skipped, never crashed on).
+fn replay_san_line(tokens: &[&str]) -> Option<Chess> {
+    let mut pos = Chess::default();
+    for token in tokens {
+        let san = shakmaty::san::SanPlus::from_ascii(token.as_bytes()).ok()?;
+        let mv = san.san.to_move(&pos).ok()?;
+        pos.play_unchecked(mv);
+    }
+    Some(pos)
+}
+
+impl PersonaBook {
+    /// Parse a book JSON into the lookup index. None when the text isn't a
+    /// book file at all — including valid JSON of the wrong shape, which
+    /// serde would otherwise default to zero entries: a book with no nodes
+    /// never plays, and treating it as loaded would perturb the snapshot id
+    /// without changing behavior. Individually corrupt entries are skipped
+    /// (defensive, same policy as the frontend lookup).
+    pub fn from_json(text: &str) -> Option<Self> {
+        let file: PersonaBookFile = serde_json::from_str(text).ok()?;
+        let mut map: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+        for entry in &file.entries {
+            let tokens: Vec<&str> = entry
+                .line
+                .split_whitespace()
+                .map(strip_move_number)
+                .filter(|t| !t.is_empty())
+                .collect();
+            let Some((reply, before)) = tokens.split_last() else {
+                continue;
+            };
+            let Some(pos) = replay_san_line(before) else {
+                continue;
+            };
+            let key = normalize_fen_key(&Fen::from_position(&pos, EnPassantMode::Legal).to_string());
+            let node = map.entry(key).or_default();
+            let weight = entry.weight.max(0.0);
+            match node.iter_mut().find(|(san, _)| san == reply) {
+                Some((_, w)) => *w += weight,
+                None => node.push(((*reply).to_string(), weight)),
+            }
+        }
+        if map.is_empty() {
+            return None;
+        }
+        Some(Self { map })
+    }
+
+    /// The recorded replies at `fen`, or None when the position is out of
+    /// book. Replies come back as (uci, san, weight) with unparseable SANs
+    /// dropped (a stale entry falls out of book rather than crashing a game);
+    /// an all-stale node counts as out of book.
+    fn replies_at(&self, fen: &str) -> Option<Vec<(String, String, f64)>> {
+        let node = self.map.get(&normalize_fen_key(fen))?;
+        let pos: Chess = Fen::from_ascii(fen.as_bytes())
+            .ok()?
+            .into_position(CastlingMode::Standard)
+            .ok()?;
+        let out: Vec<(String, String, f64)> = node
+            .iter()
+            .filter_map(|(san, w)| {
+                let parsed = shakmaty::san::SanPlus::from_ascii(san.as_bytes()).ok()?;
+                let mv = parsed.san.to_move(&pos).ok()?;
+                Some((mv.to_uci(CastlingMode::Standard).to_string(), san.clone(), *w))
+            })
+            .collect();
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    }
+}
+
+/// The runner persona's in-book move (R3.4): a frequency-weighted sample of
+/// the recorded replies at `fen`, drawn from the game's SEEDED per-move
+/// stream (`derived_seed`, contract step 8 — never an unseeded RNG), logged
+/// in the same [`PersonaDecision`] shape as out-of-book moves with reason arm
+/// "book". None = out of book; the caller falls through to the policy path
+/// unchanged. The caller stamps `snapshot_id`, as with every decision.
+fn book_decision(
+    book: &PersonaBook,
+    fen: &str,
+    ply: u32,
+    band: u32,
+    derived_seed: u64,
+) -> Option<PersonaDecision> {
+    let replies = book.replies_at(fen)?;
+    let total: f64 = replies.iter().map(|(_, _, w)| w).sum();
+    if total <= 0.0 {
+        return None;
+    }
+    // Inverse-CDF over the recorded frequencies — the same draw convention as
+    // the selection core's sample_weighted and the spar book's weightedChoice.
+    let u = persona::uniform_from_seed(derived_seed);
+    let mut idx = replies.len() - 1;
+    let mut acc = 0.0;
+    for (i, (_, _, w)) in replies.iter().enumerate() {
+        acc += w / total;
+        if u < acc {
+            idx = i;
+            break;
+        }
+    }
+    // Phase for the decision log, via the selection core's own detector.
+    let phase = {
+        let pos: Chess = Fen::from_ascii(fen.as_bytes())
+            .ok()?
+            .into_position(CastlingMode::Standard)
+            .ok()?;
+        persona::phase_for(persona::phase_weight_of(&pos), ply).label().to_string()
+    };
+    let candidates: Vec<persona::PersonaCandidate> = replies
+        .iter()
+        .map(|(uci, san, w)| persona::PersonaCandidate {
+            uci: uci.clone(),
+            san: san.clone(),
+            // The normalized recorded frequency IS the prior and the sampling
+            // weight here — the book arm has no policy read and no evals.
+            policy_prob: w / total,
+            eval_cp: None,
+            eval_penalty: 0.0,
+            weight: w / total,
+        })
+        .collect();
+    let (uci, san, _) = &replies[idx];
+    Some(PersonaDecision {
+        uci: uci.clone(),
+        san: san.clone(),
+        reason: "book".to_string(),
+        band,
+        // Honest arm: no policy net served this move — the book did.
+        policy_backend: "book".to_string(),
+        derived_seed,
+        phase,
+        // A frequency-at-face-value draw is a temperature-1 sample over the
+        // recorded distribution; no schedule applies in book.
+        temperature: 1.0,
+        style_bias_applied: false,
+        error_model_applied: false,
+        mistake_rate: None,
+        snapshot_id: String::new(),
+        candidates,
+    })
 }
 
 /// A persona player: a warm lc0 process bound to the persona's net, driven once
@@ -587,11 +796,13 @@ struct PersonaPlayer {
     proc: MaiaProcess,
     policy_backend: String,
     stockfish: Option<PathBuf>,
+    band: u32,
     alpha: f64,
     lambda: f64,
     temperature: f64,
     top_k: Option<usize>,
     top_p: Option<f64>,
+    policy_floor: Option<f64>,
     verify_depth: Option<u32>,
     seed: u64,
     schedule: Option<persona::TemperatureSchedule>,
@@ -600,6 +811,8 @@ struct PersonaPlayer {
     error_model: Option<persona::ErrorModel>,
     /// Spec 214 snapshot id, stamped onto every decision this player makes.
     snapshot_id: String,
+    /// Opening book (R3.4); None = bookless, the historical behavior.
+    book: Option<Arc<PersonaBook>>,
 }
 
 impl PersonaPlayer {
@@ -609,11 +822,13 @@ impl PersonaPlayer {
             proc,
             policy_backend: rt.policy_backend.clone(),
             stockfish: rt.stockfish_path.clone(),
+            band: rt.band,
             alpha: rt.alpha,
             lambda: rt.lambda,
             temperature: rt.temperature,
             top_k: rt.top_k,
             top_p: rt.top_p,
+            policy_floor: rt.policy_floor,
             verify_depth: rt.verify_depth,
             seed: rt.seed,
             schedule: rt.schedule.clone(),
@@ -621,6 +836,7 @@ impl PersonaPlayer {
             endgame: rt.endgame.clone(),
             error_model: rt.error_model.clone(),
             snapshot_id: rt.snapshot_id.clone(),
+            book: rt.book.clone(),
         })
     }
 
@@ -636,18 +852,31 @@ impl PersonaPlayer {
         own_clock_ms: i64,
     ) -> Result<(String, i64, PersonaDecision), String> {
         let t0 = tokio::time::Instant::now();
-        let policy = self.proc.query(fen).await?;
         let derived = persona::derive_seed(self.seed, ply);
+        // Opening book (R3.4): while the position is in book, play a
+        // frequency-weighted sample of the recorded replies from the SAME
+        // seeded per-move stream (contract step 8), reason arm "book". Out of
+        // book (or bookless): the policy path below, unchanged.
+        if let Some(book) = &self.book {
+            if let Some(mut decision) = book_decision(book, fen, ply, self.band, derived) {
+                decision.snapshot_id = self.snapshot_id.clone();
+                let elapsed = t0.elapsed().as_millis() as i64;
+                return Ok((decision.uci.clone(), elapsed, decision));
+            }
+        }
+        let policy = self.proc.query(fen).await?;
         let ctx = persona::SelectContext {
             ply,
             clock_ms: Some(own_clock_ms),
-            // The runner has no book phase today: book-exit ply is unknown, so
-            // the style-bias window stays inert (spec 214 honest default).
+            // Book-EXIT ply is still untracked here (the book lookup above is
+            // per-position), so the style-bias window stays inert — the spec
+            // 214 honest default until exit tracking lands with the window.
             plies_since_book_exit: None,
             schedule: self.schedule.clone(),
             style_bias: self.style_bias.clone(),
             endgame: self.endgame.clone(),
             error_model: self.error_model.clone(),
+            policy_floor: self.policy_floor,
             policy_backend: Some(self.policy_backend.clone()),
         };
         let mut decision = persona::select_move_from_policy(
@@ -1423,6 +1652,11 @@ pub struct PersonaConfig {
     pub top_k: Option<usize>,
     #[serde(default)]
     pub top_p: Option<f64>,
+    /// Candidate-width policy floor (realism audit R3.3), forwarded to the
+    /// selection core. Absent = the core's POLICY_FLOOR (0.01), the
+    /// historical behavior. Wire name: `policyFloor`.
+    #[serde(default)]
+    pub policy_floor: Option<f64>,
     #[serde(default)]
     pub verify_depth: Option<u32>,
     /// Named managed net overriding the Maia band policy backend (e.g. "bt3").
@@ -1452,6 +1686,18 @@ pub struct PersonaConfig {
     /// +2% bar enables it for a persona (fit: fit_error_model.py).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_model: Option<persona::ErrorModel>,
+    /// Opening book (realism audit R3.4): path to a
+    /// scripts/persona/build_rival_book.py book JSON (e.g.
+    /// data/personas/fischer.book.json). While the position is in book the
+    /// persona plays a frequency-weighted seeded sample of the recorded
+    /// replies (contract step 8's per-game stream, reason arm "book"), so
+    /// persona-vs-persona exhibitions open like the players, not like the
+    /// policy net's taste. Absent = resolve by participant id from the
+    /// committed persona books (`persona::persona_book_path`); no book found
+    /// there either, unreadable, or unparseable = bookless — the historical
+    /// behavior. Wire name: `bookPath`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub book_path: Option<String>,
 }
 
 /// One game to be played as part of a batch. Self-describing so the runner can
@@ -2009,12 +2255,42 @@ async fn resolve_one(
             // Error model only when explicitly configured — the tuner
             // gates it (spec 214); there is no default-ON variant.
             let endgame = Some(cfg.endgame.clone().unwrap_or_default());
+            // Opening book (R3.4), loaded once per resolve: the explicit wire
+            // `bookPath` when the roster sent one (the private rival's entry
+            // carries his local book's path), else resolved by participant id
+            // from the committed persona books (data/personas/<id>.book.json)
+            // — so Fischer–Kasparov exhibitions open like Fischer and
+            // Kasparov, the wave's stated outcome. An absent, unreadable,
+            // unparseable, or ZERO-NODE book degrades to bookless — the
+            // historical behavior, and consistent with persona.rs's "a
+            // missing book is a normal state, never an error". The book hash
+            // enters the snapshot exactly when a book with at least one node
+            // loaded (`from_json` rejects wrong-shaped JSON rather than
+            // indexing it as an empty book that never plays but perturbs the
+            // snapshot id).
+            let book_text = cfg
+                .book_path
+                .as_deref()
+                .map(PathBuf::from)
+                .or_else(|| persona::persona_book_path(app, &p.id))
+                .and_then(|path| std::fs::read_to_string(path).ok());
+            let (book, book_sha) = match book_text {
+                Some(text) => match PersonaBook::from_json(&text) {
+                    Some(b) => (
+                        Some(Arc::new(b)),
+                        Some(persona::sha256_hex(text.as_bytes())),
+                    ),
+                    None => (None, None),
+                },
+                None => (None, None),
+            };
             // Persona snapshot (spec 214 "Persona snapshots"): the content
             // hash of the EFFECTIVE bundle — post-defaulting, so the id names
             // what actually governs play. The weights reference is the named
             // managed net (its config pins the file's sha256) or the Maia
-            // band; the runner plays bookless today, hence no book hash. Any
-            // knob change yields a new id automatically — no registry.
+            // band; the book hash is present exactly when a book loaded (a
+            // rebuilt book = a new snapshot). Any knob change yields a new id
+            // automatically — no registry.
             let weights_id = cfg
                 .weights
                 .clone()
@@ -2026,14 +2302,19 @@ async fn resolve_one(
                 cfg.lambda,
                 cfg.top_k,
                 cfg.top_p,
+                cfg.policy_floor,
                 cfg.verify_depth,
                 schedule.as_ref(),
                 cfg.style_bias.as_ref(),
                 endgame.as_ref(),
                 cfg.error_model.as_ref(),
             );
-            let snapshot_id =
-                persona::snapshot_id(&serde_json::Value::Null, None, &weights_id, &bundle);
+            let snapshot_id = persona::snapshot_id(
+                &serde_json::Value::Null,
+                book_sha.as_deref(),
+                &weights_id,
+                &bundle,
+            );
             Ok(ResolvedSide::Persona(PersonaRuntime {
                 lc0_path,
                 weights_path,
@@ -2045,6 +2326,7 @@ async fn resolve_one(
                 temperature: cfg.temperature,
                 top_k: cfg.top_k,
                 top_p: cfg.top_p,
+                policy_floor: cfg.policy_floor,
                 verify_depth: cfg.verify_depth,
                 seed,
                 schedule,
@@ -2052,6 +2334,7 @@ async fn resolve_one(
                 endgame,
                 error_model: cfg.error_model.clone(),
                 snapshot_id,
+                book,
             }))
         }
     }
@@ -3181,6 +3464,7 @@ mod tests {
             temperature: 0.5,
             top_k: Some(4),
             top_p: None,
+            policy_floor: None,
             verify_depth: Some(6), // shallow: fast but exercises the verify arm
             seed: 214218,
             schedule: Some(persona::TemperatureSchedule::default()),
@@ -3188,6 +3472,7 @@ mod tests {
             endgame: Some(persona::EndgameArm::default()),
             error_model: None,
             snapshot_id: "snapshot-under-test".into(),
+            book: None,
         };
 
         let cancel = AtomicBool::new(false);
@@ -3230,6 +3515,124 @@ mod tests {
             entry.decision.snapshot_id, "snapshot-under-test",
             "the runtime's spec 214 snapshot id is stamped on every decision"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // R3.4 — persona opening book (runner arm)
+    // -----------------------------------------------------------------------
+
+    /// A tiny book in the exact build_rival_book.py file shape (extra fields
+    /// present and ignored, lines in the "N.san"-prefixed form).
+    fn tiny_book_json() -> String {
+        r#"{
+            "version": 1,
+            "rival": "test",
+            "entries": [
+                {"fen": "x", "line": "1.e4", "ply": 1, "rival_color": "white", "weight": 90},
+                {"fen": "x", "line": "1.d4", "ply": 1, "rival_color": "white", "weight": 10},
+                {"fen": "x", "line": "1.e4 c5 2.Nf3", "ply": 3, "rival_color": "white", "weight": 40},
+                {"fen": "x", "line": "1.zz9 nonsense", "ply": 1, "rival_color": "white", "weight": 5}
+            ]
+        }"#
+        .to_string()
+    }
+
+    #[test]
+    fn persona_book_sampling_is_seeded_deterministic_and_frequency_weighted() {
+        let book = PersonaBook::from_json(&tiny_book_json()).expect("book parses");
+        let derived = persona::derive_seed(214214, 0);
+        let a = book_decision(&book, STANDARD_START_FEN, 0, 1500, derived).expect("in book");
+        let b = book_decision(&book, STANDARD_START_FEN, 0, 1500, derived).expect("in book");
+        assert_eq!(a, b, "same derived seed = same book move, bit for bit");
+        assert_eq!(a.reason, "book");
+        assert_eq!(a.policy_backend, "book", "no policy net served this move");
+        assert_eq!(a.band, 1500);
+        assert_eq!(a.derived_seed, derived);
+        assert_eq!(a.phase, "opening");
+        assert_eq!(a.candidates.len(), 2, "both recorded replies logged");
+        let wsum: f64 = a.candidates.iter().map(|c| c.weight).sum();
+        assert!((wsum - 1.0).abs() < 1e-9, "logged weights sum to 1, got {wsum}");
+        // Frequency-weighted across the seeded per-ply stream: 90/10 book →
+        // e2e4 near 90% of draws. Deterministic seeds, so no flake.
+        let n = 1000u32;
+        let e4 = (0..n)
+            .filter(|i| {
+                book_decision(&book, STANDARD_START_FEN, *i, 1500, persona::derive_seed(7, *i))
+                    .expect("in book")
+                    .uci
+                    == "e2e4"
+            })
+            .count();
+        assert!(
+            (850..=950).contains(&e4),
+            "e2e4 drawn {e4}/{n}, want ~900 (frequency-weighted)"
+        );
+    }
+
+    #[test]
+    fn persona_book_deep_node_hits_and_out_of_book_falls_through() {
+        let book = PersonaBook::from_json(&tiny_book_json()).expect("book parses");
+        // Position before the recorded "2.Nf3" (after 1.e4 c5): in book.
+        let after_e4_c5 = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
+        let d = book_decision(&book, after_e4_c5, 2, 1500, persona::derive_seed(1, 2))
+            .expect("deep node is in book");
+        assert_eq!(d.uci, "g1f3");
+        assert_eq!(d.san, "Nf3");
+        // Out of book (1.e4 e5 was never recorded): None — the caller falls
+        // through to the policy path unchanged.
+        let after_e4_e5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
+        assert!(book_decision(&book, after_e4_e5, 2, 1500, persona::derive_seed(1, 2)).is_none());
+        // The corrupt entry ("1.zz9 nonsense") was skipped at parse, not
+        // crashed on, and never produced a node.
+        assert_eq!(book.map.len(), 2, "start node + the 1.e4 c5 node only");
+    }
+
+    #[test]
+    fn persona_book_merges_duplicate_lines_with_weights_summed() {
+        let json = r#"{"entries": [
+            {"line": "1.e4", "weight": 60},
+            {"line": "1.e4", "weight": 30},
+            {"line": "1.d4", "weight": 10}
+        ]}"#;
+        let book = PersonaBook::from_json(json).expect("book parses");
+        let d = book_decision(&book, STANDARD_START_FEN, 0, 1500, persona::derive_seed(3, 0))
+            .expect("in book");
+        let e4 = d.candidates.iter().find(|c| c.uci == "e2e4").expect("e2e4 node");
+        assert!((e4.policy_prob - 0.9).abs() < 1e-9, "60+30 of 100, got {}", e4.policy_prob);
+    }
+
+    /// Wrong-shaped-but-valid JSON (serde defaults `entries` to []) and books
+    /// whose every entry is corrupt must NOT count as loaded: a zero-node book
+    /// never plays, and its hash would perturb the snapshot id of behaviorally
+    /// bookless play.
+    #[test]
+    fn persona_book_with_zero_nodes_is_not_a_book() {
+        assert!(PersonaBook::from_json("not json at all").is_none());
+        assert!(
+            PersonaBook::from_json(r#"{"level":1700,"temperature":0.5}"#).is_none(),
+            "a persona CONFIG file is valid JSON but not a book"
+        );
+        assert!(PersonaBook::from_json(r#"{"entries": []}"#).is_none());
+        assert!(
+            PersonaBook::from_json(r#"{"entries": [{"line": "1.zz9 nonsense", "weight": 5}]}"#)
+                .is_none(),
+            "all-corrupt entries index to zero nodes"
+        );
+    }
+
+    // R3.3 + R3.4 wire shape: both knobs are additive on the persona config —
+    // absent on every pre-existing payload, camelCase when sent.
+    #[test]
+    fn persona_config_policy_floor_and_book_path_are_additive_on_the_wire() {
+        let without = r#"{"level":1700,"temperature":0.5,"alpha":1.0,"lambda":0.75}"#;
+        let cfg: PersonaConfig = serde_json::from_str(without).expect("legacy config deserializes");
+        assert_eq!(cfg.policy_floor, None);
+        assert_eq!(cfg.book_path, None);
+        let with = r#"{"level":1700,"temperature":0.5,"alpha":1.0,"lambda":0.75,
+                       "policyFloor":0.001,"bookPath":"/tmp/fischer.book.json"}"#;
+        let cfg: PersonaConfig = serde_json::from_str(with).expect("knobbed config deserializes");
+        assert_eq!(cfg.policy_floor, Some(0.001));
+        assert_eq!(cfg.book_path.as_deref(), Some("/tmp/fischer.book.json"));
     }
 
     // -----------------------------------------------------------------------

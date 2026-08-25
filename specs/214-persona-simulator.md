@@ -98,13 +98,36 @@ The pipeline, per move:
    fast time controls).
 7. **Draw/resign model**: the existing scripts/persona draw model is canonicalized
    here as part of the contract (visible-rule requirement from the spar-modes item
-   applies unchanged).
+   applies unchanged). (Audit 2026-08-24: shipped reality is draw ACCEPTANCE only,
+   via the visible material/quietness rule in apps/desktop/lib/spar.ts — the bot
+   never resigns and never offers. The resign/offer arms are wave R3 below.)
 8. **Determinism**: move selection is stochastic by design but SEEDED — a per-game
    seed is logged; the same seed + the same snapshot reproduces the game.
+   (Audit 2026-08-24: the book phase breaks this — rival-book-lookup.ts samples
+   with unseeded Math.random. Wave R1 folds the book draw into the seeded stream.)
 9. **Per-move decision log**: policy probabilities, verification evals, the chosen
    move, and the reason arm (book / policy / verify-reweight / error-model / endgame).
    This is the realism-debugging record: "didn't feel like him" feedback joins
    against it.
+10. **Think-time model** (added by the 2026-08-24 realism audit): every selected
+    move also emits a think-time, computed from the decision the pipeline already
+    made — no new search needed, the inputs are all in the step-9 decision log.
+    Signals: candidate-weight entropy (one dominant candidate → snap move),
+    forcedness (recaptures, only-moves, book replies → near-instant), eval swing
+    vs the previous position (surprise → long think), phase, and remaining clock
+    (compressed in time trouble; occasional deep sinks on critical middlegame
+    decisions). Per-band distribution parameters, fit from corpus move-times where
+    the source carries clocks (chess.com archives include clock comments), honest
+    priors otherwise. The spar UI schedules the reply on this delay; unclocked
+    spar uses the same model with a relaxed cap so tempo still reads human.
+    (Status 2026-08-25: implemented as apps/desktop/lib/spar-think-time.ts,
+    wired for book AND engine replies — wave R1.1 below. The uniform
+    1s–5%-of-remaining draw in apps/desktop/lib/spar-clock.ts is the
+    SUPERSEDED placeholder, no longer used by spar, kept only as the
+    never-self-flag reference its own comments describe. Honest gap: the
+    distribution table is one global set of priors — per-band parameters and
+    the corpus fit have NOT happened, and ThinkTimeInput carries no band
+    input yet; that fit is wave-R2-shaped open work.)
 
 ## Persona snapshots
 
@@ -141,7 +164,94 @@ Both gated on the acceptance bar above, like everything else.
 
 Cross-ref spec:216 (machine speed / time-compression Elo model). Personas exhibit
 human time behavior — the private rival moves fast — and the clock state conditions
-the temperature schedule (contract step 3) and the error model (step 5).
+the temperature schedule (contract step 3) and the error model (step 5). The
+think-time side of this is now contract step 10; the clock-conditioning side is
+dead in spar today because the UI never passes clock_ms (see the realism audit
+below, wave R1).
+
+## Realism audit — 2026-08-24
+
+User verdict: the bots don't feel very realistic. Traced through the shipped code,
+the finding is NOT that the architecture is wrong — the contract's selection
+machinery is live and human-model-based exactly as specified (book →
+Maia/BT3 policy head at `go nodes 1` → top-4 candidates ≥1% → SF depth-12 veto →
+tempered softmax, persona.rs `select_move_from_policy`). The finding is that
+**four of the five humanizing subsystems are inert in actual human play, while
+every always-ON piece pushes play stronger and narrower than the labeled band**:
+
+1. **No think-time model** — likely the single loudest tell. Clock off (the spar
+   default): replies land as fast as compute allows. Clock on: a uniform draw in
+   [1s, 5% of remaining] (spar-clock.ts), independent of position, phase, and
+   eval. Never a long think on a critical move, never a snap recapture pattern.
+2. **Clock conditioning is dead in spar** — the panic-temperature spikes and
+   clock-bucketed error machinery exist and are tested, but the spar UI never
+   passes `clock_ms` (spar-tab.tsx personaMove call), so against a human they
+   never fire. They are live only in the engine-vs-engine match runner.
+3. **Error model OFF everywhere** — built and fitted (error_model.fit.json), but
+   the gating tuner run (stage D, +2% bar) never happened, so no config carries
+   it. Result: mistakes are i.i.d. and rate-flattened by the λ veto — no
+   clustering, no tilt, no time-scramble collapse. Human error is bursty; this
+   is a Poisson sprinkle.
+4. **Style bias OFF everywhere** — same unpassed gate. Out of book, two
+   different 1500 personas differ only by book and seed; "style" today is
+   openings-only.
+5. **Always-ON pieces overshoot the band**: the endgame arm feeds depth-16
+   Stockfish candidates to every band (a "1300" that shuffles a middlegame then
+   converts R+P endings cleanly is a strong tell); the top-4/≥1% candidate cap
+   makes off-policy moves — creative ones AND rare human lapses — unplayable;
+   and all 12 committed GM configs carry the identical untuned defaults
+   (T 0.5 / α 1.0 / λ 0.75 / top-4 / depth-12), so every persona shares one
+   error personality.
+6. **Contract drift, stated plainly**: step 7 claimed a draw/resign model that
+   ships as acceptance-only (annotated in place); the Time-model section was
+   aspirational (now step 10); book sampling breaks the step-8 seed story
+   (annotated in place). This audit re-syncs the spec to reality; the plan
+   below closes the gaps.
+
+Surface note: the web arena (spec:217/221 server) runs a deliberately simpler
+Tier-0 pipeline (visit head at nodes 120/16, T 0.30, no verify, no schedule, no
+endgame arm, no error model). The user plays the DESKTOP spar (Learn → Play vs
+Bot) — this plan targets the desktop pipeline; converging the arena onto the
+same contract stays a spec:217 concern, cross-ref'd from here.
+
+### The plan — three waves
+
+**Wave R1 — wire up what's already built** (days, no new ML):
+
+- **R1.1 Think-time model** — contract step 10. Small pure-TS function in the
+  spar layer over the decision log the Rust core already returns.
+- **R1.2 Pass `clock_ms` from spar** — one plumbing change activates the
+  already-tested panic temperature and clock-bucket machinery.
+- **R1.3 Band-scale the endgame arm** — depth becomes a function of band
+  (e.g. ~1300 → depth 6–8, GM/BT3 keeps 16) and SF candidates BLEND with the
+  Maia prior rather than replace it. A 1300 should botch endings at 1300-rate.
+- **R1.4 Seeded book sampling** — fold the book draw into the per-game seeded
+  stream so step 8 holds from move 1.
+
+**Wave R2 — run the gated work that was specced but never executed**:
+
+- **R2.1 Error-model enablement** — run tune_persona.py stage D per band and
+  per persona against the corpus (the recovered 957k-game store raises the
+  ceiling here); commit qualifying configs. The bar is unchanged: ≥ +2%
+  absolute held-out match@1, or an explicit realism-feedback verdict.
+- **R2.2 Tuner rerun** — per-band/per-persona α/λ/T + schedule multipliers +
+  style-bias gates; wave 6 died with outputs untracked, so this time the
+  tuning_*.json outputs and config updates are COMMITTED as part of the item.
+
+**Wave R3 — new capability, all gated on the acceptance bar**:
+
+- **R3.1 Tilt/momentum state** — a small per-game hidden state (recent blunder,
+  worsening eval trend, time trouble) modulating T and λ for the next N moves.
+  Cheap atop the error model; it is the missing "human collapses" dynamic —
+  today every move is memoryless.
+- **R3.2 Resign + draw-offer model** — contract step 7 made real, from the eval
+  the verifier already computes, persona-conditioned (Fischer never offers;
+  a club player resigns down a rook). Visible-rule requirement unchanged.
+- **R3.3 Band-parameterized candidate width** — top-k/top-p become per-band
+  config so weak personas can occasionally play genuinely off-policy moves.
+- **R3.4 Match-runner books** — the runner's persona arm gets the opening book
+  (match_runner.rs has none today), so Fischer–Kasparov exhibitions open like
+  Fischer and Kasparov, not like BT3's taste.
 
 ## Data
 
@@ -256,14 +366,63 @@ the temperature schedule (contract step 3) and the error model (step 5).
       error-timing, opening KL on held-out splits; offline optimization of
       alpha/lambda/temperature/priors against them (code-verified 2026-07-15)
 
+### Realism waves (audit 2026-08-24) — priority order within each wave
+
+- [x] R1.1 Think-time model (contract step 10; 2026-08-25): pure-TS over the
+      decision log — apps/desktop/lib/spar-think-time.ts (candidate entropy,
+      forcedness, eval swing vs the persona's previous decision, phase, clock
+      compression), applied to book AND engine replies, unclocked spar too;
+      the sampled think-time + the rival's clock at decision time land in the
+      step-9 decision log so tempo feedback can join. HONEST GAP (open): one
+      global prior table, no per-band parameters, no corpus fit yet — see the
+      step-10 status note above.
+- [x] R1.2 (2026-08-25) Pass clock_ms from the spar UI to persona_move
+      (spar-tab.tsx) so panic temperature + clock-bucketed behavior fire
+      against humans.
+- [x] R1.3 Band-scaled endgame arm (2026-08-25): bandSamplingParams
+      (lib/persona.ts) — depth ≤1200→6, ≤1500→8, ≤1900→10, full-strength/BT3
+      16; SF candidates UNION with policy-only extras scored by the verifier
+      so the Maia prior blends rather than being replaced (persona.rs).
+- [x] R1.4 Seeded book sampling (2026-08-25): the whole rival turn (book
+      draw + think-time) draws from one mulberry32 stream seeded off
+      (gameSeed, ply) — rivalTurnRng in lib/seeded-rng.ts; Math.random is
+      gone from the reply path.
+- [ ] R2.1 Error-model enablement: tune_persona.py stage D per band + persona
+      on the corpus; +2% held-out bar or realism-feedback verdict; qualifying
+      configs COMMITTED.
+- [ ] R2.2 Tuner rerun (absorbs the 2026-07-16 "Rerun tune_persona.py" item):
+      per-band/per-persona α/λ/T + schedule multipliers + style-bias gates;
+      wave-6 outputs died untracked — committing tuning_*.json + config +
+      HARNESS_RESULTS.md updates is part of the definition of done.
+- [x] R3.1 Tilt/momentum state modulating T and λ (2026-08-25):
+      lib/spar-tilt.ts, per-game hidden state (recent blunder / worsening
+      trend / time trouble), multipliers logged per move. GATING DRIFT,
+      stated plainly: ships always-ON in spar with hand-tuned constants
+      (T ×1.3–1.6, λ ×0.6–0.7) and no per-persona config gate — the
+      acceptance-bar run this wave's header requires has NOT happened; the
+      R2 tuner rerun must measure it or grow the config knob to back it out.
+- [x] R3.2 Resign + draw-offer model (2026-08-25): lib/spar-etiquette.ts,
+      from the verifier's own evals, visible rules (tooltips on the end
+      state / offer prompt), one offer per game, never in book. HONEST GAP
+      (open): conditioned on fullStrength only, not per-persona — "Fischer
+      never offers" needs config knobs that don't exist yet; same
+      acceptance-bar caveat as R3.1.
+- [x] R3.3 Per-band candidate width (2026-08-25): top_k + policy_floor in
+      bandSamplingParams (≤1300 → top-6/0.005, ≤1600 → top-5/0.008, else
+      top-4/0.01), wired in spar, playouts, and the tournament roster.
+      NOTE: in spar the band table is deliberately spread AFTER the config's
+      sampling overrides (all committed configs carry identical untuned
+      defaults) — flip that order when R2.2 commits tuned per-persona values.
+- [x] R3.4 Match-runner persona arm gets the opening book (2026-08-25):
+      PersonaBook + seeded book_decision (reason arm "book", book sha in the
+      snapshot id; zero-node/wrong-shape JSON honestly degrades to bookless)
+      in match_runner.rs, wired end-to-end — the private rival's roster
+      entry forwards the path his book actually loaded from (`rival_book`
+      now reports it) as `bookPath`, and GM personas resolve the committed
+      data/personas/<slug>.book.json by participant id runner-side, so
+      Fischer–Kasparov exhibitions open like Fischer and Kasparov.
+
 ### Later / uncaptured requirements (audit 2026-07-16)
-- [ ] Rerun tune_persona.py (wave-6 died; tuning_kasparov.json partial);
-      replace untuned defaults (temp 0.5, α 1.0, λ 0.75, schedule
-      multipliers). (LAST_SESSION wip note + Known-issues 4)
-      (checked 2026-07-17: could not verify from git — the rerun's
-      data/personas/tuning_*.json outputs and the HARNESS_RESULTS.md update
-      exist only UNTRACKED in the main working tree; tick once they're
-      committed and the configs carry the tuned values)
 - [ ] Opponent-archetype conditioning (+light personal bias); 2-4-move
       plan-coherence memory; gated on acceptance bar. (214:129-138)
 - [ ] Immutable versioned snapshots; matches record version; seed+snapshot

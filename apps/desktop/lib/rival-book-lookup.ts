@@ -126,8 +126,17 @@ function weightedChoice(replies: RivalReply[], rng: () => number): RivalReply {
  * every book line through that exact position — or null if the position is
  * out of book, in which case the caller falls back to maiaMove (spec 214:
  * "Out of book → maiaMove as today").
+ *
+ * `rng` defaults to Math.random for compatibility, but the spar loop passes
+ * the seeded per-turn stream (lib/seeded-rng, realism audit wave R1.4) so
+ * the book draw is reproducible under the logged game seed — contract step
+ * 8's determinism holds from move 1, not just out of book.
  */
-export function lookupRivalReply(map: RivalMoveMap, fen: string, rng: () => number): RivalReply | null {
+export function lookupRivalReply(
+  map: RivalMoveMap,
+  fen: string,
+  rng: () => number = Math.random,
+): RivalReply | null {
   const replies = map.get(normalizeFenKey(fen));
   if (!replies || replies.length === 0) return null;
   return weightedChoice(replies, rng);

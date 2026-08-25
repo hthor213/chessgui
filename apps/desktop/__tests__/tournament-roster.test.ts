@@ -48,6 +48,18 @@ describe("buildTournamentRoster", () => {
     expect(rival!.participant.kind).toBe("persona")
     // Generic — never the rival's real name (spec 214/218 hard rule).
     expect(rival!.participant.displayName.toLowerCase()).not.toContain("dad")
+    // A book without a source path (older stored shape) wires no bookPath —
+    // honest bookless runner play, never a guessed path.
+    expect(rival!.participant.personaConfig?.bookPath).toBeUndefined()
+  })
+
+  // R3.4: the rival_book command's source path flows through to the runner's
+  // persona arm, so tournament games open from his real book like spar does.
+  it("forwards the loaded book's path as the rival's runner bookPath (R3.4)", () => {
+    const withPath: RivalBook = { ...SAMPLE_BOOK, path: "/data/rivals/dad_book.json" }
+    const roster = buildTournamentRoster(withPath, ENGINES)
+    const rival = roster.find((e) => e.participant.id === PRIVATE_RIVAL_ID)!
+    expect(rival.participant.personaConfig?.bookPath).toBe("/data/rivals/dad_book.json")
   })
 
   it("includes every Maia strength band as a generic 'bot: maia N' entry", () => {

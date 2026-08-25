@@ -49,9 +49,10 @@ export interface ErrorModel {
 }
 
 /** Endgame arm (contract step 6): at low non-pawn material (phase weight <=
- *  phase_max; 24 at the start, endgame at <= 8) the candidate source switches
- *  to deep fixed-depth Stockfish MultiPV top-k, still humanized through the
- *  verification reweight. */
+ *  phase_max; 24 at the start, endgame at <= 8) the candidate set becomes the
+ *  union of deep fixed-depth Stockfish MultiPV top-k and the normal policy
+ *  candidates (realism audit R1.3: blend, not replace), all humanized through
+ *  the shared verification reweight. */
 export interface EndgameArm {
   /** Non-pawn phase weight at or below which the arm engages (default 8). */
   phase_max?: number;
@@ -87,6 +88,12 @@ export interface PersonaParams {
   top_k?: number;
   /** Nucleus mass for the candidate set; overrides top_k when set. */
   top_p?: number;
+  /** Candidate-width policy floor (realism audit R3.3): moves the band
+   *  assigns less mass than this are trimmed before the top-k/top-p cap, and
+   *  it doubles as the endgame arm's policy-unseen prior. Per-band config so
+   *  weak personas can occasionally play genuinely off-policy moves.
+   *  Undefined = 0.01 (the Rust POLICY_FLOOR), the historical behavior. */
+  policy_floor?: number;
   /** Stockfish verification depth; 0/undefined disables it (policy-only). */
   verify_depth?: number;
   /** Per-game seed. */

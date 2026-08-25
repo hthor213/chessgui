@@ -140,8 +140,9 @@ pub(crate) fn fen_after(fen: &str, uci: &str) -> Result<String, String> {
 //      (StyleBias, OFF by default) can overweight the persona's characteristic
 //      move types for N plies after book exit.
 //   6. endgame arm — at low non-pawn material (phase weight ≤ 8, the
-//      calibration.rs endgame threshold) the candidate source switches to deep
-//      fixed-depth Stockfish MultiPV top-k, still humanized through the same
+//      calibration.rs endgame threshold) the candidate set becomes the union
+//      of deep fixed-depth Stockfish MultiPV top-k and the normal policy
+//      candidates (R1.3: blend, not replace), all humanized through the same
 //      reweight (reason arm "endgame").
 //   4. verification reweight — cheap Stockfish eval of each candidate; combine
 //      policy prior and eval penalty into one temperature-scaled softmax, then
@@ -200,6 +201,13 @@ pub struct PersonaParams {
     /// Nucleus mass for the candidate set; when set, overrides `top_k`.
     #[serde(default)]
     pub top_p: Option<f64>,
+    /// Candidate-width policy floor (realism audit R3.3): moves the band
+    /// assigns less mass than this are trimmed before the top-k/top-p cap,
+    /// and it doubles as the endgame arm's policy-unseen prior. Per-band
+    /// config so weak personas can occasionally play genuinely off-policy
+    /// moves. Absent = `POLICY_FLOOR` (0.01), the historical behavior.
+    #[serde(default)]
+    pub policy_floor: Option<f64>,
     /// Stockfish search depth for the verification eval. `None`/`0` disables
     /// verification (policy-only, reason arm "policy").
     #[serde(default)]
@@ -320,7 +328,9 @@ pub(crate) fn derive_seed(seed: u64, ply: u32) -> u64 {
 
 /// A uniform draw in [0, 1) from a derived seed (top 53 bits of one more
 /// splitmix64 step). Pure and total — the whole point of step 8.
-fn uniform_from_seed(derived: u64) -> f64 {
+/// `pub(crate)` so the match runner's book arm (R3.4) draws from the SAME
+/// per-game seeded stream as the policy arm, never an unseeded RNG.
+pub(crate) fn uniform_from_seed(derived: u64) -> f64 {
     let z = splitmix64(derived.wrapping_add(0x9E37_79B9_7F4A_7C15));
     ((z >> 11) as f64) / ((1u64 << 53) as f64)
 }
@@ -388,13 +398,14 @@ pub fn sampling_bundle(
     lambda: f64,
     top_k: Option<usize>,
     top_p: Option<f64>,
+    policy_floor: Option<f64>,
     verify_depth: Option<u32>,
     schedule: Option<&TemperatureSchedule>,
     style_bias: Option<&StyleBias>,
     endgame: Option<&EndgameArm>,
     error_model: Option<&ErrorModel>,
 ) -> serde_json::Value {
-    serde_json::json!({
+    let mut bundle = serde_json::json!({
         "level": level,
         "temperature": temperature,
         "alpha": alpha,
@@ -406,7 +417,13 @@ pub fn sampling_bundle(
         "style_bias": style_bias,
         "endgame": endgame,
         "error_model": error_model,
-    })
+    });
+    // R3.3: present only when configured, so every pre-existing bundle (and
+    // its recorded snapshot ids) hashes exactly as before the knob existed.
+    if let Some(f) = policy_floor {
+        bundle["policy_floor"] = serde_json::json!(f);
+    }
+    bundle
 }
 
 /// The snapshot id: sha256 over the canonicalized, domain-separated bundle.
@@ -460,12 +477,12 @@ pub const OPENING_MAX_PLY: u32 = 16;
 const MIN_EFFECTIVE_TEMP: f64 = 0.05;
 const MAX_EFFECTIVE_TEMP: f64 = 3.0;
 
-/// Prior a policy-unseen endgame-arm candidate gets: the same floor below which
-/// the policy tail is trimmed elsewhere. Deep-Stockfish moves the band's policy
-/// never considered enter the reweight at the floor, not at zero — so the arm
-/// can actually play the strong endgame move Maia misses, while a decent
-/// policy prob still outranks it (humanization).
-const ENDGAME_UNSEEN_PRIOR: f64 = POLICY_FLOOR;
+// The endgame arm's policy-unseen prior is the effective policy floor (the
+// same floor below which the policy tail is trimmed elsewhere; R3.3 made it
+// configurable). Deep-Stockfish moves the band's policy never considered
+// enter the reweight at the floor, not at zero — so the arm can actually play
+// the strong endgame move Maia misses, while a decent policy prob still
+// outranks it (humanization).
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -627,14 +644,16 @@ fn apply_style_bias(pos: &Chess, ucis: &[&str], probs: &mut [f64], bias: &StyleB
     any
 }
 
-/// Endgame arm (contract step 6): at low material the CANDIDATE SOURCE switches
-/// from the Maia policy to deeper fixed-depth Stockfish top-k (MultiPV) —
-/// because Maia is weakest exactly where the primary rival is strongest — while
-/// the move is still humanized through the same policy^alpha × exp(-lambda·
-/// penalty) reweight: each Stockfish candidate's prior is its Maia policy prob
-/// (or the floor when the policy never considered it). No tablebase probe yet:
-/// a ≤7-man network probe per move is not "cheap" offline, and the deep fixed-
-/// depth search already plays trivial endings correctly.
+/// Endgame arm (contract step 6): at low material the candidate set becomes
+/// the UNION of deeper fixed-depth Stockfish top-k (MultiPV) and the normal
+/// policy candidates (realism audit R1.3: blend, don't replace — replacing
+/// made every band convert endings like a master) — because Maia is weakest
+/// exactly where the primary rival is strongest — while the move is still
+/// humanized through the same policy^alpha × exp(-lambda·penalty) reweight:
+/// each candidate's prior is its Maia policy prob (or the floor when the
+/// policy never considered it). No tablebase probe yet: a ≤7-man network probe
+/// per move is not "cheap" offline, and the deep fixed-depth search already
+/// plays trivial endings correctly.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct EndgameArm {
@@ -824,6 +843,9 @@ pub(crate) struct SelectContext {
     pub endgame: Option<EndgameArm>,
     /// Corpus error model (contract step 5); None = OFF, the gated default.
     pub error_model: Option<ErrorModel>,
+    /// Candidate-width policy floor (R3.3); None = `POLICY_FLOOR`, the
+    /// historical behavior.
+    pub policy_floor: Option<f64>,
     /// The policy backend that served the caller's `policy` (spec 218), for
     /// the decision log; None = derive "maia-<band>" from the policy itself.
     pub policy_backend: Option<String>,
@@ -880,6 +902,55 @@ fn select_candidates(
         kept.truncate(top_k.unwrap_or(DEFAULT_TOP_K).max(1));
     }
     kept
+}
+
+/// One endgame-arm candidate before the reweight (R1.3): the move, its prior
+/// (Maia policy prob floored for policy-unseen moves) and its eval when the
+/// source already carried one (Stockfish MultiPV); `None` evals belong to
+/// policy-only candidates and are filled by the caller before the reweight.
+#[derive(Debug, Clone, PartialEq)]
+struct EndgameCandidate {
+    uci: String,
+    prior: f64,
+    eval_cp: Option<i64>,
+}
+
+/// The endgame arm's candidate set (realism audit R1.3): the UNION of the
+/// deep Stockfish MultiPV candidates and the NORMAL policy candidates (the
+/// same floor/top-k/top-p cut the policy arm uses), deduped by uci — SF
+/// order first (best-first), then the policy extras in policy order. Every
+/// candidate's prior is its Maia policy prob floored at `floor` (SF moves the
+/// policy never considered enter at the floor), so all of them flow through
+/// the SAME reweight and a band keeps its human move distribution in endings
+/// instead of converting like a master. Pure.
+fn endgame_union_candidates(
+    sf_top: &[(String, i64)],
+    policy_cands: &[MaiaMove],
+    policy_moves: &[MaiaMove],
+    floor: f64,
+) -> Vec<EndgameCandidate> {
+    let mut out: Vec<EndgameCandidate> = sf_top
+        .iter()
+        .map(|(uci, cp)| EndgameCandidate {
+            uci: uci.clone(),
+            prior: policy_moves
+                .iter()
+                .find(|m| m.uci == *uci)
+                .map(|m| m.prob.max(floor))
+                .unwrap_or(floor),
+            eval_cp: Some(*cp),
+        })
+        .collect();
+    for m in policy_cands {
+        if !out.iter().any(|c| c.uci == m.uci) {
+            out.push(EndgameCandidate {
+                uci: m.uci.clone(),
+                prior: m.prob.max(floor),
+                eval_cp: None,
+            });
+        }
+    }
+    out
 }
 
 /// Combined policy + verification softmax, temperature-scaled: the normalized
@@ -1217,6 +1288,38 @@ fn rival_book_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
+/// Locate a public persona's opening book by roster slug (realism audit
+/// R3.4): app_data_dir/personas/<slug>.book.json first, then the dev
+/// checkout's COMMITTED data/personas/<slug>.book.json (the 12 GM books,
+/// public-figure games — unlike the rival books these ship in the repo). The
+/// slug is a bare file stem (the tournament roster's participant id); path
+/// separators are rejected, same filter as `rival_personas`. None — a Maia
+/// band, a custom persona, or no book built — is a normal state, never an
+/// error.
+pub fn persona_book_path(app: &tauri::AppHandle, slug: &str) -> Option<PathBuf> {
+    if slug.is_empty() || slug.contains('/') || slug.contains('\\') {
+        return None;
+    }
+    let file = format!("{slug}.book.json");
+    if let Ok(dir) = app.path().app_data_dir() {
+        let pb = dir.join("personas").join(&file);
+        if pb.exists() {
+            return Some(pb);
+        }
+    }
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("..")
+        .join("data")
+        .join("personas")
+        .join(&file);
+    if dev.exists() {
+        return Some(dev);
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
@@ -1275,36 +1378,64 @@ pub(crate) async fn select_move_from_policy(
     let eff_temp = effective_temperature(temperature, ctx.schedule.as_ref(), phase, ctx.clock_ms);
     let bias_live = style_bias_active(ctx.style_bias.as_ref(), ctx.plies_since_book_exit);
 
-    // Endgame arm (step 6): at low material the candidate source switches to
-    // deep fixed-depth Stockfish top-k, humanized through the SAME reweight —
-    // priors come from the Maia policy (floor for policy-unseen moves), the
-    // MultiPV evals double as the verification evals. Any Stockfish failure
-    // degrades to the normal policy arm below rather than erroring the move.
+    // Effective policy floor (R3.3): the configured per-band width, or the
+    // historical constant. Also the endgame arm's policy-unseen prior.
+    let floor = ctx.policy_floor.unwrap_or(POLICY_FLOOR);
+
+    // Endgame arm (step 6): at low material the candidate set becomes the
+    // UNION of deep fixed-depth Stockfish top-k and the normal policy
+    // candidates (R1.3: blend, don't replace), humanized through the SAME
+    // reweight — priors come from the Maia policy (floor for policy-unseen
+    // moves), the MultiPV evals double as the verification evals and the
+    // policy-only extras are evaluated at the same depth. Any Stockfish
+    // failure degrades to the normal policy arm below rather than erroring
+    // the move.
     if let (Some(arm), Some(sf)) = (ctx.endgame.as_ref(), stockfish) {
         if arm.depth > 0 && pw <= arm.phase_max {
             if let Ok(top) = sf_top_moves(sf, fen, arm.top_k, arm.depth).await {
                 if !top.is_empty() {
-                    let mut probs: Vec<f64> = top
+                    let policy_cands = select_candidates(&policy.moves, floor, top_k, top_p);
+                    let mut union =
+                        endgame_union_candidates(&top, &policy_cands, &policy.moves, floor);
+                    // Evaluate the policy-only extras at the arm's depth so
+                    // every candidate carries eval evidence into the shared
+                    // reweight. On failure, degrade to the SF-only set (the
+                    // pre-R1.3 arm) rather than treating unevaluated moves as
+                    // penalty-free.
+                    let extras: Vec<MaiaMove> = union
                         .iter()
-                        .map(|(uci, _)| {
-                            policy
-                                .moves
-                                .iter()
-                                .find(|m| m.uci == *uci)
-                                .map(|m| m.prob.max(ENDGAME_UNSEEN_PRIOR))
-                                .unwrap_or(ENDGAME_UNSEEN_PRIOR)
+                        .filter(|c| c.eval_cp.is_none())
+                        .map(|c| MaiaMove {
+                            uci: c.uci.clone(),
+                            prob: 0.0,
                         })
                         .collect();
-                    let ucis: Vec<&str> = top.iter().map(|(uci, _)| uci.as_str()).collect();
+                    if !extras.is_empty() {
+                        match verify_candidates(sf, fen, &extras, arm.depth).await {
+                            Ok(values) => {
+                                let mut vi = 0;
+                                for c in union.iter_mut() {
+                                    if c.eval_cp.is_none() {
+                                        c.eval_cp = Some(values[vi]);
+                                        vi += 1;
+                                    }
+                                }
+                            }
+                            Err(_) => union.retain(|c| c.eval_cp.is_some()),
+                        }
+                    }
+                    let evals: Vec<i64> = union.iter().map(|c| c.eval_cp.unwrap_or(0)).collect();
+                    let mut probs: Vec<f64> = union.iter().map(|c| c.prior).collect();
+                    let ucis: Vec<&str> = union.iter().map(|c| c.uci.as_str()).collect();
                     let bias_applied = bias_live
                         && apply_style_bias(&pos, &ucis, &mut probs, ctx.style_bias.as_ref().unwrap());
-                    let best = top.iter().map(|(_, cp)| *cp).max().unwrap_or(0);
-                    let penalties: Vec<f64> = top
+                    let best = evals.iter().copied().max().unwrap_or(0);
+                    let penalties: Vec<f64> = evals
                         .iter()
-                        .map(|(_, cp)| ((best - cp) as f64 / 100.0).max(0.0))
+                        .map(|cp| ((best - cp) as f64 / 100.0).max(0.0))
                         .collect();
                     let mut weights = reweight(&probs, &penalties, alpha, lambda, eff_temp);
-                    // Error model (step 5): the MultiPV evals are the eval
+                    // Error model (step 5): the candidate evals are the eval
                     // evidence; best candidate eval = eval before the move.
                     let (em_applied, em_rate) = consult_error_model(
                         ctx.error_model.as_ref(),
@@ -1315,21 +1446,21 @@ pub(crate) async fn select_move_from_policy(
                         ctx.clock_ms,
                     );
                     let idx = sample_weighted(&weights, u);
-                    let candidates: Vec<PersonaCandidate> = top
+                    let candidates: Vec<PersonaCandidate> = union
                         .iter()
                         .enumerate()
-                        .map(|(i, (uci, cp))| PersonaCandidate {
-                            uci: uci.clone(),
-                            san: san_for(fen, uci).unwrap_or_default(),
+                        .map(|(i, c)| PersonaCandidate {
+                            uci: c.uci.clone(),
+                            san: san_for(fen, &c.uci).unwrap_or_default(),
                             // The prior that actually drove the choice (policy
                             // prob, floored/biased) — honest decision-log value.
                             policy_prob: probs[i],
-                            eval_cp: Some(*cp),
+                            eval_cp: Some(evals[i]),
                             eval_penalty: penalties[i],
                             weight: weights[i],
                         })
                         .collect();
-                    let chosen = &top[idx].0;
+                    let chosen = &union[idx].uci;
                     let san = san_for(fen, chosen)?;
                     // Reason arm "error-model" (contract step 9) when the mix
                     // was live AND it timed a mistake here (the chosen move is
@@ -1366,7 +1497,7 @@ pub(crate) async fn select_move_from_policy(
         }
     }
 
-    let cands = select_candidates(&policy.moves, POLICY_FLOOR, top_k, top_p);
+    let cands = select_candidates(&policy.moves, floor, top_k, top_p);
     if cands.is_empty() {
         return Err("Maia returned no legal moves (terminal position)".to_string());
     }
@@ -1496,6 +1627,7 @@ pub async fn persona_move(
         style_bias: params.style_bias.clone(),
         endgame: params.endgame.clone(),
         error_model: params.error_model.clone(),
+        policy_floor: params.policy_floor,
         policy_backend: Some(backend),
     };
     let mut decision = select_move_from_policy(
@@ -1528,6 +1660,7 @@ pub async fn persona_move(
         params.lambda,
         params.top_k,
         params.top_p,
+        params.policy_floor,
         params.verify_depth,
         params.schedule.as_ref(),
         params.style_bias.as_ref(),
@@ -1635,14 +1768,26 @@ pub fn rival_personas(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, S
 }
 
 /// The rival opening book as parsed JSON, or an error if it hasn't been built.
-/// The UI samples a starting line from it (spec 214, Tier 0).
+/// The UI samples a starting line from it (spec 214, Tier 0). The source
+/// path is folded into the returned object (`path`) so the tournament roster
+/// can hand the SAME book file to the match runner's persona arm as
+/// `bookPath` (realism audit R3.4) — the frontend has no other way to name
+/// the file this command resolved.
 #[tauri::command]
 pub fn rival_book(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let path = rival_book_path(&app).ok_or(
         "rival book not found — run scripts/persona/build_rival_book.py to build data/rivals/dad_book.json",
     )?;
     let text = std::fs::read_to_string(&path).map_err(|e| format!("reading {path:?}: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("parsing {path:?}: {e}"))
+    let mut book: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("parsing {path:?}: {e}"))?;
+    if let Some(obj) = book.as_object_mut() {
+        obj.insert(
+            "path".to_string(),
+            serde_json::Value::String(path.to_string_lossy().into_owned()),
+        );
+    }
+    Ok(book)
 }
 
 // ---------------------------------------------------------------------------
@@ -1780,6 +1925,87 @@ mod tests {
         let moves = vec![mv("e2e4", 0.006), mv("d2d4", 0.004)];
         let got = select_candidates(&moves, 0.5, Some(4), None);
         assert_eq!(got.len(), 2, "floor emptying the set falls back to all moves");
+    }
+
+    // R3.3: the policy floor is per-persona config; absent = the historical
+    // POLICY_FLOOR wire behavior, present = a wider (or narrower) candidate set.
+    #[test]
+    fn persona_params_policy_floor_is_additive_on_the_wire() {
+        let without = r#"{"level":1500,"temperature":0.5,"alpha":1.0,"lambda":0.75,"seed":1,"ply":0}"#;
+        let p: PersonaParams = serde_json::from_str(without).unwrap();
+        assert_eq!(p.policy_floor, None, "absent field = old behavior");
+        let with = r#"{"level":1500,"temperature":0.5,"alpha":1.0,"lambda":0.75,"seed":1,"ply":0,"policy_floor":0.001}"#;
+        let p: PersonaParams = serde_json::from_str(with).unwrap();
+        assert_eq!(p.policy_floor, Some(0.001));
+    }
+
+    #[tokio::test]
+    async fn policy_floor_widens_the_candidate_set() {
+        // One dominant move plus a sub-1% tail: the default floor keeps only
+        // the dominant candidate; a configured lower floor lets the tail into
+        // the candidate set (R3.3 — off-policy moves become playable).
+        let policy = fake_policy(vec![mv("e2e4", 0.97), mv("d2d4", 0.005), mv("g1f3", 0.004)]);
+        let d_default = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, None,
+            &SelectContext::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(d_default.candidates.len(), 1, "default floor trims the sub-1% tail");
+        let ctx = SelectContext {
+            policy_floor: Some(0.001),
+            ..Default::default()
+        };
+        let d_wide = select_move_from_policy(
+            START, &policy, 1.0, 0.75, 0.5, Some(4), None, None, 42, None, &ctx,
+        )
+        .await
+        .unwrap();
+        assert_eq!(d_wide.candidates.len(), 3, "configured floor admits the tail");
+    }
+
+    // R1.3: the endgame arm BLENDS — SF MultiPV ∪ normal policy candidates.
+    #[test]
+    fn endgame_union_contains_both_sources_and_dedups() {
+        let sf_top = vec![("a1a2".to_string(), 30), ("b1b2".to_string(), 10)];
+        let policy_moves = vec![mv("b1b2", 0.5), mv("c1c2", 0.4), mv("d1d2", 0.005)];
+        let policy_cands = select_candidates(&policy_moves, POLICY_FLOOR, Some(4), None);
+        let union = endgame_union_candidates(&sf_top, &policy_cands, &policy_moves, POLICY_FLOOR);
+        let ucis: Vec<&str> = union.iter().map(|c| c.uci.as_str()).collect();
+        // Both sources present, SF order first, overlap (b1b2) exactly once,
+        // and the floored-out policy tail (d1d2) stays out.
+        assert_eq!(ucis, vec!["a1a2", "b1b2", "c1c2"]);
+        // The policy-unseen SF move enters at the floor; seen moves keep their
+        // policy prob as the prior; SF-sourced candidates carry their eval and
+        // policy-only extras carry none (filled by the caller).
+        assert_eq!(union[0].prior, POLICY_FLOOR);
+        assert_eq!(union[0].eval_cp, Some(30));
+        assert_eq!(union[1].prior, 0.5);
+        assert_eq!(union[1].eval_cp, Some(10));
+        assert_eq!(union[2].prior, 0.4);
+        assert_eq!(union[2].eval_cp, None);
+    }
+
+    #[test]
+    fn endgame_union_reweight_sums_to_one_and_is_seed_deterministic() {
+        let sf_top = vec![("a1a2".to_string(), 30), ("b1b2".to_string(), 10)];
+        let policy_moves = vec![mv("b1b2", 0.5), mv("c1c2", 0.4)];
+        let policy_cands = select_candidates(&policy_moves, POLICY_FLOOR, Some(4), None);
+        let union = endgame_union_candidates(&sf_top, &policy_cands, &policy_moves, POLICY_FLOOR);
+        let probs: Vec<f64> = union.iter().map(|c| c.prior).collect();
+        // Caller-evaluated extra: c1c2 gets a real eval like the SF pair.
+        let evals = [30i64, 10, -20];
+        let best = *evals.iter().max().unwrap();
+        let penalties: Vec<f64> = evals.iter().map(|cp| ((best - cp) as f64 / 100.0).max(0.0)).collect();
+        let weights = reweight(&probs, &penalties, 1.0, 0.75, 0.5);
+        let sum: f64 = weights.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-9, "union weights still sum to 1, got {sum}");
+        // Seeded determinism holds through the union path: the same derived
+        // seed maps to the same candidate, twice.
+        let u = uniform_from_seed(derive_seed(214214, 60));
+        let a = sample_weighted(&weights, u);
+        let b = sample_weighted(&weights, uniform_from_seed(derive_seed(214214, 60)));
+        assert_eq!(a, b);
     }
 
     #[test]
@@ -2272,8 +2498,9 @@ mod tests {
             eprintln!("SKIP real_stockfish_endgame_arm: stockfish not installed");
             return;
         };
-        // Fake band policy that never saw the position: the arm's candidates
-        // must come from Stockfish MultiPV, priors floored, reason "endgame".
+        // Fake band policy: the arm's candidate set is the UNION of Stockfish
+        // MultiPV (priors floored when policy-unseen) and the normal policy
+        // candidates (R1.3 blend), reason "endgame".
         let policy = fake_policy(vec![mv("g1f1", 0.5), mv("h2h3", 0.5)]);
         let ctx = SelectContext {
             ply: 78,
@@ -2294,9 +2521,22 @@ mod tests {
         assert_eq!(d.reason, "endgame");
         assert_eq!(d.phase, "endgame");
         assert!((d.temperature - 0.5 * 0.8).abs() < 1e-12, "endgame mult applied");
-        assert!(!d.candidates.is_empty() && d.candidates.len() <= 3);
+        // Union bound: SF top-3 plus at most the 2 policy candidates.
+        assert!(!d.candidates.is_empty() && d.candidates.len() <= 5);
+        // R1.3: the band's own policy candidates are IN the set (deduped), so
+        // the persona can still play its human move in the ending.
+        for want in ["g1f1", "h2h3"] {
+            assert_eq!(
+                d.candidates.iter().filter(|c| c.uci == want).count(),
+                1,
+                "policy candidate {want} joins the union exactly once"
+            );
+        }
         for c in &d.candidates {
-            assert!(c.eval_cp.is_some(), "MultiPV evals double as verification evals");
+            assert!(
+                c.eval_cp.is_some(),
+                "every union candidate carries eval evidence (MultiPV or caller-evaluated)"
+            );
         }
         // Deterministic: the same seed + context reproduces the same choice
         // (same stockfish build; fixed depth).
@@ -2427,11 +2667,11 @@ mod tests {
         let schedule = TemperatureSchedule::default();
         let endgame = EndgameArm::default();
         let a = sampling_bundle(
-            1500, 0.5, 1.0, 0.75, Some(4), None, Some(12),
+            1500, 0.5, 1.0, 0.75, Some(4), None, None, Some(12),
             Some(&schedule), None, Some(&endgame), None,
         );
         let b = sampling_bundle(
-            1500, 0.5, 1.0, 0.75, Some(4), None, Some(12),
+            1500, 0.5, 1.0, 0.75, Some(4), None, None, Some(12),
             Some(&schedule), None, Some(&endgame), None,
         );
         let null = serde_json::Value::Null;
@@ -2441,12 +2681,28 @@ mod tests {
         );
         // One knob differs → different id.
         let c = sampling_bundle(
-            1500, 0.5, 1.0, 0.75, Some(4), None, Some(10),
+            1500, 0.5, 1.0, 0.75, Some(4), None, None, Some(10),
             Some(&schedule), None, Some(&endgame), None,
         );
         assert_ne!(
             snapshot_id(&null, None, "maia-1500", &a),
             snapshot_id(&null, None, "maia-1500", &c),
+        );
+    }
+
+    #[test]
+    fn sampling_bundle_policy_floor_hashes_only_when_set() {
+        // R3.3: an unset floor leaves the bundle byte-identical to the
+        // pre-knob shape (old snapshot ids survive); a set floor is a knob
+        // like any other and produces a new id.
+        let unset = sampling_bundle(1500, 0.5, 1.0, 0.75, Some(4), None, None, None, None, None, None, None);
+        assert!(unset.get("policy_floor").is_none(), "absent knob never enters the bundle");
+        let set = sampling_bundle(1500, 0.5, 1.0, 0.75, Some(4), None, Some(0.001), None, None, None, None, None);
+        assert_eq!(set["policy_floor"], serde_json::json!(0.001));
+        let null = serde_json::Value::Null;
+        assert_ne!(
+            snapshot_id(&null, None, "maia-1500", &unset),
+            snapshot_id(&null, None, "maia-1500", &set),
         );
     }
 }
