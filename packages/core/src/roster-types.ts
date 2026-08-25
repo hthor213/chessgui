@@ -2,7 +2,7 @@
 // (spec 220 step 5).
 
 import type { RivalBook } from "./rival-book-types"
-import type { ErrorModel } from "./persona-types"
+import type { ErrorModel, StyleBias, TemperatureSchedule } from "./persona-types"
 
 /** The on-disk persona config shape (scripts/persona/build_persona_configs.py)
  *  — only the fields this loader consumes; files carry more (harness numbers,
@@ -30,6 +30,11 @@ export interface PersonaConfigFile {
     /** Corpus error model (spec 214 step 5); null/absent = OFF. Written by
      *  tune_persona.py ONLY when its held-out +2% bar enabled it. */
     error_model?: ErrorModel | null
+    /** Post-book style-bias window (spec 214 step 3); null/absent = OFF.
+     *  Same tuner gate as the error model (wave R2 promoted configs). */
+    style_bias?: StyleBias | null
+    /** Tuned temperature schedule from a promoted config; absent = default. */
+    schedule?: TemperatureSchedule | null
   }
   book?: { path?: string; positions?: number; games?: number }
 }

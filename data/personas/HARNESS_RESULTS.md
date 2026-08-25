@@ -892,3 +892,325 @@ Opening KL coverage 1.0 (book share 0.619).
 Style prior (stage C, 30 candidates): best = capture x2.0 for 4 plies after book exit; held-out match@1 0.656 -> 0.648 (delta -0.0080, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 9, '8': 18}.
 
 Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+---
+
+## Tuning run — spec 214 metrics harness + auto-tuning (2026-08-25 02:19)
+
+_Script `scripts/persona/tune_persona.py` · seed 214214 · reweight math ported 1:1 from src-tauri/src/persona.rs (persona_sim.py) · SF depth 12 verify / depth 16 endgame arm · total 23.3 min._
+
+Metric definitions: metrics214.py. move-match@1/@3 are ARGMAX-by-final-sampling-weight (temperature-invariant); expected match@1 is the mass the sampler puts on the human move; NLL is the proper scoring rule that fits temperature; ACPL profile and error timing are teacher-forced on the same held-out positions; opening KL is KL(real || book+policy) over the first 12 plies, visit-weighted.
+
+Tuning: coordinate descent — stage A (alpha, lambda) maximizes move-match@1 on the tune half; stage B (T, opening/endgame mults) minimizes NLL; stage C grid-searches candidate style priors (persona.rs StyleBias: one v1 move class x multiplier x post-book window, with plies-since-book-exit reconstructed from the eval games). The test half is untouched by the optimizers; the acceptance bar (+2% absolute match@1) is judged there — for params AND, separately, for the style prior, which ships OFF unless its own held-out delta meets the bar.
+
+### fischer
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 1.5 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.7, lambda=0.0, T=0.5 (opening x1.0, endgame x0.5)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.632 | 0.616 |
+| match@3 | 0.816 | 0.808 |
+| expected_match@1 | 0.5785 | 0.519 |
+| nll | 1.4633 | 1.5276 |
+| acpl_shape_similarity | 0.9408 | 0.9361 |
+| error_timing_similarity | 0.4489 | 0.363 |
+| opening KL (nats) | 0.9502 | 0.9419 |
+
+ACPL profile (test, default params): real {'opening': 4.8, 'middlegame': 8.8, 'endgame': 5.9} vs persona {'opening': 4.7, 'middlegame': 7.3, 'endgame': 6.6}; tuned persona {'opening': 8.1, 'middlegame': 16.8, 'endgame': 7.8}.
+Opening KL coverage 1.0 (book share 0.8255).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta -0.0160 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): no candidate beat the no-prior baseline on the tune half.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### kasparov
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 2.3 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.85, lambda=1.5, T=0.5 (opening x0.8, endgame x1.0)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.688 | 0.696 |
+| match@3 | 0.888 | 0.888 |
+| expected_match@1 | 0.5932 | 0.604 |
+| nll | 1.2145 | 1.2481 |
+| acpl_shape_similarity | 0.9833 | 0.9813 |
+| error_timing_similarity | 0.772 | 0.777 |
+| opening KL (nats) | 0.677 | 0.6822 |
+
+ACPL profile (test, default params): real {'opening': 5.7, 'middlegame': 10.0, 'endgame': 11.9} vs persona {'opening': 4.5, 'middlegame': 8.8, 'endgame': 10.6}; tuned persona {'opening': 3.3, 'middlegame': 5.7, 'endgame': 6.3}.
+Opening KL coverage 0.9368 (book share 0.9053).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta +0.0080 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = pawn_push x2.0 for 4 plies after book exit; held-out match@1 0.696 -> 0.68 (delta -0.0160, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 16, '8': 31}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### karpov
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 2.3 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.7, lambda=0.75, T=0.5 (opening x1.0, endgame x0.8)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.504 | 0.504 |
+| match@3 | 0.792 | 0.792 |
+| expected_match@1 | 0.431 | 0.4188 |
+| nll | 1.9783 | 1.907 |
+| acpl_shape_similarity | 0.8208 | 0.8316 |
+| error_timing_similarity | None | None |
+| opening KL (nats) | 0.681 | 0.6781 |
+
+ACPL profile (test, default params): real {'opening': 11.4, 'middlegame': 9.3, 'endgame': 7.4} vs persona {'opening': 4.0, 'middlegame': 7.4, 'endgame': 3.1}; tuned persona {'opening': 5.1, 'middlegame': 8.3, 'endgame': 3.3}.
+Opening KL coverage 0.9623 (book share 0.9409).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta +0.0000 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): no candidate beat the no-prior baseline on the tune half.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### spassky
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 2.1 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.5, lambda=0.75, T=0.5 (opening x0.8, endgame x1.0)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.544 | 0.552 |
+| match@3 | 0.832 | 0.832 |
+| expected_match@1 | 0.4816 | 0.4423 |
+| nll | 1.6653 | 1.6267 |
+| acpl_shape_similarity | 0.9697 | 0.9578 |
+| error_timing_similarity | None | None |
+| opening KL (nats) | 1.0223 | 1.006 |
+
+ACPL profile (test, default params): real {'opening': 7.2, 'middlegame': 7.9, 'endgame': 7.8} vs persona {'opening': 6.6, 'middlegame': 8.2, 'endgame': 8.2}; tuned persona {'opening': 7.6, 'middlegame': 10.5, 'endgame': 9.0}.
+Opening KL coverage 0.9548 (book share 0.8794).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta +0.0080 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = capture x2.0 for 8 plies after book exit; held-out match@1 0.552 -> 0.536 (delta -0.0160, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 20, '8': 38}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### fridrik-olafsson
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 1.6 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=1.0, lambda=0.75, T=0.8 (opening x1.0, endgame x0.8)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.528 | 0.528 |
+| match@3 | 0.808 | 0.808 |
+| expected_match@1 | 0.4832 | 0.441 |
+| nll | 1.9621 | 1.9536 |
+| acpl_shape_similarity | 0.9249 | 0.965 |
+| error_timing_similarity | 0.7325 | 0.5891 |
+| opening KL (nats) | 1.6157 | 1.5546 |
+
+ACPL profile (test, default params): real {'opening': 6.6, 'middlegame': 16.0, 'endgame': 0.0} vs persona {'opening': 5.2, 'middlegame': 9.1, 'endgame': 0.1}; tuned persona {'opening': 6.4, 'middlegame': 13.6, 'endgame': 0.2}.
+Opening KL coverage 1.0 (book share 0.6498).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta +0.0000 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = capture x0.5 for 8 plies after book exit; held-out match@1 0.528 -> 0.528 (delta +0.0000, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 5, '8': 17}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### hannes-stefansson
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 2.1 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=1.2, lambda=0.25, T=0.5 (opening x1.0, endgame x1.0)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.568 | 0.552 |
+| match@3 | 0.752 | 0.736 |
+| expected_match@1 | 0.4757 | 0.471 |
+| nll | 2.0253 | 2.0451 |
+| acpl_shape_similarity | 0.8647 | 0.8303 |
+| error_timing_similarity | 0.8154 | 0.8808 |
+| opening KL (nats) | 0.9237 | 0.9301 |
+
+ACPL profile (test, default params): real {'opening': 8.0, 'middlegame': 28.8, 'endgame': 21.6} vs persona {'opening': 5.4, 'middlegame': 10.9, 'endgame': 5.0}; tuned persona {'opening': 5.6, 'middlegame': 16.0, 'endgame': 5.4}.
+Opening KL coverage 0.9383 (book share 0.8887).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta -0.0160 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = pawn_push x2.0 for 4 plies after book exit; held-out match@1 0.552 -> 0.552 (delta +0.0000, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 11, '8': 24}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### hedinn-steingrimsson
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 1.7 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.85, lambda=0.75, T=0.65 (opening x0.8, endgame x1.0)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.648 | 0.648 |
+| match@3 | 0.864 | 0.864 |
+| expected_match@1 | 0.5708 | 0.53 |
+| nll | 1.3587 | 1.3828 |
+| acpl_shape_similarity | 0.9364 | 0.9431 |
+| error_timing_similarity | 0.5134 | 0.5422 |
+| opening KL (nats) | 1.3333 | 1.3093 |
+
+ACPL profile (test, default params): real {'opening': 7.8, 'middlegame': 14.9, 'endgame': 7.1} vs persona {'opening': 6.1, 'middlegame': 10.3, 'endgame': 3.5}; tuned persona {'opening': 6.7, 'middlegame': 12.7, 'endgame': 4.3}.
+Opening KL coverage 1.0 (book share 0.619).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta +0.0000 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = capture x2.0 for 8 plies after book exit; held-out match@1 0.648 -> 0.64 (delta -0.0080, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 9, '8': 18}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### helgi-olafsson
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 2.1 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.5, lambda=0.5, T=0.3 (opening x1.0, endgame x0.8)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.592 | 0.6 |
+| match@3 | 0.832 | 0.832 |
+| expected_match@1 | 0.5351 | 0.5314 |
+| nll | 1.7361 | 1.7088 |
+| acpl_shape_similarity | 0.9111 | 0.9026 |
+| error_timing_similarity | 0.0884 | 0.1159 |
+| opening KL (nats) | 1.0966 | 1.0886 |
+
+ACPL profile (test, default params): real {'opening': 8.5, 'middlegame': 9.3, 'endgame': 7.1} vs persona {'opening': 5.7, 'middlegame': 10.1, 'endgame': 6.5}; tuned persona {'opening': 5.7, 'middlegame': 10.1, 'endgame': 5.7}.
+Opening KL coverage 0.9019 (book share 0.8388).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta +0.0080 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = capture x2.0 for 8 plies after book exit; held-out match@1 0.6 -> 0.6 (delta +0.0000, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 12, '8': 24}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### johann-hjartarson
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 1.9 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.85, lambda=0.25, T=0.8 (opening x1.0, endgame x0.8)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.528 | 0.52 |
+| match@3 | 0.792 | 0.784 |
+| expected_match@1 | 0.4994 | 0.4306 |
+| nll | 1.9251 | 1.9596 |
+| acpl_shape_similarity | 0.9327 | 0.9099 |
+| error_timing_similarity | 0.9024 | 0.7552 |
+| opening KL (nats) | 0.8603 | 0.8437 |
+
+ACPL profile (test, default params): real {'opening': 3.0, 'middlegame': 13.5, 'endgame': 8.2} vs persona {'opening': 4.0, 'middlegame': 10.8, 'endgame': 6.8}; tuned persona {'opening': 7.6, 'middlegame': 19.0, 'endgame': 9.6}.
+Opening KL coverage 0.9855 (book share 0.8741).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta -0.0080 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = quiet_piece x2.0 for 8 plies after book exit; held-out match@1 0.52 -> 0.544 (delta +0.0240, bar +0.02) -> **ENABLED**. Live windows (test half): {'4': 17, '8': 26}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### jon-l-arnason
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 1.8 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=1.2, lambda=0.5, T=0.8 (opening x1.0, endgame x1.3)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.544 | 0.512 |
+| match@3 | 0.816 | 0.808 |
+| expected_match@1 | 0.4447 | 0.4071 |
+| nll | 1.975 | 1.9403 |
+| acpl_shape_similarity | 0.9121 | 0.8974 |
+| error_timing_similarity | 0.5432 | 0.5449 |
+| opening KL (nats) | 0.7503 | 0.7371 |
+
+ACPL profile (test, default params): real {'opening': 6.0, 'middlegame': 21.0, 'endgame': 16.4} vs persona {'opening': 4.2, 'middlegame': 12.7, 'endgame': 6.9}; tuned persona {'opening': 5.5, 'middlegame': 20.6, 'endgame': 9.9}.
+Opening KL coverage 1.0 (book share 0.8479).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta -0.0320 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = pawn_push x1.5 for 8 plies after book exit; held-out match@1 0.512 -> 0.52 (delta +0.0080, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 10, '8': 23}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### margeir-petursson
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 2.1 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.5, lambda=0.75, T=0.5 (opening x1.0, endgame x1.3)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.624 | 0.624 |
+| match@3 | 0.848 | 0.856 |
+| expected_match@1 | 0.5736 | 0.4989 |
+| nll | 1.4687 | 1.4939 |
+| acpl_shape_similarity | 0.9254 | 0.9263 |
+| error_timing_similarity | None | None |
+| opening KL (nats) | 1.1171 | 1.097 |
+
+ACPL profile (test, default params): real {'opening': 4.4, 'middlegame': 7.4, 'endgame': 5.2} vs persona {'opening': 3.0, 'middlegame': 7.7, 'endgame': 5.7}; tuned persona {'opening': 4.8, 'middlegame': 10.5, 'endgame': 9.5}.
+Opening KL coverage 0.951 (book share 0.85).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta +0.0000 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): best = quiet_piece x2.0 for 4 plies after book exit; held-out match@1 0.624 -> 0.632 (delta +0.0080, bar +0.02) -> **measured, below the bar — stays off**. Live windows (test half): {'4': 7, '8': 18}.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.
+
+### sigurjonsson
+
+Backend `lc0-bt3` · 250 records (of 250 positions; skipped {'terminal_policy': 0, 'eval_failed': 0, 'budget_cut': 0}) · tune/test 125/125 · runtime 1.6 min (cap 180).
+
+- defaults: alpha=1.0, lambda=0.75, T=0.5 (flat)
+- tuned:    alpha=0.5, lambda=1.5, T=0.5 (opening x0.8, endgame x0.5)
+
+| metric (test half) | default | tuned |
+|---|--:|--:|
+| match@1 | 0.52 | 0.496 |
+| match@3 | 0.736 | 0.76 |
+| expected_match@1 | 0.4349 | 0.4246 |
+| nll | 2.2511 | 2.2196 |
+| acpl_shape_similarity | 0.9086 | 0.8741 |
+| error_timing_similarity | 0.6374 | 0.5714 |
+| opening KL (nats) | 2.4279 | 2.3859 |
+
+ACPL profile (test, default params): real {'opening': 10.3, 'middlegame': 16.4, 'endgame': 9.0} vs persona {'opening': 4.7, 'middlegame': 9.4, 'endgame': 3.0}; tuned persona {'opening': 3.9, 'middlegame': 7.8, 'endgame': 1.7}.
+Opening KL coverage 0.8438 (book share 0.0).
+
+**Acceptance bar (+2% absolute argmax move-match@1 on the test half): delta -0.0240 -> NOT MET.**
+
+Style prior (stage C, 30 candidates): no candidate beat the no-prior baseline on the tune half.
+
+Error model (stage D, corpus band 1900, 4 scales): no rate_scale beat the no-model baseline on the tune half. Coverage (test half): 125.

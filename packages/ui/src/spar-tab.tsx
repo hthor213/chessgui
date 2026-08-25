@@ -280,7 +280,16 @@ export function samplingParamsFor(
 ): Partial<
   Pick<
     PersonaParams,
-    "weights" | "temperature" | "alpha" | "lambda" | "top_k" | "top_p" | "verify_depth" | "error_model"
+    | "weights"
+    | "temperature"
+    | "alpha"
+    | "lambda"
+    | "top_k"
+    | "top_p"
+    | "verify_depth"
+    | "error_model"
+    | "style_bias"
+    | "schedule"
   >
 > {
   if (!pc) return {}
@@ -299,6 +308,11 @@ export function samplingParamsFor(
     // Corpus error model (spec 214 step 5): present ONLY when the tuner's
     // held-out bar enabled it for this persona's config; default OFF.
     ...(pc.errorModel !== undefined ? { error_model: pc.errorModel } : {}),
+    // Post-book style-bias window + tuned schedule (wave R2 promoted
+    // configs): same tuner gate; the style window only fires when the game
+    // flow also passes plies_since_book_exit (wired below).
+    ...(pc.styleBias !== undefined ? { style_bias: pc.styleBias } : {}),
+    ...(pc.schedule !== undefined ? { schedule: pc.schedule } : {}),
   }
 }
 

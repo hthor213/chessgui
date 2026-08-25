@@ -1,0 +1,348 @@
+{
+  "label": "fischer",
+  "status": "ok",
+  "backend": "lc0-bt3",
+  "n_positions": 250,
+  "n_records": 250,
+  "skipped": {
+    "terminal_policy": 0,
+    "eval_failed": 0,
+    "budget_cut": 0
+  },
+  "split": {
+    "tune": 125,
+    "test": 125,
+    "seed": 214214
+  },
+  "default_params": {
+    "alpha": 1.0,
+    "lambda": 0.75,
+    "temperature": 0.5,
+    "schedule": null
+  },
+  "tuned_params": {
+    "alpha": 0.7,
+    "lambda": 0.0,
+    "temperature": 0.5,
+    "schedule": {
+      "opening_mult": 1.0,
+      "middlegame_mult": 1.0,
+      "endgame_mult": 0.5,
+      "low_time_ms": 30000,
+      "low_time_mult": 1.5,
+      "panic_time_ms": 10000,
+      "panic_mult": 2.25
+    }
+  },
+  "style_prior": {
+    "grid_size": 30,
+    "base_match@1_tune": 0.592,
+    "windows_live_tune": {
+      "4": 9,
+      "8": 19
+    },
+    "windows_live_test": {
+      "4": 15,
+      "8": 29
+    },
+    "bar": "+2% absolute argmax move-match@1 on the test half vs the same tuned params without the prior",
+    "prior": null,
+    "enabled": false,
+    "verdict": "no candidate beat the no-prior baseline on the tune half"
+  },
+  "error_model": {
+    "band": "1900",
+    "grid": [
+      {
+        "rate_scale": 0.5,
+        "match@1_tune": 0.592
+      },
+      {
+        "rate_scale": 1.0,
+        "match@1_tune": 0.592
+      },
+      {
+        "rate_scale": 1.5,
+        "match@1_tune": 0.592
+      },
+      {
+        "rate_scale": 2.0,
+        "match@1_tune": 0.576
+      }
+    ],
+    "base_match@1_tune": 0.592,
+    "covered_tune": 125,
+    "covered_test": 125,
+    "bar": "+2% absolute argmax move-match@1 on the test half vs the same tuned params without the model",
+    "model": null,
+    "enabled": false,
+    "verdict": "no rate_scale beat the no-model baseline on the tune half",
+    "level": 1900
+  },
+  "tuning_trace": {
+    "stage_a": [
+      {
+        "sweep": 0,
+        "alpha": 0.85,
+        "lambda": 0.0,
+        "match@1": 0.592,
+        "match@3": 0.872
+      },
+      {
+        "sweep": 1,
+        "alpha": 0.7,
+        "lambda": 0.0,
+        "match@1": 0.592,
+        "match@3": 0.872
+      },
+      {
+        "sweep": 2,
+        "alpha": 0.7,
+        "lambda": 0.0,
+        "match@1": 0.592,
+        "match@3": 0.872
+      }
+    ],
+    "stage_b": [
+      {
+        "sweep": 0,
+        "temperature": 0.5,
+        "opening_mult": 1.0,
+        "endgame_mult": 0.5,
+        "nll": 1.4606
+      },
+      {
+        "sweep": 1,
+        "temperature": 0.5,
+        "opening_mult": 1.0,
+        "endgame_mult": 0.5,
+        "nll": 1.4606
+      }
+    ],
+    "sweeps_a": 3,
+    "sweeps_b": 2
+  },
+  "metrics": {
+    "tune_half": {
+      "default": {
+        "n": 125,
+        "match@1": 0.576,
+        "match@3": 0.872,
+        "expected_match@1": 0.5225,
+        "nll": 1.4799,
+        "per_phase": {
+          "opening": {
+            "n": 20,
+            "match@1": 0.6,
+            "match@3": 0.8
+          },
+          "middlegame": {
+            "n": 85,
+            "match@1": 0.5412,
+            "match@3": 0.8588
+          },
+          "endgame": {
+            "n": 20,
+            "match@1": 0.7,
+            "match@3": 1.0
+          }
+        },
+        "real_acpl": {
+          "opening": 5.3,
+          "middlegame": 14.3,
+          "endgame": 5.4
+        },
+        "persona_acpl": {
+          "opening": 3.1,
+          "middlegame": 10.8,
+          "endgame": 4.2
+        },
+        "acpl_shape_similarity": 0.9576,
+        "real_mistakes_total": 0,
+        "persona_expected_mistakes_total": 0.45,
+        "error_timing_real": {},
+        "error_timing_persona": {
+          "10-19": 0.0,
+          "20-29": 0.08,
+          "30-39": 0.15,
+          "40-49": 0.03,
+          "50-60": 0.19
+        },
+        "error_timing_similarity": null,
+        "error_phase_similarity": null
+      },
+      "tuned": {
+        "n": 125,
+        "match@1": 0.592,
+        "match@3": 0.872,
+        "expected_match@1": 0.4668,
+        "nll": 1.4606,
+        "per_phase": {
+          "opening": {
+            "n": 20,
+            "match@1": 0.6,
+            "match@3": 0.8
+          },
+          "middlegame": {
+            "n": 85,
+            "match@1": 0.5647,
+            "match@3": 0.8588
+          },
+          "endgame": {
+            "n": 20,
+            "match@1": 0.7,
+            "match@3": 1.0
+          }
+        },
+        "real_acpl": {
+          "opening": 5.3,
+          "middlegame": 14.3,
+          "endgame": 5.4
+        },
+        "persona_acpl": {
+          "opening": 6.4,
+          "middlegame": 22.4,
+          "endgame": 6.0
+        },
+        "acpl_shape_similarity": 0.9258,
+        "real_mistakes_total": 0,
+        "persona_expected_mistakes_total": 3.44,
+        "error_timing_real": {},
+        "error_timing_persona": {
+          "10-19": 0.08,
+          "20-29": 0.88,
+          "30-39": 0.95,
+          "40-49": 0.63,
+          "50-60": 0.9
+        },
+        "error_timing_similarity": null,
+        "error_phase_similarity": null
+      }
+    },
+    "test_half": {
+      "default": {
+        "n": 125,
+        "match@1": 0.632,
+        "match@3": 0.816,
+        "expected_match@1": 0.5785,
+        "nll": 1.4633,
+        "per_phase": {
+          "opening": {
+            "n": 25,
+            "match@1": 0.68,
+            "match@3": 0.8
+          },
+          "middlegame": {
+            "n": 87,
+            "match@1": 0.5977,
+            "match@3": 0.8161
+          },
+          "endgame": {
+            "n": 13,
+            "match@1": 0.7692,
+            "match@3": 0.8462
+          }
+        },
+        "real_acpl": {
+          "opening": 4.8,
+          "middlegame": 8.8,
+          "endgame": 5.9
+        },
+        "persona_acpl": {
+          "opening": 4.7,
+          "middlegame": 7.3,
+          "endgame": 6.6
+        },
+        "acpl_shape_similarity": 0.9408,
+        "real_mistakes_total": 1.0,
+        "persona_expected_mistakes_total": 0.52,
+        "error_timing_real": {
+          "50-60": 1.0
+        },
+        "error_timing_persona": {
+          "10-19": 0.16,
+          "20-29": 0.03,
+          "30-39": 0.02,
+          "40-49": 0.08,
+          "50-60": 0.23
+        },
+        "error_timing_similarity": 0.4489,
+        "error_phase_similarity": 0.9722
+      },
+      "tuned": {
+        "n": 125,
+        "match@1": 0.616,
+        "match@3": 0.808,
+        "expected_match@1": 0.519,
+        "nll": 1.5276,
+        "per_phase": {
+          "opening": {
+            "n": 25,
+            "match@1": 0.68,
+            "match@3": 0.8
+          },
+          "middlegame": {
+            "n": 87,
+            "match@1": 0.5747,
+            "match@3": 0.8046
+          },
+          "endgame": {
+            "n": 13,
+            "match@1": 0.7692,
+            "match@3": 0.8462
+          }
+        },
+        "real_acpl": {
+          "opening": 4.8,
+          "middlegame": 8.8,
+          "endgame": 5.9
+        },
+        "persona_acpl": {
+          "opening": 8.1,
+          "middlegame": 16.8,
+          "endgame": 7.8
+        },
+        "acpl_shape_similarity": 0.9361,
+        "real_mistakes_total": 1.0,
+        "persona_expected_mistakes_total": 3.4,
+        "error_timing_real": {
+          "50-60": 1.0
+        },
+        "error_timing_persona": {
+          "10-19": 0.54,
+          "20-29": 0.4,
+          "30-39": 0.69,
+          "40-49": 0.53,
+          "50-60": 1.23
+        },
+        "error_timing_similarity": 0.363,
+        "error_phase_similarity": 0.9868
+      }
+    }
+  },
+  "opening_kl": {
+    "default": {
+      "kl_nats": 0.9502,
+      "positions": 165,
+      "covered": 165,
+      "visit_coverage": 1.0,
+      "book_share_of_covered": 0.8255
+    },
+    "tuned": {
+      "kl_nats": 0.9419,
+      "positions": 165,
+      "covered": 165,
+      "visit_coverage": 1.0,
+      "book_share_of_covered": 0.8255
+    },
+    "k_plies": 12,
+    "leak_note": null
+  },
+  "acceptance": {
+    "bar": "+2% absolute argmax move-match@1 on the test half",
+    "delta_match@1_test": -0.016,
+    "met": false
+  },
+  "runtime_s": 91.2,
+  "budget_min": 180.0
+}
