@@ -89,7 +89,10 @@ export function saveDefaultChesscomUsername(username: string): void {
  * their own.
  */
 const tauriChesscomFetch: FetchLike = async (url, init) => {
-  const { invoke } = await import("@tauri-apps/api/core")
+  // Through the tauri-bridge seam (not @tauri-apps directly): the web shell
+  // shadows "@/lib/tauri-bridge" with an inert stub, and a direct import here
+  // drags @tauri-apps/api into the web bundle past the check-no-tauri gate.
+  const { invoke } = await import("@/lib/tauri-bridge")
   const res = await invoke<{ ok: boolean; status: number; body: string }>("chesscom_get", {
     url,
     userAgent: init.headers["User-Agent"] ?? CHESSCOM_USER_AGENT,
