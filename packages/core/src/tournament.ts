@@ -5,7 +5,7 @@
 // `GameSpec[]` payload, keeps the id -> eval side-table the Rust side does not
 // carry, and aggregates outcomes into an eval -> conversion probability map.
 
-import type { ErrorModel, PersonaDecision } from "./persona-types"
+import type { EndgameArm, ErrorModel, PersonaDecision } from "./persona-types"
 
 // ---------------------------------------------------------------------------
 // Participant wire shape (spec 218 "The Participant") — camelCase, matches
@@ -36,7 +36,18 @@ export interface PersonaConfig {
   lambda: number
   topK?: number
   topP?: number
+  /** Candidate-width policy floor (realism audit R3.3); absent = the Rust
+   *  core's 0.01 POLICY_FLOOR. Wire name `policyFloor` (camelCase rename). */
+  policyFloor?: number
   verifyDepth?: number
+  /** Endgame arm override (realism audit R1.3 band-scaling); absent = the
+   *  runner's default arm (depth 16, i.e. the top band). Nested fields stay
+   *  snake_case on the wire, mirroring persona_move's params. */
+  endgame?: EndgameArm
+  /** Opening book (realism audit R3.4): path to a build_rival_book.py book
+   *  JSON. Absent/unreadable = bookless (the historical behavior). Wire name
+   *  `bookPath`. */
+  bookPath?: string
   /** Named managed net (e.g. "bt3"), overriding the Maia band policy backend. */
   weights?: string
   /** Per-persona base seed; mixed with the game id server-side (spec 214

@@ -56,6 +56,32 @@ export const DEFAULT_PERSONA_PARAMS = {
   endgame: { phase_max: 8, depth: 16, top_k: 4 },
 } as const;
 
+/** Band-dependent sampling shape (realism audit waves R1.3 + R3.3, TS half):
+ *  candidate width, policy floor, and endgame-arm depth are functions of the
+ *  persona's HONEST Maia band — a 1300 gets a wide, low-floor candidate set
+ *  and a shallow endgame arm so it botches endings at 1300-rate, instead of
+ *  every band converting R+P endings with depth-16 Stockfish (the audit's
+ *  "always-ON pieces overshoot the band" finding). Full strength (the BT3
+ *  managed net) counts as the top band. Callers spread this AFTER a config's
+ *  stored sampling overrides: every committed config today carries the same
+ *  untuned defaults (audit item 5), so for these three knobs the band is the
+ *  more honest signal — revisit the ordering when wave R2 lands per-persona
+ *  tuned values. */
+export function bandSamplingParams(
+  level: number,
+  fullStrength = false,
+): Pick<PersonaParams, "top_k" | "policy_floor" | "endgame"> {
+  const band = fullStrength ? Infinity : level;
+  return {
+    top_k: band <= 1300 ? 6 : band <= 1600 ? 5 : 4,
+    policy_floor: band <= 1300 ? 0.005 : band <= 1600 ? 0.008 : 0.01,
+    endgame: {
+      ...DEFAULT_PERSONA_PARAMS.endgame,
+      depth: band <= 1200 ? 6 : band <= 1500 ? 8 : band <= 1900 ? 10 : 16,
+    },
+  };
+}
+
 /**
  * The rival's out-of-book move for `fen` under `params`, with its decision log.
  * The browser provider (Playwright / unit tests) returns a canned legal move

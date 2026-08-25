@@ -29,12 +29,16 @@ export function sparTimeControlLabel(preset: PlayClockPreset): string | null {
 }
 
 /**
- * How long the persona "thinks" on its own clock, in ms. No persona time
- * model exists yet (persona.rs / machine.rs carry none), so this is a bounded
- * uniform draw — a plausibility bound, never a claim about the player's real
- * pace: [1s, 5% of remaining], with the floor dropping to half the remaining
- * time when under 2s so the sampled delay alone can never flag the persona
- * (real engine latency on top still can — that flag is honest).
+ * SUPERSEDED for the spar loop (spec 214 contract step 10, realism audit wave
+ * R1.1): the rival's think-time now comes from lib/spar-think-time's
+ * sparThinkTimeMs — computed from the decision itself (candidate weights,
+ * forcedness, eval swing, phase, clock pressure), clocked AND unclocked.
+ * This is the old placeholder: a bounded uniform draw, position-blind —
+ * [1s, 5% of remaining], with the floor dropping to half the remaining time
+ * when under 2s so the sampled delay alone can never flag the persona (real
+ * engine latency on top still can — that flag is honest). Kept exported as
+ * the reference for the never-self-flag property the new model's clocked
+ * caps preserve.
  */
 export function personaThinkTimeMs(remainingMs: number, rng: () => number = Math.random): number {
   if (remainingMs <= 0) return 0

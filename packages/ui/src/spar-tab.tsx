@@ -36,6 +36,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@chessgui/ui/ui/avatar"
 import {
   personaMove,
   DEFAULT_PERSONA_PARAMS,
+  bandSamplingParams,
   type PersonaDecision,
   type PersonaParams,
 } from "@/lib/persona"
@@ -98,11 +99,35 @@ import { remainingMs, type PlayClockPreset } from "@/lib/play-clock"
 import { formatClockMs } from "@/lib/arena-moves"
 import {
   flagResultLabel,
-  personaThinkTimeMs,
   SPAR_TC_OFF,
   SPAR_TC_PRESETS,
   sparTimeControlLabel,
 } from "@/lib/spar-clock"
+import { rivalTurnRng } from "@/lib/seeded-rng"
+import {
+  bestCandidateEvalPawns,
+  chosenCandidateEvalPawns,
+  forcednessSignals,
+  sparThinkTimeMs,
+} from "@/lib/spar-think-time"
+import {
+  INITIAL_TILT_STATE,
+  tiltMultipliers,
+  updateTilt,
+  type TiltState,
+} from "@/lib/spar-tilt"
+import {
+  BOT_DRAW_AGREED_LABEL,
+  BOT_DRAW_OFFER_RULE_DESCRIPTION,
+  BOT_RESIGN_RULE_DESCRIPTION,
+  botResignLabel,
+  etiquetteAction,
+  fullmoveOf,
+  INITIAL_ETIQUETTE_STATE,
+  markDrawOffered,
+  updateEtiquette,
+  type EtiquetteState,
+} from "@/lib/spar-etiquette"
 
 const Board = dynamic(() => import("@chessgui/ui/board").then((m) => ({ default: m.Board })), {
   ssr: false,
@@ -200,6 +225,22 @@ interface PersonaDecisionLogEntry {
    *  sampling knobs — still names the version. Same seed + same snapshot
    *  reproduces the move; older stored entries predate this field. */
   snapshotId?: string
+  /** R3.1 tilt/momentum (spec 214 realism audit): the temperature/lambda
+   *  multipliers ACTUALLY applied to this move's sampling params (1.0/1.0
+   *  when calm) — the stored decision reflects what was sampled under, not
+   *  the calm baseline. Older stored entries predate this field. */
+  tilt?: { temperatureMult: number; lambdaMult: number }
+  /** R1.1 think-time (contract step 10): the sampled think-time this move was
+   *  scheduled under — stored so tempo feedback (the audit's loudest tell)
+   *  can be joined against the record. Older stored entries predate this
+   *  field. */
+  thinkTimeMs?: number
+  /** The rival's own remaining clock at decision time (the think-time model's
+   *  compression input and contract step 3's clock dimension); null when the
+   *  game is unclocked. Stored because reconstructing the think-time from the
+   *  seed alone would also need this. Older stored entries predate this
+   *  field. */
+  clockMs?: number | null
   decision: PersonaDecision
 }
 
@@ -400,11 +441,28 @@ export function SparTab() {
   // position-derived status below. Both freeze the board; neither is a
   // position-derived game end.
   const [probeEnded, setProbeEnded] = useState(false)
-  const [manualEnd, setManualEnd] = useState<{ label: string } | null>(null)
+  // `rule` is the visible-rule tooltip when the end came from a bot-side
+  // etiquette rule (resign / accepted offer — spec 214 hard line: the rule
+  // ships verbatim in the UI, never hidden dice).
+  const [manualEnd, setManualEnd] = useState<{ label: string; rule?: string } | null>(null)
   // Draw offers: the ply count at the last offer (spam guard, one per 10
   // plies) and a brief "declined" note.
   const [lastDrawOfferPly, setLastDrawOfferPly] = useState<number | null>(null)
   const [drawDeclinedNote, setDrawDeclinedNote] = useState(false)
+  // R3.2 (spec 214 realism audit): a PENDING draw offer from the bot — the
+  // user accepts or declines in the UI; at most one per game, enforced in the
+  // etiquette state below.
+  const [botDrawOffer, setBotDrawOffer] = useState(false)
+  // R3.1 tilt/momentum + R3.2 etiquette + R1.1 think-time context: per-game
+  // hidden state driven by each of the bot's own decisions. Refs, not state —
+  // they never render (tilt is felt, not announced); reset on new game and on
+  // take-back (a rewound game replays calm rather than acting on a rewritten
+  // past — and undoing a bot resignation must not instantly re-fire it).
+  const tiltRef = useRef<TiltState>(INITIAL_TILT_STATE)
+  const etiquetteRef = useRef<EtiquetteState>(INITIAL_ETIQUETTE_STATE)
+  // Best-candidate eval (bot POV, pawns) from the rival's previous own
+  // decision — the think-time model's eval-swing "surprise" baseline.
+  const prevOwnBestEvalRef = useRef<number | null>(null)
   const drawDeclinedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(drawDeclinedTimer.current), [])
 
@@ -473,8 +531,8 @@ export function SparTab() {
   // fallen flag ends a LIVE game (flag = loss) but never rewrites an end that
   // already happened — position-derived and manual ends are checked first, so
   // a clock left conceptually running after checkmate can't relabel the game.
-  const status = useMemo(() => {
-    if (manualEnd) return { over: true, label: manualEnd.label }
+  const status = useMemo<{ over: boolean; label: string | null; rule?: string }>(() => {
+    if (manualEnd) return { over: true, label: manualEnd.label, rule: manualEnd.rule }
     const s = fen ? sparStatus(fen) : { over: false, label: null }
     if (s.over) return s
     if (flagged) return { over: true, label: flagResultLabel(flagged) }
@@ -588,6 +646,10 @@ export function SparTab() {
     setLastDrawOfferPly(null)
     setDrawDeclinedNote(false)
     setFallbackBackend(null)
+    setBotDrawOffer(false)
+    tiltRef.current = INITIAL_TILT_STATE
+    etiquetteRef.current = INITIAL_ETIQUETTE_STATE
+    prevOwnBestEvalRef.current = null
     goLive()
     setGameSeed(newGameSeed())
 
@@ -651,43 +713,68 @@ export function SparTab() {
     // left his book, which the persona engine's style-bias window keys off.
     const bookMap = moveMaps ? (rivalColor === "white" ? moveMaps.white : moveMaps.black) : null
 
-    // Persona think-time (spec 215): with a clock running, the reply lands
-    // only after a plausible pause, so the persona's clock actually burns.
-    // No persona time model exists (persona.rs / machine.rs carry none), so
-    // it's lib/spar-clock's bounded draw off the persona's remaining time —
-    // a plausibility bound, never a claim about the player's real pace.
-    // 0 when unclocked, keeping the pre-clock behavior byte-for-byte.
+    // The half-move index this reply occupies. The persona engine seeds off
+    // (gameSeed, ply) so the same seed reproduces the same move (spec 214
+    // contract step 8) — and the frontend's own draws (the book reply choice
+    // and the think-time, waves R1.4 + R1.1) come from a mulberry32 stream
+    // seeded from the same pair, so the WHOLE rival turn is reproducible.
+    const movePly = plies.length
+    const rng = rivalTurnRng(gameSeed, movePly)
+    const lastPly = plies.length > 0 ? plies[plies.length - 1] : null
+    // R1.2: the rival's remaining clock — passed to persona_move below (which
+    // activates the Rust panic-temperature / clock-bucket machinery against
+    // humans, previously live only in the match runner) and to the think-time
+    // model's compression caps. Null when unclocked.
     const clk = getEngineClock()
-    const thinkMs = clk
-      ? personaThinkTimeMs(rivalColor === "white" ? clk.wtimeMs : clk.btimeMs)
-      : 0
+    const rivalClockMs = clk ? (rivalColor === "white" ? clk.wtimeMs : clk.btimeMs) : null
+    const fullStrength = !!participant?.personaConfig?.weights
     const thinkStartedAt = Date.now()
     let applyTimer: ReturnType<typeof setTimeout> | undefined
 
     if (bookStartMode === "movebymove" && bookMap) {
-      const reply = lookupRivalReply(bookMap, fen, Math.random)
+      const reply = lookupRivalReply(bookMap, fen, rng)
       if (reply) {
         const uci = replySanToUci(fen, reply.san)
         const ply = uci ? applyUci(fen, uci) : null
         if (ply) {
-          if (thinkMs <= 0) {
-            pendingFenRef.current = null
-            setBookStatus("book")
-            setPlies((prev) => [...prev, ply])
-            setFen(ply.fen)
-            return
-          }
-          // Clocked: hold the (instant) book reply for the sampled think time.
-          pendingFenRef.current = fen
-          setThinking(true)
-          setBookStatus("book")
-          applyTimer = setTimeout(() => {
+          // R1.1 think-time (spec 214 contract step 10): book replies think
+          // too — the near-instant recall arm of lib/spar-think-time, clocked
+          // AND unclocked (the unclocked spar used to reply at compute speed,
+          // the audit's loudest realism tell).
+          const thinkMs = sparThinkTimeMs({
+            reason: "book",
+            decision: null,
+            ply: movePly,
+            remainingClockMs: rivalClockMs,
+            prevOwnBestEvalPawns: prevOwnBestEvalRef.current,
+            forced: forcednessSignals(fen, uci!, lastPly),
+            rng,
+          })
+          // R3.2: a book reply carries no eval evidence — it resets the
+          // etiquette streaks (the bot never resigns or offers in book).
+          etiquetteRef.current = updateEtiquette(etiquetteRef.current, {
+            inBook: true,
+            evalPawns: null,
+            fullStrength,
+          })
+          const applyBookMove = () => {
             if (pendingFenRef.current !== fen) return
             pendingFenRef.current = null
             setThinking(false)
             setPlies((prev) => [...prev, ply])
             setFen(ply.fen)
-          }, thinkMs)
+          }
+          if (thinkMs <= 0) {
+            // Only reachable with an exhausted clock — apply immediately.
+            pendingFenRef.current = fen
+            setBookStatus("book")
+            applyBookMove()
+            return
+          }
+          pendingFenRef.current = fen
+          setThinking(true)
+          setBookStatus("book")
+          applyTimer = setTimeout(applyBookMove, thinkMs)
           return () => clearTimeout(applyTimer)
         }
         // A malformed/stale entry (SAN didn't parse or apply here) — fall
@@ -700,15 +787,23 @@ export function SparTab() {
     setThinking(true)
     setMoveError(null)
     setBookStatus(bookStartMode === "movebymove" ? "maia" : null)
-    // The half-move index this reply occupies — the RNG seeds off (gameSeed, ply)
-    // so the same seed reproduces the same move (spec 214 contract step 8).
-    const movePly = plies.length
-    personaMove(fen, {
+    // R3.1 tilt/momentum: the CURRENT tilt multipliers scale this move's
+    // sampling — a recent blunder loosens the next few moves, a worsening
+    // trend loosens play while it lasts. Context-conditioned parameters on
+    // the human model, never engine noise (spec 214 hard rule); felt, not
+    // announced (no UI badge).
+    const tilt = tiltMultipliers(tiltRef.current)
+    const baseParams: PersonaParams = {
       ...DEFAULT_PERSONA_PARAMS,
       // Per-persona sampling overrides from the entry's config file (level
       // itself passed the roster's honesty gate — always a real Maia band,
       // serving as the fallback when the overrides carry a `weights` net).
       ...samplingParamsFor(participant?.personaConfig),
+      // Band-dependent candidate width / policy floor / endgame depth (waves
+      // R1.3 + R3.3): spread AFTER the config overrides on purpose — every
+      // committed config still carries the untuned defaults, and the honest
+      // band (full strength = top band) is what these three knobs must track.
+      ...bandSamplingParams(effectiveLevel, fullStrength),
       level: effectiveLevel,
       seed: gameSeed,
       ply: movePly,
@@ -719,6 +814,14 @@ export function SparTab() {
       ...(bookMap
         ? { plies_since_book_exit: pliesSinceBookExit(bookMap, rivalColor, startFen, plies) }
         : {}),
+      // R1.2: the rival's own remaining clock (contract step 3's clock
+      // dimension) — omitted when unclocked (absent = no time pressure).
+      ...(rivalClockMs != null ? { clock_ms: Math.max(0, Math.round(rivalClockMs)) } : {}),
+    }
+    personaMove(fen, {
+      ...baseParams,
+      temperature: baseParams.temperature * tilt.temperatureMult,
+      lambda: baseParams.lambda * tilt.lambdaMult,
     })
       .then((decision) => {
         // Discard if the board moved on (take-back / new game) while we waited.
@@ -739,8 +842,24 @@ export function SparTab() {
           setThinking(false)
           return
         }
+        // R1.1 think-time from the decision itself (candidate weights,
+        // forcedness, eval swing vs his previous decision, phase, clock).
+        // Computed BEFORE the decision log below so the sampled value lands
+        // in the stored record.
+        const thinkMs = sparThinkTimeMs({
+          reason: decision.reason,
+          decision,
+          ply: movePly,
+          remainingClockMs: rivalClockMs,
+          prevOwnBestEvalPawns: prevOwnBestEvalRef.current,
+          forced: forcednessSignals(fen, decision.uci, lastPly),
+          rng,
+        })
         // Stash the per-move decision log locally (private data, contract step
-        // 9) — best-effort, never blocks the move.
+        // 9) — best-effort, never blocks the move. The applied tilt
+        // multipliers and the sampled think-time ride along (R3.1 + R1.1): the
+        // stored decision reflects the params it was ACTUALLY sampled under
+        // and the tempo it was ACTUALLY played at, not the calm baseline.
         appendDecisionLog({
           at: new Date().toISOString(),
           rival: opponentLabel,
@@ -752,13 +871,45 @@ export function SparTab() {
           // Spec 214 snapshot: the file-level bundle id when the roster
           // loaded one, else the engine's effective-knob id from this move.
           snapshotId: participant?.personaConfig?.snapshotId ?? decision.snapshot_id,
+          tilt: { temperatureMult: tilt.temperatureMult, lambdaMult: tilt.lambdaMult },
+          thinkTimeMs: thinkMs,
+          clockMs: rivalClockMs,
           decision,
         })
+        prevOwnBestEvalRef.current = bestCandidateEvalPawns(decision) ?? prevOwnBestEvalRef.current
+        // R3.1 + R3.2: fold this own decision into the tilt and etiquette
+        // state, then read off whether he resigns or offers a draw — both
+        // VISIBLE rules (spec 214 hard line), their tooltips ride the end
+        // state / offer prompt below.
+        tiltRef.current = updateTilt(tiltRef.current, decision)
+        etiquetteRef.current = updateEtiquette(etiquetteRef.current, {
+          inBook: false,
+          evalPawns: chosenCandidateEvalPawns(decision),
+          fullStrength,
+        })
+        const action = etiquetteAction(etiquetteRef.current, fullmoveOf(fen), fullStrength)
         const applyMove = () => {
           if (!live || pendingFenRef.current !== fen) return
           setThinking(false)
+          if (action === "resign") {
+            // R3.2: he resigns INSTEAD of playing another hopeless move — the
+            // game ends through the manual-end path, label phrased through
+            // spar-results' existing "… wins" pattern (botResignLabel).
+            pendingFenRef.current = null
+            setManualEnd({
+              label: botResignLabel(opponentLabel, userColor),
+              rule: BOT_RESIGN_RULE_DESCRIPTION,
+            })
+            return
+          }
           setPlies((prev) => [...prev, ply])
           setFen(ply.fen)
+          if (action === "offer_draw") {
+            // R3.2: the single per-game offer — spent here, decided by the
+            // user in the UI (accept / decline / just keep playing).
+            etiquetteRef.current = markDrawOffered(etiquetteRef.current)
+            setBotDrawOffer(true)
+          }
         }
         // The engine's own compute time counts toward the sampled think time;
         // only the remainder (if any) is still waited out.
@@ -793,6 +944,8 @@ export function SparTab() {
     startFen,
     sparMode,
     getEngineClock,
+    // The bot-resign label names the winner by the user's colour (R3.2).
+    userColor,
   ])
 
   const userToMove = phase === "playing" && !!fen && turnOf(fen) === userColor && !frozen
@@ -807,6 +960,9 @@ export function SparTab() {
       const uci = dragToUci(fen, from as string, to as string)
       const ply = applyUci(fen, uci)
       if (!ply) return
+      // Playing on past a pending bot draw offer declines it implicitly (the
+      // one per-game offer stays spent — etiquette state already marked it).
+      setBotDrawOffer(false)
       setPlies((prev) => [...prev, ply])
       setFen(ply.fen)
     },
@@ -820,6 +976,13 @@ export function SparTab() {
   const takeBack = useCallback(() => {
     if (thinking) return
     if (flagged) return // a fallen flag is final (flag = loss) — no take-back
+    // A rewind rewrites the recent past — the tilt/etiquette state derived
+    // from it no longer applies (and undoing a bot resignation must not
+    // instantly re-fire it: the streak restarts from the resumed position).
+    tiltRef.current = INITIAL_TILT_STATE
+    etiquetteRef.current = INITIAL_ETIQUETTE_STATE
+    prevOwnBestEvalRef.current = null
+    setBotDrawOffer(false)
     if (manualEnd || probeEnded) {
       pendingFenRef.current = null
       setManualEnd(null)
@@ -864,6 +1027,16 @@ export function SparTab() {
     clearTimeout(drawDeclinedTimer.current)
     drawDeclinedTimer.current = setTimeout(() => setDrawDeclinedNote(false), 2500)
   }, [frozen, thinking, drawOfferOnCooldown, plies, fen])
+
+  // R3.2: the bot's own draw offer (lib/spar-etiquette) — the user decides.
+  // Accepting ends through the same label pattern the user-offered draw uses
+  // (resultFromLabel's /draw/ arm); declining just dismisses the prompt (the
+  // one per-game offer is already spent, so it never re-fires).
+  const acceptBotDraw = useCallback(() => {
+    setBotDrawOffer(false)
+    setManualEnd({ label: BOT_DRAW_AGREED_LABEL, rule: BOT_DRAW_OFFER_RULE_DESCRIPTION })
+  }, [])
+  const declineBotDraw = useCallback(() => setBotDrawOffer(false), [])
 
   // Probe-mode "End game": aborts instantly, no result recorded anywhere —
   // the board freezes on the current position so the realism-feedback
@@ -1219,7 +1392,9 @@ export function SparTab() {
                 Game ended (not recorded) — leave feedback below, then start a new game.
               </span>
             ) : status.over ? (
-              <span className="text-amber-300 font-medium" data-testid="spar-status">
+              // `title` carries the visible rule when a bot etiquette rule
+              // produced this end (resign / accepted offer) — undefined else.
+              <span className="text-amber-300 font-medium" title={status.rule} data-testid="spar-status">
                 {status.label}
               </span>
             ) : thinking ? (
@@ -1237,6 +1412,27 @@ export function SparTab() {
             <p className="text-xs text-muted-foreground" data-testid="spar-draw-declined">
               {opponentLabel} declined the draw offer.
             </p>
+          )}
+
+          {/* R3.2: the bot's pending draw offer — visible rule in the tooltip
+              (spec 214 hard line), the user decides. Moving on the board
+              declines implicitly. */}
+          {botDrawOffer && !frozen && (
+            <div
+              className="rounded-md border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-sm flex items-center justify-between gap-2"
+              title={BOT_DRAW_OFFER_RULE_DESCRIPTION}
+              data-testid="spar-bot-draw-offer"
+            >
+              <span className="text-sky-300">{opponentLabel} offers a draw.</span>
+              <div className="flex gap-1.5">
+                <Button size="sm" onClick={acceptBotDraw} data-testid="spar-bot-draw-accept">
+                  Accept
+                </Button>
+                <Button size="sm" variant="outline" onClick={declineBotDraw} data-testid="spar-bot-draw-decline">
+                  Decline
+                </Button>
+              </div>
+            </div>
           )}
 
           <MoveList

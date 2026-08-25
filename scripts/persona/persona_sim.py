@@ -4,8 +4,9 @@
 The metrics harness must EVALUATE THE SAME SEMANTICS it tunes, so this module
 ports src-tauri/src/persona.rs precisely:
 
-  * select_candidates  — policy floor (0.01) -> sort by prob desc -> top-p
-                         nucleus or top-k cap (default 4).
+  * select_candidates  — policy floor (configurable per persona since R3.3,
+                         default 0.01) -> sort by prob desc -> top-p nucleus
+                         or top-k cap (default 4).
   * reweight           — softmax over (alpha*ln(policy) - lambda*penalty) / T,
                          max-subtracted, degenerate -> uniform.
   * effective_temperature — base x phase multiplier x clock multiplier,
@@ -14,8 +15,13 @@ ports src-tauri/src/persona.rs precisely:
                          queen 4, both sides); endgame <= 8; opening ply < 16.
   * derive_seed / uniform_from_seed — splitmix64 seeding (contract step 8).
   * penalties          — pawns behind the best CANDIDATE: max(0, (best-cp)/100).
-  * endgame arm priors — Maia policy prob floored at 0.01 for every SF
-                         candidate (seen or unseen).
+  * endgame arm priors — Maia policy prob floored at the policy floor
+                         (default 0.01) for every candidate (seen or unseen).
+  * endgame union     — R1.3: the endgame candidate set is the UNION of the
+                         SF MultiPV candidates and the normal policy
+                         candidates, deduped by uci, all through the same
+                         reweight (endgame_union mirrors persona.rs
+                         endgame_union_candidates).
   * style bias        — post-book style-prior window (StyleBias): for
                          window_plies after book exit, candidates in any of
                          the persona's move classes (capture | check | castle
@@ -293,11 +299,36 @@ def apply_style_bias(cand_classes: Sequence[Sequence[str]],
     return out, applied
 
 
-def endgame_priors(policy: Dict[str, float], ucis: Sequence[str]) -> List[float]:
-    """Endgame-arm priors (persona.rs): each SF candidate's prior is its Maia
-    policy prob floored at ENDGAME_UNSEEN_PRIOR — floored whether seen or not."""
-    return [max(policy.get(u, ENDGAME_UNSEEN_PRIOR), ENDGAME_UNSEEN_PRIOR)
-            for u in ucis]
+def endgame_priors(policy: Dict[str, float], ucis: Sequence[str],
+                   floor: float = POLICY_FLOOR) -> List[float]:
+    """Endgame-arm priors (persona.rs): each candidate's prior is its Maia
+    policy prob floored at the policy floor (R3.3 made the floor per-persona
+    config; the default is the historical constant) — floored whether seen or
+    not."""
+    return [max(policy.get(u, floor), floor) for u in ucis]
+
+
+def endgame_union(sf_top: Sequence[Tuple[str, int]],
+                  policy_cands: Sequence[Tuple[str, float]],
+                  policy: Dict[str, float],
+                  floor: float = POLICY_FLOOR,
+                  ) -> List[Tuple[str, float, Optional[int]]]:
+    """persona.rs endgame_union_candidates (R1.3): the endgame candidate set
+    is the UNION of the SF MultiPV candidates and the NORMAL policy candidates
+    (the same floor/top-k/top-p cut), deduped by uci — SF best-first order,
+    then policy extras in policy order. Prior = policy prob floored at
+    `floor`; SF entries carry their eval, policy-only extras carry None (the
+    caller evaluates them so every candidate flows through the same
+    reweight)."""
+    out: List[Tuple[str, float, Optional[int]]] = [
+        (uci, max(policy.get(uci, floor), floor), cp) for uci, cp in sf_top
+    ]
+    seen = {uci for uci, _, _ in out}
+    for uci, prob in policy_cands:
+        if uci not in seen:
+            out.append((uci, max(prob, floor), None))
+            seen.add(uci)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +487,41 @@ def selftest() -> int:
             pol = {"a1a2": 0.5, "b1b2": 0.001}
             self.assertEqual(endgame_priors(pol, ["a1a2", "b1b2", "c1c2"]),
                              [0.5, 0.01, 0.01])
+            # R3.3: the floor is per-persona config; a lower floor lets the
+            # policy's own tiny prob through instead of clamping it up.
+            self.assertEqual(
+                endgame_priors(pol, ["a1a2", "b1b2", "c1c2"], floor=0.0005),
+                [0.5, 0.001, 0.0005])
+
+        def test_endgame_union_contains_both_sources_and_dedups(self):
+            # Mirrors persona.rs endgame_union_contains_both_sources_and_dedups.
+            sf_top = [("a1a2", 30), ("b1b2", 10)]
+            policy = {"b1b2": 0.5, "c1c2": 0.4, "d1d2": 0.005}
+            policy_cands = select_candidates(list(policy.items()),
+                                             POLICY_FLOOR, top_k=4)
+            union = endgame_union(sf_top, policy_cands, policy)
+            self.assertEqual([u for u, _, _ in union],
+                             ["a1a2", "b1b2", "c1c2"])
+            self.assertEqual(union[0], ("a1a2", POLICY_FLOOR, 30))
+            self.assertEqual(union[1], ("b1b2", 0.5, 10))
+            self.assertEqual(union[2], ("c1c2", 0.4, None))
+
+        def test_endgame_union_reweight_sums_to_one_and_is_seed_deterministic(self):
+            # Mirrors persona.rs
+            # endgame_union_reweight_sums_to_one_and_is_seed_deterministic.
+            sf_top = [("a1a2", 30), ("b1b2", 10)]
+            policy = {"b1b2": 0.5, "c1c2": 0.4}
+            policy_cands = select_candidates(list(policy.items()),
+                                             POLICY_FLOOR, top_k=4)
+            union = endgame_union(sf_top, policy_cands, policy)
+            priors = [p for _, p, _ in union]
+            evals = [30, 10, -20]  # caller-evaluated extra, like the Rust test
+            pens = penalties_from_cp(evals)
+            w = reweight(priors, pens, 1.0, 0.75, 0.5)
+            self.assertAlmostEqual(sum(w), 1.0, places=9)
+            u = uniform_from_seed(derive_seed(214214, 60))
+            self.assertEqual(sample_index(w, u), sample_index(
+                w, uniform_from_seed(derive_seed(214214, 60))))
 
         def test_move_classification_covers_the_v1_types(self):
             # Mirrors persona.rs move_classification_covers_the_v1_types.

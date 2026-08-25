@@ -26,7 +26,7 @@ import { parseFen } from "chessops/fen"
 import { chessgroundDests } from "chessops/compat"
 import { Button } from "@chessgui/ui/ui/button"
 import { Switch } from "@chessgui/ui/ui/switch"
-import { personaMove, DEFAULT_PERSONA_PARAMS } from "@/lib/persona"
+import { personaMove, DEFAULT_PERSONA_PARAMS, bandSamplingParams } from "@/lib/persona"
 import {
   applyUci,
   dragToUci,
@@ -221,6 +221,9 @@ export function PlayoutScreen({ request, onExit }: PlayoutScreenProps) {
     const movePly = plies.length
     personaMove(fen, {
       ...DEFAULT_PERSONA_PARAMS,
+      // Band-dependent candidate width / policy floor / endgame depth (waves
+      // R1.3 + R3.3) — a Maia band playout botches endings at its own rate.
+      ...bandSamplingParams(level),
       level,
       seed: gameSeed,
       ply: movePly,

@@ -3,6 +3,7 @@ import {
   personaMove,
   decisionToMove,
   DEFAULT_PERSONA_PARAMS,
+  bandSamplingParams,
   type PersonaParams,
 } from "@/lib/persona";
 import { mockPersonaMove } from "@/lib/persona-mock";
@@ -81,5 +82,56 @@ describe("persona depth params (contract steps 3 + 6)", () => {
     expect(opening.style_bias_applied).toBe(false);
     const middlegame = await mockPersonaMove(START, params({ ply: 20 }));
     expect(middlegame.phase).toBe("middlegame");
+  });
+});
+
+// Realism audit waves R1.3 + R3.3 (TS half): candidate width, policy floor,
+// and endgame-arm depth track the persona's HONEST band — a 1300 must botch
+// endings at 1300-rate and keep off-policy human moves reachable, while full
+// strength (BT3) counts as the top band.
+describe("bandSamplingParams — per-band width / floor / endgame depth", () => {
+  it("maps each band to the audit's depth/top_k/policy_floor table", () => {
+    expect(bandSamplingParams(1100)).toEqual({
+      top_k: 6,
+      policy_floor: 0.005,
+      endgame: { phase_max: 8, depth: 6, top_k: 4 },
+    });
+    expect(bandSamplingParams(1200).endgame?.depth).toBe(6);
+    expect(bandSamplingParams(1300)).toMatchObject({
+      top_k: 6,
+      policy_floor: 0.005,
+      endgame: { depth: 8 },
+    });
+    expect(bandSamplingParams(1500)).toMatchObject({
+      top_k: 5,
+      policy_floor: 0.008,
+      endgame: { depth: 8 },
+    });
+    expect(bandSamplingParams(1600)).toMatchObject({
+      top_k: 5,
+      policy_floor: 0.008,
+      endgame: { depth: 10 },
+    });
+    expect(bandSamplingParams(1900)).toMatchObject({
+      top_k: 4,
+      policy_floor: 0.01,
+      endgame: { depth: 10 },
+    });
+  });
+
+  it("full strength (BT3) counts as the top band regardless of fallback level", () => {
+    expect(bandSamplingParams(1900, true)).toEqual({
+      top_k: 4,
+      policy_floor: 0.01,
+      endgame: { phase_max: 8, depth: 16, top_k: 4 },
+    });
+    // The Maia fallback level does not drag a full-strength persona down.
+    expect(bandSamplingParams(1100, true).endgame?.depth).toBe(16);
+  });
+
+  it("keeps the non-depth endgame fields at the shipped defaults", () => {
+    const arm = bandSamplingParams(1300).endgame;
+    expect(arm?.phase_max).toBe(DEFAULT_PERSONA_PARAMS.endgame.phase_max);
+    expect(arm?.top_k).toBe(DEFAULT_PERSONA_PARAMS.endgame.top_k);
   });
 });

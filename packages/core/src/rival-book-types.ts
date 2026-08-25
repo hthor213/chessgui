@@ -19,4 +19,10 @@ export interface RivalBook {
   rival: string;
   entries: RivalBookEntry[];
   stats?: Record<string, number>;
+  /** Absolute path of the book file the desktop `rival_book` command loaded
+   *  (injected by the command, not present in the file itself) — the
+   *  tournament roster forwards it as the match runner's `bookPath` (realism
+   *  audit R3.4) so runner games open from the SAME book as spar. Absent in
+   *  the browser provider's canned book. */
+  path?: string;
 }
