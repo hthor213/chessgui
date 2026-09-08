@@ -1,6 +1,6 @@
 # ChessGUI web client (spec 221). Multi-stage: pnpm builds the apps/web static
 # export from the workspace, nginx:alpine serves it. Build context is the REPO
-# ROOT (see docker-compose.yml) — the workspace packages, the desktop hooks/lib
+# ROOT (see server/docker-compose.yml) — the workspace packages, the desktop hooks/lib
 # that apps/web aliases via @/*, and data/personas/*.json are all build inputs.
 # The root .dockerignore is an allowlist keeping the multi-GB desktop build
 # artifacts out of the context.

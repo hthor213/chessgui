@@ -1,5 +1,23 @@
 # Last Session
 
+**Date:** 2026-09-08 (homeserver; consolidation wave W1-D)
+**Focus:** Spec 229 — deploy via the platform registry (home-platform spec
+022). `server/web/docker-compose.yml` + `server/arena/docker-compose.yml`
+merged into `server/docker-compose.yml` (project `chess`, `${PLATFORM_*:?}`
+guards); `deploy.sh` is a 5-line stub for `platform/bin/deploy chess`. The
+running containers now come from `/srv/chess/src` (clean clone of `main`);
+arena data lives in `/srv/chess/data/{arena,nets,private-personas}`, the env
+file at `/srv/chess/arena.env`. Verified live: `/chess/` 200, `/chess/api/*`
+401 (auth wall, unchanged), both containers healthy, registry-check green.
+
+**Next step:** none for 229 — it is done. The previous session's list below
+still stands (spec 228 assumption test first). To redeploy after a merge to
+`main`: `./deploy.sh` (or `--dry-run`).
+
+---
+
+## Previous session (2026-07-26 → 27)
+
 **Date:** 2026-07-26 → 27
 **Focus:** Recovering this project from the machine rebuild (the laptop was
 DFU-wiped on 2026-07-25 after a macOS infostealer), then specifying **228

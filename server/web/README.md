@@ -10,14 +10,18 @@ serves it with the COOP/COEP headers required for SharedArrayBuffer
 (multi-threaded stockfish WASM). Build context is the repo root — the root
 `.dockerignore` allowlists the build inputs.
 
-## Deploy (on the homeserver, same choreography as arena)
+## Deploy (spec 229 — owned by home-platform, spec 022)
 
 ```bash
-cd /home/hjalti/code/chessgui
-git pull
-cd server/web
-docker compose up -d --build
+./deploy.sh            # = platform/bin/deploy chess: clone main into /srv/chess/src,
+                       #   docker compose -p chess -f server/docker-compose.yml up -d --build
+./deploy.sh --dry-run  # print every command, run only the read-only checks
 ```
+
+Both containers (this one and the arena) are one compose project defined in
+`server/docker-compose.yml`; ports, bind address, container name and data
+directories arrive as `PLATFORM_*` from `platform/config.yml`
+(`services.chess`). Nothing runs from a `~/code` checkout.
 
 Verify:
 
@@ -26,9 +30,10 @@ curl -sI http://127.0.0.1:8018/ | grep -i cross-origin   # COOP + COEP present
 docker inspect --format '{{.State.Health.Status}}' chessgui-web   # healthy
 ```
 
-## Caddy (one-time, via homeserver agent)
+## Caddy (rendered from home-platform `domains:` by `render-caddy`, spec 021)
 
-Order matters — the api block must win over the static one:
+Order matters — the api block must win over the static one (the
+`chess-api` route template carries this note):
 
 ```
 redir /chess /chess/ permanent
