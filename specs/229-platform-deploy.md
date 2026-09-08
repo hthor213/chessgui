@@ -46,14 +46,30 @@ ever deployed from a home-directory checkout again.
 
 ## Done When
 
-- [ ] `server/docker-compose.yml` exists and every host-facing value is a
+- [x] `server/docker-compose.yml` exists and every host-facing value is a
       `${PLATFORM_*:?}` guard: `python3 -c "import re,sys; s=open('server/docker-compose.yml').read(); sys.exit(0 if all(k in s for k in ['PLATFORM_SRC_DIR:?','PLATFORM_CONTAINER:?','PLATFORM_BIND:?','PLATFORM_PORT:?','PLATFORM_API_PORT:?','PLATFORM_DATA_DIR:?','PLATFORM_DEPLOY_DIR:?']) and not re.search(r'127\.0\.0\.1:80\d\d', s) else 1)"`
-- [ ] `python3 -c "import os,sys; sys.exit(0 if not os.path.exists('server/web/docker-compose.yml') and not os.path.exists('server/arena/docker-compose.yml') else 1)"` — the per-project compose files are gone.
-- [ ] `python3 -c "import sys; s=open('deploy.sh').read(); sys.exit(0 if 'platform/bin/deploy\" chess' in s and len(s.strip().splitlines())<=5 else 1)"` — `deploy.sh` is the stub.
-- [ ] A real `platform/bin/deploy chess` run on the homeserver (not something
+- [x] `python3 -c "import os,sys; sys.exit(0 if not os.path.exists('server/web/docker-compose.yml') and not os.path.exists('server/arena/docker-compose.yml') else 1)"` — the per-project compose files are gone.
+- [x] `python3 -c "import sys; s=open('deploy.sh').read(); sys.exit(0 if 'platform/bin/deploy\" chess' in s and len(s.strip().splitlines())<=5 else 1)"` — `deploy.sh` is the stub.
+- [x] A real `platform/bin/deploy chess` run on the homeserver (not something
       the harness executes on every check) recreates both containers from
       `/srv/chess/src`; afterwards `https://spliffdonk.com/chess/` returns
       200, `/chess/api/personas` returns its pre-migration 401 (auth wall,
       unchanged), `chessgui-arena` is healthy with the mounts
       `/srv/chess/data/{arena,nets,private-personas}` and
       `/srv/chess/src/data/personas`, and `registry-check` is green.
+      *(Verified 2026-09-08 19:36 UTC: old projects `web` + `arena` taken
+      down, `deploy chess --ref feat/229-platform-deploy` → images built,
+      both containers created from `/srv/chess/src` at `6bfbfd1`, health 200,
+      public 200, registry-check 0/0 + Caddyfile in sync, 18 s; arena
+      healthy after 9 s; `/chess/api/personas` and `/chess/api/stats` 401 as
+      before, `127.0.0.1:8017/health` 200, COOP/COEP headers present; mounts
+      exactly as listed; env names present in the container.)*
+
+## Follow-ups
+
+- `~/code/chessgui/server/arena/{data,nets,private-personas,.env}` are now
+  stale copies of `/srv/chess/data/*` and `/srv/chess/arena.env`; delete
+  them once a game has been played through the new mounts.
+- `platform/bin/deploy` polls only `container_port` (the web client); the
+  arena on `api_port` is verified by its own compose healthcheck, not by the
+  deploy. A second health poll on `api_port` is a spec 022 follow-up.
