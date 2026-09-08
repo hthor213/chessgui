@@ -1,0 +1,66 @@
+# ChessGUI server stack: one compose project (`chess`), two services — the
+# static web client (spec 221) and the Persona Arena API (spec 217).
+#
+# Run by home-platform's `platform/bin/deploy chess` (spec 022, chessgui spec
+# 229): every ${PLATFORM_*} value below arrives in the environment from
+# platform/config.yml (services.chess). The ${X:?} guards make a bare
+# `docker compose up` fail loudly instead of starting on the wrong port or
+# with no data directory. Layout on the host:
+#   /srv/chess/src        this repo at services.chess.deploy_ref (clean clone)
+#   /srv/chess/data       nets/, private-personas/, arena/ (sqlite) — never in git
+#   /srv/chess/arena.env  GOOGLE_CLIENT_ID, JWT_SECRET_KEY, ARENA_* (cp -p, never in git)
+services:
+  # Static-file server ONLY — the node toolchain lives in the build stage,
+  # nothing but nginx ships. Loopback-only; public exposure is Caddy 443
+  # (/chess/* -> container_port, /chess/api/* -> api_port).
+  web:
+    build:
+      context: ${PLATFORM_SRC_DIR:?Run platform/bin/deploy chess to load the platform registry}
+      dockerfile: server/web/Dockerfile
+    container_name: ${PLATFORM_CONTAINER:?}
+    ports:
+      - "${PLATFORM_BIND:?}:${PLATFORM_PORT:?}:80"
+    # Resource policy (f9b3b0d) is satisfied by construction: zero engine load
+    # in this container ever (analysis is browser WASM, play goes to the arena
+    # container). Tiny caps as hygiene for a static file server.
+    cpus: "0.5"
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1, not localhost: busybox wget resolves localhost to ::1 and
+      # nginx.conf listens IPv4-only ("listen 80") -> connection refused.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Persona Arena Tier-0 (spec 217). Loopback-only; Caddy strips /chess and
+  # proxies /chess/api/* here. The container name is the sidecar the registry
+  # lists under services.chess.containers (registry-check verifies it).
+  arena:
+    build:
+      context: ${PLATFORM_SRC_DIR:?}/server/arena
+    container_name: chessgui-arena
+    ports:
+      - "${PLATFORM_BIND:?}:${PLATFORM_API_PORT:?}:8000"
+    env_file:
+      - ${PLATFORM_DEPLOY_DIR:?}/arena.env
+    volumes:
+      - ${PLATFORM_SRC_DIR:?}/data/personas:/app/personas:ro        # committed books + configs (from the clone)
+      - ${PLATFORM_DATA_DIR:?}/arena:/app/data                       # sqlite (private games; never committed)
+      - ${PLATFORM_DATA_DIR:?}/nets:/nets:ro                         # BT3 + maia nets (sha-pinned, never committed)
+      - ${PLATFORM_DATA_DIR:?}/private-personas:/app/private-personas:ro  # spec 217 Promise 1 artifacts — never committed
+    # Resource policy (f9b3b0d): engines low-priority always, burst not flat
+    # caps. cpu_shares only bites under contention, so the arena can still
+    # burst when the box is idle but yields to the mining job (tmux mine211)
+    # and other services when it isn't. cpus is the hard burst ceiling.
+    cpus: "4"
+    cpu_shares: 256
+    mem_limit: 6g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s   # first start hashes + loads the 190MB net

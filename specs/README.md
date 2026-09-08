@@ -46,6 +46,7 @@ Feature specs live here. They define **what** we're building and **when it's don
 | 226 | [The Notebook — Human Evaluation Tree](226-notebook-manual-evaluation.md) | Draft |
 | 227 | [Concept Lessons — principle → illustrate → practice](227-concept-lessons.md) | Draft |
 | 228 | [Narrow Lines — training the "this move matters" alarm](228-learn-from-last-game.md) | Draft |
+| 229 | [Deploy via the platform registry](229-platform-deploy.md) | Active |
 | 900 | [Backlog](900-backlog.md) | Ideas |
 
 (Index gap fixed 2026-07-15: 214–217 existed on disk but were unlisted. Next free
