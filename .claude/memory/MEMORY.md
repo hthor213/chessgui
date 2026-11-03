@@ -1,0 +1,1 @@
+- [Homeserver toolchain for chessgui](chessgui-homeserver-toolchain.md) — rust/tauri builds + persona tuner now run here; dad tuning stays Mac-only; deploy pulls main
